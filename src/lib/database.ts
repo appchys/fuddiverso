@@ -1,30 +1,3 @@
-import { getRedirectResult } from 'firebase/auth';
-// Manejar el resultado del redirect de Google
-export async function handleGoogleRedirectResult() {
-  try {
-    const result = await getRedirectResult(auth);
-    console.log('[GOOGLE REDIRECT] Resultado de getRedirectResult:', result);
-    if (result?.user) {
-      console.log('[GOOGLE REDIRECT] UID del usuario autenticado:', result.user.uid);
-      const existingBusiness = await getBusinessByOwner(result.user.uid);
-      console.log('[GOOGLE REDIRECT] Resultado de getBusinessByOwner:', existingBusiness);
-      return {
-        user: result.user,
-        hasBusinessProfile: !!existingBusiness,
-        businessId: existingBusiness?.id
-      };
-    }
-    console.log('[GOOGLE REDIRECT] No hay usuario en el resultado del redirect.');
-    return null;
-  } catch (error: any) {
-    if (error.code === 'auth/no-auth-event') {
-      console.log('[GOOGLE REDIRECT] No auth event (no venía de redirect)');
-      return null;
-    }
-    console.error('[GOOGLE REDIRECT] Error inesperado:', error);
-    throw error;
-  }
-}
 import { 
   collection, 
   doc, 
@@ -42,9 +15,8 @@ import {
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage, googleProvider } from './firebase'
-import { signInWithRedirect } from 'firebase/auth';
 import { auth } from './firebase'
-import { signInWithPopup } from 'firebase/auth'
+import { signInWithRedirect, getRedirectResult } from 'firebase/auth'
 import { Business, Product, Order } from '../types'
 
 // Helper function para limpiar valores undefined de un objeto
@@ -171,6 +143,8 @@ export async function getBusiness(businessId: string): Promise<Business | null> 
 
 export async function getBusinessByOwner(ownerId: string): Promise<Business | null> {
   try {
+    console.log('🔍 Searching for business with ownerId:', ownerId);
+    
     const q = query(
       collection(db, 'businesses'), 
       where('ownerId', '==', ownerId),
@@ -178,17 +152,25 @@ export async function getBusinessByOwner(ownerId: string): Promise<Business | nu
     )
     const querySnapshot = await getDocs(q)
     
+    console.log('📊 Query result is empty:', querySnapshot.empty);
+    console.log('📊 Query size:', querySnapshot.size);
+    
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0]
-      return {
+      const businessData = {
         id: doc.id,
         ...doc.data(),
         createdAt: doc.data().createdAt?.toDate() || new Date()
       } as Business
+      
+      console.log('✅ Found business:', businessData.name, 'ID:', businessData.id);
+      return businessData
     }
+    
+    console.log('❌ No business found for ownerId:', ownerId);
     return null
   } catch (error) {
-    console.error('Error getting business by owner:', error)
+    console.error('❌ Error getting business by owner:', error)
     throw error
   }
 }
@@ -473,17 +455,48 @@ export async function getBusinessCategories(businessId: string): Promise<string[
 // Funciones de Autenticación con Google
 export async function signInWithGoogle() {
   try {
-    // Usar popup porque redirect no funciona en este entorno
-    const result = await signInWithPopup(auth, googleProvider);
-    console.log('[GOOGLE POPUP] Resultado:', result);
-    return {
-      user: result.user,
-      hasBusinessProfile: false, // Puedes mejorar esto si lo necesitas
-      businessId: null
-    };
+    // Usar redirect en lugar de popup para evitar problemas de COOP
+    await signInWithRedirect(auth, googleProvider)
   } catch (error: any) {
-    console.error('Error signing in with Google:', error);
-    throw new Error(`Error al iniciar sesión con Google: ${error.message}`);
+    console.error('Error signing in with Google:', error)
+    throw new Error(`Error al iniciar sesión con Google: ${error.message}`)
+  }
+}
+
+// Función para manejar el resultado del redirect
+export async function handleGoogleRedirectResult() {
+  try {
+    console.log('🔍 Getting redirect result...');
+    const result = await getRedirectResult(auth);
+    
+    if (result?.user) {
+      console.log('✅ Redirect result found for user:', result.user.email);
+      console.log('🆔 User UID from redirect:', result.user.uid);
+      
+      // Verificar si el usuario ya tiene un negocio registrado
+      console.log('🔍 Checking for existing business...');
+      const existingBusiness = await getBusinessByOwner(result.user.uid);
+      console.log('🏢 Business check result:', existingBusiness ? 'Found' : 'Not found');
+      
+      return {
+        user: result.user,
+        hasBusinessProfile: !!existingBusiness,
+        businessId: existingBusiness?.id
+      }
+    } else {
+      console.log('ℹ️ No redirect result found');
+      return null;
+    }
+    
+  } catch (error: any) {
+    // Si el error es porque no hay redirect result, no es realmente un error
+    if (error.code === 'auth/no-auth-event') {
+      console.log('ℹ️ No auth event found (normal if not coming from redirect)');
+      return null;
+    }
+    
+    console.error('❌ Error handling Google redirect result:', error);
+    throw new Error(`Error al procesar resultado de Google: ${error.message}`)
   }
 }
 
@@ -533,60 +546,83 @@ export async function createBusinessFromGoogleAuth(userData: {
   }
 }
 
-// Funciones para Clientes
+// Nueva función para buscar clientes por teléfono
 export async function searchClientByPhone(phone: string) {
   try {
     console.log('🔍 Searching client by phone:', phone);
-    
+
     const q = query(
-      collection(db, 'clients'), 
-      where('Celular', '==', phone),
+      collection(db, 'clients'),
+      where('celular', '==', phone),
       limit(1)
     );
-    
+
     const querySnapshot = await getDocs(q);
-    
+
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0];
       const clientData = doc.data();
-      console.log('✅ Client found:', clientData);
+      console.log('✅ Client found:', {
+        id: doc.id,
+        nombres: clientData.nombres,
+        celular: clientData.celular,
+        fecha_de_registro: clientData.fecha_de_registro
+      });
       return {
         id: doc.id,
         ...clientData
       };
     }
-    
+
     console.log('❌ No client found with phone:', phone);
     return null;
   } catch (error) {
-    console.error('❌ Error searching client by phone:', error);
+    console.error('Error searching client by phone:', error);
     throw error;
   }
 }
 
-export async function createClient(clientData: { Celular: string; Nombres: string }) {
+export async function verifyClientName(phone: string): Promise<string | null> {
   try {
-    console.log('🔄 Creating new client:', clientData);
-    
-    // Generar ID único
-    const clientId = Math.random().toString(36).substr(2, 8);
-    
-    // Obtener fecha actual en formato DD/MM/YYYY
-    const today = new Date();
-    const fechaRegistro = `${today.getDate().toString().padStart(2, '0')}/${(today.getMonth() + 1).toString().padStart(2, '0')}/${today.getFullYear()}`;
-    
-    const newClient = {
-      Celular: clientData.Celular,
-      Nombres: clientData.Nombres,
-      'Fecha de registro': fechaRegistro
-    };
-    
-    const docRef = await addDoc(collection(db, 'clients'), newClient);
-    
-    console.log('✅ Client created successfully with ID:', docRef.id);
+    console.log('🔍 Verifying client name by phone:', phone);
+
+    const q = query(
+      collection(db, 'clients'),
+      where('celular', '==', phone),
+      limit(1)
+    );
+
+    const querySnapshot = await getDocs(q);
+
+    if (!querySnapshot.empty) {
+      const doc = querySnapshot.docs[0];
+      console.log('✅ Client name found:', doc.data().nombres);
+      return doc.data().nombres || null;
+    }
+
+    console.log('❌ No client found with phone:', phone);
+    return null;
+  } catch (error) {
+    console.error('Error verifying client name by phone:', error);
+    throw error;
+  }
+}
+
+export async function createClient(clientData: { celular: string; nombres: string; fecha_de_registro?: string; id?: string }) {
+  try {
+    console.log('📝 Creating client:', clientData);
+
+    const clientRef = await addDoc(collection(db, 'clients'), {
+      celular: clientData.celular,
+      nombres: clientData.nombres,
+      fecha_de_registro: clientData.fecha_de_registro || new Date().toLocaleDateString(),
+      id: clientData.id || ''
+    });
+
+    console.log('✅ Client created with ID:', clientRef.id);
     return {
-      id: docRef.id,
-      ...newClient
+      id: clientRef.id,
+      ...clientData
     };
   } catch (error) {
     console.error('❌ Error creating client:', error);

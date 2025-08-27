@@ -85,7 +85,7 @@ export default function CheckoutPage() {
         setClientFound(client);
         setCustomerData(prev => ({
           ...prev,
-          name: (client as any).Nombres || ''
+          name: client.nombres || ''
         }));
         setShowNameField(false);
       } else {
@@ -556,7 +556,7 @@ export default function CheckoutPage() {
                             {clientFound && (
                               <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
                                 <p className="text-green-700 text-sm">
-                                  ✅ Cliente encontrado: <strong>{(clientFound as any).Nombres}</strong>
+                                  ✅ Cliente encontrado: <strong>{(clientFound as any).nombres || 'Nombre no disponible'}</strong>
                                 </p>
                               </div>
                             )}
