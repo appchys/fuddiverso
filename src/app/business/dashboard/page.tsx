@@ -15,35 +15,35 @@ export default function BusinessDashboard() {
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'profile'>('products')
 
   useEffect(() => {
-    loadDashboardData()
-  }, [])
-
-  const loadDashboardData = async () => {
-    try {
-      const businessId = localStorage.getItem('businessId')
-      if (!businessId) {
-        router.push('/business/login')
-        return
-      }
-
-      // Cargar datos del negocio
-      const businessData = await getBusiness(businessId)
-      setBusiness(businessData)
-
-      // Cargar productos
-      const productsData = await getProductsByBusiness(businessId)
-      setProducts(productsData)
-
-      // Cargar órdenes
-      const ordersData = await getOrdersByBusiness(businessId)
-      setOrders(ordersData)
-
-    } catch (error) {
-      console.error('Error loading dashboard data:', error)
-    } finally {
-      setLoading(false)
+    if (typeof window === 'undefined') return;
+    const businessId = window.localStorage.getItem('businessId');
+    console.log('[DASHBOARD] businessId en localStorage:', businessId);
+    if (!businessId) {
+      console.warn('[DASHBOARD] No hay businessId en localStorage, redirigiendo a login');
+      router.push('/business/login');
+      return;
     }
-  }
+    (async () => {
+      try {
+        // Cargar datos del negocio
+        const businessData = await getBusiness(businessId);
+        console.log('[DASHBOARD] Datos del negocio cargados:', businessData);
+        setBusiness(businessData);
+
+        // Cargar productos
+        const productsData = await getProductsByBusiness(businessId);
+        setProducts(productsData);
+
+        // Cargar órdenes
+        const ordersData = await getOrdersByBusiness(businessId);
+        setOrders(ordersData);
+      } catch (error) {
+        console.error('Error loading dashboard data:', error);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [router]);
 
   const handleStatusChange = async (orderId: string, newStatus: Order['status']) => {
     try {
@@ -74,6 +74,7 @@ export default function BusinessDashboard() {
   }
 
   if (!business) {
+    console.warn('[DASHBOARD] No se pudo cargar la información del negocio. businessId:', localStorage.getItem('businessId'));
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">

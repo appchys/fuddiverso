@@ -9,12 +9,14 @@ import { Business } from '@/types'
 
 
 export default function CheckoutPage() {
+  // client-only guard state
   const [isClient, setIsClient] = useState(false);
-  useEffect(() => { setIsClient(true); }, []);
-  if (!isClient) return null;
 
+  // Navigation hooks (must be called unconditionally to keep hook order stable)
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Page state hooks
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [business, setBusiness] = useState<Business | null>(null);
@@ -40,20 +42,11 @@ export default function CheckoutPage() {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    // Cargar datos del negocio y carrito desde localStorage
-    const businessId = searchParams.get('businessId')
-    const cartData = localStorage.getItem('cart')
-    
-    if (!businessId || !cartData) {
-      router.push('/')
-      return
-    }
+  // Effects (also must be declared consistently)
+  useEffect(() => { setIsClient(true); }, []);
 
-    loadBusinessData(businessId)
-  }, [searchParams, router])
-
-  const loadBusinessData = async (businessId: string) => {
+  // Función hoisted colocada antes del efecto que la usa
+  async function loadBusinessData(businessId: string) {
     try {
       const businessData = await getBusiness(businessId)
       if (businessData) {
@@ -63,6 +56,42 @@ export default function CheckoutPage() {
       console.error('Error loading business:', error)
     }
   }
+
+  useEffect(() => {
+    // Cargar datos del negocio y carrito desde localStorage
+    const businessIdFromQuery = searchParams.get('businessId')
+    const cartRaw = typeof window !== 'undefined' ? localStorage.getItem('cart') : null
+
+    // Si no hay carrito ni businessId, redirigir
+    if (!cartRaw && !businessIdFromQuery) {
+      router.push('/')
+      return
+    }
+
+    let derivedBusinessId = businessIdFromQuery
+    if (!derivedBusinessId && cartRaw) {
+      try {
+        const parsed = JSON.parse(cartRaw)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Asumir que los items tienen businessId y tomar el del primer item
+          derivedBusinessId = parsed[0].businessId || null
+        }
+      } catch (e) {
+        console.error('Error parsing cart from localStorage', e)
+      }
+    }
+
+    if (!derivedBusinessId) {
+      // Si no logramos derivar un businessId válido, redirigimos
+      router.push('/')
+      return
+    }
+
+    loadBusinessData(derivedBusinessId)
+  }, [searchParams, router])
+
+  // Client-only guard: render nothing until mounted on client
+  if (!isClient) return null;
 
   // Cargar datos del carrito desde localStorage
   const getCartItems = () => {

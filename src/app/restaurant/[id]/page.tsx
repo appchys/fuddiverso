@@ -1,134 +1,93 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
+import { getBusiness, getProductsByBusiness } from '@/lib/database'
 import Link from 'next/link'
 
 export default function RestaurantPage() {
-  const params = useParams()
-  const [cart, setCart] = useState<any[]>([])
+  const params = useParams();
+  const [cart, setCart] = useState<any[]>([]);
+  const [restaurant, setRestaurant] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+    const [menu, setMenu] = useState<any[]>([]);
 
-  // Datos simulados del restaurante
-  const restaurant = {
-    id: params.id,
-    name: 'Burger Palace',
-    description: 'Las mejores hamburguesas de la ciudad',
-    image: '/placeholder-restaurant.jpg',
-    rating: 4.5,
-    deliveryTime: '25-35 min',
-    address: 'Av. Principal, Centro Comercial Plaza',
-    phone: '0990815097',
-    isOpen: true,
-    schedule: {
-      lunes: { open: '11:00', close: '22:00', isOpen: true },
-      martes: { open: '11:00', close: '22:00', isOpen: true },
-      miércoles: { open: '11:00', close: '22:00', isOpen: true },
-      jueves: { open: '11:00', close: '22:00', isOpen: true },
-      viernes: { open: '11:00', close: '23:00', isOpen: true },
-      sábado: { open: '11:00', close: '23:00', isOpen: true },
-      domingo: { open: '12:00', close: '21:00', isOpen: true }
+  useEffect(() => {
+    const fetchRestaurantAndMenu = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const data = await getBusiness(params.id as string);
+        if (data) {
+          setRestaurant(data);
+          // Obtener productos reales del restaurante
+          const products = await getProductsByBusiness(params.id as string);
+          setMenu(products);
+        } else {
+          setError('Restaurante no encontrado');
+        }
+      } catch (err) {
+        setError('Error al cargar el restaurante');
+      } finally {
+        setLoading(false);
+      }
+    };
+    if (params.id) fetchRestaurantAndMenu();
+    // Cargar carrito desde localStorage
+    try {
+      const stored = localStorage.getItem('cart')
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        // Si el carrito pertenece a otro negocio, ignorarlo
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (parsed[0].businessId === params.id) {
+            setCart(parsed)
+          } else {
+            // limpiar carrito local para este restaurante
+            setCart([])
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Error loading cart from localStorage', e)
     }
-  }
+  }, [params.id]);
 
-  const menu = [
-    {
-      category: 'Hamburguesas',
-      items: [
-        {
-          id: '1',
-          name: 'Hamburguesa Clásica',
-          description: 'Carne de res, lechuga, tomate, cebolla, queso cheddar',
-          price: 12,
-          image: '/placeholder-food.jpg',
-          isAvailable: true
-        },
-        {
-          id: '2',
-          name: 'Hamburguesa BBQ',
-          description: 'Carne de res, salsa BBQ, cebolla caramelizada, queso suizo',
-          price: 15,
-          image: '/placeholder-food.jpg',
-          isAvailable: true
-        },
-        {
-          id: '3',
-          name: 'Hamburguesa Veggie',
-          description: 'Hamburguesa de frijoles negros, aguacate, lechuga, tomate',
-          price: 10,
-          image: '/placeholder-food.jpg',
-          isAvailable: false
-        }
-      ]
-    },
-    {
-      category: 'Acompañantes',
-      items: [
-        {
-          id: '4',
-          name: 'Papas Fritas',
-          description: 'Papas crujientes con sal marina',
-          price: 5,
-          image: '/placeholder-food.jpg',
-          isAvailable: true
-        },
-        {
-          id: '5',
-          name: 'Aros de Cebolla',
-          description: 'Aros de cebolla empanizados y fritos',
-          price: 6,
-          image: '/placeholder-food.jpg',
-          isAvailable: true
-        }
-      ]
-    },
-    {
-      category: 'Bebidas',
-      items: [
-        {
-          id: '6',
-          name: 'Coca Cola',
-          description: 'Refresco de cola 350ml',
-          price: 3,
-          image: '/placeholder-food.jpg',
-          isAvailable: true
-        },
-        {
-          id: '7',
-          name: 'Agua',
-          description: 'Agua mineral 500ml',
-          price: 2,
-          image: '/placeholder-food.jpg',
-          isAvailable: true
-        }
-      ]
-    }
-  ]
 
   const addToCart = (item: any) => {
-    const existingItem = cart.find(cartItem => cartItem.id === item.id)
-    
+    const itemWithBusiness = { ...item, businessId: params.id }
+    const existingItem = cart.find(cartItem => cartItem.id === itemWithBusiness.id)
+
+    let newCart
     if (existingItem) {
-      setCart(cart.map(cartItem => 
-        cartItem.id === item.id 
-          ? { ...cartItem, quantity: cartItem.quantity + 1, subtotal: (cartItem.quantity + 1) * item.price }
+      newCart = cart.map(cartItem => 
+        cartItem.id === itemWithBusiness.id 
+          ? { ...cartItem, quantity: cartItem.quantity + 1, subtotal: (cartItem.quantity + 1) * itemWithBusiness.price }
           : cartItem
-      ))
+      )
     } else {
-      setCart([...cart, { ...item, quantity: 1, subtotal: item.price }])
+      newCart = [...cart, { ...itemWithBusiness, quantity: 1, subtotal: itemWithBusiness.price }]
     }
+    setCart(newCart)
+    try { localStorage.setItem('cart', JSON.stringify(newCart)) } catch (e) { console.error(e) }
   }
 
   const removeFromCart = (itemId: string) => {
     const existingItem = cart.find(cartItem => cartItem.id === itemId)
     
     if (existingItem && existingItem.quantity > 1) {
-      setCart(cart.map(cartItem => 
+      const newCart = cart.map(cartItem => 
         cartItem.id === itemId 
           ? { ...cartItem, quantity: cartItem.quantity - 1, subtotal: (cartItem.quantity - 1) * cartItem.price }
           : cartItem
-      ))
+      )
+      setCart(newCart)
+      try { localStorage.setItem('cart', JSON.stringify(newCart)) } catch (e) { console.error(e) }
     } else {
-      setCart(cart.filter(cartItem => cartItem.id !== itemId))
+      const newCart = cart.filter(cartItem => cartItem.id !== itemId)
+      setCart(newCart)
+      try { localStorage.setItem('cart', JSON.stringify(newCart)) } catch (e) { console.error(e) }
     }
   }
 
@@ -143,6 +102,50 @@ export default function RestaurantPage() {
 
   const getTotalPrice = () => {
     return cart.reduce((total, item) => total + item.subtotal, 0)
+  }
+
+  const getCurrentDaySchedule = () => {
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const today = new Date().getDay();
+    const dayName = days[today];
+    return restaurant?.schedule?.[dayName] || null;
+  };
+
+  const isBusinessOpen = () => {
+    const schedule = getCurrentDaySchedule();
+    if (!schedule || !schedule.isOpen) return false;
+
+    const now = new Date();
+    const currentTime = now.getHours() * 60 + now.getMinutes();
+
+    const [openHour, openMinute] = schedule.open.split(':').map(Number);
+    const [closeHour, closeMinute] = schedule.close.split(':').map(Number);
+
+    const openTime = openHour * 60 + openMinute;
+    const closeTime = closeHour * 60 + closeMinute;
+
+    return currentTime >= openTime && currentTime <= closeTime;
+  };
+
+  const formatSchedule = () => {
+    const schedule = getCurrentDaySchedule();
+    if (!schedule) return 'Horario no disponible';
+    return schedule.isOpen ? `${schedule.open} - ${schedule.close}` : 'Cerrado';
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <span className="text-gray-600">Cargando restaurante...</span>
+      </div>
+    );
+  }
+  if (error || !restaurant) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <span className="text-red-600">{error || 'Restaurante no encontrado'}</span>
+      </div>
+    );
   }
 
   return (
@@ -162,7 +165,7 @@ export default function RestaurantPage() {
               </Link>
             </div>
             <Link
-              href="/checkout"
+              href={`/checkout?businessId=${params.id}`}
               className="relative bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 flex items-center space-x-2"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -182,21 +185,35 @@ export default function RestaurantPage() {
         <div className="bg-white rounded-lg shadow-md p-6 mb-8">
           <div className="flex flex-col md:flex-row">
             <div className="md:w-2/3">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">{restaurant.name}</h1>
+              <div className="flex items-center mb-4">
+                <h1 className="text-3xl font-bold text-gray-900 mr-4">{restaurant.name}</h1>
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  isBusinessOpen() ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                }`}>
+                  {isBusinessOpen() ? 'Abierto' : 'Cerrado'}
+                </span>
+              </div>
               <p className="text-gray-600 mb-4">{restaurant.description}</p>
               
-              <div className="flex flex-wrap gap-4 text-sm text-gray-600">
-                <div className="flex items-center">
-                  <svg className="w-4 h-4 text-yellow-400 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
-                  </svg>
-                  {restaurant.rating}
+              {/* Categories */}
+              {restaurant.categories && restaurant.categories.length > 0 && (
+                <div className="mb-4">
+                  <div className="flex flex-wrap gap-2">
+                    {restaurant.categories.map((category: string, index: number) => (
+                      <span key={index} className="bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm">
+                        {category}
+                      </span>
+                    ))}
+                  </div>
                 </div>
+              )}
+              
+              <div className="flex flex-wrap gap-4 text-sm text-gray-600">
                 <div className="flex items-center">
                   <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  {restaurant.deliveryTime}
+                  {formatSchedule()}
                 </div>
                 <div className="flex items-center">
                   <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -205,84 +222,65 @@ export default function RestaurantPage() {
                   </svg>
                   {restaurant.address}
                 </div>
+                <div className="flex items-center">
+                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                  </svg>
+                  {restaurant.phone}
+                </div>
               </div>
             </div>
             
             <div className="md:w-1/3 mt-4 md:mt-0">
-              <div className="bg-gradient-to-br from-red-400 to-orange-400 rounded-lg h-32 flex items-center justify-center">
-                <svg className="w-16 h-16 text-white opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
-                </svg>
-              </div>
+              {restaurant.image ? (
+                <img 
+                  src={restaurant.image} 
+                  alt={restaurant.name} 
+                  className="w-full h-48 object-cover rounded-lg"
+                />
+              ) : (
+                <div className="bg-gradient-to-br from-red-400 to-orange-400 rounded-lg h-48 flex items-center justify-center">
+                  <svg className="w-16 h-16 text-white opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+                  </svg>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Menu */}
+        {/* Menú real */}
         <div className="space-y-8">
-          {menu.map((category) => (
-            <div key={category.category} className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">{category.category}</h2>
-              
-              <div className="space-y-4">
-                {category.items.map((item) => (
-                  <div key={item.id} className="flex justify-between items-center p-4 border border-gray-200 rounded-lg">
-                    <div className="flex-1">
-                      <div className="flex items-start">
-                        <div className="flex-1">
-                          <h3 className="text-lg font-semibold text-gray-900">{item.name}</h3>
-                          <p className="text-gray-600 text-sm mt-1">{item.description}</p>
-                          <p className="text-lg font-bold text-red-600 mt-2">${item.price}</p>
-                        </div>
-                        
-                        <div className="ml-4 w-20 h-20 bg-gradient-to-br from-red-400 to-orange-400 rounded-lg flex items-center justify-center">
-                          <svg className="w-8 h-8 text-white opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                          </svg>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="ml-6">
-                      {!item.isAvailable ? (
-                        <span className="text-gray-400 text-sm">No disponible</span>
-                      ) : getItemQuantity(item.id) === 0 ? (
-                        <button
-                          onClick={() => addToCart(item)}
-                          className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
-                        >
-                          Agregar
-                        </button>
-                      ) : (
-                        <div className="flex items-center space-x-3">
-                          <button
-                            onClick={() => removeFromCart(item.id)}
-                            className="bg-gray-200 text-gray-700 w-8 h-8 rounded-full hover:bg-gray-300"
-                          >
-                            -
-                          </button>
-                          <span className="font-semibold">{getItemQuantity(item.id)}</span>
-                          <button
-                            onClick={() => addToCart(item)}
-                            className="bg-red-600 text-white w-8 h-8 rounded-full hover:bg-red-700"
-                          >
-                            +
-                          </button>
-                        </div>
-                      )}
-                    </div>
+          {menu.length === 0 ? (
+            <p className="text-gray-600">Este restaurante aún no tiene productos.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {menu.map((item: any) => (
+                <div key={item.id} className="bg-gray-50 rounded-lg shadow p-4 flex flex-col">
+                  <img src={item.image} alt={item.name} className="w-full h-32 object-cover rounded mb-4" />
+                  <h4 className="text-lg font-bold text-gray-900">{item.name}</h4>
+                  <p className="text-gray-600 mb-2">{item.description}</p>
+                  <div className="flex items-center justify-between mt-auto">
+                    <span className="text-red-600 font-bold text-lg">${item.price}</span>
+                    <button
+                      onClick={() => addToCart(item)}
+                      disabled={!item.isAvailable}
+                      className={`ml-2 px-4 py-2 rounded bg-red-600 text-white font-semibold hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed`}
+                    >
+                      {item.isAvailable ? 'Agregar' : 'No disponible'}
+                    </button>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
 
         {/* Floating Cart Button - Mobile */}
         {getTotalItems() > 0 && (
           <div className="fixed bottom-4 left-4 right-4 md:hidden">
             <Link
-              href="/checkout"
+              href={`/checkout?businessId=${params.id}`}
               className="w-full bg-red-600 text-white py-3 rounded-lg font-semibold text-center block hover:bg-red-700"
             >
               Ver Carrito ({getTotalItems()}) - ${getTotalPrice()}
