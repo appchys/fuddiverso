@@ -546,8 +546,16 @@ export async function createBusinessFromGoogleAuth(userData: {
   }
 }
 
+// Definir el tipo para el cliente desde Firestore
+export interface FirestoreClient {
+  id: string;
+  nombres: string;
+  celular: string;
+  fecha_de_registro?: string;
+}
+
 // Nueva función para buscar clientes por teléfono
-export async function searchClientByPhone(phone: string) {
+export async function searchClientByPhone(phone: string): Promise<FirestoreClient | null> {
   try {
     console.log('🔍 Searching client by phone:', phone);
 
@@ -562,16 +570,15 @@ export async function searchClientByPhone(phone: string) {
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0];
       const clientData = doc.data();
-      console.log('✅ Client found:', {
+      const client: FirestoreClient = {
         id: doc.id,
-        nombres: clientData.nombres,
-        celular: clientData.celular,
-        fecha_de_registro: clientData.fecha_de_registro
-      });
-      return {
-        id: doc.id,
-        ...clientData
+        nombres: clientData.nombres || '',
+        celular: clientData.celular || phone,
+        fecha_de_registro: clientData.fecha_de_registro || new Date().toISOString()
       };
+      
+      console.log('✅ Client found:', client);
+      return client;
     }
 
     console.log('❌ No client found with phone:', phone);

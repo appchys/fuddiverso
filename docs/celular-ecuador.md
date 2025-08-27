@@ -2,22 +2,55 @@
 
 ## 📱 Formato de Celular para Ecuador
 
-### Formato Esperado
-- **Formato del usuario**: `0990815097` (10 dígitos)
-- **Formato internacional**: `+593 99 0815 097`
+### Formato Esperado en Base de Datos
+- **Formato almacenado**: `0959036708` (10 dígitos empezando con 09)
 - **Patrón**: `09XXXXXXXX` (empezar con 09, seguido de 8 dígitos más)
 
-### Ejemplos Válidos
-- `0990815097`
-- `0987654321`
-- `0998765432`
-- `0991234567`
+### Formatos de Entrada Soportados (Normalización Automática)
+El sistema ahora acepta múltiples formatos de entrada y los normaliza automáticamente:
 
-### Ejemplos Inválidos
-- `990815097` (falta el 0 inicial)
-- `+593990815097` (formato internacional)
-- `09908150979` (11 dígitos)
+#### ✅ Formatos Válidos de Entrada
+- `0959036708` → `0959036708` (ya normalizado)
+- `+593959036708` → `0959036708` (código de país +593)
+- `+593 95 903 6708` → `0959036708` (con espacios)
+- `+593-95-903-6708` → `0959036708` (con guiones)
+- `593959036708` → `0959036708` (código país sin +)
+- `959036708` → `0959036708` (sin 0 inicial)
+
+#### ❌ Formatos Inválidos
 - `0890815097` (no empieza con 09)
+- `09908150979` (más de 10 dígitos)
+- `099081509` (menos de 10 dígitos)
+- `+1234567890` (código de país incorrecto)
+
+## 🔄 Normalización Automática
+
+### Proceso de Normalización
+1. **Limpieza**: Remover espacios, guiones y paréntesis
+2. **Código de país**: Detectar y remover +593 o 593
+3. **Prefijo cero**: Agregar 0 inicial si falta
+4. **Validación**: Verificar formato final 09XXXXXXXX
+
+### Funciones Disponibles
+
+#### `normalizeEcuadorianPhone(phone: string): string`
+Normaliza un número al formato de base de datos:
+```typescript
+import { normalizeEcuadorianPhone } from '@/lib/validation'
+
+normalizeEcuadorianPhone('+593 95 903 6708') // '0959036708'
+normalizeEcuadorianPhone('959036708')        // '0959036708'
+normalizeEcuadorianPhone('0959036708')       // '0959036708'
+```
+
+#### `validateAndNormalizePhone(phone: string): string | null`
+Normaliza y valida en un solo paso:
+```typescript
+import { validateAndNormalizePhone } from '@/lib/validation'
+
+validateAndNormalizePhone('+593 95 903 6708') // '0959036708'
+validateAndNormalizePhone('invalid')           // null
+```
 
 ## 🛠️ Funciones de Validación
 

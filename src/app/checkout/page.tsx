@@ -3,8 +3,8 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { validateEcuadorianPhone } from '@/lib/validation'
-import { createOrder, getBusiness, searchClientByPhone, createClient } from '@/lib/database'
+import { validateEcuadorianPhone, normalizeEcuadorianPhone, validateAndNormalizePhone } from '@/lib/validation'
+import { createOrder, getBusiness, searchClientByPhone, createClient, FirestoreClient } from '@/lib/database'
 import { Business } from '@/types'
 
 
@@ -37,7 +37,7 @@ export default function CheckoutPage() {
     phone: ''
   });
   const [clientSearching, setClientSearching] = useState(false);
-  const [clientFound, setClientFound] = useState<any>(null);
+  const [clientFound, setClientFound] = useState<FirestoreClient | null>(null);
   const [showNameField, setShowNameField] = useState(false);
   const [deliveryData, setDeliveryData] = useState({
     type: 'delivery' as 'delivery' | 'pickup',
@@ -72,7 +72,16 @@ export default function CheckoutPage() {
 
   // Función para buscar cliente por teléfono
   async function handlePhoneSearch(phone: string) {
-    if (!phone.trim() || !validateEcuadorianPhone(phone)) {
+    if (!phone.trim()) {
+      setClientFound(null);
+      setShowNameField(false);
+      return;
+    }
+
+    // Normalizar el número de teléfono antes de validar y buscar
+    const normalizedPhone = normalizeEcuadorianPhone(phone);
+    
+    if (!validateEcuadorianPhone(normalizedPhone)) {
       setClientFound(null);
       setShowNameField(false);
       return;
@@ -80,12 +89,15 @@ export default function CheckoutPage() {
 
     setClientSearching(true);
     try {
-      const client = await searchClientByPhone(phone);
+      // Buscar con el número normalizado
+      const client = await searchClientByPhone(normalizedPhone);
       if (client) {
         setClientFound(client);
+        // Usar el nombre del cliente del objeto cliente
         setCustomerData(prev => ({
           ...prev,
-          name: client.nombres || ''
+          name: client.nombres || '',
+          phone: normalizedPhone // Actualizar con el número normalizado
         }));
         setShowNameField(false);
       } else {
@@ -93,7 +105,8 @@ export default function CheckoutPage() {
         setShowNameField(true);
         setCustomerData(prev => ({
           ...prev,
-          name: ''
+          name: '',
+          phone: normalizedPhone // Actualizar con el número normalizado
         }));
       }
     } catch (error) {
@@ -111,15 +124,34 @@ export default function CheckoutPage() {
       return;
     }
 
+    // Normalizar el número antes de crear el cliente
+    const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
+
     try {
       const newClient = await createClient({
-        Celular: customerData.phone,
-        Nombres: customerData.name
+        celular: normalizedPhone,
+        nombres: customerData.name,
+        fecha_de_registro: new Date().toISOString()
       });
-      setClientFound(newClient);
+      
+      // Actualizar el estado con el cliente recién creado
+      setClientFound({
+        id: newClient.id,
+        nombres: customerData.name,
+        celular: normalizedPhone,
+        fecha_de_registro: new Date().toISOString()
+      });
+      
+      // Actualizar customerData con el número normalizado
+      setCustomerData(prev => ({
+        ...prev,
+        phone: normalizedPhone
+      }));
+      
       setShowNameField(false);
     } catch (error) {
       console.error('Error creating client:', error);
+      // Aquí podrías agregar manejo de errores para mostrar al usuario
     }
   }
 
@@ -174,8 +206,12 @@ export default function CheckoutPage() {
     if (step === 1) {
       if (!customerData.phone.trim()) {
         newErrors.phone = 'El teléfono es requerido'
-      } else if (!validateEcuadorianPhone(customerData.phone)) {
-        newErrors.phone = 'Ingrese un número de celular ecuatoriano válido'
+      } else {
+        // Normalizar y validar el número de teléfono
+        const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
+        if (!validateEcuadorianPhone(normalizedPhone)) {
+          newErrors.phone = 'Ingrese un número de celular ecuatoriano válido'
+        }
       }
       if (showNameField && !customerData.name.trim()) {
         newErrors.name = 'El nombre es requerido'
@@ -544,11 +580,22 @@ export default function CheckoutPage() {
                                 setCustomerData({...customerData, phone});
                                 handlePhoneSearch(phone);
                               }}
+                              onBlur={(e) => {
+                                // Al perder el foco, normalizar el número si es válido
+                                const phone = e.target.value;
+                                const normalizedPhone = normalizeEcuadorianPhone(phone);
+                                if (validateEcuadorianPhone(normalizedPhone)) {
+                                  setCustomerData({...customerData, phone: normalizedPhone});
+                                }
+                              }}
                               className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
                                 errors.phone ? 'border-red-500' : 'border-gray-300'
                               }`}
-                              placeholder="0990815097"
+                              placeholder="Ej: 098765432"
                             />
+                            <p className="text-xs text-gray-500 mt-1">
+                              Lo usaremos para coordinar la entrega
+                            </p>
                             {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone}</p>}
                             {clientSearching && (
                               <p className="text-blue-500 text-sm mt-1">Buscando cliente...</p>
