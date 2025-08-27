@@ -7,33 +7,38 @@ import { validateEcuadorianPhone } from '@/lib/validation'
 import { createOrder, getBusiness } from '@/lib/database'
 import { Business } from '@/types'
 
+
 export default function CheckoutPage() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const [currentStep, setCurrentStep] = useState(1)
-  const [loading, setLoading] = useState(false)
-  const [business, setBusiness] = useState<Business | null>(null)
-  
+  const [isClient, setIsClient] = useState(false);
+  useEffect(() => { setIsClient(true); }, []);
+  if (!isClient) return null;
+
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [currentStep, setCurrentStep] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [business, setBusiness] = useState<Business | null>(null);
+
   const [customerData, setCustomerData] = useState({
     name: '',
     phone: '',
     email: ''
-  })
+  });
   const [deliveryData, setDeliveryData] = useState({
     type: 'delivery' as 'delivery' | 'pickup',
     address: '',
     references: ''
-  })
+  });
   const [timingData, setTimingData] = useState({
     type: 'immediate' as 'immediate' | 'scheduled',
     scheduledDate: '',
     scheduledTime: ''
-  })
+  });
   const [paymentData, setPaymentData] = useState({
     method: 'cash' as 'cash' | 'transfer'
-  })
+  });
 
-  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     // Cargar datos del negocio y carrito desde localStorage
