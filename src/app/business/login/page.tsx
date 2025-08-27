@@ -1,73 +1,111 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
-import { signInWithGoogle, getBusinessByOwner } from '@/lib/database';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useState, useEffect } from "react";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { signInWithGoogle, handleGoogleRedirectResult, getBusinessByOwner } from "@/lib/database";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export default function BusinessLogin() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
+  const [checkingRedirect, setCheckingRedirect] = useState(true);
   const router = useRouter();
 
+  // Manejo de resultado de Google redirect
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      setCheckingRedirect(true);
+      try {
+        const redirectResult = await handleGoogleRedirectResult();
+        if (!isMounted) return;
+        if (redirectResult?.user) {
+          if (redirectResult.hasBusinessProfile && redirectResult.businessId) {
+            localStorage.setItem("businessId", redirectResult.businessId);
+            router.replace("/business/dashboard");
+          } else {
+            router.replace("/business/register?google=true");
+          }
+        }
+      } catch (err) {
+        // No hacer nada
+      } finally {
+        if (isMounted) setCheckingRedirect(false);
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
+
+  // Login con email/contraseña
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
-
+    setError("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      router.push('/business/dashboard');
+      router.replace("/business/dashboard");
     } catch (error: any) {
-      console.error('Error logging in:', error);
-      
-      let errorMessage = 'Error al iniciar sesión. Verifica tus credenciales.';
-      
-      if (error.code === 'auth/operation-not-allowed') {
-        errorMessage = 'La autenticación con email no está habilitada. Contacta al administrador.';
-      } else if (error.code === 'auth/user-not-found') {
-        errorMessage = 'No existe una cuenta con este email. ¿Necesitas registrarte?';
-      } else if (error.code === 'auth/wrong-password') {
-        errorMessage = 'Contraseña incorrecta. Inténtalo de nuevo.';
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'El formato del email no es válido.';
-      } else if (error.code === 'auth/user-disabled') {
-        errorMessage = 'Esta cuenta ha sido deshabilitada.';
-      } else if (error.code === 'auth/too-many-requests') {
-        errorMessage = 'Demasiados intentos fallidos. Espera un momento antes de intentar de nuevo.';
+      let errorMessage = "Error al iniciar sesión. Verifica tus credenciales.";
+      if (error.code === "auth/operation-not-allowed") {
+        errorMessage = "La autenticación con email no está habilitada. Contacta al administrador.";
+      } else if (error.code === "auth/user-not-found") {
+        errorMessage = "No existe una cuenta con este email. ¿Necesitas registrarte?";
+      } else if (error.code === "auth/wrong-password") {
+        errorMessage = "Contraseña incorrecta. Inténtalo de nuevo.";
+      } else if (error.code === "auth/invalid-email") {
+        errorMessage = "El formato del email no es válido.";
+      } else if (error.code === "auth/user-disabled") {
+        errorMessage = "Esta cuenta ha sido deshabilitada.";
+      } else if (error.code === "auth/too-many-requests") {
+        errorMessage = "Demasiados intentos fallidos. Espera un momento antes de intentar de nuevo.";
       }
-      
       setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
+  // Login con Google
   const handleGoogleSignIn = async () => {
     setLoading(true);
-    setError('');
-
+    setError("");
     try {
       const result = await signInWithGoogle();
-      
-      if (result.hasBusinessProfile) {
-        // Usuario ya tiene un negocio, ir al dashboard
-        router.push('/business/dashboard');
+      if (result && result.user) {
+        // Buscar negocio por ownerId
+        const business = await getBusinessByOwner(result.user.uid);
+        if (business) {
+          localStorage.setItem("businessId", business.id);
+          router.replace("/business/dashboard");
+        } else {
+          router.replace("/business/register?google=true");
+        }
       } else {
-        // Usuario nuevo, necesita completar el perfil del negocio
-        router.push('/business/register?google=true');
+        setError("No se pudo obtener el usuario de Google.");
       }
     } catch (error: any) {
-      console.error('Error with Google sign in:', error);
-      setError(error.message || 'Error al iniciar sesión con Google');
+      setError(error.message || "Error al iniciar sesión con Google");
     } finally {
       setLoading(false);
     }
   };
+
+  if (checkingRedirect) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Verificando autenticación...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">

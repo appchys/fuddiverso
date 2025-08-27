@@ -1,3 +1,30 @@
+import { getRedirectResult } from 'firebase/auth';
+// Manejar el resultado del redirect de Google
+export async function handleGoogleRedirectResult() {
+  try {
+    const result = await getRedirectResult(auth);
+    console.log('[GOOGLE REDIRECT] Resultado de getRedirectResult:', result);
+    if (result?.user) {
+      console.log('[GOOGLE REDIRECT] UID del usuario autenticado:', result.user.uid);
+      const existingBusiness = await getBusinessByOwner(result.user.uid);
+      console.log('[GOOGLE REDIRECT] Resultado de getBusinessByOwner:', existingBusiness);
+      return {
+        user: result.user,
+        hasBusinessProfile: !!existingBusiness,
+        businessId: existingBusiness?.id
+      };
+    }
+    console.log('[GOOGLE REDIRECT] No hay usuario en el resultado del redirect.');
+    return null;
+  } catch (error: any) {
+    if (error.code === 'auth/no-auth-event') {
+      console.log('[GOOGLE REDIRECT] No auth event (no venía de redirect)');
+      return null;
+    }
+    console.error('[GOOGLE REDIRECT] Error inesperado:', error);
+    throw error;
+  }
+}
 import { 
   collection, 
   doc, 
@@ -15,6 +42,7 @@ import {
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage, googleProvider } from './firebase'
+import { signInWithRedirect } from 'firebase/auth';
 import { auth } from './firebase'
 import { signInWithPopup } from 'firebase/auth'
 import { Business, Product, Order } from '../types'
@@ -445,20 +473,17 @@ export async function getBusinessCategories(businessId: string): Promise<string[
 // Funciones de Autenticación con Google
 export async function signInWithGoogle() {
   try {
-    const result = await signInWithPopup(auth, googleProvider)
-    const user = result.user
-    
-    // Verificar si el usuario ya tiene un negocio registrado
-    const existingBusiness = await getBusinessByOwner(user.uid)
-    
+    // Usar popup porque redirect no funciona en este entorno
+    const result = await signInWithPopup(auth, googleProvider);
+    console.log('[GOOGLE POPUP] Resultado:', result);
     return {
-      user,
-      hasBusinessProfile: !!existingBusiness,
-      businessId: existingBusiness?.id
-    }
+      user: result.user,
+      hasBusinessProfile: false, // Puedes mejorar esto si lo necesitas
+      businessId: null
+    };
   } catch (error: any) {
-    console.error('Error signing in with Google:', error)
-    throw new Error(`Error al iniciar sesión con Google: ${error.message}`)
+    console.error('Error signing in with Google:', error);
+    throw new Error(`Error al iniciar sesión con Google: ${error.message}`);
   }
 }
 
