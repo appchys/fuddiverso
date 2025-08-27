@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone, validateAndNormalizePhone } from '@/lib/validation'
-import { createOrder, getBusiness, searchClientByPhone, createClient, FirestoreClient } from '@/lib/database'
+import { createOrder, getBusiness, searchClientByPhone, createClient, FirestoreClient, getClientLocations, ClientLocation } from '@/lib/database'
 import { Business } from '@/types'
 
 
@@ -39,6 +39,9 @@ export default function CheckoutPage() {
   const [clientSearching, setClientSearching] = useState(false);
   const [clientFound, setClientFound] = useState<FirestoreClient | null>(null);
   const [showNameField, setShowNameField] = useState(false);
+  const [clientLocations, setClientLocations] = useState<ClientLocation[]>([]);
+  const [loadingLocations, setLoadingLocations] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState<ClientLocation | null>(null);
   const [deliveryData, setDeliveryData] = useState({
     type: 'delivery' as 'delivery' | 'pickup',
     address: '',
@@ -75,6 +78,8 @@ export default function CheckoutPage() {
     if (!phone.trim()) {
       setClientFound(null);
       setShowNameField(false);
+      setClientLocations([]);
+      setSelectedLocation(null);
       return;
     }
 
@@ -84,6 +89,8 @@ export default function CheckoutPage() {
     if (!validateEcuadorianPhone(normalizedPhone)) {
       setClientFound(null);
       setShowNameField(false);
+      setClientLocations([]);
+      setSelectedLocation(null);
       return;
     }
 
@@ -100,6 +107,18 @@ export default function CheckoutPage() {
           phone: normalizedPhone // Actualizar con el número normalizado
         }));
         setShowNameField(false);
+        
+        // Cargar las ubicaciones del cliente
+        setLoadingLocations(true);
+        try {
+          const locations = await getClientLocations(client.id);
+          setClientLocations(locations);
+        } catch (error) {
+          console.error('Error loading client locations:', error);
+          setClientLocations([]);
+        } finally {
+          setLoadingLocations(false);
+        }
       } else {
         setClientFound(null);
         setShowNameField(true);
@@ -108,11 +127,15 @@ export default function CheckoutPage() {
           name: '',
           phone: normalizedPhone // Actualizar con el número normalizado
         }));
+        setClientLocations([]);
+        setSelectedLocation(null);
       }
     } catch (error) {
       console.error('Error searching client:', error);
       setClientFound(null);
       setShowNameField(true);
+      setClientLocations([]);
+      setSelectedLocation(null);
     } finally {
       setClientSearching(false);
     }
@@ -153,6 +176,16 @@ export default function CheckoutPage() {
       console.error('Error creating client:', error);
       // Aquí podrías agregar manejo de errores para mostrar al usuario
     }
+  }
+
+  // Función para seleccionar una ubicación del cliente
+  const handleSelectLocation = (location: ClientLocation) => {
+    setSelectedLocation(location);
+    setDeliveryData(prev => ({
+      ...prev,
+      address: location.referencia,
+      references: `${location.sector} - ${location.ubicacion}`
+    }));
   }
 
   useEffect(() => {
@@ -674,6 +707,45 @@ export default function CheckoutPage() {
 
                         {deliveryData.type === 'delivery' && (
                           <div className="space-y-4">
+                            {/* Mostrar ubicaciones del cliente si existen */}
+                            {clientFound && clientLocations.length > 0 && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Ubicaciones Registradas
+                                </label>
+                                {loadingLocations ? (
+                                  <div className="text-sm text-gray-500">Cargando ubicaciones...</div>
+                                ) : (
+                                  <div className="space-y-2 mb-4">
+                                    {clientLocations.map((location) => (
+                                      <div
+                                        key={location.id}
+                                        className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                                          selectedLocation?.id === location.id
+                                            ? 'border-red-500 bg-red-50'
+                                            : 'border-gray-300 hover:bg-gray-50'
+                                        }`}
+                                        onClick={() => handleSelectLocation(location)}
+                                      >
+                                        <div className="font-medium text-sm">
+                                          Referencia: {location.referencia}
+                                        </div>
+                                        <div className="text-xs text-gray-600">
+                                          Ubicación: {location.ubicacion}
+                                        </div>
+                                        <div className="text-xs text-gray-500">
+                                          Sector: {location.sector} | Tarifa: ${location.tarifa}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="text-sm text-gray-600 mb-3">
+                                  O ingresa una nueva dirección:
+                                </div>
+                              </div>
+                            )}
+                            
                             <div>
                               <label className="block text-sm font-medium text-gray-700 mb-2">
                                 Dirección de Entrega *
@@ -682,7 +754,10 @@ export default function CheckoutPage() {
                                 type="text"
                                 required
                                 value={deliveryData.address}
-                                onChange={(e) => setDeliveryData({...deliveryData, address: e.target.value})}
+                                onChange={(e) => {
+                                  setDeliveryData({...deliveryData, address: e.target.value});
+                                  setSelectedLocation(null); // Limpiar selección si se escribe manualmente
+                                }}
                                 className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
                                   errors.address ? 'border-red-500' : 'border-gray-300'
                                 }`}

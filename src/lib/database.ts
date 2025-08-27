@@ -14,9 +14,14 @@ import {
   Timestamp
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { db, storage, googleProvider } from './firebase'
-import { auth } from './firebase'
-import { signInWithRedirect, getRedirectResult } from 'firebase/auth'
+import { db, storage, googleProvider, auth } from './firebase'
+import { 
+  signInWithRedirect, 
+  getRedirectResult, 
+  UserCredential,
+  GoogleAuthProvider,
+  signInWithPopup
+} from 'firebase/auth'
 import { Business, Product, Order } from '../types'
 
 // Helper function para limpiar valores undefined de un objeto
@@ -453,13 +458,13 @@ export async function getBusinessCategories(businessId: string): Promise<string[
 }
 
 // Funciones de Autenticación con Google
-export async function signInWithGoogle() {
+export async function signInWithGoogle(): Promise<UserCredential> {
   try {
-    // Usar redirect en lugar de popup para evitar problemas de COOP
-    await signInWithRedirect(auth, googleProvider)
+    // Usar popup para obtener el resultado directamente
+    return await signInWithPopup(auth, googleProvider);
   } catch (error: any) {
-    console.error('Error signing in with Google:', error)
-    throw new Error(`Error al iniciar sesión con Google: ${error.message}`)
+    console.error('Error signing in with Google:', error);
+    throw new Error(`Error al iniciar sesión con Google: ${error.message}`);
   }
 }
 
@@ -552,6 +557,48 @@ export interface FirestoreClient {
   nombres: string;
   celular: string;
   fecha_de_registro?: string;
+}
+
+export interface ClientLocation {
+  id: string;
+  id_cliente: string;
+  referencia: string;
+  sector: string;
+  tarifa: string;
+  ubicacion: string;
+}
+
+// Nueva función para obtener ubicaciones del cliente
+export async function getClientLocations(clientId: string): Promise<ClientLocation[]> {
+  try {
+    console.log('🔍 Getting client locations for client ID:', clientId);
+
+    const q = query(
+      collection(db, 'ubicaciones'),
+      where('id_cliente', '==', clientId)
+    );
+
+    const querySnapshot = await getDocs(q);
+    const locations: ClientLocation[] = [];
+
+    querySnapshot.forEach((doc) => {
+      const locationData = doc.data();
+      locations.push({
+        id: doc.id,
+        id_cliente: locationData.id_cliente || '',
+        referencia: locationData.referencia || '',
+        sector: locationData.sector || '',
+        tarifa: locationData.tarifa || '',
+        ubicacion: locationData.ubicacion || ''
+      });
+    });
+
+    console.log(`✅ Found ${locations.length} locations for client:`, locations);
+    return locations;
+  } catch (error) {
+    console.error('Error getting client locations:', error);
+    throw error;
+  }
 }
 
 // Nueva función para buscar clientes por teléfono

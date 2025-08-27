@@ -31,6 +31,15 @@ export interface Business {
   updatedAt: Date
 }
 
+export interface ClientLocation {
+  id: string
+  id_cliente: string
+  referencia: string
+  sector: string
+  tarifa: string
+  ubicacion: string
+}
+
 export interface ProductVariant {
   id: string
   name: string
