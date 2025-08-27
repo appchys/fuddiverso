@@ -532,3 +532,64 @@ export async function createBusinessFromGoogleAuth(userData: {
     throw error
   }
 }
+
+// Funciones para Clientes
+export async function searchClientByPhone(phone: string) {
+  try {
+    console.log('🔍 Searching client by phone:', phone);
+    
+    const q = query(
+      collection(db, 'clients'), 
+      where('Celular', '==', phone),
+      limit(1)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    
+    if (!querySnapshot.empty) {
+      const doc = querySnapshot.docs[0];
+      const clientData = doc.data();
+      console.log('✅ Client found:', clientData);
+      return {
+        id: doc.id,
+        ...clientData
+      };
+    }
+    
+    console.log('❌ No client found with phone:', phone);
+    return null;
+  } catch (error) {
+    console.error('❌ Error searching client by phone:', error);
+    throw error;
+  }
+}
+
+export async function createClient(clientData: { Celular: string; Nombres: string }) {
+  try {
+    console.log('🔄 Creating new client:', clientData);
+    
+    // Generar ID único
+    const clientId = Math.random().toString(36).substr(2, 8);
+    
+    // Obtener fecha actual en formato DD/MM/YYYY
+    const today = new Date();
+    const fechaRegistro = `${today.getDate().toString().padStart(2, '0')}/${(today.getMonth() + 1).toString().padStart(2, '0')}/${today.getFullYear()}`;
+    
+    const newClient = {
+      Celular: clientData.Celular,
+      Nombres: clientData.Nombres,
+      'Fecha de registro': fechaRegistro
+    };
+    
+    const docRef = await addDoc(collection(db, 'clients'), newClient);
+    
+    console.log('✅ Client created successfully with ID:', docRef.id);
+    return {
+      id: docRef.id,
+      ...newClient
+    };
+  } catch (error) {
+    console.error('❌ Error creating client:', error);
+    throw error;
+  }
+}

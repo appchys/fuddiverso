@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { validateEcuadorianPhone } from '@/lib/validation'
-import { createOrder, getBusiness } from '@/lib/database'
+import { createOrder, getBusiness, searchClientByPhone, createClient } from '@/lib/database'
 import { Business } from '@/types'
 
 
@@ -23,9 +23,11 @@ export default function CheckoutPage() {
 
   const [customerData, setCustomerData] = useState({
     name: '',
-    phone: '',
-    email: ''
+    phone: ''
   });
+  const [clientSearching, setClientSearching] = useState(false);
+  const [clientFound, setClientFound] = useState<any>(null);
+  const [showNameField, setShowNameField] = useState(false);
   const [deliveryData, setDeliveryData] = useState({
     type: 'delivery' as 'delivery' | 'pickup',
     address: '',
@@ -54,6 +56,59 @@ export default function CheckoutPage() {
       }
     } catch (error) {
       console.error('Error loading business:', error)
+    }
+  }
+
+  // Función para buscar cliente por teléfono
+  async function handlePhoneSearch(phone: string) {
+    if (!phone.trim() || !validateEcuadorianPhone(phone)) {
+      setClientFound(null);
+      setShowNameField(false);
+      return;
+    }
+
+    setClientSearching(true);
+    try {
+      const client = await searchClientByPhone(phone);
+      if (client) {
+        setClientFound(client);
+        setCustomerData(prev => ({
+          ...prev,
+          name: (client as any).Nombres || ''
+        }));
+        setShowNameField(false);
+      } else {
+        setClientFound(null);
+        setShowNameField(true);
+        setCustomerData(prev => ({
+          ...prev,
+          name: ''
+        }));
+      }
+    } catch (error) {
+      console.error('Error searching client:', error);
+      setClientFound(null);
+      setShowNameField(true);
+    } finally {
+      setClientSearching(false);
+    }
+  }
+
+  // Función para crear nuevo cliente
+  async function handleCreateClient() {
+    if (!customerData.phone || !customerData.name) {
+      return;
+    }
+
+    try {
+      const newClient = await createClient({
+        Celular: customerData.phone,
+        Nombres: customerData.name
+      });
+      setClientFound(newClient);
+      setShowNameField(false);
+    } catch (error) {
+      console.error('Error creating client:', error);
     }
   }
 
@@ -106,16 +161,13 @@ export default function CheckoutPage() {
     const newErrors: Record<string, string> = {}
 
     if (step === 1) {
-      if (!customerData.name.trim()) {
-        newErrors.name = 'El nombre es requerido'
-      }
       if (!customerData.phone.trim()) {
         newErrors.phone = 'El teléfono es requerido'
       } else if (!validateEcuadorianPhone(customerData.phone)) {
         newErrors.phone = 'Ingrese un número de celular ecuatoriano válido'
       }
-      if (!customerData.email.trim()) {
-        newErrors.email = 'El email es requerido'
+      if (showNameField && !customerData.name.trim()) {
+        newErrors.name = 'El nombre es requerido'
       }
     }
 
@@ -294,52 +346,57 @@ export default function CheckoutPage() {
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Nombre Completo *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={customerData.name}
-                        onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
-                        className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                          errors.name ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder="Tu nombre completo"
-                      />
-                      {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
                         Número de Celular *
                       </label>
                       <input
                         type="tel"
                         required
                         value={customerData.phone}
-                        onChange={(e) => setCustomerData({...customerData, phone: e.target.value})}
+                        onChange={(e) => {
+                          const phone = e.target.value;
+                          setCustomerData({...customerData, phone});
+                          handlePhoneSearch(phone);
+                        }}
                         className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
                           errors.phone ? 'border-red-500' : 'border-gray-300'
                         }`}
                         placeholder="0990815097"
                       />
                       {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone}</p>}
+                      {clientSearching && (
+                        <p className="text-blue-500 text-sm mt-1">Buscando cliente...</p>
+                      )}
+                      {clientFound && (
+                        <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
+                          <p className="text-green-700 text-sm">
+                            ✅ Cliente encontrado: <strong>{(clientFound as any).Nombres}</strong>
+                          </p>
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Email *
-                      </label>
-                      <input
-                        type="email"
-                        required
-                        value={customerData.email}
-                        onChange={(e) => setCustomerData({...customerData, email: e.target.value})}
-                        className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                          errors.email ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder="tu@email.com"
-                      />
-                      {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
-                    </div>
+                    
+                    {showNameField && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Nombre Completo *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={customerData.name}
+                          onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
+                          onBlur={handleCreateClient}
+                          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                            errors.name ? 'border-red-500' : 'border-gray-300'
+                          }`}
+                          placeholder="Ingrese el nombre completo"
+                        />
+                        {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
+                        <p className="text-gray-500 text-sm mt-1">
+                          El cliente no existe, ingrese el nombre para crearlo automáticamente
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -574,9 +631,8 @@ export default function CheckoutPage() {
                     {/* Customer Info */}
                     <div>
                       <h3 className="font-medium text-gray-900 mb-2">Datos del Cliente</h3>
-                      <p className="text-sm text-gray-600">{customerData.name}</p>
+                      <p className="text-sm text-gray-600">{customerData.name || (clientFound as any)?.Nombres}</p>
                       <p className="text-sm text-gray-600">{customerData.phone}</p>
-                      <p className="text-sm text-gray-600">{customerData.email}</p>
                     </div>
 
                     {/* Delivery Info */}
