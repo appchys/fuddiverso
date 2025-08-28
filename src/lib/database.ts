@@ -89,6 +89,7 @@ export async function createBusiness(businessData: Omit<Business, 'id' | 'create
 // Función auxiliar para crear un negocio desde datos del formulario
 export async function createBusinessFromForm(formData: {
   name: string;
+  username: string;
   email: string;
   phone: string;
   address: string;
@@ -100,6 +101,7 @@ export async function createBusinessFromForm(formData: {
 }) {
   const businessData: Omit<Business, 'id' | 'createdAt'> = {
     name: formData.name,
+    username: formData.username,
     email: formData.email,
     phone: formData.phone,
     address: formData.address,
@@ -107,6 +109,7 @@ export async function createBusinessFromForm(formData: {
     image: formData.image,
     ownerId: formData.ownerId,
     references: formData.references || '',
+    categories: [],
     mapLocation: {
       lat: 0, // Se puede actualizar posteriormente
       lng: 0
@@ -507,6 +510,7 @@ export async function handleGoogleRedirectResult() {
 
 export async function createBusinessFromGoogleAuth(userData: {
   name: string
+  username?: string
   phone: string
   address: string
   description?: string
@@ -519,6 +523,7 @@ export async function createBusinessFromGoogleAuth(userData: {
 
     const businessData = {
       name: userData.name,
+      username: userData.username || `user_${user.uid.slice(0, 8)}`, // Generate username if not provided
       phone: userData.phone,
       address: userData.address,
       description: userData.description || '',
@@ -566,6 +571,54 @@ export interface ClientLocation {
   sector: string;
   tarifa: string;
   ubicacion: string;
+}
+
+// Nueva función para obtener un negocio por su username
+export async function getBusinessByUsername(username: string): Promise<Business | null> {
+  try {
+    console.log('🔍 Searching business by username:', username);
+
+    const q = query(
+      collection(db, 'businesses'),
+      where('username', '==', username),
+      limit(1)
+    );
+
+    const querySnapshot = await getDocs(q);
+
+    if (!querySnapshot.empty) {
+      const doc = querySnapshot.docs[0];
+      const businessData = doc.data();
+      const business: Business = {
+        id: doc.id,
+        name: businessData.name || '',
+        username: businessData.username || '',
+        description: businessData.description || '',
+        address: businessData.address || '',
+        phone: businessData.phone || '',
+        email: businessData.email || '',
+        ownerId: businessData.ownerId || '',
+        image: businessData.image || '',
+        categories: businessData.categories || [],
+        mapLocation: businessData.mapLocation || { lat: 0, lng: 0 },
+        references: businessData.references || '',
+        bankAccount: businessData.bankAccount || undefined,
+        schedule: businessData.schedule || {},
+        isActive: businessData.isActive || false,
+        createdAt: businessData.createdAt?.toDate() || new Date(),
+        updatedAt: businessData.updatedAt?.toDate() || new Date()
+      };
+      
+      console.log('✅ Business found:', business);
+      return business;
+    }
+
+    console.log('❌ No business found with username:', username);
+    return null;
+  } catch (error) {
+    console.error('Error searching business by username:', error);
+    throw error;
+  }
 }
 
 // Nueva función para obtener ubicaciones del cliente

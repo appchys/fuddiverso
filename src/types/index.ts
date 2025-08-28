@@ -1,6 +1,7 @@
 export interface Business {
   id: string
   name: string
+  username: string // Campo para URL amigable (ej: "munchys")
   description: string
   address: string
   phone: string // Formato ecuatoriano: 09XXXXXXXX (10 dígitos)

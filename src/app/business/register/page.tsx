@@ -16,6 +16,7 @@ function BusinessRegisterForm() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [formData, setFormData] = useState({
     name: '',
+    username: '',
     description: '',
     email: '',
     password: '',
@@ -94,6 +95,7 @@ function BusinessRegisterForm() {
       // 3. Crear negocio en Firebase con el UID del usuario
       const businessId = await createBusinessFromForm({
         name: formData.name,
+        username: formData.username,
         email: formData.email,
         phone: formData.phone,
         address: formData.address,
@@ -145,6 +147,14 @@ function BusinessRegisterForm() {
 
     if (!formData.name.trim()) {
       newErrors.name = 'El nombre del negocio es requerido'
+    }
+
+    if (!formData.username.trim()) {
+      newErrors.username = 'El nombre de usuario es requerido'
+    } else if (!/^[a-zA-Z0-9_-]{3,20}$/.test(formData.username)) {
+      newErrors.username = 'El usuario debe tener 3-20 caracteres y solo puede contener letras, números, guiones y guiones bajos'
+    } else if (formData.username.toLowerCase() === 'admin' || formData.username.toLowerCase() === 'api' || formData.username.toLowerCase() === 'www') {
+      newErrors.username = 'Este nombre de usuario no está disponible'
     }
 
     // Solo validar email si NO es usuario de Google
@@ -266,6 +276,25 @@ function BusinessRegisterForm() {
                     }`}
                   />
                   {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Usuario/URL *
+                  </label>
+                  <input
+                    type="text"
+                    name="username"
+                    required
+                    value={formData.username}
+                    onChange={handleChange}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                      errors.username ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="ej: munchys"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Tu restaurante estará disponible en fuddiverso.com/{formData.username}</p>
+                  {errors.username && <p className="text-red-500 text-sm mt-1">{errors.username}</p>}
                 </div>
                 
                 <div>
