@@ -61,7 +61,9 @@ function CheckoutContent() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Estado para manejar el modal
-  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false)
+  const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false)
+  const [editingClient, setEditingClient] = useState<any>(null);
 
   // Effects (also must be declared consistently)
   useEffect(() => { setIsClient(true); }, []);
@@ -74,6 +76,47 @@ function CheckoutContent() {
   // Función para cerrar el modal
   const closeLocationModal = () => {
     setIsLocationModalOpen(false);
+  }
+
+  const openEditProfileModal = () => {
+    if (clientFound) {
+      setEditingClient({
+        id: clientFound.id,
+        nombres: clientFound.nombres,
+        celular: customerData.phone
+      })
+      setIsEditProfileModalOpen(true)
+    }
+  }
+
+  const closeEditProfileModal = () => {
+    setIsEditProfileModalOpen(false)
+    setEditingClient(null)
+  }
+
+  const handleUpdateProfile = async () => {
+    if (!editingClient) return
+    
+    try {
+      // Aquí implementarías la actualización en la base de datos
+      // await updateClient(editingClient.id, editingClient)
+      
+      // Actualizar el estado local
+      setClientFound(prev => prev ? {
+        ...prev,
+        nombres: editingClient.nombres
+      } : null)
+      
+      setCustomerData(prev => ({
+        ...prev,
+        name: editingClient.nombres,
+        phone: editingClient.celular
+      }))
+      
+      closeEditProfileModal()
+    } catch (error) {
+      console.error('Error updating profile:', error)
+    }
   };
 
   // Función hoisted colocada antes del efecto que la usa
@@ -376,13 +419,16 @@ function CheckoutContent() {
             <div className="flex items-center justify-between w-full max-w-2xl">
               {/* Step 1 - Cliente */}
               <div className="flex flex-col items-center flex-1">
-                <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center ${
-                  1 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
-                }`}>
+                <button
+                  onClick={() => setCurrentStep(1)}
+                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all hover:scale-110 ${
+                    1 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600 hover:bg-gray-400'
+                  }`}
+                >
                   <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
                   </svg>
-                </div>
+                </button>
                 <span className="text-xs sm:text-sm mt-1 text-center font-medium">Cliente</span>
               </div>
 
@@ -390,9 +436,15 @@ function CheckoutContent() {
 
               {/* Step 2 - Entrega */}
               <div className="flex flex-col items-center flex-1">
-                <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center ${
-                  2 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
-                }`}>
+                <button
+                  onClick={() => currentStep >= 2 && setCurrentStep(2)}
+                  disabled={currentStep < 2}
+                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all ${
+                    currentStep >= 2 ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed'
+                  } ${
+                    2 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
+                  } ${currentStep >= 2 && currentStep !== 2 ? 'hover:bg-red-600' : ''}`}
+                >
                   {deliveryData.type === 'pickup' ? (
                     <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2H4zm3 6V7h6v3H7z" clipRule="evenodd" />
@@ -402,7 +454,7 @@ function CheckoutContent() {
                       <path d="M8 5a1 1 0 100 2h5.586l-1.293 1.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L13.586 5H8zM12 15a1 1 0 100-2H6.414l1.293-1.293a1 1 0 10-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L6.414 15H12z" />
                     </svg>
                   )}
-                </div>
+                </button>
                 <span className="text-xs sm:text-sm mt-1 text-center font-medium">
                   {deliveryData.type === 'pickup' ? 'Retiro' : 'Delivery'}
                 </span>
@@ -412,9 +464,15 @@ function CheckoutContent() {
 
               {/* Step 3 - Horario */}
               <div className="flex flex-col items-center flex-1">
-                <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center ${
-                  3 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
-                }`}>
+                <button
+                  onClick={() => currentStep >= 3 && setCurrentStep(3)}
+                  disabled={currentStep < 3}
+                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all ${
+                    currentStep >= 3 ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed'
+                  } ${
+                    3 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
+                  } ${currentStep >= 3 && currentStep !== 3 ? 'hover:bg-red-600' : ''}`}
+                >
                   {timingData.type === 'immediate' ? (
                     <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
@@ -424,7 +482,7 @@ function CheckoutContent() {
                       <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
                     </svg>
                   )}
-                </div>
+                </button>
                 <span className="text-xs sm:text-sm mt-1 text-center font-medium">
                   {timingData.type === 'immediate' ? 'Inmediato' : 'Programado'}
                 </span>
@@ -434,9 +492,15 @@ function CheckoutContent() {
 
               {/* Step 4 - Pago */}
               <div className="flex flex-col items-center flex-1">
-                <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center ${
-                  4 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
-                }`}>
+                <button
+                  onClick={() => currentStep >= 4 && setCurrentStep(4)}
+                  disabled={currentStep < 4}
+                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all ${
+                    currentStep >= 4 ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed'
+                  } ${
+                    4 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
+                  } ${currentStep >= 4 && currentStep !== 4 ? 'hover:bg-red-600' : ''}`}
+                >
                   {paymentData.method === 'transfer' ? (
                     <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
                       <path d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2H4zm5 3a1 1 0 011-1h1a1 1 0 110 2h-1a1 1 0 01-1-1zm-1 4a1 1 0 100 2h3a1 1 0 100-2H8z" />
@@ -447,7 +511,7 @@ function CheckoutContent() {
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
                     </svg>
                   )}
-                </div>
+                </button>
                 <span className="text-xs sm:text-sm mt-1 text-center font-medium">
                   {paymentData.method === 'transfer' ? 'Transferencia' : 'Efectivo'}
                 </span>
@@ -457,13 +521,19 @@ function CheckoutContent() {
 
               {/* Step 5 - Confirmar */}
               <div className="flex flex-col items-center flex-1">
-                <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center ${
-                  5 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
-                }`}>
+                <button
+                  onClick={() => currentStep >= 5 && setCurrentStep(5)}
+                  disabled={currentStep < 5}
+                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all ${
+                    currentStep >= 5 ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed'
+                  } ${
+                    5 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
+                  } ${currentStep >= 5 && currentStep !== 5 ? 'hover:bg-red-600' : ''}`}
+                >
                   <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                   </svg>
-                </div>
+                </button>
                 <span className="text-xs sm:text-sm mt-1 text-center font-medium">Confirmar</span>
               </div>
             </div>
@@ -535,6 +605,15 @@ function CheckoutContent() {
                               </div>
                             </div>
                             <div className="flex items-center space-x-2">
+                              <button
+                                onClick={openEditProfileModal}
+                                className="inline-flex items-center px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded hover:bg-green-200 transition-colors"
+                              >
+                                <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                                Editar
+                              </button>
                               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                 <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
                                   <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -956,6 +1035,79 @@ function CheckoutContent() {
             )}
           </div>
         </div>
+
+        {/* Modal para editar perfil del cliente */}
+        {isEditProfileModalOpen && editingClient && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-lg w-full max-w-md mx-4">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-bold text-gray-900">Editar Perfil</h2>
+                  <button
+                    onClick={closeEditProfileModal}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Nombre Completo
+                    </label>
+                    <input
+                      type="text"
+                      value={editingClient.nombres}
+                      onChange={(e) => setEditingClient({
+                        ...editingClient,
+                        nombres: e.target.value
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                      placeholder="Nombre completo"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Número de Celular
+                    </label>
+                    <input
+                      type="tel"
+                      value={editingClient.celular}
+                      onChange={(e) => setEditingClient({
+                        ...editingClient,
+                        celular: e.target.value
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                      placeholder="0999999999"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Formatos válidos: +593959036708, 0959036708
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex space-x-3 mt-6">
+                  <button
+                    onClick={closeEditProfileModal}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleUpdateProfile}
+                    className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                  >
+                    Guardar Cambios
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Modal para mostrar ubicaciones registradas - Mobile Optimized */}
         {isLocationModalOpen && (
