@@ -7,21 +7,28 @@ import { Business, Product } from '@/types'
 import { getBusinessByUsername, getProductsByBusiness } from '@/lib/database'
 
 // Componente para mostrar variantes de producto
-function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, updateQuantity }: { 
+function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, updateQuantity, businessImage }: { 
   product: any, 
   onAddToCart: (item: any) => void,
   getCartItemQuantity: (id: string) => number,
-  updateQuantity: (id: string, quantity: number) => void
+  updateQuantity: (id: string, quantity: number) => void,
+  businessImage?: string
 }) {
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden">
-      {product.image && (
+      <div className="w-full h-32 sm:h-40">
         <img
-          src={product.image}
+          src={product.image || businessImage}
           alt={product.name}
-          className="w-full h-32 sm:h-40 object-cover"
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            if (target.src !== businessImage && businessImage) {
+              target.src = businessImage;
+            }
+          }}
         />
-      )}
+      </div>
       <div className="p-3 sm:p-4">
         <h4 className="font-semibold text-sm sm:text-base text-gray-900 line-clamp-2">{product.name}</h4>
         <p className="text-gray-600 text-xs sm:text-sm mt-1 line-clamp-2">{product.description}</p>
@@ -54,11 +61,12 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
 }
 
 // Modal para seleccionar variantes
-function VariantModal({ product, isOpen, onClose, onAddToCart }: {
+function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage }: {
   product: any;
   isOpen: boolean;
   onClose: () => void;
   onAddToCart: (item: any) => void;
+  businessImage?: string;
 }) {
   const [selectedVariant, setSelectedVariant] = useState<any>(null);
 
@@ -80,6 +88,21 @@ function VariantModal({ product, isOpen, onClose, onAddToCart }: {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
+          </div>
+
+          {/* Imagen del producto */}
+          <div className="w-full h-48 mb-4">
+            <img
+              src={product?.image || businessImage}
+              alt={product?.name}
+              className="w-full h-full object-cover rounded-lg"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                if (target.src !== businessImage && businessImage) {
+                  target.src = businessImage;
+                }
+              }}
+            />
           </div>
 
           <div className="mb-4">
@@ -391,6 +414,7 @@ function RestaurantContent() {
                   onAddToCart={addToCart}
                   getCartItemQuantity={getCartItemQuantity}
                   updateQuantity={updateQuantity}
+                  businessImage={business?.image}
                 />
               ))}
             </div>
@@ -449,6 +473,20 @@ function RestaurantContent() {
                   <div className="space-y-4">
                     {cart.map((item) => (
                       <div key={item.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+                        {/* Imagen del producto */}
+                        <div className="w-12 h-12 flex-shrink-0">
+                          <img
+                            src={item.image || business?.image}
+                            alt={item.name}
+                            className="w-full h-full object-cover rounded-md"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              if (target.src !== business?.image) {
+                                target.src = business?.image || '';
+                              }
+                            }}
+                          />
+                        </div>
                         <div className="flex-1">
                           <p className="font-medium text-sm">{item.name}</p>
                           <p className="text-xs text-gray-500">${item.price} c/u</p>
@@ -504,6 +542,7 @@ function RestaurantContent() {
           setSelectedProduct(null)
         }}
         onAddToCart={addVariantToCart}
+        businessImage={business?.image}
       />
     </div>
   )

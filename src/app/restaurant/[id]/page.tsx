@@ -6,12 +6,26 @@ import { getBusiness, getProductsByBusiness } from '@/lib/database'
 import Link from 'next/link'
 
 // Componente para mostrar productos
-function ProductCard({ product, onAddToCart }: { product: any, onAddToCart: (item: any) => void }) {
+function ProductCard({ product, onAddToCart, businessImage }: { 
+  product: any, 
+  onAddToCart: (item: any) => void,
+  businessImage?: string 
+}) {
   return (
     <div className="bg-white rounded-lg shadow-md p-4 flex flex-col">
-      {product.image && (
-        <img src={product.image} alt={product.name} className="w-full h-48 object-cover rounded-lg mb-4" />
-      )}
+      <div className="w-full h-48 mb-4">
+        <img 
+          src={product.image || businessImage} 
+          alt={product.name} 
+          className="w-full h-full object-cover rounded-lg"
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            if (target.src !== businessImage && businessImage) {
+              target.src = businessImage;
+            }
+          }}
+        />
+      </div>
       <h4 className="text-lg font-bold text-gray-900 mb-2">{product.name}</h4>
       <p className="text-gray-600 mb-3 flex-grow">{product.description}</p>
       <div className="flex items-center justify-between">
@@ -41,11 +55,12 @@ function ProductCard({ product, onAddToCart }: { product: any, onAddToCart: (ite
 }
 
 // Modal para seleccionar variantes
-function VariantModal({ product, isOpen, onClose, onAddToCart }: {
+function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage }: {
   product: any;
   isOpen: boolean;
   onClose: () => void;
   onAddToCart: (item: any) => void;
+  businessImage?: string;
 }) {
   const [selectedVariant, setSelectedVariant] = useState<any>(null);
 
@@ -67,6 +82,21 @@ function VariantModal({ product, isOpen, onClose, onAddToCart }: {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
+          </div>
+
+          {/* Imagen del producto */}
+          <div className="w-full h-48 mb-4">
+            <img
+              src={product?.image || businessImage}
+              alt={product?.name}
+              className="w-full h-full object-cover rounded-lg"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                if (target.src !== businessImage && businessImage) {
+                  target.src = businessImage;
+                }
+              }}
+            />
           </div>
 
           <div className="mb-4">
@@ -455,6 +485,7 @@ export default function RestaurantPage() {
                         key={product.id}
                         product={product}
                         onAddToCart={addToCart}
+                        businessImage={restaurant?.image}
                       />
                     ))}
                   </div>
@@ -486,6 +517,7 @@ export default function RestaurantPage() {
           setSelectedProduct(null)
         }}
         onAddToCart={addVariantToCart}
+        businessImage={restaurant?.image}
       />
     </div>
   )

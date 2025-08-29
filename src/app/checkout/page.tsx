@@ -535,7 +535,7 @@ function CheckoutContent() {
                         placeholder="Ej: +593 95 903 6708 o 0959036708"
                       />
                       <p className="text-xs text-gray-500 mt-1">
-                        Formatos válidos: +593959036708, +593 95 903 6708, 0959036708
+                        Lo buscaremos en nuestros datos, lo usaremos para coordinar la entrega
                       </p>
                       {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone}</p>}
                       {clientSearching && (
