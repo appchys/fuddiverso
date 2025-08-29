@@ -6,6 +6,158 @@ import Link from 'next/link'
 import { Business, Product } from '@/types'
 import { getBusinessByUsername, getProductsByBusiness } from '@/lib/database'
 
+// Componente para mostrar variantes de producto
+function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, updateQuantity }: { 
+  product: any, 
+  onAddToCart: (item: any) => void,
+  getCartItemQuantity: (id: string) => number,
+  updateQuantity: (id: string, quantity: number) => void
+}) {
+  return (
+    <div className="bg-white rounded-lg shadow-md overflow-hidden">
+      {product.image && (
+        <img
+          src={product.image}
+          alt={product.name}
+          className="w-full h-32 sm:h-40 object-cover"
+        />
+      )}
+      <div className="p-3 sm:p-4">
+        <h4 className="font-semibold text-sm sm:text-base text-gray-900 line-clamp-2">{product.name}</h4>
+        <p className="text-gray-600 text-xs sm:text-sm mt-1 line-clamp-2">{product.description}</p>
+        <div className="flex flex-col gap-2 mt-3">
+          {/* Mostrar precio */}
+          {product.variants && product.variants.length > 0 ? (
+            <span className="text-base sm:text-lg font-bold text-red-500">
+              Desde ${Math.min(...product.variants.filter((v: any) => v.isAvailable).map((v: any) => v.price)).toFixed(2)}
+            </span>
+          ) : (
+            <span className="text-base sm:text-lg font-bold text-red-500">${product.price.toFixed(2)}</span>
+          )}
+          
+          {/* Botón agregar */}
+          <button
+            onClick={() => onAddToCart(product)}
+            disabled={!product.isAvailable}
+            className={`text-xs sm:text-sm font-medium px-3 py-2 rounded-lg ${
+              product.isAvailable 
+                ? 'bg-red-500 text-white hover:bg-red-600' 
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            {product.isAvailable ? 'Agregar' : 'No disponible'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Modal para seleccionar variantes
+function VariantModal({ product, isOpen, onClose, onAddToCart }: {
+  product: any;
+  isOpen: boolean;
+  onClose: () => void;
+  onAddToCart: (item: any) => void;
+}) {
+  const [selectedVariant, setSelectedVariant] = useState<any>(null);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+        <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={onClose} />
+        
+        <div className="inline-block w-full max-w-md p-6 my-8 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-lg">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium text-gray-900">Selecciona una opción</h3>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-500"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="mb-4">
+            <h4 className="font-semibold text-gray-900">{product.name}</h4>
+            <p className="text-sm text-gray-600 mt-1">{product.description}</p>
+          </div>
+
+          <div className="space-y-3 mb-6">
+            {product.variants?.map((variant: any) => (
+              <div
+                key={variant.id}
+                className={`border rounded-lg p-3 cursor-pointer transition-all ${
+                  variant.isAvailable
+                    ? selectedVariant?.id === variant.id
+                      ? 'border-red-500 bg-red-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                    : 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-60'
+                }`}
+                onClick={() => variant.isAvailable && setSelectedVariant(variant)}
+              >
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h5 className="font-medium text-gray-900">{variant.name}</h5>
+                    {variant.description && (
+                      <p className="text-sm text-gray-600">{variant.description}</p>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <span className="text-red-600 font-bold">${variant.price.toFixed(2)}</span>
+                    {!variant.isAvailable && (
+                      <p className="text-xs text-gray-500">No disponible</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex space-x-3">
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => {
+                if (selectedVariant) {
+                  onAddToCart({
+                    id: `${product.id}-${selectedVariant.id}`,
+                    name: `${product.name} - ${selectedVariant.name}`,
+                    price: selectedVariant.price,
+                    image: product.image,
+                    description: selectedVariant.description || product.description,
+                    businessId: product.businessId,
+                    productId: product.id,
+                    variantId: selectedVariant.id
+                  });
+                  onClose();
+                  setSelectedVariant(null);
+                }
+              }}
+              disabled={!selectedVariant}
+              className={`flex-1 px-4 py-2 text-sm font-medium rounded-md ${
+                selectedVariant
+                  ? 'text-white bg-red-600 hover:bg-red-700'
+                  : 'text-gray-400 bg-gray-200 cursor-not-allowed'
+              }`}
+            >
+              Agregar al carrito
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function RestaurantPage() {
   return (
     <Suspense fallback={
@@ -32,6 +184,8 @@ function RestaurantContent() {
   const [error, setError] = useState<string | null>(null)
   const [cart, setCart] = useState<any[]>([])
   const [isCartOpen, setIsCartOpen] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState<any>(null)
+  const [isVariantModalOpen, setIsVariantModalOpen] = useState(false)
 
   useEffect(() => {
     const loadRestaurantData = async () => {
@@ -68,7 +222,45 @@ function RestaurantContent() {
     }
   }, [])
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: any) => {
+    // Si el producto tiene variantes, abrir modal
+    if (product.variants && product.variants.length > 0) {
+      setSelectedProduct(product)
+      setIsVariantModalOpen(true)
+      return
+    }
+
+    // Si no tiene variantes, agregar directamente
+    const cartItem = {
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      image: product.image,
+      description: product.description,
+      businessId: business?.id
+    }
+
+    const existingItem = cart.find(item => item.id === cartItem.id)
+    let newCart
+
+    if (existingItem) {
+      newCart = cart.map(item =>
+        item.id === cartItem.id
+          ? { ...item, quantity: item.quantity + 1 }
+          : item
+      )
+    } else {
+      newCart = [...cart, { 
+        ...cartItem, 
+        quantity: 1
+      }]
+    }
+
+    setCart(newCart)
+    localStorage.setItem('cart', JSON.stringify(newCart))
+  }
+
+  const addVariantToCart = (product: any) => {
     const existingItem = cart.find(item => item.id === product.id)
     let newCart
 
@@ -193,47 +385,13 @@ function RestaurantContent() {
             <h3 className="text-lg sm:text-xl font-semibold text-gray-800 mb-4">{category}</h3>
             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
               {categoryProducts.map((product) => (
-                <div key={product.id} className="bg-white rounded-lg shadow-md overflow-hidden">
-                  {product.image && (
-                    <img
-                      src={product.image}
-                      alt={product.name}
-                      className="w-full h-32 sm:h-40 object-cover"
-                    />
-                  )}
-                  <div className="p-3 sm:p-4">
-                    <h4 className="font-semibold text-sm sm:text-base text-gray-900 line-clamp-2">{product.name}</h4>
-                    <p className="text-gray-600 text-xs sm:text-sm mt-1 line-clamp-2">{product.description}</p>
-                    <div className="flex flex-col gap-2 mt-3">
-                      <span className="text-base sm:text-lg font-bold text-red-500">${product.price}</span>
-                      
-                      {getCartItemQuantity(product.id) > 0 ? (
-                        <div className="flex items-center justify-center space-x-2">
-                          <button
-                            onClick={() => updateQuantity(product.id, getCartItemQuantity(product.id) - 1)}
-                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 text-sm"
-                          >
-                            -
-                          </button>
-                          <span className="font-medium text-sm">{getCartItemQuantity(product.id)}</span>
-                          <button
-                            onClick={() => updateQuantity(product.id, getCartItemQuantity(product.id) + 1)}
-                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 text-sm"
-                          >
-                            +
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => addToCart(product)}
-                          className="bg-red-500 text-white px-3 py-2 rounded-lg hover:bg-red-600 text-xs sm:text-sm font-medium"
-                        >
-                          Agregar
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <ProductVariantSelector
+                  key={product.id}
+                  product={product}
+                  onAddToCart={addToCart}
+                  getCartItemQuantity={getCartItemQuantity}
+                  updateQuantity={updateQuantity}
+                />
               ))}
             </div>
           </div>
@@ -336,6 +494,17 @@ function RestaurantContent() {
           </div>
         </div>
       )}
+
+      {/* Modal de variantes */}
+      <VariantModal
+        product={selectedProduct}
+        isOpen={isVariantModalOpen}
+        onClose={() => {
+          setIsVariantModalOpen(false)
+          setSelectedProduct(null)
+        }}
+        onAddToCart={addVariantToCart}
+      />
     </div>
   )
 }
