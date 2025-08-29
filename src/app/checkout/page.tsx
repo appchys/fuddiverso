@@ -62,8 +62,6 @@ function CheckoutContent() {
 
   // Estado para manejar el modal
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false)
-  const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false)
-  const [editingClient, setEditingClient] = useState<any>(null);
 
   // Effects (also must be declared consistently)
   useEffect(() => { setIsClient(true); }, []);
@@ -77,47 +75,6 @@ function CheckoutContent() {
   const closeLocationModal = () => {
     setIsLocationModalOpen(false);
   }
-
-  const openEditProfileModal = () => {
-    if (clientFound) {
-      setEditingClient({
-        id: clientFound.id,
-        nombres: clientFound.nombres,
-        celular: customerData.phone
-      })
-      setIsEditProfileModalOpen(true)
-    }
-  }
-
-  const closeEditProfileModal = () => {
-    setIsEditProfileModalOpen(false)
-    setEditingClient(null)
-  }
-
-  const handleUpdateProfile = async () => {
-    if (!editingClient) return
-    
-    try {
-      // Aquí implementarías la actualización en la base de datos
-      // await updateClient(editingClient.id, editingClient)
-      
-      // Actualizar el estado local
-      setClientFound(prev => prev ? {
-        ...prev,
-        nombres: editingClient.nombres
-      } : null)
-      
-      setCustomerData(prev => ({
-        ...prev,
-        name: editingClient.nombres,
-        phone: editingClient.celular
-      }))
-      
-      closeEditProfileModal()
-    } catch (error) {
-      console.error('Error updating profile:', error)
-    }
-  };
 
   // Función hoisted colocada antes del efecto que la usa
   async function loadBusinessData(businessId: string) {
@@ -605,15 +562,6 @@ function CheckoutContent() {
                               </div>
                             </div>
                             <div className="flex items-center space-x-2">
-                              <button
-                                onClick={openEditProfileModal}
-                                className="inline-flex items-center px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded hover:bg-green-200 transition-colors"
-                              >
-                                <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                </svg>
-                                Editar
-                              </button>
                               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                 <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
                                   <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -1035,79 +983,6 @@ function CheckoutContent() {
             )}
           </div>
         </div>
-
-        {/* Modal para editar perfil del cliente */}
-        {isEditProfileModalOpen && editingClient && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-lg w-full max-w-md mx-4">
-              <div className="p-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-lg font-bold text-gray-900">Editar Perfil</h2>
-                  <button
-                    onClick={closeEditProfileModal}
-                    className="text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Nombre Completo
-                    </label>
-                    <input
-                      type="text"
-                      value={editingClient.nombres}
-                      onChange={(e) => setEditingClient({
-                        ...editingClient,
-                        nombres: e.target.value
-                      })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                      placeholder="Nombre completo"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Número de Celular
-                    </label>
-                    <input
-                      type="tel"
-                      value={editingClient.celular}
-                      onChange={(e) => setEditingClient({
-                        ...editingClient,
-                        celular: e.target.value
-                      })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                      placeholder="0999999999"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Formatos válidos: +593959036708, 0959036708
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex space-x-3 mt-6">
-                  <button
-                    onClick={closeEditProfileModal}
-                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={handleUpdateProfile}
-                    className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-                  >
-                    Guardar Cambios
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Modal para mostrar ubicaciones registradas - Mobile Optimized */}
         {isLocationModalOpen && (

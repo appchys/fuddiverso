@@ -10,6 +10,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
+  const [isBusinessLoggedIn, setIsBusinessLoggedIn] = useState(false)
 
   const categories = [
     'all',
@@ -27,6 +28,11 @@ export default function HomePage() {
 
   useEffect(() => {
     loadBusinesses()
+    // Verificar si hay un negocio logueado
+    if (typeof window !== 'undefined') {
+      const businessId = window.localStorage.getItem('businessId')
+      setIsBusinessLoggedIn(!!businessId)
+    }
   }, [])
 
   const loadBusinesses = async () => {
@@ -69,16 +75,13 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-30">
+      <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col sm:flex-row justify-between items-center py-4 gap-4">
             <div className="flex flex-col sm:flex-row items-center text-center sm:text-left">
               <Link href="/" className="text-2xl sm:text-3xl font-bold text-orange-500">
                 Fuddiverso
               </Link>
-              <span className="sm:ml-2 text-xs sm:text-sm text-gray-600">
-                Delivery de comida en Ecuador
-              </span>
             </div>
             
             <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-4">
@@ -89,10 +92,13 @@ export default function HomePage() {
                 Registra tu Negocio
               </Link>
               <Link
-                href="/business/login"
-                className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors text-sm sm:text-base"
+                href={isBusinessLoggedIn ? "/business/dashboard" : "/business/login"}
+                className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors text-sm sm:text-base flex items-center gap-2"
               >
-                Acceso Negocios
+                <i className="bi bi-shop text-lg"></i>
+                <span className="hidden sm:inline">
+                  {isBusinessLoggedIn ? 'Mi Dashboard' : 'Acceso Negocios'}
+                </span>
               </Link>
             </div>
           </div>
@@ -282,7 +288,7 @@ export default function HomePage() {
                               </svg>
                               <span>{business.phone}</span>
                             </div>
-                            <span className="text-xs font-medium text-green-600">Envío $2.00</span>
+                            <span className="text-xs font-medium text-green-600">Envío $1.00</span>
                           </div>
                         </div>
                       </div>
