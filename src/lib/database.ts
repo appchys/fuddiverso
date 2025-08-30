@@ -210,6 +210,141 @@ export async function updateBusiness(businessId: string, data: Partial<Business>
   }
 }
 
+// Funciones para administradores de negocios
+export async function addBusinessAdministrator(
+  businessId: string, 
+  adminEmail: string, 
+  role: 'admin' | 'manager',
+  permissions: any,
+  addedByUid: string
+) {
+  try {
+    // Crear el nuevo administrador sin serverTimestamp
+    const newAdmin = {
+      uid: '', // Se necesitaría obtener el UID del email
+      email: adminEmail,
+      role,
+      addedAt: new Date(), // Usar Date en lugar de serverTimestamp
+      addedBy: addedByUid,
+      permissions
+    }
+    
+    const businessRef = doc(db, 'businesses', businessId)
+    const businessDoc = await getDoc(businessRef)
+    
+    if (!businessDoc.exists()) {
+      throw new Error('Negocio no encontrado')
+    }
+    
+    const businessData = businessDoc.data() as Business
+    const currentAdmins = businessData.administrators || []
+    
+    // Verificar si el admin ya existe
+    const existingAdmin = currentAdmins.find(admin => admin.email === adminEmail)
+    if (existingAdmin) {
+      throw new Error('Este usuario ya es administrador del negocio')
+    }
+    
+    // Agregar el nuevo administrador
+    const updatedAdmins = [...currentAdmins, newAdmin]
+    await updateDoc(businessRef, { 
+      administrators: updatedAdmins,
+      updatedAt: serverTimestamp() // Solo usar serverTimestamp en campos top-level
+    })
+    
+    return true
+  } catch (error) {
+    console.error('Error adding administrator:', error)
+    throw error
+  }
+}
+
+export async function removeBusinessAdministrator(businessId: string, adminEmail: string) {
+  try {
+    const businessRef = doc(db, 'businesses', businessId)
+    const businessDoc = await getDoc(businessRef)
+    
+    if (!businessDoc.exists()) {
+      throw new Error('Negocio no encontrado')
+    }
+    
+    const businessData = businessDoc.data() as Business
+    const currentAdmins = businessData.administrators || []
+    
+    // Filtrar el administrador a remover
+    const updatedAdmins = currentAdmins.filter(admin => admin.email !== adminEmail)
+    await updateDoc(businessRef, { administrators: updatedAdmins })
+    
+    return true
+  } catch (error) {
+    console.error('Error removing administrator:', error)
+    throw error
+  }
+}
+
+export async function updateAdministratorPermissions(
+  businessId: string, 
+  adminEmail: string, 
+  newPermissions: any
+) {
+  try {
+    const businessRef = doc(db, 'businesses', businessId)
+    const businessDoc = await getDoc(businessRef)
+    
+    if (!businessDoc.exists()) {
+      throw new Error('Negocio no encontrado')
+    }
+    
+    const businessData = businessDoc.data() as Business
+    const currentAdmins = businessData.administrators || []
+    
+    // Actualizar permisos del administrador
+    const updatedAdmins = currentAdmins.map(admin => 
+      admin.email === adminEmail 
+        ? { ...admin, permissions: newPermissions }
+        : admin
+    )
+    
+    await updateDoc(businessRef, { administrators: updatedAdmins })
+    
+    return true
+  } catch (error) {
+    console.error('Error updating permissions:', error)
+    throw error
+  }
+}
+
+export async function transferBusinessOwnership(businessId: string, newOwnerEmail: string, currentOwnerUid: string) {
+  try {
+    // Esta función requeriría verificaciones adicionales de seguridad
+    const businessRef = doc(db, 'businesses', businessId)
+    const businessDoc = await getDoc(businessRef)
+    
+    if (!businessDoc.exists()) {
+      throw new Error('Negocio no encontrado')
+    }
+    
+    const businessData = businessDoc.data() as Business
+    
+    // Verificar que el usuario actual es el propietario
+    if (businessData.ownerId !== currentOwnerUid) {
+      throw new Error('Solo el propietario puede transferir el negocio')
+    }
+    
+    // Aquí se necesitaría obtener el UID del nuevo propietario desde su email
+    // Por ahora solo actualizamos el email hasta implementar la búsqueda de usuarios
+    await updateDoc(businessRef, { 
+      email: newOwnerEmail,
+      updatedAt: serverTimestamp()
+    })
+    
+    return true
+  } catch (error) {
+    console.error('Error transferring ownership:', error)
+    throw error
+  }
+}
+
 // Funciones para Productos
 export async function createProduct(productData: Omit<Product, 'id' | 'createdAt'>) {
   try {
@@ -733,6 +868,52 @@ export async function createClient(clientData: { celular: string; nombres: strin
     };
   } catch (error) {
     console.error('❌ Error creating client:', error);
+    throw error;
+  }
+}
+
+// Función para obtener todas las tiendas de un usuario
+export async function getBusinessesByOwner(ownerId: string): Promise<Business[]> {
+  try {
+    console.log('🔍 Getting businesses for owner ID:', ownerId);
+
+    const q = query(
+      collection(db, 'businesses'),
+      where('ownerId', '==', ownerId),
+      orderBy('createdAt', 'desc')
+    );
+
+    const querySnapshot = await getDocs(q);
+    const businesses: Business[] = [];
+
+    querySnapshot.forEach((doc) => {
+      const businessData = doc.data();
+      businesses.push({
+        id: doc.id,
+        name: businessData.name || '',
+        username: businessData.username || '',
+        description: businessData.description || '',
+        address: businessData.address || '',
+        phone: businessData.phone || '',
+        email: businessData.email || '',
+        ownerId: businessData.ownerId || '',
+        image: businessData.image || '',
+        coverImage: businessData.coverImage || '',
+        categories: businessData.categories || [],
+        mapLocation: businessData.mapLocation || { lat: 0, lng: 0 },
+        references: businessData.references || '',
+        bankAccount: businessData.bankAccount || undefined,
+        schedule: businessData.schedule || {},
+        isActive: businessData.isActive !== false,
+        createdAt: businessData.createdAt?.toDate() || new Date(),
+        updatedAt: businessData.updatedAt?.toDate() || new Date()
+      });
+    });
+
+    console.log(`✅ Found ${businesses.length} businesses for owner:`, businesses);
+    return businesses;
+  } catch (error) {
+    console.error('❌ Error getting businesses by owner:', error);
     throw error;
   }
 }

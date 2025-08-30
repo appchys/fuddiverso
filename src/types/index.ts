@@ -7,7 +7,9 @@ export interface Business {
   phone: string // Formato ecuatoriano: 09XXXXXXXX (10 dígitos)
   email: string
   ownerId?: string // UID del usuario propietario en Firebase Auth
-  image?: string
+  administrators?: BusinessAdministrator[] // Lista de administradores
+  image?: string // Imagen de perfil/logo de la tienda
+  coverImage?: string // Imagen de portada de la tienda
   categories?: string[] // Categorías personalizadas del negocio
   mapLocation: {
     lat: number
@@ -30,6 +32,22 @@ export interface Business {
   isActive: boolean
   createdAt: Date
   updatedAt: Date
+}
+
+export interface BusinessAdministrator {
+  uid: string // UID del usuario en Firebase Auth
+  email: string
+  name?: string
+  role: 'owner' | 'admin' | 'manager' // Niveles de permisos
+  addedAt: Date
+  addedBy: string // UID de quien lo agregó
+  permissions: {
+    manageProducts: boolean
+    manageOrders: boolean
+    manageAdmins: boolean
+    viewReports: boolean
+    editBusiness: boolean
+  }
 }
 
 export interface ClientLocation {

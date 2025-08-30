@@ -41,13 +41,15 @@ export default function AddProductPage() {
       }
       
       try {
-        const business = await getBusinessByOwner(user.uid)
-        if (!business) {
-          setErrors({ submit: 'No tienes un negocio registrado. Por favor, registra tu negocio primero.' })
+        // Obtener businessId del localStorage (desde el dashboard)
+        const storedBusinessId = localStorage.getItem('currentBusinessId')
+        
+        if (!storedBusinessId) {
+          setErrors({ submit: 'No se ha seleccionado ningún negocio. Por favor, ve al dashboard primero.' })
           return
         }
         
-        const businessCategories = await getBusinessCategories(business.id)
+        const businessCategories = await getBusinessCategories(storedBusinessId)
         setCategories(businessCategories)
       } catch (error: any) {
         console.error('Error loading categories:', error)
@@ -76,14 +78,15 @@ export default function AddProductPage() {
         return
       }
       
-      // Obtener el negocio del usuario actual
-      const business = await getBusinessByOwner(user.uid)
-      if (!business) {
-        setErrors({ submit: 'No tienes un negocio registrado. Por favor, registra tu negocio primero.' })
+      // Obtener businessId del localStorage (desde el dashboard)
+      const storedBusinessId = localStorage.getItem('currentBusinessId')
+      
+      if (!storedBusinessId) {
+        setErrors({ submit: 'No se ha seleccionado ningún negocio. Por favor, ve al dashboard primero.' })
         return
       }
       
-      await addCategoryToBusiness(business.id, newCategory.trim())
+      await addCategoryToBusiness(storedBusinessId, newCategory.trim())
       setCategories(prev => [...prev, newCategory.trim()])
       setFormData(prev => ({ ...prev, category: newCategory.trim() }))
       setNewCategory('')
@@ -179,10 +182,11 @@ export default function AddProductPage() {
     setLoading(true)
 
     try {
-      // Obtener el negocio del usuario actual
-      const business = await getBusinessByOwner(user.uid)
-      if (!business) {
-        setErrors({ submit: 'No se encontró un negocio asociado a tu cuenta.' })
+      // Obtener businessId del localStorage (desde el dashboard)
+      const storedBusinessId = localStorage.getItem('currentBusinessId')
+      
+      if (!storedBusinessId) {
+        setErrors({ submit: 'No se ha seleccionado ningún negocio. Por favor, ve al dashboard primero.' })
         setLoading(false)
         return
       }
@@ -197,7 +201,7 @@ export default function AddProductPage() {
 
       // Crear producto en Firebase
       await createProduct({
-        businessId: business.id,
+        businessId: storedBusinessId,
         name: formData.name,
         description: formData.description,
         price: Number(formData.price),
