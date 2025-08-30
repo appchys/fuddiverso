@@ -19,7 +19,76 @@ declare global {
   interface Window {
     google: any
     initMap: () => void
+    googleMapsLoading?: boolean
+    googleMapsLoaded?: boolean
   }
+}
+
+// Global state para controlar la carga de Google Maps
+let isGoogleMapsLoading = false
+let isGoogleMapsLoaded = false
+const loadingCallbacks: (() => void)[] = []
+
+// Función para cargar Google Maps API una sola vez
+const loadGoogleMapsAPI = (): Promise<void> => {
+  return new Promise((resolve) => {
+    // Si ya está cargado, resolver inmediatamente
+    if (window.google && window.google.maps) {
+      isGoogleMapsLoaded = true
+      resolve()
+      return
+    }
+
+    // Si ya se está cargando, agregar callback y esperar
+    if (isGoogleMapsLoading) {
+      loadingCallbacks.push(resolve)
+      return
+    }
+
+    // Marcar como cargando
+    isGoogleMapsLoading = true
+
+    // Verificar si el script ya existe
+    const existingScript = document.querySelector(`script[src*="maps.googleapis.com"]`)
+    if (existingScript) {
+      // Si el script ya existe, esperar a que cargue
+      const checkLoaded = () => {
+        if (window.google && window.google.maps) {
+          isGoogleMapsLoaded = true
+          isGoogleMapsLoading = false
+          resolve()
+          loadingCallbacks.forEach(callback => callback())
+          loadingCallbacks.length = 0
+        } else {
+          setTimeout(checkLoaded, 100)
+        }
+      }
+      checkLoaded()
+      return
+    }
+
+    // Crear nuevo script
+    const script = document.createElement('script')
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places`
+    script.async = true
+    script.defer = true
+    
+    script.onload = () => {
+      isGoogleMapsLoaded = true
+      isGoogleMapsLoading = false
+      resolve()
+      loadingCallbacks.forEach(callback => callback())
+      loadingCallbacks.length = 0
+    }
+    
+    script.onerror = () => {
+      isGoogleMapsLoading = false
+      console.error('Error loading Google Maps API')
+      resolve() // Resolver de todas formas para evitar bloqueos
+    }
+    
+    document.head.appendChild(script)
+  })
 }
 
 export function GoogleMap({
@@ -37,25 +106,11 @@ export function GoogleMap({
   const [markerInstance, setMarkerInstance] = useState<any>(null)
   const [isLoaded, setIsLoaded] = useState(false)
 
-  // Cargar Google Maps API
+  // Cargar Google Maps API una sola vez
   useEffect(() => {
-    if (window.google) {
+    loadGoogleMapsAPI().then(() => {
       setIsLoaded(true)
-      return
-    }
-
-    const script = document.createElement('script')
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places`
-    script.async = true
-    script.defer = true
-    script.onload = () => setIsLoaded(true)
-    document.head.appendChild(script)
-
-    return () => {
-      if (script.parentNode) {
-        script.parentNode.removeChild(script)
-      }
-    }
+    })
   }, [])
 
   // Inicializar mapa

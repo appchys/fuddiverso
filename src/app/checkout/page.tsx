@@ -7,6 +7,47 @@ import { validateEcuadorianPhone, normalizeEcuadorianPhone, validateAndNormalize
 import { createOrder, getBusiness, searchClientByPhone, createClient, FirestoreClient, getClientLocations, ClientLocation } from '@/lib/database'
 import { Business } from '@/types'
 
+// Componente para mostrar mapa pequeño de ubicación
+function LocationMap({ latlong, height = "96px" }: { latlong: string; height?: string }) {
+  // Parsear las coordenadas del formato "-1.874907, -79.979742"
+  const parseCoordinates = (coordString: string) => {
+    try {
+      const [lat, lng] = coordString.split(',').map(coord => parseFloat(coord.trim()));
+      if (isNaN(lat) || isNaN(lng)) {
+        return null;
+      }
+      return { lat, lng };
+    } catch (error) {
+      console.error('Error parsing coordinates:', error);
+      return null;
+    }
+  };
+
+  const coordinates = parseCoordinates(latlong);
+
+  if (!coordinates) {
+    return (
+      <div className={`w-full bg-gray-100 rounded-lg flex items-center justify-center`} style={{ height }}>
+        <span className="text-gray-500 text-xs">📍 Coordenadas inválidas</span>
+      </div>
+    );
+  }
+
+  // Usar Google Static Maps API para evitar cargas múltiples de la API de Maps
+  const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${coordinates.lat},${coordinates.lng}&zoom=16&size=400x200&maptype=roadmap&markers=color:red%7C${coordinates.lat},${coordinates.lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
+
+  return (
+    <div className={`w-full rounded-lg overflow-hidden border border-gray-200 shadow-sm relative`} style={{ height }}>
+      <img 
+        src={staticMapUrl}
+        alt={`Mapa de ubicación ${coordinates.lat}, ${coordinates.lng}`}
+        className="w-full h-full object-cover"
+        style={{ height }}
+      />
+    </div>
+  );
+}
+
 export default function CheckoutPage() {
   return (
     <Suspense fallback={
@@ -203,7 +244,7 @@ function CheckoutContent() {
     setDeliveryData(prev => ({
       ...prev,
       address: location.referencia,
-      references: `${location.sector} - ${location.ubicacion}`
+      references: `${location.sector} - ${location.latlong}`
     }));
   }
 
@@ -659,7 +700,7 @@ function CheckoutContent() {
                                   {selectedLocation && (
                                     <>
                                       <div className="text-xs text-gray-600 mb-1">
-                                        🗺️ Coordenadas: {selectedLocation.ubicacion}
+                                        🗺️ Coordenadas: {selectedLocation.latlong}
                                       </div>
                                       <div className="text-xs text-gray-500">
                                         🏘️ Sector: {selectedLocation.sector} | 💰 Tarifa: ${selectedLocation.tarifa}
@@ -687,6 +728,19 @@ function CheckoutContent() {
                                   </svg>
                                 </button>
                               </div>
+                              
+                              {/* Mapa de la ubicación seleccionada */}
+                              {selectedLocation && (
+                                <div className="mt-4 p-3 bg-white rounded-lg border border-gray-200">
+                                  <div className="text-sm font-medium text-gray-700 mb-3 flex items-center">
+                                    🗺️ Ubicación en el mapa
+                                  </div>
+                                  <LocationMap latlong={selectedLocation.latlong} height="180px" />
+                                  <div className="mt-2 text-xs text-gray-500 text-center">
+                                    Zoom: 📍 {selectedLocation.sector}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                           <div className="text-sm text-gray-600 mb-3">
@@ -999,13 +1053,13 @@ function CheckoutContent() {
                   </svg>
                 </button>
               </div>
-              <div className="space-y-3 overflow-y-auto flex-1 -mx-2 px-2">
+              <div className="space-y-4 overflow-y-auto flex-1 -mx-2 px-2">
                 {clientLocations.map((location) => (
                   <div
                     key={location.id}
-                    className={`p-3 sm:p-4 border rounded-lg cursor-pointer transition-colors touch-manipulation ${
+                    className={`border rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md ${
                       selectedLocation?.id === location.id
-                        ? 'border-red-500 bg-red-50'
+                        ? 'border-red-500 bg-red-50 shadow-md'
                         : 'border-gray-300 hover:bg-gray-50 active:bg-gray-100'
                     }`}
                     onClick={() => {
@@ -1013,21 +1067,29 @@ function CheckoutContent() {
                       closeLocationModal();
                     }}
                   >
-                    <div className="font-medium text-sm mb-2">
-                      📍 {location.referencia}
+                    {/* Mapa de la ubicación */}
+                    <div className="p-3 pb-0">
+                      <LocationMap latlong={location.latlong} height="100px" />
                     </div>
-                    <div className="text-xs text-gray-600 mb-2">
-                      🗺️ Coordenadas: {location.ubicacion}
-                    </div>
-                    <div className="text-xs text-gray-500 flex flex-wrap gap-3">
-                      <span>🏘️ {location.sector}</span>
-                      <span>💰 Tarifa: ${location.tarifa}</span>
-                    </div>
-                    {selectedLocation?.id === location.id && (
-                      <div className="mt-2 text-xs text-red-600 font-medium">
-                        ✓ Seleccionada
+                    
+                    {/* Información de la ubicación */}
+                    <div className="p-3">
+                      <div className="font-medium text-sm mb-2 text-gray-900">
+                        📍 {location.referencia}
                       </div>
-                    )}
+                      <div className="text-xs text-gray-600 mb-2">
+                        🗺️ {location.latlong}
+                      </div>
+                      <div className="text-xs text-gray-500 flex flex-wrap gap-3 mb-2">
+                        <span>🏘️ {location.sector}</span>
+                        <span>💰 Tarifa: ${location.tarifa}</span>
+                      </div>
+                      {selectedLocation?.id === location.id && (
+                        <div className="text-xs text-red-600 font-medium bg-red-100 px-2 py-1 rounded-full inline-block">
+                          ✓ Ubicación Seleccionada
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

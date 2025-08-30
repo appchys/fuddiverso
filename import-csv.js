@@ -52,6 +52,12 @@ async function importCSV() {
       const batch = db.batch();
 
       rows.forEach(({ id, data }) => {
+        // Validar que el ID sea válido
+        if (!id || id.trim() === '' || id.includes(',')) {
+          console.warn(`Fila omitida debido a un ID inválido: ${id}`);
+          return;
+        }
+
         const ubicacionRef = ubicacionesCollection.doc(id);
         batch.set(ubicacionRef, data);
       });

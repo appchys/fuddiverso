@@ -56,7 +56,7 @@ export interface ClientLocation {
   referencia: string
   sector: string
   tarifa: string
-  ubicacion: string
+  latlong: string
 }
 
 export interface ProductVariant {

@@ -725,7 +725,7 @@ export interface ClientLocation {
   referencia: string;
   sector: string;
   tarifa: string;
-  ubicacion: string;
+  latlong: string;
 }
 
 // Nueva función para obtener un negocio por su username
@@ -797,7 +797,7 @@ export async function getClientLocations(clientId: string): Promise<ClientLocati
         referencia: locationData.referencia || '',
         sector: locationData.sector || '',
         tarifa: locationData.tarifa || '',
-        ubicacion: locationData.ubicacion || ''
+        latlong: locationData.latlong || ''
       });
     });
 
