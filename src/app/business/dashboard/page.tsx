@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus } from '@/lib/database'
+import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct } from '@/lib/database'
 import { Business, Product, Order } from '@/types'
 
 export default function BusinessDashboard() {
@@ -54,6 +54,28 @@ export default function BusinessDashboard() {
       ))
     } catch (error) {
       console.error('Error updating order status:', error)
+    }
+  }
+
+  const handleToggleAvailability = async (productId: string, currentAvailability: boolean) => {
+    try {
+      await updateProduct(productId, { isAvailable: !currentAvailability })
+      setProducts(prev => prev.map(product => 
+        product.id === productId ? { ...product, isAvailable: !currentAvailability } : product
+      ))
+    } catch (error) {
+      console.error('Error updating product availability:', error)
+    }
+  }
+
+  const handleDeleteProduct = async (productId: string) => {
+    if (window.confirm('¿Estás seguro de que quieres eliminar este producto?')) {
+      try {
+        await deleteProduct(productId)
+        setProducts(prev => prev.filter(product => product.id !== productId))
+      } catch (error) {
+        console.error('Error deleting product:', error)
+      }
     }
   }
 
@@ -150,19 +172,20 @@ export default function BusinessDashboard() {
             {order.customer?.name || 'Cliente sin nombre'}
           </h3>
           <p className="text-gray-600 text-sm mb-1">
-            📞 {order.customer?.phone || 'Sin teléfono'}
+            <i className="bi bi-telephone me-1"></i>{order.customer?.phone || 'Sin teléfono'}
           </p>
           <p className="text-gray-600 text-sm mb-2">
-            {order.delivery?.type === 'delivery' ? '🚚 Entrega a domicilio' : '🏪 Recoger en tienda'}
+            <i className={`bi ${order.delivery?.type === 'delivery' ? 'bi-truck' : 'bi-shop'} me-1`}></i>
+            {order.delivery?.type === 'delivery' ? 'Entrega a domicilio' : 'Recoger en tienda'}
             {order.delivery?.references && (
               <span className="block text-xs text-gray-500 mt-1">
-                📍 {order.delivery.references}
+                <i className="bi bi-geo-alt me-1"></i>{order.delivery.references}
               </span>
             )}
           </p>
           {isToday && (
             <p className="text-sm font-medium text-orange-600">
-              ⏰ {formatTime(order.timing?.scheduledTime || order.createdAt)}
+              <i className="bi bi-clock me-1"></i>{formatTime(order.timing?.scheduledTime || order.createdAt)}
             </p>
           )}
           {!isToday && (
@@ -296,7 +319,7 @@ export default function BusinessDashboard() {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              📋 Pedidos ({orders.length})
+              <i className="bi bi-clipboard-check me-2"></i>Pedidos ({orders.length})
             </button>
             <button
               onClick={() => setActiveTab('products')}
@@ -306,7 +329,7 @@ export default function BusinessDashboard() {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              🍕 Productos ({products.length})
+              <i className="bi bi-box-seam me-2"></i>Productos ({products.length})
             </button>
             <button
               onClick={() => setActiveTab('profile')}
@@ -316,7 +339,7 @@ export default function BusinessDashboard() {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              🏪 Perfil
+              <i className="bi bi-shop me-2"></i>Perfil
             </button>
           </nav>
         </div>
@@ -332,7 +355,9 @@ export default function BusinessDashboard() {
                   {/* Pedidos de Hoy */}
                   <div>
                     <div className="flex items-center gap-3 mb-6">
-                      <h2 className="text-2xl font-bold text-gray-900">🚀 Pedidos de Hoy</h2>
+                      <h2 className="text-2xl font-bold text-gray-900">
+                        <i className="bi bi-calendar-check me-2"></i>Pedidos de Hoy
+                      </h2>
                       <span className="bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm font-medium">
                         {todayOrders.length} pedidos
                       </span>
@@ -357,7 +382,9 @@ export default function BusinessDashboard() {
                   {upcomingOrders.length > 0 && (
                     <div>
                       <div className="flex items-center gap-3 mb-6">
-                        <h2 className="text-2xl font-bold text-gray-900">⏰ Pedidos Próximos</h2>
+                        <h2 className="text-2xl font-bold text-gray-900">
+                          <i className="bi bi-clock me-2"></i>Pedidos Próximos
+                        </h2>
                         <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
                           {upcomingOrders.length} pedidos
                         </span>
@@ -375,7 +402,9 @@ export default function BusinessDashboard() {
                   {pastOrders.length > 0 && (
                     <div>
                       <div className="flex items-center gap-3 mb-6">
-                        <h2 className="text-2xl font-bold text-gray-900">📚 Historial de Pedidos</h2>
+                        <h2 className="text-2xl font-bold text-gray-900">
+                          <i className="bi bi-journal-text me-2"></i>Historial de Pedidos
+                        </h2>
                         <span className="bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">
                           {pastOrders.length} pedidos
                         </span>
@@ -404,58 +433,113 @@ export default function BusinessDashboard() {
         {activeTab === 'products' && (
           <div>
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">🍕 Mis Productos</h2>
+              <h2 className="text-2xl font-bold text-gray-900">
+                <i className="bi bi-box-seam me-2"></i>Mis Productos
+              </h2>
               <Link
                 href="/business/products/add"
                 className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
               >
-                + Agregar Producto
+                <i className="bi bi-plus-lg me-2"></i>Agregar Producto
               </Link>
             </div>
 
             {products.length === 0 ? (
               <div className="text-center py-12">
-                <div className="text-6xl mb-4">🍽️</div>
+                <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
+                  <i className="bi bi-box-seam text-gray-400 text-2xl"></i>
+                </div>
                 <p className="text-gray-600 mb-4 text-lg">Aún no tienes productos registrados</p>
                 <Link
                   href="/business/products/add"
                   className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition-colors"
                 >
-                  Agregar Primer Producto
+                  <i className="bi bi-plus-lg me-2"></i>Agregar Primer Producto
                 </Link>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {products.map((product) => (
                   <div key={product.id} className="bg-white rounded-lg shadow-md overflow-hidden">
-                    {product.image && (
-                      <img
-                        src={product.image}
-                        alt={product.name}
-                        className="w-full h-48 object-cover"
-                      />
-                    )}
+                    {/* Imagen o espacio gris */}
+                    <div className="w-full h-48 bg-gray-200 flex items-center justify-center">
+                      {product.image ? (
+                        <img
+                          src={product.image}
+                          alt={product.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <i className="bi bi-image text-gray-400 text-4xl"></i>
+                      )}
+                    </div>
+                    
                     <div className="p-4">
-                      <h3 className="font-semibold text-lg text-gray-900 mb-2">
-                        {product.name}
-                      </h3>
-                      <p className="text-gray-600 text-sm mb-2">{product.description}</p>
-                      <div className="flex justify-between items-center">
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="font-semibold text-lg text-gray-900 flex-1">
+                          {product.name}
+                        </h3>
+                        <div className="flex space-x-1 ml-2">
+                          {/* Botón Editar */}
+                          <Link
+                            href={`/business/products/edit/${product.id}`}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                            title="Editar producto"
+                          >
+                            <i className="bi bi-pencil text-sm"></i>
+                          </Link>
+                          
+                          {/* Botón Ocultar/Mostrar */}
+                          <button
+                            onClick={() => handleToggleAvailability(product.id, product.isAvailable)}
+                            className={`p-1.5 rounded transition-colors ${
+                              product.isAvailable
+                                ? 'text-orange-600 hover:bg-orange-50'
+                                : 'text-green-600 hover:bg-green-50'
+                            }`}
+                            title={product.isAvailable ? 'Ocultar producto' : 'Mostrar producto'}
+                          >
+                            <i className={`bi ${product.isAvailable ? 'bi-eye-slash' : 'bi-eye'} text-sm`}></i>
+                          </button>
+                          
+                          {/* Botón Eliminar */}
+                          <button
+                            onClick={() => handleDeleteProduct(product.id)}
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="Eliminar producto"
+                          >
+                            <i className="bi bi-trash text-sm"></i>
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <p className="text-gray-600 text-sm mb-3 line-clamp-2">{product.description}</p>
+                      
+                      <div className="flex justify-between items-center mb-2">
                         <span className="text-red-600 font-bold text-xl">
                           ${product.price.toFixed(2)}
                         </span>
-                        <span className={`px-2 py-1 rounded-full text-xs ${
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                           product.isAvailable
                             ? 'bg-green-100 text-green-800'
                             : 'bg-red-100 text-red-800'
                         }`}>
+                          <i className={`bi ${product.isAvailable ? 'bi-check-circle' : 'bi-x-circle'} me-1`}></i>
                           {product.isAvailable ? 'Disponible' : 'No disponible'}
                         </span>
                       </div>
-                      <div className="mt-2">
+                      
+                      <div className="flex justify-between items-center">
                         <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                          {product.category}
+                          <i className="bi bi-tag me-1"></i>{product.category}
                         </span>
+                        
+                        {/* Mostrar número de variantes si existen */}
+                        {product.variants && product.variants.length > 0 && (
+                          <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                            <i className="bi bi-collection me-1"></i>{product.variants.length} variantes
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -468,7 +552,9 @@ export default function BusinessDashboard() {
         {/* Profile Tab */}
         {activeTab === 'profile' && (
           <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">🏪 Información del Negocio</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">
+              <i className="bi bi-shop me-2"></i>Información del Negocio
+            </h2>
             
             <div className="bg-white rounded-lg shadow-md p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
