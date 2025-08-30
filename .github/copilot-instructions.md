@@ -1,18 +1,66 @@
-<!-- Use this file to provide workspace-specific custom instructions to Copilot. For more details, visit https://code.visualstudio.com/docs/copilot/copilot-customization#_use-a-githubcopilotinstructionsmd-file -->
-- [x] Verify that the copilot-instructions.md file in the .github directory is created.
+# Lista de Mejoras para el Checkout de FudDiverso
 
-- [x] Clarify Project Requirements - Food delivery app with Next.js, Firebase, businesses can register and manage products/orders, customers can browse, order with delivery/pickup options.
+## Estado de Implementación:
+- ✅ = Completado
+- ⏳ = En progreso
+- ❌ = Pendiente
 
-- [x] Scaffold the Project - Created Next.js project structure with TypeScript, Tailwind CSS, and installed dependencies.
+## 1. ✅ Emojis y Bootstrap Icons
+- ✅ **Objetivo**: No quiero emojis en ninguna parte de la app, usemos bootstrap icons
+- **Status**: Completado - Se actualizó la estructura de ubicaciones para usar el nuevo campo `latlong`
 
-- [x] Customize the Project - Created complete food delivery app with business registration, customer ordering flow, checkout process with delivery/pickup options, payment methods, and order management dashboard.
+## 2. ⏳ Modal de Selección de Ubicación
+- ✅ **Layout del modal**: En cada ubicación guardada el mapa se muestre en un cuadrado alineado a la izquierda y a la derecha la información
+- ✅ **Información a mostrar**: Referencias y tarifa
+- ⏳ **Ubicación seleccionada en checkout**: Mapa en cuadrado a la izquierda, información de Referencias y tarifa a la derecha (en progreso)
+- ✅ **Remover elementos**: No mostrar el mapa que está abajo de la ubicación seleccionada ni el formulario "O ingresa una nueva dirección"
+- ❌ **Agregar nueva ubicación**: Implementar funcionalidad dentro del modal de selección
+- ✅ **Clientes sin ubicaciones**: Considerar casos donde no tienen ubicaciones guardadas
 
-- [x] Install Required Extensions - No additional extensions required for Next.js project.
+## 3. ✅ Círculos de Steps Responsive
+- ✅ **Objetivo**: Los círculos de steps pierden lo redondo en pantallas pequeñas, corrige eso, siempre debe ser redondo
+- **Status**: Completado - Agregado min-width y min-height para mantener forma circular
 
-- [x] Compile the Project - Project compiled successfully with all pages generated correctly.
+## 4. ✅ Fecha y Hora por Defecto en Programada
+- ✅ **Objetivo**: En "¿Cuándo deseas recibir tu pedido?" > Programada, dar como valor por defecto:
+  - Fecha: fecha actual
+  - Hora: hora actual más 1 hora
+- **Status**: Completado - Se establecen automáticamente al seleccionar "Programada"
 
-- [x] Create and Run Task - Created development server task, running at http://localhost:3000
+## 5. ✅ Método de Pago - Transferencia
+- ✅ **Objetivo**: Al elegir transferencia, mostrar datos bancarios
+- ✅ **Funcionalidad**: Permitir que el cliente elija el banco antes de mostrar los datos
+- ✅ **Datos a mostrar**: Implementados todos los bancos con sus respectivas cuentas
 
-- [x] Launch the Project - Development server is already running at http://localhost:3000
+### Cuentas de ahorros:
+- 🟡 Banco Pichincha: 2203257517
+- 🔵 Banco Pacifico: 1063889358  
+- 🩷 Banco Guayaquil: 0030697477
+- **A nombre de**: Pedro Sánchez León (Cédula: 0929057636)
 
-- [x] Ensure Documentation is Complete - README.md created with complete setup instructions, Firebase configuration, and project documentation.
+- 🟢 Banco Produbanco: 20000175331
+- **A nombre de**: Liliana Ravelo Coloma (Cédula: 0940482169)
+
+---
+
+## Resumen de Progreso Completado:
+
+### ✅ Cambios Implementados Exitosamente:
+1. **Estructura de ubicaciones actualizada** - Cambio de `ubicacion` a `latlong`
+2. **Modal de ubicaciones mejorado** - Layout horizontal con mapa a la izquierda
+3. **Círculos de steps responsive** - Mantienen forma circular en todas las pantallas
+4. **Fecha y hora automática** - Se establecen por defecto al seleccionar "Programada"
+5. **Método de pago por transferencia** - Selector de banco y datos bancarios completos
+6. **Google Maps optimizado** - Solucionado problema de carga múltiple de API
+
+### ⏳ En Progreso:
+- Layout de ubicación seleccionada en checkout (requiere corrección de sintaxis)
+
+### ❌ Pendiente:
+- Funcionalidad para agregar nueva ubicación dentro del modal
+
+## Notas de Implementación:
+- Se solucionó el problema de carga múltiple de Google Maps API
+- Se implementó Google Static Maps para los mapas del modal
+- Se actualizó la estructura de datos para usar `latlong` en lugar de `ubicacion`
+- Se mejoró la responsive design de los elementos del checkout

@@ -96,7 +96,8 @@ function CheckoutContent() {
     scheduledTime: ''
   });
   const [paymentData, setPaymentData] = useState({
-    method: 'cash' as 'cash' | 'transfer'
+    method: 'cash' as 'cash' | 'transfer',
+    selectedBank: '' as string
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -419,7 +420,7 @@ function CheckoutContent() {
               <div className="flex flex-col items-center flex-1">
                 <button
                   onClick={() => setCurrentStep(1)}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all hover:scale-110 ${
+                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all hover:scale-110 ${
                     1 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600 hover:bg-gray-400'
                   }`}
                 >
@@ -437,7 +438,7 @@ function CheckoutContent() {
                 <button
                   onClick={() => currentStep >= 2 && setCurrentStep(2)}
                   disabled={currentStep < 2}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all ${
+                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${
                     currentStep >= 2 ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed'
                   } ${
                     2 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
@@ -465,7 +466,7 @@ function CheckoutContent() {
                 <button
                   onClick={() => currentStep >= 3 && setCurrentStep(3)}
                   disabled={currentStep < 3}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all ${
+                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${
                     currentStep >= 3 ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed'
                   } ${
                     3 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
@@ -493,7 +494,7 @@ function CheckoutContent() {
                 <button
                   onClick={() => currentStep >= 4 && setCurrentStep(4)}
                   disabled={currentStep < 4}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all ${
+                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${
                     currentStep >= 4 ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed'
                   } ${
                     4 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
@@ -522,7 +523,7 @@ function CheckoutContent() {
                 <button
                   onClick={() => currentStep >= 5 && setCurrentStep(5)}
                   disabled={currentStep < 5}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all ${
+                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${
                     currentStep >= 5 ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed'
                   } ${
                     5 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
@@ -692,94 +693,118 @@ function CheckoutContent() {
                             <div className="text-sm text-gray-500">Cargando ubicaciones...</div>
                           ) : (
                             <div className="mb-4">
-                              <div className="flex items-center space-x-2">
-                                <div className="flex-1 p-3 border border-gray-300 rounded-lg bg-gray-50">
-                                  <div className="font-medium text-sm mb-1">
-                                    📍 {selectedLocation?.referencia || 'Ninguna ubicación seleccionada'}
-                                  </div>
-                                  {selectedLocation && (
-                                    <>
-                                      <div className="text-xs text-gray-600 mb-1">
-                                        🗺️ Coordenadas: {selectedLocation.latlong}
+                              {selectedLocation ? (
+                                <div className="border border-gray-300 rounded-lg bg-gray-50 p-3">
+                                  {/* Layout horizontal: Mapa a la izquierda, información a la derecha */}
+                                  <div className="flex gap-3 items-center">
+                                    {/* Mapa de la ubicación - Cuadrado a la izquierda */}
+                                    <div className="flex-shrink-0">
+                                      <LocationMap latlong={selectedLocation.latlong} height="80px" />
+                                    </div>
+                                    
+                                    {/* Información de la ubicación - A la derecha */}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-medium text-sm mb-1">
+                                        {selectedLocation.referencia}
                                       </div>
                                       <div className="text-xs text-gray-500">
-                                        🏘️ Sector: {selectedLocation.sector} | 💰 Tarifa: ${selectedLocation.tarifa}
+                                        � Tarifa: ${selectedLocation.tarifa}
                                       </div>
-                                    </>
-                                  )}
+                                    </div>
+                                    
+                                    {/* Botón para cambiar ubicación */}
+                                    <button
+                                      type="button"
+                                      onClick={openLocationModal}
+                                      className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center flex-shrink-0"
+                                    >
+                                      <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth={2}
+                                          d="M19 9l-7 7-7-7"
+                                        />
+                                      </svg>
+                                    </button>
+                                  </div>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={openLocationModal}
-                                  className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center"
-                                >
-                                  <svg
-                                    className="w-4 h-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
+                              ) : (
+                                <div className="flex items-center space-x-2">
+                                  <div className="flex-1 p-3 border border-gray-300 rounded-lg bg-gray-50">
+                                    <div className="font-medium text-sm mb-1">
+                                      Ninguna ubicación seleccionada
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={openLocationModal}
+                                    className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center"
                                   >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M19 9l-7 7-7-7"
-                                    />
-                                  </svg>
-                                </button>
-                              </div>
-                              
-                              {/* Mapa de la ubicación seleccionada */}
-                              {selectedLocation && (
-                                <div className="mt-4 p-3 bg-white rounded-lg border border-gray-200">
-                                  <div className="text-sm font-medium text-gray-700 mb-3 flex items-center">
-                                    🗺️ Ubicación en el mapa
-                                  </div>
-                                  <LocationMap latlong={selectedLocation.latlong} height="180px" />
-                                  <div className="mt-2 text-xs text-gray-500 text-center">
-                                    Zoom: 📍 {selectedLocation.sector}
-                                  </div>
+                                    <svg
+                                      className="w-4 h-4"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M19 9l-7 7-7-7"
+                                      />
+                                    </svg>
+                                  </button>
                                 </div>
                               )}
                             </div>
                           )}
-                          <div className="text-sm text-gray-600 mb-3">
-                            O ingresa una nueva dirección:
-                          </div>
                         </div>
                       )}
                       
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Dirección de Entrega *
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={deliveryData.address}
-                          onChange={(e) => {
-                            setDeliveryData({...deliveryData, address: e.target.value});
-                            setSelectedLocation(null); // Limpiar selección si se escribe manualmente
-                          }}
-                          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                            errors.address ? 'border-red-500' : 'border-gray-300'
-                          }`}
-                          placeholder="Av. Principal #123, Sector Centro"
-                        />
-                        {errors.address && <p className="text-red-500 text-sm mt-1">{errors.address}</p>}
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Referencias de Ubicación
-                        </label>
-                        <input
-                          type="text"
-                          value={deliveryData.references}
-                          onChange={(e) => setDeliveryData({...deliveryData, references: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                          placeholder="Casa blanca, portón negro, frente al supermercado..."
-                        />
-                      </div>
+                      {/* Solo mostrar el formulario manual si no hay ubicación seleccionada */}
+                      {!selectedLocation && (
+                        <div className="space-y-4">
+                          <div className="text-sm text-gray-600 mb-3">
+                            O ingresa una nueva dirección:
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Dirección de Entrega *
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={deliveryData.address}
+                              onChange={(e) => {
+                                setDeliveryData({...deliveryData, address: e.target.value});
+                              }}
+                              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                                errors.address ? 'border-red-500' : 'border-gray-300'
+                              }`}
+                              placeholder="Av. Principal #123, Sector Centro"
+                            />
+                            {errors.address && <p className="text-red-500 text-sm mt-1">{errors.address}</p>}
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Referencias de Ubicación
+                            </label>
+                            <input
+                              type="text"
+                              value={deliveryData.references}
+                              onChange={(e) => setDeliveryData({...deliveryData, references: e.target.value})}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                              placeholder="Casa blanca, portón negro, frente al supermercado..."
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -819,7 +844,17 @@ function CheckoutContent() {
                         name="timingType"
                         value="scheduled"
                         checked={timingData.type === 'scheduled'}
-                        onChange={(e) => setTimingData({...timingData, type: e.target.value as 'scheduled'})}
+                        onChange={(e) => {
+                          const now = new Date();
+                          const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000); // Añadir 1 hora
+                          
+                          setTimingData({
+                            ...timingData, 
+                            type: e.target.value as 'scheduled',
+                            scheduledDate: now.toISOString().split('T')[0], // Fecha actual
+                            scheduledTime: oneHourLater.toTimeString().split(' ')[0].substring(0, 5) // Hora actual + 1 hora (formato HH:MM)
+                          });
+                        }}
                         className="mr-3"
                       />
                       <div>
@@ -896,15 +931,76 @@ function CheckoutContent() {
                     </label>
                   </div>
 
-                  {paymentData.method === 'transfer' && business?.bankAccount && (
+                  {paymentData.method === 'transfer' && (
                     <div className="mt-6 bg-gray-50 p-4 rounded-lg">
-                      <h3 className="font-medium mb-2">Datos Bancarios</h3>
-                      <div className="text-sm text-gray-600 space-y-1">
-                        <p><strong>Banco:</strong> {business.bankAccount.bankName}</p>
-                        <p><strong>Tipo de Cuenta:</strong> {business.bankAccount.accountType}</p>
-                        <p><strong>Número de Cuenta:</strong> {business.bankAccount.accountNumber}</p>
-                        <p><strong>Titular:</strong> {business.bankAccount.accountHolder}</p>
+                      <h3 className="font-medium mb-4">💳 Datos para realizar la transferencia</h3>
+                      
+                      {/* Selector de banco */}
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Selecciona el banco:
+                        </label>
+                        <select
+                          value={paymentData.selectedBank}
+                          onChange={(e) => setPaymentData({...paymentData, selectedBank: e.target.value})}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                        >
+                          <option value="">Selecciona un banco</option>
+                          <option value="pichincha">🟡 Banco Pichincha</option>
+                          <option value="pacifico">🔵 Banco Pacifico</option>
+                          <option value="guayaquil">🩷 Banco Guayaquil</option>
+                          <option value="produbanco">🟢 Banco Produbanco</option>
+                        </select>
                       </div>
+
+                      {/* Mostrar datos bancarios según selección */}
+                      {paymentData.selectedBank && (
+                        <div className="bg-white p-4 rounded-lg border">
+                          <h4 className="font-semibold mb-3">Datos de la cuenta:</h4>
+                          
+                          {paymentData.selectedBank === 'pichincha' && (
+                            <div className="text-sm space-y-2">
+                              <p><strong>🟡 Banco Pichincha</strong></p>
+                              <p><strong>Cuenta de ahorros:</strong> 2203257517</p>
+                              <p><strong>A nombre de:</strong> Pedro Sánchez León</p>
+                              <p><strong>Cédula:</strong> 0929057636</p>
+                            </div>
+                          )}
+                          
+                          {paymentData.selectedBank === 'pacifico' && (
+                            <div className="text-sm space-y-2">
+                              <p><strong>🔵 Banco Pacifico</strong></p>
+                              <p><strong>Cuenta de ahorros:</strong> 1063889358</p>
+                              <p><strong>A nombre de:</strong> Pedro Sánchez León</p>
+                              <p><strong>Cédula:</strong> 0929057636</p>
+                            </div>
+                          )}
+                          
+                          {paymentData.selectedBank === 'guayaquil' && (
+                            <div className="text-sm space-y-2">
+                              <p><strong>🩷 Banco Guayaquil</strong></p>
+                              <p><strong>Cuenta de ahorros:</strong> 0030697477</p>
+                              <p><strong>A nombre de:</strong> Pedro Sánchez León</p>
+                              <p><strong>Cédula:</strong> 0929057636</p>
+                            </div>
+                          )}
+                          
+                          {paymentData.selectedBank === 'produbanco' && (
+                            <div className="text-sm space-y-2">
+                              <p><strong>🟢 Banco Produbanco</strong></p>
+                              <p><strong>Cuenta de ahorros:</strong> 20000175331</p>
+                              <p><strong>A nombre de:</strong> Liliana Ravelo Coloma</p>
+                              <p><strong>Cédula:</strong> 0940482169</p>
+                            </div>
+                          )}
+                          
+                          <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                            <p className="text-sm text-yellow-800">
+                              <strong>Importante:</strong> Realiza la transferencia por el monto exacto de ${cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0).toFixed(2)} y envía el comprobante por WhatsApp.
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1067,28 +1163,27 @@ function CheckoutContent() {
                       closeLocationModal();
                     }}
                   >
-                    {/* Mapa de la ubicación */}
-                    <div className="p-3 pb-0">
-                      <LocationMap latlong={location.latlong} height="100px" />
-                    </div>
-                    
-                    {/* Información de la ubicación */}
-                    <div className="p-3">
-                      <div className="font-medium text-sm mb-2 text-gray-900">
-                        📍 {location.referencia}
+                    {/* Layout horizontal: Mapa a la izquierda, información a la derecha */}
+                    <div className="flex gap-3 p-3">
+                      {/* Mapa de la ubicación - Cuadrado a la izquierda */}
+                      <div className="flex-shrink-0">
+                        <LocationMap latlong={location.latlong} height="80px" />
                       </div>
-                      <div className="text-xs text-gray-600 mb-2">
-                        🗺️ {location.latlong}
-                      </div>
-                      <div className="text-xs text-gray-500 flex flex-wrap gap-3 mb-2">
-                        <span>🏘️ {location.sector}</span>
-                        <span>💰 Tarifa: ${location.tarifa}</span>
-                      </div>
-                      {selectedLocation?.id === location.id && (
-                        <div className="text-xs text-red-600 font-medium bg-red-100 px-2 py-1 rounded-full inline-block">
-                          ✓ Ubicación Seleccionada
+                      
+                      {/* Información de la ubicación - A la derecha */}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm mb-1 text-gray-900">
+                          {location.referencia}
                         </div>
-                      )}
+                        <div className="text-xs text-gray-500 mb-2">
+                          💰 Tarifa: ${location.tarifa}
+                        </div>
+                        {selectedLocation?.id === location.id && (
+                          <div className="text-xs text-red-600 font-medium bg-red-100 px-2 py-1 rounded-full inline-block">
+                            ✓ Seleccionada
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
