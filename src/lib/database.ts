@@ -616,15 +616,35 @@ export async function handleGoogleRedirectResult() {
       console.log('✅ Redirect result found for user:', result.user.email);
       console.log('🆔 User UID from redirect:', result.user.uid);
       
-      // Verificar si el usuario ya tiene un negocio registrado
-      console.log('🔍 Checking for existing business...');
-      const existingBusiness = await getBusinessByOwner(result.user.uid);
-      console.log('🏢 Business check result:', existingBusiness ? 'Found' : 'Not found');
+      // Verificar acceso completo del usuario (propietario o administrador)
+      console.log('🔍 Checking user business access...');
+      const businessAccess = await getUserBusinessAccess(
+        result.user.email || '', 
+        result.user.uid
+      );
+      
+      console.log('🏢 Business access result:', {
+        owned: businessAccess.ownedBusinesses.length,
+        admin: businessAccess.adminBusinesses.length,
+        hasAccess: businessAccess.hasAccess
+      });
+      
+      // Determinar businessId preferido (primero propias, luego como admin)
+      let preferredBusinessId = null;
+      if (businessAccess.ownedBusinesses.length > 0) {
+        preferredBusinessId = businessAccess.ownedBusinesses[0].id;
+      } else if (businessAccess.adminBusinesses.length > 0) {
+        preferredBusinessId = businessAccess.adminBusinesses[0].id;
+      }
       
       return {
         user: result.user,
-        hasBusinessProfile: !!existingBusiness,
-        businessId: existingBusiness?.id
+        hasBusinessProfile: businessAccess.ownedBusinesses.length > 0,
+        isAdministrator: businessAccess.adminBusinesses.length > 0,
+        hasAccess: businessAccess.hasAccess,
+        businessId: preferredBusinessId,
+        ownedBusinesses: businessAccess.ownedBusinesses,
+        adminBusinesses: businessAccess.adminBusinesses
       }
     } else {
       console.log('ℹ️ No redirect result found');
@@ -914,6 +934,99 @@ export async function getBusinessesByOwner(ownerId: string): Promise<Business[]>
     return businesses;
   } catch (error) {
     console.error('❌ Error getting businesses by owner:', error);
+    throw error;
+  }
+}
+
+// Función para verificar si un usuario es administrador de alguna tienda
+export async function getBusinessesByAdministrator(userEmail: string): Promise<Business[]> {
+  try {
+    console.log('🔍 Checking if user is administrator:', userEmail);
+    
+    const q = query(
+      collection(db, 'businesses'),
+      where('administrators', 'array-contains-any', [
+        { email: userEmail }
+      ])
+    );
+
+    // Como array-contains-any no funciona con objetos complejos, 
+    // necesitamos obtener todas las tiendas y filtrar manualmente
+    const allBusinessesQuery = query(collection(db, 'businesses'));
+    const querySnapshot = await getDocs(allBusinessesQuery);
+    
+    const adminBusinesses: Business[] = [];
+    
+    querySnapshot.docs.forEach(doc => {
+      const businessData = doc.data();
+      const administrators = businessData.administrators || [];
+      
+      // Verificar si el usuario es administrador
+      const isAdmin = administrators.some((admin: any) => admin.email === userEmail);
+      
+      if (isAdmin) {
+        adminBusinesses.push({
+          id: doc.id,
+          name: businessData.name || '',
+          username: businessData.username || '',
+          email: businessData.email || '',
+          phone: businessData.phone || '',
+          address: businessData.address || '',
+          description: businessData.description || '',
+          image: businessData.image || '',
+          coverImage: businessData.coverImage || '',
+          categories: businessData.categories || [],
+          mapLocation: businessData.mapLocation || { lat: 0, lng: 0 },
+          references: businessData.references || '',
+          bankAccount: businessData.bankAccount || undefined,
+          schedule: businessData.schedule || {},
+          isActive: businessData.isActive !== false,
+          createdAt: businessData.createdAt?.toDate() || new Date(),
+          updatedAt: businessData.updatedAt?.toDate() || new Date(),
+          ownerId: businessData.ownerId || '',
+          administrators: administrators
+        });
+      }
+    });
+
+    console.log(`✅ Found ${adminBusinesses.length} businesses where user is administrator`);
+    return adminBusinesses;
+  } catch (error) {
+    console.error('❌ Error getting businesses by administrator:', error);
+    throw error;
+  }
+}
+
+// Función para verificar si un usuario tiene acceso a alguna tienda (como propietario o administrador)
+export async function getUserBusinessAccess(userEmail: string, userId: string): Promise<{
+  ownedBusinesses: Business[];
+  adminBusinesses: Business[];
+  hasAccess: boolean;
+}> {
+  try {
+    console.log('🔍 Checking user business access for:', userEmail, userId);
+    
+    // Verificar tiendas como propietario
+    const ownedBusinesses = await getBusinessesByOwner(userId);
+    
+    // Verificar tiendas como administrador
+    const adminBusinesses = await getBusinessesByAdministrator(userEmail);
+    
+    const hasAccess = ownedBusinesses.length > 0 || adminBusinesses.length > 0;
+    
+    console.log('✅ User business access:', {
+      owned: ownedBusinesses.length,
+      admin: adminBusinesses.length,
+      hasAccess
+    });
+    
+    return {
+      ownedBusinesses,
+      adminBusinesses,
+      hasAccess
+    };
+  } catch (error) {
+    console.error('❌ Error checking user business access:', error);
     throw error;
   }
 }

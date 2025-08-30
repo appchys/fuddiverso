@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct, getBusinessesByOwner, uploadImage, updateBusiness, addBusinessAdministrator, removeBusinessAdministrator, updateAdministratorPermissions } from '@/lib/database'
+import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct, getBusinessesByOwner, uploadImage, updateBusiness, addBusinessAdministrator, removeBusinessAdministrator, updateAdministratorPermissions, getUserBusinessAccess } from '@/lib/database'
 import { Business, Product, Order } from '@/types'
 import { auth } from '@/lib/firebase'
 
@@ -16,6 +16,7 @@ export default function BusinessDashboard() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'profile' | 'admins'>('orders')
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null) // Nuevo estado
   const [showBusinessDropdown, setShowBusinessDropdown] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [editedBusiness, setEditedBusiness] = useState<Business | null>(null)
@@ -40,43 +41,76 @@ export default function BusinessDashboard() {
     
     const loadBusinesses = async () => {
       try {
-        // Primero intentar obtener el ownerId (usuario actual)
-        const ownerId = window.localStorage.getItem('ownerId');
-        const storedBusinessId = window.localStorage.getItem('businessId');
-        
-        if (!ownerId && !storedBusinessId) {
-          console.warn('[DASHBOARD] No hay ownerId ni businessId, redirigiendo a login');
+        const user = auth.currentUser;
+        if (!user) {
+          console.warn('[DASHBOARD] No hay usuario autenticado, redirigiendo a login');
           router.push('/business/login');
           return;
         }
 
-        // Si tenemos ownerId, cargar todas las tiendas del usuario
-        if (ownerId) {
-          const userBusinesses = await getBusinessesByOwner(ownerId);
-          setBusinesses(userBusinesses);
-          
-          // Si hay tiendas, seleccionar la primera o la guardada
-          if (userBusinesses.length > 0) {
-            const businessToSelect = storedBusinessId 
-              ? userBusinesses.find(b => b.id === storedBusinessId) || userBusinesses[0]
-              : userBusinesses[0];
-            
-            setSelectedBusinessId(businessToSelect.id);
-            setBusiness(businessToSelect);
-            // Guardar en localStorage para que otras páginas puedan acceder
-            localStorage.setItem('currentBusinessId', businessToSelect.id);
-          }
-        } else if (storedBusinessId) {
-          // Fallback: cargar solo la tienda actual (modo legacy)
-          const businessData = await getBusiness(storedBusinessId);
-          if (businessData) {
-            setBusinesses([businessData]);
-            setSelectedBusinessId(businessData.id);
-            setBusiness(businessData);
-            // Guardar en localStorage para que otras páginas puedan acceder
-            localStorage.setItem('currentBusinessId', businessData.id);
+        // Obtener acceso completo del usuario (propietario o administrador)
+        const businessAccess = await getUserBusinessAccess(
+          user.email || '', 
+          user.uid
+        );
+        
+        if (!businessAccess.hasAccess) {
+          console.warn('[DASHBOARD] Usuario no tiene acceso a ninguna tienda');
+          router.push('/business/login');
+          return;
+        }
+
+        // Combinar tiendas propias y administradas
+        const allUserBusinesses = [
+          ...businessAccess.ownedBusinesses,
+          ...businessAccess.adminBusinesses
+        ];
+        
+        // Remover duplicados por si acaso
+        const uniqueBusinesses = allUserBusinesses.filter((business, index, self) =>
+          index === self.findIndex(b => b.id === business.id)
+        );
+        
+        setBusinesses(uniqueBusinesses);
+        
+        // Seleccionar tienda (preferencia: guardada > primera propia > primera administrada)
+        const storedBusinessId = window.localStorage.getItem('businessId');
+        let businessToSelect = null;
+        
+        if (storedBusinessId) {
+          businessToSelect = uniqueBusinesses.find(b => b.id === storedBusinessId);
+        }
+        
+        if (!businessToSelect) {
+          // Preferir tiendas propias sobre administradas
+          if (businessAccess.ownedBusinesses.length > 0) {
+            businessToSelect = businessAccess.ownedBusinesses[0];
+          } else {
+            businessToSelect = businessAccess.adminBusinesses[0];
           }
         }
+        
+        if (businessToSelect) {
+          setSelectedBusinessId(businessToSelect.id);
+          setBusiness(businessToSelect);
+          
+          // Determinar el rol del usuario en esta tienda
+          const isOwner = businessAccess.ownedBusinesses.some(b => b.id === businessToSelect.id);
+          if (isOwner) {
+            setUserRole('owner');
+          } else {
+            // Buscar el rol como administrador
+            const adminRole = businessToSelect.administrators?.find(
+              admin => admin.email === user.email
+            );
+            setUserRole(adminRole?.role || 'admin');
+          }
+          
+          // Guardar en localStorage para que otras páginas puedan acceder
+          localStorage.setItem('currentBusinessId', businessToSelect.id);
+          localStorage.setItem('businessId', businessToSelect.id);
+        }
+        
       } catch (error) {
         console.error('Error loading businesses:', error);
         router.push('/business/login');
@@ -117,6 +151,19 @@ export default function BusinessDashboard() {
     if (selectedBusiness) {
       setSelectedBusinessId(businessId);
       setBusiness(selectedBusiness);
+      
+      // Actualizar el rol del usuario en la nueva tienda
+      const user = auth.currentUser;
+      const isOwner = user && selectedBusiness.ownerId === user.uid;
+      if (isOwner) {
+        setUserRole('owner');
+      } else {
+        const adminRole = selectedBusiness.administrators?.find(
+          admin => admin.email === user?.email
+        );
+        setUserRole(adminRole?.role || 'admin');
+      }
+      
       // Guardar en localStorage para que otras páginas puedan acceder
       localStorage.setItem('currentBusinessId', businessId);
     }
@@ -609,9 +656,17 @@ export default function BusinessDashboard() {
                   </div>
                   
                   <div className="hidden sm:flex items-center space-x-2">
-                    <span className="text-gray-700 font-medium">
-                      {business?.name || 'Cargando...'}
-                    </span>
+                    <div className="flex flex-col">
+                      <span className="text-gray-700 font-medium">
+                        {business?.name || 'Cargando...'}
+                      </span>
+                      {userRole && (
+                        <span className="text-xs text-gray-500">
+                          {userRole === 'owner' ? 'Propietario' : 
+                           userRole === 'admin' ? 'Administrador' : 'Gerente'}
+                        </span>
+                      )}
+                    </div>
                     <i className={`bi bi-chevron-down text-gray-500 text-xs transition-transform ${
                       showBusinessDropdown ? 'rotate-180' : ''
                     }`}></i>
@@ -627,36 +682,56 @@ export default function BusinessDashboard() {
                 {showBusinessDropdown && (
                   <div className="absolute right-0 mt-2 w-64 sm:w-72 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-10">
                     {/* Tiendas existentes */}
-                    {businesses.map((biz) => (
-                      <button
-                        key={biz.id}
-                        onClick={() => handleBusinessChange(biz.id)}
-                        className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${
-                          selectedBusinessId === biz.id ? 'bg-red-50 border-r-2 border-red-500' : ''
-                        }`}
-                      >
-                        <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
-                          {biz.image ? (
-                            <img
-                              src={biz.image}
-                              alt={biz.name}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <i className="bi bi-shop text-gray-400 text-sm"></i>
+                    {businesses.map((biz) => {
+                      // Determinar el rol del usuario en esta tienda
+                      const user = auth.currentUser;
+                      const isOwner = user && biz.ownerId === user.uid;
+                      const adminRole = biz.administrators?.find(
+                        admin => admin.email === user?.email
+                      );
+                      const role = isOwner ? 'owner' : (adminRole?.role || 'admin');
+                      
+                      return (
+                        <button
+                          key={biz.id}
+                          onClick={() => handleBusinessChange(biz.id)}
+                          className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${
+                            selectedBusinessId === biz.id ? 'bg-red-50 border-r-2 border-red-500' : ''
+                          }`}
+                        >
+                          <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
+                            {biz.image ? (
+                              <img
+                                src={biz.image}
+                                alt={biz.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <i className="bi bi-shop text-gray-400 text-sm"></i>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900 truncate">{biz.name}</p>
+                            <div className="flex items-center space-x-2">
+                              <p className="text-sm text-gray-500 truncate">@{biz.username}</p>
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                role === 'owner' 
+                                  ? 'bg-red-100 text-red-700' 
+                                  : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {role === 'owner' ? 'Propietario' : 
+                                 role === 'admin' ? 'Admin' : 'Gerente'}
+                              </span>
                             </div>
+                          </div>
+                          {selectedBusinessId === biz.id && (
+                            <i className="bi bi-check-circle-fill text-red-500 flex-shrink-0"></i>
                           )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900 truncate">{biz.name}</p>
-                          <p className="text-sm text-gray-500 truncate">@{biz.username}</p>
-                        </div>
-                        {selectedBusinessId === biz.id && (
-                          <i className="bi bi-check-circle-fill text-red-500 flex-shrink-0"></i>
-                        )}
-                      </button>
-                    ))}
+                        </button>
+                      );
+                    })}
                     
                     {/* Separador */}
                     {businesses.length > 0 && (

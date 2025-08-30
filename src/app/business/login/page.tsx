@@ -24,10 +24,15 @@ export default function BusinessLogin() {
         const redirectResult = await handleGoogleRedirectResult();
         if (!isMounted) return;
         if (redirectResult?.user) {
-          if (redirectResult.hasBusinessProfile && redirectResult.businessId) {
-            localStorage.setItem("businessId", redirectResult.businessId);
+          if (redirectResult.hasAccess) {
+            // Usuario tiene acceso (propietario o administrador)
+            if (redirectResult.businessId) {
+              localStorage.setItem("businessId", redirectResult.businessId);
+              localStorage.setItem("ownerId", redirectResult.user.uid);
+            }
             router.replace("/business/dashboard");
           } else {
+            // Usuario no tiene acceso, enviar a registro
             router.replace("/business/register?google=true");
           }
         }
@@ -48,8 +53,33 @@ export default function BusinessLogin() {
     setLoading(true);
     setError("");
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      router.replace("/business/dashboard");
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Verificar acceso del usuario (propietario o administrador)
+      const { getUserBusinessAccess } = await import("@/lib/database");
+      const businessAccess = await getUserBusinessAccess(
+        userCredential.user.email || '', 
+        userCredential.user.uid
+      );
+      
+      if (businessAccess.hasAccess) {
+        // Usuario tiene acceso, configurar localStorage y redirigir
+        let businessId = null;
+        if (businessAccess.ownedBusinesses.length > 0) {
+          businessId = businessAccess.ownedBusinesses[0].id;
+        } else if (businessAccess.adminBusinesses.length > 0) {
+          businessId = businessAccess.adminBusinesses[0].id;
+        }
+        
+        if (businessId) {
+          localStorage.setItem("businessId", businessId);
+          localStorage.setItem("ownerId", userCredential.user.uid);
+        }
+        router.replace("/business/dashboard");
+      } else {
+        // Usuario no tiene acceso a ninguna tienda
+        setError("No tienes acceso a ninguna tienda. Contacta al administrador o crea una nueva tienda.");
+      }
     } catch (error: any) {
       let errorMessage = "Error al iniciar sesión. Verifica tus credenciales.";
       if (error.code === "auth/operation-not-allowed") {
@@ -78,12 +108,29 @@ export default function BusinessLogin() {
     try {
       const result = await signInWithGoogle();
       if (result && result.user) {
-        // Buscar negocio por ownerId
-        const business = await getBusinessByOwner(result.user.uid);
-        if (business) {
-          localStorage.setItem("businessId", business.id);
+        // Verificar acceso completo del usuario (propietario o administrador)
+        const { getUserBusinessAccess } = await import("@/lib/database");
+        const businessAccess = await getUserBusinessAccess(
+          result.user.email || '', 
+          result.user.uid
+        );
+        
+        if (businessAccess.hasAccess) {
+          // Usuario tiene acceso (propietario o administrador)
+          let businessId = null;
+          if (businessAccess.ownedBusinesses.length > 0) {
+            businessId = businessAccess.ownedBusinesses[0].id;
+          } else if (businessAccess.adminBusinesses.length > 0) {
+            businessId = businessAccess.adminBusinesses[0].id;
+          }
+          
+          if (businessId) {
+            localStorage.setItem("businessId", businessId);
+            localStorage.setItem("ownerId", result.user.uid);
+          }
           router.replace("/business/dashboard");
         } else {
+          // Usuario no tiene acceso, enviar a registro
           router.replace("/business/register?google=true");
         }
       } else {
