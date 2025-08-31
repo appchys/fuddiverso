@@ -7,6 +7,7 @@ import { validateEcuadorianPhone, normalizeEcuadorianPhone, validateAndNormalize
 import { createOrder, getBusiness, searchClientByPhone, createClient, FirestoreClient, getClientLocations, ClientLocation } from '@/lib/database'
 import { Business } from '@/types'
 import { GoogleMap } from '@/components/GoogleMap'
+import { useAuth } from '@/contexts/AuthContext'
 
 // Componente para mostrar mapa pequeño de ubicación
 function LocationMap({ latlong, height = "96px" }: { latlong: string; height?: string }) {
@@ -67,6 +68,7 @@ export default function CheckoutPage() {
 function CheckoutContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { user, login, isAuthenticated } = useAuth();
 
   // client-only guard state
   const [isClient, setIsClient] = useState(false);
@@ -77,12 +79,12 @@ function CheckoutContent() {
   const [business, setBusiness] = useState<Business | null>(null);
 
   const [customerData, setCustomerData] = useState({
-    name: '',
-    phone: ''
+    name: user?.nombres || '',
+    phone: user?.celular || ''
   });
   const [clientSearching, setClientSearching] = useState(false);
-  const [clientFound, setClientFound] = useState<FirestoreClient | null>(null);
-  const [showNameField, setShowNameField] = useState(false);
+  const [clientFound, setClientFound] = useState<FirestoreClient | null>(user || null);
+  const [showNameField, setShowNameField] = useState(!user);
   const [clientLocations, setClientLocations] = useState<ClientLocation[]>([]);
   const [loadingLocations, setLoadingLocations] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<ClientLocation | null>(null);
@@ -231,6 +233,8 @@ function CheckoutContent() {
       const client = await searchClientByPhone(normalizedPhone);
       if (client) {
         setClientFound(client);
+        // Auto-login del cliente
+        login(client);
         // Usar el nombre del cliente del objeto cliente
         setCustomerData(prev => ({
           ...prev,
@@ -354,7 +358,37 @@ function CheckoutContent() {
     }
 
     loadBusinessData(derivedBusinessId)
-  }, [searchParams, router])
+
+    // Si el usuario está autenticado, cargar automáticamente su información
+    if (user) {
+      setCustomerData(prev => ({
+        ...prev,
+        name: user.nombres || '',
+        phone: user.celular || ''
+      }));
+      setShowNameField(false);
+      
+      // Cargar las ubicaciones del usuario
+      const loadUserLocations = async () => {
+        setLoadingLocations(true);
+        try {
+          const locations = await getClientLocations(user.id);
+          setClientLocations(locations);
+          // Seleccionar automáticamente la primera ubicación si existe
+          if (locations.length > 0) {
+            handleSelectLocation(locations[0]);
+          }
+        } catch (error) {
+          console.error('Error loading user locations:', error);
+          setClientLocations([]);
+        } finally {
+          setLoadingLocations(false);
+        }
+      };
+      
+      loadUserLocations();
+    }
+  }, [searchParams, router, user])
 
   // Client-only guard: render nothing until mounted on client
   if (!isClient) return null;

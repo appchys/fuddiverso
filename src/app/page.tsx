@@ -4,13 +4,15 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { getAllBusinesses, searchBusinesses } from '@/lib/database'
 import { Business } from '@/types'
+import { useAuth } from '@/contexts/AuthContext'
 
 export default function HomePage() {
+  const { user } = useAuth()
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
-  const [isBusinessLoggedIn, setIsBusinessLoggedIn] = useState(false)
+  const [followedBusinesses, setFollowedBusinesses] = useState<Set<string>>(new Set())
 
   const categories = [
     'all',
@@ -28,12 +30,11 @@ export default function HomePage() {
 
   useEffect(() => {
     loadBusinesses()
-    // Verificar si hay un negocio logueado
-    if (typeof window !== 'undefined') {
-      const businessId = window.localStorage.getItem('businessId')
-      setIsBusinessLoggedIn(!!businessId)
+    // Cargar restaurantes seguidos del usuario
+    if (user) {
+      loadFollowedBusinesses()
     }
-  }, [])
+  }, [user])
 
   const loadBusinesses = async () => {
     try {
@@ -45,6 +46,41 @@ export default function HomePage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const loadFollowedBusinesses = () => {
+    // TODO: Implementar lógica para cargar restaurantes seguidos desde la base de datos
+    // Por ahora usamos localStorage como ejemplo
+    if (typeof window !== 'undefined' && user) {
+      const saved = localStorage.getItem(`followedBusinesses_${user.id}`)
+      if (saved) {
+        setFollowedBusinesses(new Set(JSON.parse(saved)))
+      }
+    }
+  }
+
+  const handleFollowToggle = (businessId: string) => {
+    if (!user) {
+      // TODO: Mostrar modal de login
+      alert('Inicia sesión para seguir restaurantes')
+      return
+    }
+
+    const newFollowed = new Set(followedBusinesses)
+    if (newFollowed.has(businessId)) {
+      newFollowed.delete(businessId)
+    } else {
+      newFollowed.add(businessId)
+    }
+    
+    setFollowedBusinesses(newFollowed)
+    
+    // Guardar en localStorage (en producción sería en la base de datos)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`followedBusinesses_${user.id}`, JSON.stringify(Array.from(newFollowed)))
+    }
+    
+    // TODO: Implementar actualización en la base de datos
   }
 
   const handleSearch = async () => {
@@ -74,96 +110,45 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm">
+      {/* Search Section - Más sutil */}
+      <section className="bg-white py-6 border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col sm:flex-row justify-between items-center py-4 gap-4">
-            <div className="flex flex-col sm:flex-row items-center text-center sm:text-left">
-              <Link href="/" className="text-2xl sm:text-3xl font-bold text-orange-500">
-                Fuddiverso
-              </Link>
-            </div>
-            
-            <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-4">
-              <Link
-                href="/business/register"
-                className="text-gray-600 hover:text-gray-900 transition-colors text-sm sm:text-base"
-              >
-                Registra tu Negocio
-              </Link>
-              <Link
-                href={isBusinessLoggedIn ? "/business/dashboard" : "/business/login"}
-                className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors text-sm sm:text-base flex items-center gap-2"
-              >
-                <i className="bi bi-shop text-lg"></i>
-                <span className="hidden sm:inline">
-                  {isBusinessLoggedIn ? 'Mi Dashboard' : 'Acceso Negocios'}
-                </span>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Hero Section - Rappi Style */}
-      <section className="bg-gradient-to-br from-orange-400 via-orange-500 to-red-500 text-white py-8 sm:py-16 relative overflow-hidden">
-        <div className="absolute inset-0 bg-black opacity-10"></div>
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl sm:text-4xl lg:text-6xl font-bold mb-4">
-              Todo lo que necesitas
-            </h1>
-            <h2 className="text-xl sm:text-2xl lg:text-3xl font-light mb-6">
-              está en <span className="font-bold">Fuddiverso</span>
-            </h2>
-            <p className="text-lg sm:text-xl mb-8 opacity-90">
-              Descubre restaurantes increíbles y recibe tu comida favorita en minutos
-            </p>
-          </div>
-          
-          {/* Search Bar - Rappi Style */}
-          <div className="max-w-2xl mx-auto">
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <div className="flex flex-col gap-4">
-                <div className="relative">
-                  <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  <input
-                    type="text"
-                    placeholder="¿Qué quieres comer hoy?"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-base"
-                  />
-                </div>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <select
-                    value={selectedCategory}
-                    onChange={(e) => handleCategoryChange(e.target.value)}
-                    className="flex-1 px-4 py-3 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 text-base"
-                  >
-                    {categories.map(category => (
-                      <option key={category} value={category}>
-                        {category === 'all' ? 'Todas las categorías' : category}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={handleSearch}
-                    className="bg-orange-500 text-white px-8 py-3 rounded-lg font-semibold hover:bg-orange-600 transition-colors text-base sm:min-w-[140px] shadow-lg"
-                  >
-                    Buscar
-                  </button>
-                </div>
+          <div className="max-w-3xl mx-auto">
+            <div className="flex flex-col gap-3">
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Buscar restaurantes o comida..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+                />
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => handleCategoryChange(e.target.value)}
+                  className="flex-1 px-3 py-2.5 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                >
+                  {categories.map(category => (
+                    <option key={category} value={category}>
+                      {category === 'all' ? 'Todas las categorías' : category}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleSearch}
+                  className="bg-orange-500 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-orange-600 transition-colors text-sm sm:min-w-[100px]"
+                >
+                  Buscar
+                </button>
               </div>
             </div>
           </div>
         </div>
-        
-        {/* Decorative Elements */}
-        <div className="absolute top-10 left-10 w-20 h-20 bg-white opacity-10 rounded-full"></div>
-        <div className="absolute bottom-10 right-10 w-32 h-32 bg-white opacity-5 rounded-full"></div>
       </section>
 
       {/* Quick Categories - Rappi Style */}
@@ -248,19 +233,39 @@ export default function HomePage() {
                           </span>
                         </div>
                         <div className="absolute top-3 right-3">
-                          <div className="bg-white/90 backdrop-blur-sm rounded-full p-1">
-                            <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
-                            </svg>
-                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault()
+                              handleFollowToggle(business.id)
+                            }}
+                            className={`p-2 rounded-full transition-all ${
+                              followedBusinesses.has(business.id)
+                                ? 'bg-orange-500 text-white'
+                                : 'bg-white/90 backdrop-blur-sm text-gray-600 hover:text-orange-500'
+                            }`}
+                            title={followedBusinesses.has(business.id) ? 'Dejar de seguir' : 'Seguir restaurante'}
+                          >
+                            {followedBusinesses.has(business.id) ? (
+                              <i className="bi bi-heart-fill text-sm"></i>
+                            ) : (
+                              <i className="bi bi-heart text-sm"></i>
+                            )}
+                          </button>
                         </div>
                       </div>
                       
                       <div className="p-4">
                         <div className="mb-3">
-                          <h3 className="text-lg font-bold text-gray-900 mb-1 line-clamp-1">
-                            {business.name}
-                          </h3>
+                          <div className="flex items-start justify-between mb-1">
+                            <h3 className="text-lg font-bold text-gray-900 line-clamp-1 flex-1">
+                              {business.name}
+                            </h3>
+                            {followedBusinesses.has(business.id) && (
+                              <span className="ml-2 bg-orange-100 text-orange-600 text-xs font-medium px-2 py-1 rounded-full">
+                                Siguiendo
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-1 mb-2">
                             <svg className="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
                               <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
