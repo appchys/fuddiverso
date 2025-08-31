@@ -9,12 +9,12 @@
 - ✅ **Objetivo**: No quiero emojis en ninguna parte de la app, usemos bootstrap icons
 - **Status**: Completado - Se actualizó la estructura de ubicaciones para usar el nuevo campo `latlong`
 
-## 2. ⏳ Modal de Selección de Ubicación
+## 2. ✅ Modal de Selección de Ubicación
 - ✅ **Layout del modal**: En cada ubicación guardada el mapa se muestre en un cuadrado alineado a la izquierda y a la derecha la información
 - ✅ **Información a mostrar**: Referencias y tarifa
-- ⏳ **Ubicación seleccionada en checkout**: Mapa en cuadrado a la izquierda, información de Referencias y tarifa a la derecha (en progreso)
+- ✅ **Ubicación seleccionada en checkout**: Mapa en cuadrado a la izquierda, información de Referencias y tarifa a la derecha
 - ✅ **Remover elementos**: No mostrar el mapa que está abajo de la ubicación seleccionada ni el formulario "O ingresa una nueva dirección"
-- ❌ **Agregar nueva ubicación**: Implementar funcionalidad dentro del modal de selección
+- ✅ **Agregar nueva ubicación**: Implementar funcionalidad dentro del modal de selección
 - ✅ **Clientes sin ubicaciones**: Considerar casos donde no tienen ubicaciones guardadas
 
 ## 3. ✅ Círculos de Steps Responsive
@@ -52,12 +52,15 @@
 4. **Fecha y hora automática** - Se establecen por defecto al seleccionar "Programada"
 5. **Método de pago por transferencia** - Selector de banco y datos bancarios completos
 6. **Google Maps optimizado** - Solucionado problema de carga múltiple de API
+7. **Funcionalidad agregar ubicación** - Modal interactivo con mapa draggable y geolocalización
+8. **Responsive design mejorado** - Mapas cuadrados en móviles
+9. **Cálculo de envío** - Tarifa incluida en el resumen del pedido
 
 ### ⏳ En Progreso:
-- Layout de ubicación seleccionada en checkout (requiere corrección de sintaxis)
+- Ninguna tarea pendiente actualmente
 
 ### ❌ Pendiente:
-- Funcionalidad para agregar nueva ubicación dentro del modal
+- Integración con Firebase para guardar nuevas ubicaciones permanentemente
 
 ## Notas de Implementación:
 - Se solucionó el problema de carga múltiple de Google Maps API

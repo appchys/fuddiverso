@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone, validateAndNormalizePhone } from '@/lib/validation'
 import { createOrder, getBusiness, searchClientByPhone, createClient, FirestoreClient, getClientLocations, ClientLocation } from '@/lib/database'
 import { Business } from '@/types'
+import { GoogleMap } from '@/components/GoogleMap'
 
 // Componente para mostrar mapa pequeño de ubicación
 function LocationMap({ latlong, height = "96px" }: { latlong: string; height?: string }) {
@@ -34,15 +35,15 @@ function LocationMap({ latlong, height = "96px" }: { latlong: string; height?: s
   }
 
   // Usar Google Static Maps API para evitar cargas múltiples de la API de Maps
-  const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${coordinates.lat},${coordinates.lng}&zoom=16&size=400x200&maptype=roadmap&markers=color:red%7C${coordinates.lat},${coordinates.lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
+  const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${coordinates.lat},${coordinates.lng}&zoom=16&size=200x200&maptype=roadmap&markers=color:red%7C${coordinates.lat},${coordinates.lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
 
   return (
-    <div className={`w-full rounded-lg overflow-hidden border border-gray-200 shadow-sm relative`} style={{ height }}>
+    <div className={`w-full rounded-lg overflow-hidden border border-gray-200 shadow-sm relative`} style={{ height, width: height }}>
       <img 
         src={staticMapUrl}
         alt={`Mapa de ubicación ${coordinates.lat}, ${coordinates.lng}`}
         className="w-full h-full object-cover"
-        style={{ height }}
+        style={{ height, width: height }}
       />
     </div>
   );
@@ -104,6 +105,12 @@ function CheckoutContent() {
 
   // Estado para manejar el modal
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false)
+  const [isAddingNewLocation, setIsAddingNewLocation] = useState(false)
+  const [newLocationData, setNewLocationData] = useState({
+    latlong: '',
+    referencia: '',
+    tarifa: '1'
+  })
 
   // Effects (also must be declared consistently)
   useEffect(() => { setIsClient(true); }, []);
@@ -116,6 +123,73 @@ function CheckoutContent() {
   // Función para cerrar el modal
   const closeLocationModal = () => {
     setIsLocationModalOpen(false);
+    setIsAddingNewLocation(false);
+    setNewLocationData({ latlong: '', referencia: '', tarifa: '1' });
+  }
+
+  // Función para obtener ubicación actual
+  const getCurrentLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setNewLocationData(prev => ({
+            ...prev,
+            latlong: `${latitude}, ${longitude}`
+          }));
+        },
+        (error) => {
+          console.error('Error getting location:', error);
+          // Coordenadas por defecto (Guayaquil, Ecuador)
+          setNewLocationData(prev => ({
+            ...prev,
+            latlong: '-2.1894, -79.8890'
+          }));
+        }
+      );
+    } else {
+      // Coordenadas por defecto si no hay geolocalización
+      setNewLocationData(prev => ({
+        ...prev,
+        latlong: '-2.1894, -79.8890'
+      }));
+    }
+  }
+
+  // Función para manejar cambio de ubicación en el mapa
+  const handleLocationChange = (lat: number, lng: number) => {
+    setNewLocationData(prev => ({
+      ...prev,
+      latlong: `${lat}, ${lng}`
+    }));
+  }
+
+  // Función para guardar nueva ubicación
+  const handleSaveNewLocation = async () => {
+    if (!clientFound || !newLocationData.latlong || !newLocationData.referencia) {
+      alert('Por favor completa todos los campos requeridos');
+      return;
+    }
+
+    try {
+      // Aquí iría la lógica para guardar la ubicación en Firebase
+      // Por ahora simulamos la creación
+      const newLocation: ClientLocation = {
+        id: `temp-${Date.now()}`,
+        id_cliente: clientFound.id,
+        latlong: newLocationData.latlong,
+        referencia: newLocationData.referencia,
+        sector: 'Nuevo', // Se podría obtener automáticamente
+        tarifa: newLocationData.tarifa
+      };
+
+      setClientLocations(prev => [...prev, newLocation]);
+      handleSelectLocation(newLocation);
+      closeLocationModal();
+    } catch (error) {
+      console.error('Error saving location:', error);
+      alert('Error al guardar la ubicación');
+    }
   }
 
   // Función hoisted colocada antes del efecto que la usa
@@ -292,7 +366,8 @@ function CheckoutContent() {
   }
 
   const cartItems = getCartItems()
-  const total = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0)
+  const total = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0) + 
+                (deliveryData.type === 'delivery' && selectedLocation ? parseFloat(selectedLocation.tarifa) : 0)
 
   const validateStep = (step: number) => {
     const newErrors: Record<string, string> = {}
@@ -698,7 +773,7 @@ function CheckoutContent() {
                                   {/* Layout horizontal: Mapa a la izquierda, información a la derecha */}
                                   <div className="flex gap-3 items-center">
                                     {/* Mapa de la ubicación - Cuadrado a la izquierda */}
-                                    <div className="flex-shrink-0">
+                                    <div className="flex-shrink-0 w-20">
                                       <LocationMap latlong={selectedLocation.latlong} height="80px" />
                                     </div>
                                     
@@ -1112,10 +1187,32 @@ function CheckoutContent() {
                 ))}
               </div>
 
-              <div className="border-t pt-3 mt-3">
+              <div className="border-t pt-3 mt-3 space-y-2">
+                {/* Subtotal */}
                 <div className="flex justify-between items-center">
+                  <p className="text-sm text-gray-600">Subtotal</p>
+                  <p className="text-sm text-gray-600">${cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0).toFixed(2)}</p>
+                </div>
+                
+                {/* Tarifa de envío */}
+                {deliveryData.type === 'delivery' && (
+                  <div className="flex justify-between items-center">
+                    <p className="text-sm text-gray-600">Envío</p>
+                    <p className="text-sm text-gray-600">
+                      ${selectedLocation ? selectedLocation.tarifa : '0.00'}
+                    </p>
+                  </div>
+                )}
+                
+                {/* Total final */}
+                <div className="flex justify-between items-center pt-2 border-t">
                   <p className="text-base sm:text-lg font-bold">Total</p>
-                  <p className="text-base sm:text-lg font-bold text-red-500">${total.toFixed(2)}</p>
+                  <p className="text-base sm:text-lg font-bold text-red-500">
+                    ${(
+                      cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0) + 
+                      (deliveryData.type === 'delivery' && selectedLocation ? parseFloat(selectedLocation.tarifa) : 0)
+                    ).toFixed(2)}
+                  </p>
                 </div>
               </div>
             </div>
@@ -1139,7 +1236,9 @@ function CheckoutContent() {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center z-50 p-4">
             <div className="bg-white rounded-t-lg sm:rounded-lg shadow-lg w-full max-w-md mx-auto p-4 sm:p-6 max-h-[90vh] sm:max-h-[80vh] flex flex-col">
               <div className="flex justify-between items-center mb-4 pb-3 border-b sm:border-b-0 sm:pb-0">
-                <h2 className="text-lg font-bold">Selecciona una ubicación</h2>
+                <h2 className="text-lg font-bold">
+                  {isAddingNewLocation ? 'Agregar Nueva Ubicación' : 'Selecciona una ubicación'}
+                </h2>
                 <button
                   onClick={closeLocationModal}
                   className="text-gray-400 hover:text-gray-600 p-1"
@@ -1149,53 +1248,154 @@ function CheckoutContent() {
                   </svg>
                 </button>
               </div>
-              <div className="space-y-4 overflow-y-auto flex-1 -mx-2 px-2">
-                {clientLocations.map((location) => (
-                  <div
-                    key={location.id}
-                    className={`border rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md ${
-                      selectedLocation?.id === location.id
-                        ? 'border-red-500 bg-red-50 shadow-md'
-                        : 'border-gray-300 hover:bg-gray-50 active:bg-gray-100'
-                    }`}
-                    onClick={() => {
-                      handleSelectLocation(location);
-                      closeLocationModal();
-                    }}
-                  >
-                    {/* Layout horizontal: Mapa a la izquierda, información a la derecha */}
-                    <div className="flex gap-3 p-3">
-                      {/* Mapa de la ubicación - Cuadrado a la izquierda */}
-                      <div className="flex-shrink-0">
-                        <LocationMap latlong={location.latlong} height="80px" />
-                      </div>
-                      
-                      {/* Información de la ubicación - A la derecha */}
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm mb-1 text-gray-900">
-                          {location.referencia}
-                        </div>
-                        <div className="text-xs text-gray-500 mb-2">
-                          💰 Tarifa: ${location.tarifa}
-                        </div>
-                        {selectedLocation?.id === location.id && (
-                          <div className="text-xs text-red-600 font-medium bg-red-100 px-2 py-1 rounded-full inline-block">
-                            ✓ Seleccionada
+
+              {!isAddingNewLocation ? (
+                <>
+                  <div className="space-y-4 overflow-y-auto flex-1 -mx-2 px-2">
+                    {clientLocations.map((location) => (
+                      <div
+                        key={location.id}
+                        className={`border rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md ${
+                          selectedLocation?.id === location.id
+                            ? 'border-red-500 bg-red-50 shadow-md'
+                            : 'border-gray-300 hover:bg-gray-50 active:bg-gray-100'
+                        }`}
+                        onClick={() => {
+                          handleSelectLocation(location);
+                          closeLocationModal();
+                        }}
+                      >
+                        {/* Layout horizontal: Mapa a la izquierda, información a la derecha */}
+                        <div className="flex gap-3 p-3">
+                          {/* Mapa de la ubicación - Cuadrado a la izquierda */}
+                          <div className="flex-shrink-0">
+                            <LocationMap latlong={location.latlong} height="80px" />
                           </div>
-                        )}
+                          
+                          {/* Información de la ubicación - A la derecha */}
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-sm mb-1 text-gray-900">
+                              {location.referencia}
+                            </div>
+                            <div className="text-xs text-gray-500 mb-2">
+                              💰 Tarifa: ${location.tarifa}
+                            </div>
+                            {selectedLocation?.id === location.id && (
+                              <div className="text-xs text-red-600 font-medium bg-red-100 px-2 py-1 rounded-full inline-block">
+                                ✓ Seleccionada
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 pt-3 border-t sm:border-t-0 sm:pt-4 space-y-2">
+                    <button
+                      className="w-full bg-red-500 text-white py-3 rounded-lg hover:bg-red-600 transition-colors touch-manipulation"
+                      onClick={() => {
+                        setIsAddingNewLocation(true);
+                        getCurrentLocation();
+                      }}
+                    >
+                      + Agregar Nueva Ubicación
+                    </button>
+                    <button
+                      className="w-full bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 active:bg-gray-400 transition-colors touch-manipulation"
+                      onClick={closeLocationModal}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Formulario para agregar nueva ubicación */}
+                  <div className="space-y-4 overflow-y-auto flex-1">
+                    {/* Mapa interactivo */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Ubicación en el mapa (mueve el pin para ajustar)
+                      </label>
+                      {newLocationData.latlong && (
+                        <div className="border rounded-lg overflow-hidden">
+                          <GoogleMap
+                            latitude={parseFloat(newLocationData.latlong.split(',')[0])}
+                            longitude={parseFloat(newLocationData.latlong.split(',')[1])}
+                            height="200px"
+                            width="100%"
+                            zoom={16}
+                            marker={true}
+                            draggable={true}
+                            onLocationChange={handleLocationChange}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Campo de referencias */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Referencias de la ubicación *
+                      </label>
+                      <textarea
+                        value={newLocationData.referencia}
+                        onChange={(e) => setNewLocationData(prev => ({ ...prev, referencia: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                        placeholder="Ej: Casa blanca, portón negro, diagonal al supermercado..."
+                        rows={3}
+                        required
+                      />
+                    </div>
+
+                    {/* Campo de tarifa */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Tarifa de envío
+                      </label>
+                      <select
+                        value={newLocationData.tarifa}
+                        onChange={(e) => setNewLocationData(prev => ({ ...prev, tarifa: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                      >
+                        <option value="1">$1.00</option>
+                        <option value="1.5">$1.50</option>
+                        <option value="2">$2.00</option>
+                        <option value="2.5">$2.50</option>
+                        <option value="3">$3.00</option>
+                      </select>
+                    </div>
+
+                    {/* Coordenadas (solo lectura) */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Coordenadas
+                      </label>
+                      <input
+                        type="text"
+                        value={newLocationData.latlong}
+                        readOnly
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm"
+                      />
                     </div>
                   </div>
-                ))}
-              </div>
-              <div className="mt-4 pt-3 border-t sm:border-t-0 sm:pt-4">
-                <button
-                  className="w-full bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 active:bg-gray-400 transition-colors touch-manipulation"
-                  onClick={closeLocationModal}
-                >
-                  Cancelar
-                </button>
-              </div>
+
+                  <div className="mt-4 pt-3 border-t sm:border-t-0 sm:pt-4 space-y-2">
+                    <button
+                      className="w-full bg-red-500 text-white py-3 rounded-lg hover:bg-red-600 transition-colors touch-manipulation"
+                      onClick={handleSaveNewLocation}
+                    >
+                      Guardar Ubicación
+                    </button>
+                    <button
+                      className="w-full bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 active:bg-gray-400 transition-colors touch-manipulation"
+                      onClick={() => setIsAddingNewLocation(false)}
+                    >
+                      Volver
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
