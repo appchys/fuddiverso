@@ -89,7 +89,7 @@ function CheckoutContent() {
   const [loadingLocations, setLoadingLocations] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<ClientLocation | null>(null);
   const [deliveryData, setDeliveryData] = useState({
-    type: 'delivery' as 'delivery' | 'pickup',
+    type: '' as '' | 'delivery' | 'pickup',
     address: '',
     references: ''
   });
@@ -399,9 +399,24 @@ function CheckoutContent() {
     return cartData ? JSON.parse(cartData) : []
   }
 
+  // Función para calcular el costo de envío
+  const getDeliveryCost = () => {
+    if (!deliveryData.type) {
+      return 0 // Sin tipo de entrega seleccionado
+    }
+    if (deliveryData.type === 'pickup') {
+      return 0 // Retiro en tienda
+    }
+    if (deliveryData.type === 'delivery' && selectedLocation) {
+      return parseFloat(selectedLocation.tarifa)
+    }
+    return 0 // Delivery sin ubicación seleccionada
+  }
+
   const cartItems = getCartItems()
-  const total = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0) + 
-                (deliveryData.type === 'delivery' && selectedLocation ? parseFloat(selectedLocation.tarifa) : 0)
+  const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0)
+  const deliveryCost = getDeliveryCost()
+  const total = subtotal + deliveryCost
 
   const validateStep = (step: number) => {
     const newErrors: Record<string, string> = {}
@@ -421,9 +436,13 @@ function CheckoutContent() {
       }
     }
 
-    if (step === 2 && deliveryData.type === 'delivery') {
-      if (!deliveryData.address.trim()) {
-        newErrors.address = 'La dirección es requerida para delivery'
+    if (step === 2) {
+      if (!deliveryData.type) {
+        newErrors.deliveryType = 'Selecciona un tipo de entrega'
+      } else if (deliveryData.type === 'delivery') {
+        if (!deliveryData.address.trim()) {
+          newErrors.address = 'La dirección es requerida para delivery'
+        }
       }
     }
 
@@ -564,7 +583,7 @@ function CheckoutContent() {
                   )}
                 </button>
                 <span className="text-xs sm:text-sm mt-1 text-center font-medium">
-                  {deliveryData.type === 'pickup' ? 'Retiro' : 'Delivery'}
+                  {deliveryData.type === 'pickup' ? 'Retiro' : deliveryData.type === 'delivery' ? 'Delivery' : 'Entrega'}
                 </span>
               </div>
 
@@ -789,6 +808,10 @@ function CheckoutContent() {
                       </div>
                     </label>
                   </div>
+
+                  {errors.deliveryType && (
+                    <p className="text-red-500 text-sm mb-4">{errors.deliveryType}</p>
+                  )}
 
                   {deliveryData.type === 'delivery' && (
                     <div className="space-y-4">
@@ -1132,7 +1155,11 @@ function CheckoutContent() {
                     <div>
                       <h3 className="font-medium text-lg mb-2">Entrega</h3>
                       <div className="bg-gray-50 p-4 rounded-lg">
-                        <p className="text-sm"><strong>Tipo:</strong> {deliveryData.type === 'delivery' ? 'Delivery' : 'Retiro en tienda'}</p>
+                        <p className="text-sm"><strong>Tipo:</strong> {
+                          deliveryData.type === 'delivery' ? 'Delivery' : 
+                          deliveryData.type === 'pickup' ? 'Retiro en tienda' :
+                          'No seleccionado'
+                        }</p>
                         {deliveryData.type === 'delivery' && (
                           <>
                             <p className="text-sm"><strong>Dirección:</strong> {deliveryData.address}</p>
@@ -1225,28 +1252,19 @@ function CheckoutContent() {
                 {/* Subtotal */}
                 <div className="flex justify-between items-center">
                   <p className="text-sm text-gray-600">Subtotal</p>
-                  <p className="text-sm text-gray-600">${cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0).toFixed(2)}</p>
+                  <p className="text-sm text-gray-600">${subtotal.toFixed(2)}</p>
                 </div>
                 
-                {/* Tarifa de envío */}
-                {deliveryData.type === 'delivery' && (
-                  <div className="flex justify-between items-center">
-                    <p className="text-sm text-gray-600">Envío</p>
-                    <p className="text-sm text-gray-600">
-                      ${selectedLocation ? selectedLocation.tarifa : '0.00'}
-                    </p>
-                  </div>
-                )}
+                {/* Tarifa de envío - siempre mostrar */}
+                <div className="flex justify-between items-center">
+                  <p className="text-sm text-gray-600">Envío</p>
+                  <p className="text-sm text-gray-600">${deliveryCost.toFixed(2)}</p>
+                </div>
                 
                 {/* Total final */}
                 <div className="flex justify-between items-center pt-2 border-t">
                   <p className="text-base sm:text-lg font-bold">Total</p>
-                  <p className="text-base sm:text-lg font-bold text-red-500">
-                    ${(
-                      cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0) + 
-                      (deliveryData.type === 'delivery' && selectedLocation ? parseFloat(selectedLocation.tarifa) : 0)
-                    ).toFixed(2)}
-                  </p>
+                  <p className="text-base sm:text-lg font-bold text-red-500">${total.toFixed(2)}</p>
                 </div>
               </div>
             </div>
