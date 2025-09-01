@@ -317,6 +317,7 @@ function CheckoutContent() {
     paymentStatus: 'pending' as 'pending' | 'validating' | 'paid'
   });
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
+  const [isProcessingOrder, setIsProcessingOrder] = useState(false); // Nuevo estado
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -716,17 +717,20 @@ function CheckoutContent() {
     if (!validateStep(currentStep)) return
 
     setLoading(true)
+    setIsProcessingOrder(true) // Activar estado de procesamiento
     try {
       // Validación final antes de crear la orden
       if (!deliveryData.type) {
         alert('Por favor selecciona un tipo de entrega')
         setLoading(false)
+        setIsProcessingOrder(false)
         return
       }
 
       if (deliveryData.type !== 'delivery' && deliveryData.type !== 'pickup') {
         alert('Tipo de entrega inválido')
         setLoading(false)
+        setIsProcessingOrder(false)
         return
       }
 
@@ -787,13 +791,27 @@ function CheckoutContent() {
       router.push(`/order-confirmation?orderId=${orderId}`)
     } catch (error) {
       console.error('Error creating order:', error)
+      setIsProcessingOrder(false) // Resetear estado en caso de error
     } finally {
       setLoading(false)
     }
   }
 
-  // No mostrar nada si el carrito está vacío
-  if (cartItems.length === 0) {
+  // Mostrar pantalla de procesamiento cuando se está enviando la orden
+  if (isProcessingOrder) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-red-500 mx-auto"></div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-4 mt-6">Procesando tu pedido...</h1>
+          <p className="text-gray-600">Por favor espera mientras confirmamos tu orden</p>
+        </div>
+      </div>
+    )
+  }
+
+  // No mostrar nada si el carrito está vacío, a menos que se esté procesando una orden
+  if (cartItems.length === 0 && !isProcessingOrder) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -1440,64 +1458,36 @@ function CheckoutContent() {
                         </p>
                       )}
 
-                      {/* Estado del pago */}
+                      {/* Estado del pago - Solo mostrar, no editable para el cliente */}
                       {paymentData.method === 'transfer' && (
                         <div className="mt-4">
                           <label className="block text-sm font-medium text-gray-700 mb-2">
                             Estado del Pago
                           </label>
-                          <div className="flex items-center space-x-4">
-                            <label className="flex items-center">
-                              <input
-                                type="radio"
-                                name="paymentStatus"
-                                value="pending"
-                                checked={paymentData.paymentStatus === 'pending'}
-                                onChange={(e) => setPaymentData(prev => ({
-                                  ...prev,
-                                  paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
-                                }))}
-                                className="mr-2"
-                              />
-                              <span className="text-sm text-red-600">
-                                <i className="bi bi-clock mr-1"></i>
-                                Por cobrar
-                              </span>
-                            </label>
-                            <label className="flex items-center">
-                              <input
-                                type="radio"
-                                name="paymentStatus"
-                                value="validating"
-                                checked={paymentData.paymentStatus === 'validating'}
-                                onChange={(e) => setPaymentData(prev => ({
-                                  ...prev,
-                                  paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
-                                }))}
-                                className="mr-2"
-                              />
-                              <span className="text-sm text-yellow-600">
-                                <i className="bi bi-search mr-1"></i>
-                                Validando pago
-                              </span>
-                            </label>
-                            <label className="flex items-center">
-                              <input
-                                type="radio"
-                                name="paymentStatus"
-                                value="paid"
-                                checked={paymentData.paymentStatus === 'paid'}
-                                onChange={(e) => setPaymentData(prev => ({
-                                  ...prev,
-                                  paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
-                                }))}
-                                className="mr-2"
-                              />
-                              <span className="text-sm text-green-600">
-                                <i className="bi bi-check-circle mr-1"></i>
-                                Pagado
-                              </span>
-                            </label>
+                          <div className="bg-gray-50 p-3 rounded-lg border">
+                            <div className="flex items-center">
+                              {paymentData.paymentStatus === 'pending' && (
+                                <span className="text-sm text-red-600">
+                                  <i className="bi bi-clock mr-1"></i>
+                                  Por cobrar
+                                </span>
+                              )}
+                              {paymentData.paymentStatus === 'validating' && (
+                                <span className="text-sm text-yellow-600">
+                                  <i className="bi bi-search mr-1"></i>
+                                  Validando pago
+                                </span>
+                              )}
+                              {paymentData.paymentStatus === 'paid' && (
+                                <span className="text-sm text-green-600">
+                                  <i className="bi bi-check-circle mr-1"></i>
+                                  Pagado
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              El estado del pago será actualizado por el restaurante
+                            </p>
                           </div>
                         </div>
                       )}

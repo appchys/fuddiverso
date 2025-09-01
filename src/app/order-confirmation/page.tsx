@@ -149,10 +149,10 @@ function OrderConfirmationContent() {
             <h1 className="text-2xl font-bold text-gray-800 mb-4">Error</h1>
             <p className="text-gray-600 mb-6">{error || 'Pedido no encontrado'}</p>
             <Link 
-              href="/restaurants"
+              href="/"
               className="inline-block bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600 transition"
             >
-              Volver a Restaurantes
+              Volver al Inicio
             </Link>
           </div>
         </div>
@@ -388,7 +388,7 @@ function OrderConfirmationContent() {
             {/* Acciones */}
             <div className="space-y-3">
               <Link
-                href="/restaurants"
+                href="/"
                 className="w-full bg-red-500 text-white py-3 rounded-lg hover:bg-red-600 transition text-center block"
               >
                 Hacer otro pedido
