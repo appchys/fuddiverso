@@ -221,41 +221,38 @@ export default function Header() {
                         <p className="text-sm text-gray-500">{user.celular}</p>
                       </div>
                       
-                      <button
+                      <Link
+                        href="/profile"
                         onClick={() => {
                           setShowDropdown(false)
-                          // TODO: Agregar navegación a perfil
-                          console.log('Ir a perfil')
                         }}
                         className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
                       >
                         <i className="bi bi-person mr-2"></i>
                         Mi Perfil
-                      </button>
+                      </Link>
                       
-                      <button
+                      <Link
+                        href="/my-orders"
                         onClick={() => {
                           setShowDropdown(false)
-                          // TODO: Agregar navegación a pedidos
-                          console.log('Ir a pedidos')
                         }}
                         className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
                       >
                         <i className="bi bi-bag mr-2"></i>
                         Mis Pedidos
-                      </button>
+                      </Link>
                       
-                      <button
+                      <Link
+                        href="/my-locations"
                         onClick={() => {
                           setShowDropdown(false)
-                          // TODO: Agregar navegación a ubicaciones
-                          console.log('Ir a ubicaciones')
                         }}
                         className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
                       >
                         <i className="bi bi-geo-alt mr-2"></i>
                         Mis Ubicaciones
-                      </button>
+                      </Link>
                       
                       <div className="border-t">
                         <button

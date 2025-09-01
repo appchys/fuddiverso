@@ -780,7 +780,10 @@ export interface FirestoreClient {
   id: string;
   nombres: string;
   celular: string;
+  email?: string;
   fecha_de_registro?: string;
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 export interface ClientLocation {
@@ -954,6 +957,101 @@ export async function createClient(clientData: { celular: string; nombres: strin
     };
   } catch (error) {
     console.error('❌ Error creating client:', error);
+    throw error;
+  }
+}
+
+export async function updateClient(clientId: string, clientData: { celular?: string; nombres?: string; email?: string }) {
+  try {
+    console.log('📝 Updating client:', clientId, clientData);
+
+    const clientRef = doc(db, 'clients', clientId);
+    const updateData: any = {};
+    
+    if (clientData.celular) updateData.celular = clientData.celular;
+    if (clientData.nombres) updateData.nombres = clientData.nombres;
+    if (clientData.email !== undefined) updateData.email = clientData.email;
+    
+    await updateDoc(clientRef, updateData);
+    console.log('✅ Client updated successfully');
+    
+    return true;
+  } catch (error) {
+    console.error('❌ Error updating client:', error);
+    throw error;
+  }
+}
+
+export async function getOrdersByClient(clientPhone: string): Promise<any[]> {
+  try {
+    console.log('🔍 Getting orders for client phone:', clientPhone);
+
+    const q = query(
+      collection(db, 'orders'),
+      where('customer.phone', '==', clientPhone),
+      orderBy('createdAt', 'desc')
+    );
+
+    const querySnapshot = await getDocs(q);
+    console.log('📊 Orders found:', querySnapshot.size);
+
+    const orders = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate() || new Date(),
+      updatedAt: doc.data().updatedAt?.toDate() || new Date()
+    }));
+
+    return orders;
+  } catch (error) {
+    console.error('❌ Error getting orders by client:', error);
+    throw error;
+  }
+}
+
+export async function getLocationsByClient(clientPhone: string): Promise<ClientLocation[]> {
+  try {
+    console.log('🔍 Getting locations for client phone:', clientPhone);
+
+    const q = query(
+      collection(db, 'ubicaciones'),
+      where('id_cliente', '==', clientPhone)
+    );
+
+    const querySnapshot = await getDocs(q);
+    console.log('📊 Locations found:', querySnapshot.size);
+
+    const locations = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as ClientLocation[];
+
+    return locations;
+  } catch (error) {
+    console.error('❌ Error getting locations by client:', error);
+    throw error;
+  }
+}
+
+export async function deleteLocation(locationId: string): Promise<void> {
+  try {
+    console.log('🗑️ Deleting location:', locationId);
+    await deleteDoc(doc(db, 'ubicaciones', locationId));
+    console.log('✅ Location deleted successfully');
+  } catch (error) {
+    console.error('❌ Error deleting location:', error);
+    throw error;
+  }
+}
+
+export async function updateLocation(locationId: string, locationData: Partial<ClientLocation>): Promise<void> {
+  try {
+    console.log('📝 Updating location:', locationId, locationData);
+    const locationRef = doc(db, 'ubicaciones', locationId);
+    await updateDoc(locationRef, locationData);
+    console.log('✅ Location updated successfully');
+  } catch (error) {
+    console.error('❌ Error updating location:', error);
     throw error;
   }
 }
