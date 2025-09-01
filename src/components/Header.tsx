@@ -3,7 +3,7 @@
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { searchClientByPhone } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 
@@ -15,6 +15,12 @@ export default function Header() {
   const [loginError, setLoginError] = useState('')
   const [loginLoading, setLoginLoading] = useState(false)
   const router = useRouter()
+  const pathname = usePathname()
+
+  // No mostrar header en rutas de business
+  if (pathname.startsWith('/business')) {
+    return null
+  }
 
   const handleLogout = () => {
     logout()

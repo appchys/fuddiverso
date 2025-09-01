@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import 'bootstrap-icons/font/bootstrap-icons.css'
 import { AuthProvider } from '@/contexts/AuthContext'
-import Header from '@/components/Header'
+import LayoutWrapper from '@/components/LayoutWrapper'
 
 export const metadata: Metadata = {
   title: 'Fuddiverso - Delivery de Comida',
@@ -18,10 +18,9 @@ export default function RootLayout({
     <html lang="es">
       <body className="bg-gray-50 min-h-screen">
         <AuthProvider>
-          <Header />
-          <main className="min-h-screen pt-16">
+          <LayoutWrapper>
             {children}
-          </main>
+          </LayoutWrapper>
         </AuthProvider>
       </body>
     </html>

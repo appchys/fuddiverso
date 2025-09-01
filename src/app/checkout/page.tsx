@@ -469,6 +469,19 @@ function CheckoutContent() {
 
     setLoading(true)
     try {
+      // Validación final antes de crear la orden
+      if (!deliveryData.type) {
+        alert('Por favor selecciona un tipo de entrega')
+        setLoading(false)
+        return
+      }
+
+      if (deliveryData.type !== 'delivery' && deliveryData.type !== 'pickup') {
+        alert('Tipo de entrega inválido')
+        setLoading(false)
+        return
+      }
+
       // Crear cliente si no está creado y es necesario
       if (showNameField && customerData.name.trim()) {
         await handleCreateClient()
@@ -487,7 +500,7 @@ function CheckoutContent() {
           phone: customerData.phone
         },
         delivery: {
-          type: deliveryData.type,
+          type: deliveryData.type as 'delivery' | 'pickup',
           references: deliveryData.type === 'delivery' ? deliveryData.address : undefined
         },
         timing: {
