@@ -2,10 +2,110 @@
 
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { searchClientByPhone } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
+
+// Componente para mostrar carritos activos
+function CartIndicator() {
+  const [activeCarts, setActiveCarts] = useState<{[key: string]: any[]}>({})
+  const [showDropdown, setShowDropdown] = useState(false)
+
+  useEffect(() => {
+    const loadCarts = () => {
+      const cartsData = localStorage.getItem('carts')
+      if (cartsData) {
+        try {
+          const allCarts = JSON.parse(cartsData)
+          // Filtrar solo carritos que tienen productos
+          const filteredCarts: {[key: string]: any[]} = {}
+          Object.entries(allCarts).forEach(([businessId, cart]: [string, any]) => {
+            if (Array.isArray(cart) && cart.length > 0) {
+              filteredCarts[businessId] = cart
+            }
+          })
+          setActiveCarts(filteredCarts)
+        } catch (e) {
+          console.error('Error parsing carts:', e)
+        }
+      }
+    }
+
+    loadCarts()
+    
+    // Escuchar cambios en localStorage
+    const handleStorageChange = () => loadCarts()
+    window.addEventListener('storage', handleStorageChange)
+    
+    // También verificar cada segundo para cambios locales
+    const interval = setInterval(loadCarts, 1000)
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      clearInterval(interval)
+    }
+  }, [])
+
+  const activeCartsCount = Object.keys(activeCarts).length
+  const totalItems = Object.values(activeCarts).reduce((total, cart) => 
+    total + cart.reduce((sum, item) => sum + item.quantity, 0), 0
+  )
+
+  if (activeCartsCount === 0) return null
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShowDropdown(!showDropdown)}
+        className="relative p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+      >
+        <i className="bi bi-bag text-xl"></i>
+        {totalItems > 0 && (
+          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+            {totalItems > 99 ? '99+' : totalItems}
+          </span>
+        )}
+      </button>
+
+      {showDropdown && (
+        <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-lg border z-50 max-h-96 overflow-y-auto">
+          <div className="p-3 border-b bg-gray-50">
+            <h3 className="font-semibold text-gray-900">Carritos Activos</h3>
+            <p className="text-sm text-gray-600">{activeCartsCount} {activeCartsCount === 1 ? 'tienda' : 'tiendas'}</p>
+          </div>
+          
+          <div className="divide-y">
+            {Object.entries(activeCarts).map(([businessId, cart]) => {
+              const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+              const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+              const businessName = cart[0]?.businessName || 'Tienda'
+              
+              return (
+                <div key={businessId} className="p-3 hover:bg-gray-50">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-medium text-gray-900 text-sm">{businessName}</h4>
+                    <span className="text-sm font-semibold text-red-600">${cartTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500">{cartItemsCount} productos</span>
+                    <Link
+                      href={`/checkout?businessId=${businessId}`}
+                      className="text-xs bg-red-500 text-white px-3 py-1 rounded-lg hover:bg-red-600 transition-colors"
+                      onClick={() => setShowDropdown(false)}
+                    >
+                      Finalizar Pedido
+                    </Link>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function Header() {
   const { user, login, logout } = useAuth()
@@ -89,16 +189,14 @@ export default function Header() {
 
             {/* Navigation */}
             <nav className="hidden md:flex items-center space-x-6">
-              <Link href="/restaurants" className="text-gray-700 hover:text-orange-600 transition-colors">
-                Restaurantes
-              </Link>
-              <Link href="/info" className="text-gray-700 hover:text-orange-600 transition-colors">
-                Información
-              </Link>
+              {/* Navigation items removed as requested */}
             </nav>
 
             {/* User Profile */}
             <div className="flex items-center space-x-4">
+              {/* Indicador de carritos activos */}
+              <CartIndicator />
+              
               {user ? (
                 <div className="relative">
                   <button
@@ -191,18 +289,9 @@ export default function Header() {
           </div>
         </div>
 
-        {/* Mobile Navigation */}
-        <div className="md:hidden border-t bg-white">
-          <nav className="flex items-center justify-around py-2">
-            <Link href="/restaurants" className="flex flex-col items-center py-2 text-gray-600 hover:text-orange-600">
-              <i className="bi bi-shop text-lg"></i>
-              <span className="text-xs mt-1">Restaurantes</span>
-            </Link>
-            <Link href="/info" className="flex flex-col items-center py-2 text-gray-600 hover:text-orange-600">
-              <i className="bi bi-info-circle text-lg"></i>
-              <span className="text-xs mt-1">Info</span>
-            </Link>
-          </nav>
+        {/* Mobile Navigation - Removed as requested */}
+        <div className="md:hidden border-t bg-white" style={{ display: 'none' }}>
+          {/* Mobile navigation removed */}
         </div>
       </header>
 

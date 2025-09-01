@@ -433,7 +433,7 @@ export async function getOrdersByBusiness(businessId: string): Promise<Order[]> 
     const orders = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate() || new Date()
+      createdAt: parseCreatedAt(doc.data().createdAt)
     })) as Order[]
     
     // Ordenar en JavaScript como alternativa temporal
@@ -441,6 +441,70 @@ export async function getOrdersByBusiness(businessId: string): Promise<Order[]> 
   } catch (error) {
     console.error('Error getting orders:', error)
     throw error
+  }
+}
+
+// Helper function para convertir createdAt a Date
+function parseCreatedAt(createdAt: any): Date {
+  if (!createdAt) {
+    return new Date()
+  }
+  
+  // Si es un Timestamp de Firestore
+  if (createdAt && typeof createdAt.toDate === 'function') {
+    return createdAt.toDate()
+  }
+  
+  // Si es una cadena de fecha
+  if (typeof createdAt === 'string') {
+    return new Date(createdAt)
+  }
+  
+  // Si ya es un objeto Date
+  if (createdAt instanceof Date) {
+    return createdAt
+  }
+  
+  // Si es un objeto con seconds (Timestamp serializado)
+  if (createdAt && createdAt.seconds) {
+    return new Date(createdAt.seconds * 1000)
+  }
+  
+  // Fallback
+  return new Date()
+}
+
+export async function getAllOrders(): Promise<Order[]> {
+  try {
+    const q = query(
+      collection(db, 'orders'),
+      orderBy('createdAt', 'desc')
+    )
+    const querySnapshot = await getDocs(q)
+    const orders = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: parseCreatedAt(doc.data().createdAt)
+    })) as Order[]
+    
+    return orders
+  } catch (error) {
+    console.error('Error getting all orders:', error)
+    // Si falla el orderBy, intentar sin él
+    try {
+      const querySnapshot = await getDocs(collection(db, 'orders'))
+      const orders = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: parseCreatedAt(doc.data().createdAt)
+      })) as Order[]
+      
+      // Ordenar en JavaScript
+      return orders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    } catch (fallbackError) {
+      console.error('Error in fallback query:', fallbackError)
+      throw fallbackError
+    }
   }
 }
 
@@ -466,7 +530,7 @@ export async function getOrder(orderId: string): Promise<Order | null> {
       return {
         id: docSnap.id,
         ...docSnap.data(),
-        createdAt: docSnap.data().createdAt?.toDate() || new Date()
+        createdAt: parseCreatedAt(docSnap.data().createdAt)
       } as Order
     }
     return null
@@ -740,10 +804,12 @@ export async function getBusinessByUsername(username: string): Promise<Business 
     );
 
     const querySnapshot = await getDocs(q);
+    console.log('📊 Query results:', querySnapshot.size, 'documents found');
 
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0];
       const businessData = doc.data();
+      console.log('✅ Business found:', businessData);
       const business: Business = {
         id: doc.id,
         name: businessData.name || '',

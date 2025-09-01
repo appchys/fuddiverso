@@ -209,6 +209,11 @@ function RestaurantContent() {
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<any>(null)
   const [isVariantModalOpen, setIsVariantModalOpen] = useState(false)
+  const [notification, setNotification] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
+    show: false,
+    message: '',
+    type: 'success'
+  })
 
   useEffect(() => {
     const loadRestaurantData = async () => {
@@ -237,15 +242,29 @@ function RestaurantContent() {
     }
   }, [username])
 
-  // Cargar carrito desde localStorage
+  // Cargar carrito específico de esta tienda desde localStorage
   useEffect(() => {
-    const savedCart = localStorage.getItem('cart')
-    if (savedCart) {
-      setCart(JSON.parse(savedCart))
+    if (business?.id) {
+      const savedCarts = localStorage.getItem('carts')
+      if (savedCarts) {
+        const allCarts = JSON.parse(savedCarts)
+        const businessCart = allCarts[business.id] || []
+        setCart(businessCart)
+      }
     }
-  }, [])
+  }, [business?.id])
+
+  // Función para mostrar notificaciones temporales
+  const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
+    setNotification({ show: true, message, type })
+    setTimeout(() => {
+      setNotification({ show: false, message: '', type: 'success' })
+    }, 3000)
+  }
 
   const addToCart = (product: any) => {
+    if (!business?.id) return;
+
     // Si el producto tiene variantes, abrir modal
     if (product.variants && product.variants.length > 0) {
       setSelectedProduct(product)
@@ -260,7 +279,8 @@ function RestaurantContent() {
       price: product.price,
       image: product.image,
       description: product.description,
-      businessId: business?.id
+      businessId: business.id,
+      businessName: business.name
     }
 
     const existingItem = cart.find(item => item.id === cartItem.id)
@@ -272,18 +292,22 @@ function RestaurantContent() {
           ? { ...item, quantity: item.quantity + 1 }
           : item
       )
+      showNotification(`Se agregó otra ${product.name} al carrito`)
     } else {
       newCart = [...cart, { 
         ...cartItem, 
         quantity: 1
       }]
+      showNotification(`${product.name} agregado al carrito`)
     }
 
     setCart(newCart)
-    localStorage.setItem('cart', JSON.stringify(newCart))
+    updateCartInStorage(business.id, newCart)
   }
 
   const addVariantToCart = (product: any) => {
+    if (!business?.id) return;
+
     const existingItem = cart.find(item => item.id === product.id)
     let newCart
 
@@ -293,25 +317,32 @@ function RestaurantContent() {
           ? { ...item, quantity: item.quantity + 1 }
           : item
       )
+      showNotification(`Se agregó otra ${product.name} al carrito`)
     } else {
       newCart = [...cart, { 
         ...product, 
         quantity: 1, 
-        businessId: business?.id 
+        businessId: business.id,
+        businessName: business.name
       }]
+      showNotification(`${product.name} agregado al carrito`)
     }
 
     setCart(newCart)
-    localStorage.setItem('cart', JSON.stringify(newCart))
+    updateCartInStorage(business.id, newCart)
   }
 
   const removeFromCart = (productId: string) => {
+    if (!business?.id) return;
+
     const newCart = cart.filter(item => item.id !== productId)
     setCart(newCart)
-    localStorage.setItem('cart', JSON.stringify(newCart))
+    updateCartInStorage(business.id, newCart)
   }
 
   const updateQuantity = (productId: string, quantity: number) => {
+    if (!business?.id) return;
+
     if (quantity <= 0) {
       removeFromCart(productId)
       return
@@ -324,7 +355,21 @@ function RestaurantContent() {
     )
 
     setCart(newCart)
-    localStorage.setItem('cart', JSON.stringify(newCart))
+    updateCartInStorage(business.id, newCart)
+  }
+
+  // Función para actualizar el carrito en localStorage
+  const updateCartInStorage = (businessId: string, businessCart: any[]) => {
+    const savedCarts = localStorage.getItem('carts')
+    const allCarts = savedCarts ? JSON.parse(savedCarts) : {}
+    
+    if (businessCart.length === 0) {
+      delete allCarts[businessId]
+    } else {
+      allCarts[businessId] = businessCart
+    }
+    
+    localStorage.setItem('carts', JSON.stringify(allCarts))
   }
 
   const getCartItemQuantity = (productId: string) => {
@@ -424,86 +469,142 @@ function RestaurantContent() {
 
       {/* Floating Cart Button */}
       {cart.length > 0 && (
-        <button
-          onClick={() => setIsCartOpen(true)}
-          className="fixed bottom-6 right-6 bg-red-500 text-white rounded-full w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center shadow-lg hover:bg-red-600 transition-all z-40"
-        >
-          <div className="relative">
-            <svg className="w-6 h-6 sm:w-7 sm:h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4m0 0L7 13m0 0l-1.8 9H19M7 13v6a2 2 0 002 2h6a2 2 0 002-2v-6M7 13H5" />
-            </svg>
-            {cartItemsCount > 0 && (
-              <span className="absolute -top-2 -right-2 bg-yellow-400 text-red-900 rounded-full w-5 h-5 text-xs font-bold flex items-center justify-center">
-                {cartItemsCount}
-              </span>
-            )}
-          </div>
-        </button>
+        <div className="fixed bottom-6 right-6 z-40">
+          <button
+            onClick={() => setIsCartOpen(true)}
+            className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-full shadow-2xl hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 group"
+          >
+            <div className="flex items-center px-4 py-3 space-x-2">
+              <div className="relative">
+                <i className="bi bi-bag text-xl"></i>
+                <span className="absolute -top-2 -right-2 bg-yellow-400 text-red-900 rounded-full w-5 h-5 text-xs font-bold flex items-center justify-center animate-pulse">
+                  {cartItemsCount}
+                </span>
+              </div>
+              <div className="hidden sm:block text-left">
+                <div className="text-sm font-semibold leading-none">${cartTotal.toFixed(2)}</div>
+                <div className="text-xs text-red-100 leading-none mt-0.5">Ver carrito</div>
+              </div>
+              <i className="bi bi-chevron-right transition-transform group-hover:translate-x-1"></i>
+            </div>
+          </button>
+        </div>
       )}
 
       {/* Cart Sidebar */}
       {isCartOpen && (
         <div className="fixed inset-0 z-50 overflow-hidden">
-          <div className="absolute inset-0 bg-black bg-opacity-50" onClick={() => setIsCartOpen(false)} />
-          <div className="absolute right-0 top-0 h-full w-full sm:w-96 bg-white shadow-xl transform transition-transform">
+          <div className="absolute inset-0 bg-black bg-opacity-50 cart-backdrop transition-all duration-300" onClick={() => setIsCartOpen(false)} />
+          <div className="absolute right-0 top-0 h-full w-full sm:w-96 bg-white shadow-2xl cart-slide-in">
             <div className="flex flex-col h-full">
               {/* Header */}
-              <div className="p-4 border-b bg-red-500 text-white flex items-center justify-between">
-                <h3 className="text-lg font-semibold">Tu Pedido</h3>
-                <button
-                  onClick={() => setIsCartOpen(false)}
-                  className="text-white hover:text-gray-200"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+              <div className="p-4 bg-gradient-to-r from-red-500 to-red-600 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold">Tu Pedido</h3>
+                    <p className="text-red-100 text-sm">{business?.name}</p>
+                  </div>
+                  <button
+                    onClick={() => setIsCartOpen(false)}
+                    className="p-2 hover:bg-red-600 rounded-lg transition-colors"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                {cart.length > 0 && (
+                  <div className="mt-2 text-sm text-red-100">
+                    {cartItemsCount} {cartItemsCount === 1 ? 'producto' : 'productos'}
+                  </div>
+                )}
               </div>
 
               {/* Cart Content */}
-              <div className="flex-1 overflow-y-auto p-4">
+              <div className="flex-1 overflow-y-auto">
                 {cart.length === 0 ? (
-                  <div className="text-center py-8">
-                    <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4m0 0L7 13m0 0l-1.8 9H19M7 13v6a2 2 0 002 2h6a2 2 0 002-2v-6M7 13H5" />
-                    </svg>
-                    <p className="text-gray-500">Tu carrito está vacío</p>
+                  <div className="flex flex-col items-center justify-center h-full px-4 text-center">
+                    <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                      <i className="bi bi-bag text-4xl text-gray-400"></i>
+                    </div>
+                    <h4 className="text-lg font-medium text-gray-900 mb-2">Tu carrito está vacío</h4>
+                    <p className="text-gray-500 text-sm">Agrega algunos productos deliciosos para comenzar</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {cart.map((item) => (
-                      <div key={item.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                        {/* Imagen del producto */}
-                        <div className="w-12 h-12 flex-shrink-0">
-                          <img
-                            src={item.image || business?.image}
-                            alt={item.name}
-                            className="w-full h-full object-cover rounded-md"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              if (target.src !== business?.image) {
-                                target.src = business?.image || '';
-                              }
-                            }}
-                          />
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{item.name}</p>
-                          <p className="text-xs text-gray-500">${item.price} c/u</p>
-                        </div>
-                        <div className="flex items-center space-x-2">
+                  <div className="p-4 space-y-3">
+                    {cart.map((item, index) => (
+                      <div key={item.id} className="group bg-white border border-gray-100 rounded-xl p-3 hover:shadow-md transition-all duration-200">
+                        <div className="flex items-center space-x-3">
+                          {/* Imagen del producto */}
+                          <div className="w-16 h-16 flex-shrink-0 bg-gray-100 rounded-lg overflow-hidden">
+                            <img
+                              src={item.image || business?.image}
+                              alt={item.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                if (target.src !== business?.image) {
+                                  target.src = business?.image || '';
+                                }
+                              }}
+                            />
+                          </div>
+                          
+                          {/* Información del producto */}
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-medium text-gray-900 text-sm line-clamp-2 leading-tight">
+                              {item.name}
+                            </h4>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-red-600 font-semibold">
+                                ${item.price.toFixed(2)}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                c/u
+                              </span>
+                            </div>
+                            
+                            {/* Controles de cantidad */}
+                            <div className="flex items-center justify-between mt-2">
+                              <div className="flex items-center bg-gray-100 rounded-lg overflow-hidden">
+                                <button
+                                  onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                                  className="w-8 h-8 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                                  </svg>
+                                </button>
+                                <span className="px-3 py-1 text-sm font-medium min-w-[40px] text-center bg-white">
+                                  {item.quantity}
+                                </span>
+                                <button
+                                  onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                                  className="w-8 h-8 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                  </svg>
+                                </button>
+                              </div>
+                              
+                              {/* Subtotal del producto */}
+                              <div className="text-right">
+                                <div className="text-sm font-semibold text-gray-900">
+                                  ${(item.price * item.quantity).toFixed(2)}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Botón eliminar */}
                           <button
-                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                            className="w-7 h-7 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center hover:bg-gray-300"
+                            onClick={() => removeFromCart(item.id)}
+                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                           >
-                            -
-                          </button>
-                          <span className="text-sm font-medium min-w-[20px] text-center">{item.quantity}</span>
-                          <button
-                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                            className="w-7 h-7 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center hover:bg-gray-300"
-                          >
-                            +
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
                           </button>
                         </div>
                       </div>
@@ -512,20 +613,41 @@ function RestaurantContent() {
                 )}
               </div>
 
-              {/* Footer */}
+              {/* Footer con resumen y botón de checkout */}
               {cart.length > 0 && (
-                <div className="p-4 border-t bg-white">
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="font-semibold">Total:</span>
-                    <span className="font-bold text-lg text-red-500">${cartTotal.toFixed(2)}</span>
+                <div className="border-t bg-white p-4 space-y-4">
+                  {/* Resumen del pedido */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Subtotal ({cartItemsCount} productos)</span>
+                      <span className="font-medium">${cartTotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Envío</span>
+                      <span className="text-gray-500">A calcular</span>
+                    </div>
+                    <div className="border-t pt-2">
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold text-gray-900">Total</span>
+                        <span className="font-bold text-xl text-red-600">${cartTotal.toFixed(2)}</span>
+                      </div>
+                    </div>
                   </div>
+                  
+                  {/* Botón de checkout */}
                   <Link
                     href={`/checkout?businessId=${business.id}`}
-                    className="w-full bg-red-500 text-white py-3 rounded-lg hover:bg-red-600 block text-center font-medium"
+                    className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white py-4 rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-200 flex items-center justify-center font-semibold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
                     onClick={() => setIsCartOpen(false)}
                   >
-                    Ir al Checkout
+                    <i className="bi bi-bag mr-2 text-xl"></i>
+                    Continuar con el pedido
                   </Link>
+                  
+                  {/* Texto informativo */}
+                  <p className="text-xs text-gray-500 text-center">
+                    Los costos de envío se calcularán en el siguiente paso
+                  </p>
                 </div>
               )}
             </div>
@@ -544,6 +666,22 @@ function RestaurantContent() {
         onAddToCart={addVariantToCart}
         businessImage={business?.image}
       />
+
+      {/* Notificación temporal */}
+      {notification.show && (
+        <div className="fixed top-20 right-4 z-50 animate-pulse">
+          <div className={`rounded-lg px-4 py-3 shadow-lg text-white font-medium ${
+            notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+          }`}>
+            <div className="flex items-center space-x-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="text-sm">{notification.message}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

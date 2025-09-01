@@ -50,78 +50,32 @@ function OrderConfirmationContent() {
     try {
       setLoading(true)
       
-      // Por ahora, como no tenemos la orden real, vamos a crear datos mock
-      // En el futuro, esto debería ser: const orderData = await getOrder(orderId)
+      // Cargar datos reales de la orden
+      const orderData = await getOrder(orderId)
       
-      // Datos mock para el resumen del pedido
-      const mockOrder: Order = {
-        id: orderId,
-        businessId: 'business1',
-        customer: {
-          name: 'Juan Pérez',
-          phone: '0987654321'
-        },
-        items: [
-          {
-            product: {
-              id: 'product1',
-              businessId: 'business1',
-              name: 'Hamburguesa Clásica',
-              description: 'Hamburguesa con carne, lechuga, tomate y salsa',
-              price: 8.50,
-              category: 'Hamburguesas',
-              isAvailable: true,
-              createdAt: new Date(),
-              updatedAt: new Date()
-            },
-            quantity: 2,
-            subtotal: 17.00
-          },
-          {
-            product: {
-              id: 'product2',
-              businessId: 'business1',
-              name: 'Papas Fritas',
-              description: 'Papas fritas crujientes',
-              price: 3.50,
-              category: 'Acompañamientos',
-              isAvailable: true,
-              createdAt: new Date(),
-              updatedAt: new Date()
-            },
-            quantity: 1,
-            subtotal: 3.50
-          }
-        ],
-        delivery: {
-          type: 'delivery',
-          references: 'Casa blanca con portón negro',
-          mapLocation: {
-            lat: -0.1807,
-            lng: -78.4678
-          }
-        },
-        timing: {
-          type: 'immediate'
-        },
-        payment: {
-          method: 'cash'
-        },
-        total: 20.50,
-        status: 'pending',
-        createdAt: new Date(),
-        updatedAt: new Date()
+      if (!orderData) {
+        setError('Pedido no encontrado')
+        setLoading(false)
+        return
       }
 
-      setOrder(mockOrder)
-
+      setOrder(orderData)
+      
       // Cargar datos del negocio
-      const businessData = await getBusiness(mockOrder.businessId)
-      setBusiness(businessData)
+      const businessData = await getBusiness(orderData.businessId)
+      if (businessData) {
+        setBusiness(businessData)
+      }
 
-      // Buscar cliente por teléfono para poder editarlo
-      const client = await searchClientByPhone(mockOrder.customer.phone)
-      setClientFound(client)
+      // Buscar cliente por teléfono para obtener información adicional
+      try {
+        const client = await searchClientByPhone(orderData.customer.phone)
+        if (client) {
+          setClientFound(client)
+        }
+      } catch (error) {
+        console.log('Cliente no encontrado en la base de datos, usando datos de la orden')
+      }
 
     } catch (error) {
       console.error('Error loading order data:', error)
@@ -232,8 +186,18 @@ function OrderConfirmationContent() {
               <div className="bg-white rounded-lg shadow-sm p-6">
                 <h2 className="text-lg font-semibold text-gray-800 mb-4">Restaurante</h2>
                 <div className="flex items-center space-x-4">
-                  <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center">
-                    <span className="text-2xl">🍔</span>
+                  <div className="w-16 h-16 bg-gray-200 rounded-lg overflow-hidden">
+                    {business.image ? (
+                      <img
+                        src={business.image}
+                        alt={business.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                        <i className="bi bi-shop text-2xl text-gray-400"></i>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <h3 className="font-semibold text-gray-800">{business.name}</h3>
@@ -248,16 +212,25 @@ function OrderConfirmationContent() {
             <div className="bg-white rounded-lg shadow-sm p-6">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Tu Pedido</h2>
               <div className="space-y-4">
-                {order.items.map((item, index) => (
+                {order.items.map((item: any, index: number) => (
                   <div key={index} className="flex justify-between items-center py-3 border-b border-gray-100 last:border-b-0">
-                    <div className="flex-1">
-                      <h3 className="font-medium text-gray-800">{item.product.name}</h3>
-                      <p className="text-gray-600 text-sm">{item.product.description}</p>
-                      <p className="text-gray-500 text-sm">Cantidad: {item.quantity}</p>
+                    <div className="flex items-center space-x-4">
+                      {item.image && (
+                        <img
+                          src={item.image}
+                          alt={item.name}
+                          className="w-12 h-12 object-cover rounded-lg"
+                        />
+                      )}
+                      <div className="flex-1">
+                        <h3 className="font-medium text-gray-800">{item.name}</h3>
+                        <p className="text-gray-600 text-sm">{item.description}</p>
+                        <p className="text-gray-500 text-sm">Cantidad: {item.quantity}</p>
+                      </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-semibold text-gray-800">${item.subtotal.toFixed(2)}</p>
-                      <p className="text-gray-500 text-sm">${item.product.price.toFixed(2)} c/u</p>
+                      <p className="font-semibold text-gray-800">${(item.price * item.quantity).toFixed(2)}</p>
+                      <p className="text-gray-500 text-sm">${item.price.toFixed(2)} c/u</p>
                     </div>
                   </div>
                 ))}
@@ -299,6 +272,56 @@ function OrderConfirmationContent() {
                     {order.payment.method === 'cash' ? 'Efectivo' : 'Transferencia'}
                   </span>
                 </div>
+                
+                {/* Información adicional para transferencias */}
+                {order.payment.method === 'transfer' && (
+                  <>
+                    {(order.payment as any).selectedBank && (
+                      <div className="flex items-center space-x-3">
+                        <span className="text-gray-500">Banco:</span>
+                        <span className="font-medium capitalize">
+                          {(order.payment as any).selectedBank === 'pichincha' && '🟡 Banco Pichincha'}
+                          {(order.payment as any).selectedBank === 'pacifico' && '🔵 Banco Pacifico'}
+                          {(order.payment as any).selectedBank === 'guayaquil' && '🩷 Banco Guayaquil'}
+                          {(order.payment as any).selectedBank === 'produbanco' && '🟢 Banco Produbanco'}
+                        </span>
+                      </div>
+                    )}
+                    
+                    <div className="flex items-center space-x-3">
+                      <span className="text-gray-500">Estado del pago:</span>
+                      <span className={`font-medium text-sm px-2 py-1 rounded-full ${
+                        (order.payment as any).paymentStatus === 'pending' ? 'bg-red-100 text-red-800' :
+                        (order.payment as any).paymentStatus === 'validating' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-green-100 text-green-800'
+                      }`}>
+                        {(order.payment as any).paymentStatus === 'pending' && '🔴 Por cobrar'}
+                        {(order.payment as any).paymentStatus === 'validating' && '🟡 Validando pago'}
+                        {(order.payment as any).paymentStatus === 'paid' && '🟢 Pagado'}
+                      </span>
+                    </div>
+                    
+                    {(order.payment as any).receiptImageUrl && (
+                      <div className="flex items-start space-x-3">
+                        <span className="text-gray-500">Comprobante:</span>
+                        <div className="flex flex-col space-y-2">
+                          <img
+                            src={(order.payment as any).receiptImageUrl}
+                            alt="Comprobante de transferencia"
+                            className="w-20 h-20 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
+                            onClick={() => window.open((order.payment as any).receiptImageUrl, '_blank')}
+                          />
+                          <button
+                            onClick={() => window.open((order.payment as any).receiptImageUrl, '_blank')}
+                            className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                          >
+                            Ver comprobante completo
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           </div>

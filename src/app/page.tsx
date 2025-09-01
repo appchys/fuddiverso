@@ -378,6 +378,12 @@ export default function HomePage() {
           </div>
           <div className="border-t border-gray-800 mt-8 pt-8 text-center">
             <p className="text-gray-400">© 2024 Fuddiverso. Todos los derechos reservados.</p>
+            {/* Acceso discreto al admin */}
+            <div className="mt-2">
+              <Link href="/admin" className="text-xs text-gray-600 hover:text-gray-400">
+                Admin
+              </Link>
+            </div>
           </div>
         </div>
       </footer>

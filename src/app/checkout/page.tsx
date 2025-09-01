@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone, validateAndNormalizePhone } from '@/lib/validation'
@@ -8,6 +8,8 @@ import { createOrder, getBusiness, searchClientByPhone, createClient, FirestoreC
 import { Business } from '@/types'
 import { GoogleMap } from '@/components/GoogleMap'
 import { useAuth } from '@/contexts/AuthContext'
+import { storage } from '@/lib/firebase'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 
 // Componente para mostrar mapa pequeño de ubicación
 function LocationMap({ latlong, height = "96px" }: { latlong: string; height?: string }) {
@@ -48,6 +50,216 @@ function LocationMap({ latlong, height = "96px" }: { latlong: string; height?: s
       />
     </div>
   );
+}
+
+// Componente para subir comprobante de transferencia
+function TransferReceiptUploader({ 
+  onReceiptUpload, 
+  uploadedImageUrl, 
+  isUploading 
+}: { 
+  onReceiptUpload: (imageUrl: string) => void;
+  uploadedImageUrl: string | null;
+  isUploading: boolean;
+}) {
+  const [dragActive, setDragActive] = useState(false)
+  const [previewImage, setPreviewImage] = useState<string | null>(uploadedImageUrl)
+  const [error, setError] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setPreviewImage(uploadedImageUrl)
+  }, [uploadedImageUrl])
+
+  const validateFile = (file: File): boolean => {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+    const maxSize = 5 * 1024 * 1024 // 5MB
+
+    if (!allowedTypes.includes(file.type)) {
+      setError('Solo se permiten archivos de imagen (JPG, PNG, WEBP)')
+      return false
+    }
+
+    if (file.size > maxSize) {
+      setError('El archivo debe ser menor a 5MB')
+      return false
+    }
+
+    setError('')
+    return true
+  }
+
+  const handleFileUpload = async (file: File) => {
+    if (!validateFile(file)) return
+
+    try {
+      // Crear preview local
+      const previewUrl = URL.createObjectURL(file)
+      setPreviewImage(previewUrl)
+
+      // Subir a Firebase Storage
+      const timestamp = Date.now()
+      const fileName = `comprobantes/${timestamp}_${file.name}`
+      const storageRef = ref(storage, fileName)
+      
+      await uploadBytes(storageRef, file)
+      const downloadUrl = await getDownloadURL(storageRef)
+      
+      // Limpiar preview local y usar URL de Firebase
+      URL.revokeObjectURL(previewUrl)
+      setPreviewImage(downloadUrl)
+      onReceiptUpload(downloadUrl)
+      
+    } catch (error) {
+      console.error('Error uploading image:', error)
+      setError('Error al subir la imagen. Intenta nuevamente.')
+      setPreviewImage(null)
+    }
+  }
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true)
+    } else if (e.type === 'dragleave') {
+      setDragActive(false)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+
+    const files = e.dataTransfer.files
+    if (files && files[0]) {
+      handleFileUpload(files[0])
+    }
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files && files[0]) {
+      handleFileUpload(files[0])
+    }
+  }
+
+  const removeImage = () => {
+    setPreviewImage(null)
+    onReceiptUpload('')
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  return (
+    <div className="mt-4">
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        Comprobante de Transferencia *
+      </label>
+      
+      {!previewImage ? (
+        <div
+          className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+            dragActive 
+              ? 'border-red-500 bg-red-50' 
+              : 'border-gray-300 hover:border-gray-400'
+          }`}
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+        >
+          <div className="space-y-2">
+            <i className="bi bi-cloud-upload text-3xl text-gray-400"></i>
+            <div>
+              <p className="text-sm text-gray-600">
+                Arrastra tu comprobante aquí o{' '}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-red-500 hover:text-red-600 font-medium"
+                  disabled={isUploading}
+                >
+                  selecciona un archivo
+                </button>
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                JPG, PNG o WEBP hasta 5MB
+              </p>
+            </div>
+          </div>
+          
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/jpg,image/png,image/webp"
+            onChange={handleFileSelect}
+            className="hidden"
+            disabled={isUploading}
+          />
+        </div>
+      ) : (
+        <div className="relative">
+          <div className="border rounded-lg p-4 bg-gray-50">
+            <div className="flex items-start space-x-4">
+              <div className="flex-shrink-0">
+                <img
+                  src={previewImage}
+                  alt="Comprobante de transferencia"
+                  className="w-20 h-20 object-cover rounded-lg border"
+                />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-gray-900">
+                  Comprobante subido correctamente
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  La imagen se ha guardado y está lista para enviar
+                </p>
+                <button
+                  type="button"
+                  onClick={removeImage}
+                  className="text-red-500 hover:text-red-600 text-xs font-medium mt-2"
+                  disabled={isUploading}
+                >
+                  <i className="bi bi-trash mr-1"></i>
+                  Eliminar y subir otra
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          {/* Preview expandido */}
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => window.open(previewImage, '_blank')}
+              className="text-xs text-blue-600 hover:text-blue-800 flex items-center"
+            >
+              <i className="bi bi-eye mr-1"></i>
+              Ver imagen completa
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {error && (
+        <p className="text-red-500 text-xs mt-2 flex items-center">
+          <i className="bi bi-exclamation-triangle mr-1"></i>
+          {error}
+        </p>
+      )}
+      
+      {isUploading && (
+        <div className="mt-3 flex items-center text-sm text-gray-600">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500 mr-2"></div>
+          Subiendo comprobante...
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function CheckoutPage() {
@@ -100,8 +312,11 @@ function CheckoutContent() {
   });
   const [paymentData, setPaymentData] = useState({
     method: 'cash' as 'cash' | 'transfer',
-    selectedBank: '' as string
+    selectedBank: '' as string,
+    receiptImageUrl: '' as string,
+    paymentStatus: 'pending' as 'pending' | 'validating' | 'paid'
   });
+  const [uploadingReceipt, setUploadingReceipt] = useState(false);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -192,6 +407,16 @@ function CheckoutContent() {
       console.error('Error saving location:', error);
       alert('Error al guardar la ubicación');
     }
+  }
+
+  // Función para manejar la carga de comprobante
+  const handleReceiptUpload = (imageUrl: string) => {
+    setUploadingReceipt(false)
+    setPaymentData(prev => ({
+      ...prev,
+      receiptImageUrl: imageUrl,
+      paymentStatus: imageUrl ? 'validating' : 'pending'
+    }))
   }
 
   // Función hoisted colocada antes del efecto que la usa
@@ -330,34 +555,33 @@ function CheckoutContent() {
   useEffect(() => {
     // Cargar datos del negocio y carrito desde localStorage
     const businessIdFromQuery = searchParams.get('businessId')
-    const cartRaw = typeof window !== 'undefined' ? localStorage.getItem('cart') : null
-
-    // Si no hay carrito ni businessId, redirigir
-    if (!cartRaw && !businessIdFromQuery) {
+    
+    // Si no hay businessId en la query, redirigir
+    if (!businessIdFromQuery) {
       router.push('/')
       return
     }
 
-    let derivedBusinessId = businessIdFromQuery
-    if (!derivedBusinessId && cartRaw) {
+    // Verificar que existe carrito para este negocio
+    const cartsData = typeof window !== 'undefined' ? localStorage.getItem('carts') : null
+    let hasCartForBusiness = false
+
+    if (cartsData) {
       try {
-        const parsed = JSON.parse(cartRaw)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Asumir que los items tienen businessId y tomar el del primer item
-          derivedBusinessId = parsed[0].businessId || null
-        }
+        const allCarts = JSON.parse(cartsData)
+        hasCartForBusiness = allCarts[businessIdFromQuery] && allCarts[businessIdFromQuery].length > 0
       } catch (e) {
-        console.error('Error parsing cart from localStorage', e)
+        console.error('Error parsing carts from localStorage', e)
       }
     }
 
-    if (!derivedBusinessId) {
-      // Si no logramos derivar un businessId válido, redirigimos
+    // Si no hay carrito para este negocio, redirigir
+    if (!hasCartForBusiness) {
       router.push('/')
       return
     }
 
-    loadBusinessData(derivedBusinessId)
+    loadBusinessData(businessIdFromQuery)
 
     // Si el usuario está autenticado, cargar automáticamente su información
     if (user) {
@@ -393,10 +617,21 @@ function CheckoutContent() {
   // Client-only guard: render nothing until mounted on client
   if (!isClient) return null;
 
-  // Cargar datos del carrito desde localStorage
+  // Cargar datos del carrito específico de este negocio desde localStorage
   const getCartItems = () => {
-    const cartData = localStorage.getItem('cart')
-    return cartData ? JSON.parse(cartData) : []
+    const businessId = searchParams.get('businessId')
+    if (!businessId) return []
+
+    const cartsData = localStorage.getItem('carts')
+    if (!cartsData) return []
+
+    try {
+      const allCarts = JSON.parse(cartsData)
+      return allCarts[businessId] || []
+    } catch (e) {
+      console.error('Error parsing carts from localStorage', e)
+      return []
+    }
   }
 
   // Función para calcular el costo de envío
@@ -442,6 +677,19 @@ function CheckoutContent() {
       } else if (deliveryData.type === 'delivery') {
         if (!deliveryData.address.trim()) {
           newErrors.address = 'La dirección es requerida para delivery'
+        }
+      }
+    }
+
+    if (step === 4) {
+      if (!paymentData.method) {
+        newErrors.paymentMethod = 'Selecciona un método de pago'
+      } else if (paymentData.method === 'transfer') {
+        if (!paymentData.selectedBank) {
+          newErrors.selectedBank = 'Selecciona un banco para la transferencia'
+        }
+        if (!paymentData.receiptImageUrl && paymentData.paymentStatus !== 'pending') {
+          newErrors.receiptImage = 'Sube el comprobante de transferencia o marca como "Por cobrar"'
         }
       }
     }
@@ -508,20 +756,35 @@ function CheckoutContent() {
           scheduledTime: deliveryTime
         },
         payment: {
-          method: paymentData.method
+          method: paymentData.method,
+          selectedBank: paymentData.method === 'transfer' ? paymentData.selectedBank : undefined,
+          receiptImageUrl: paymentData.method === 'transfer' ? paymentData.receiptImageUrl : undefined,
+          paymentStatus: paymentData.method === 'transfer' ? paymentData.paymentStatus : 'paid'
         },
         total,
         status: 'pending' as 'pending',
         updatedAt: new Date()
       }
 
-      await createOrder(orderData)
+      const orderId = await createOrder(orderData)
       
-      // Limpiar carrito
-      localStorage.removeItem('cart')
+      // Limpiar carrito específico de este negocio
+      const businessId = searchParams.get('businessId')
+      if (businessId) {
+        const cartsData = localStorage.getItem('carts')
+        if (cartsData) {
+          try {
+            const allCarts = JSON.parse(cartsData)
+            delete allCarts[businessId] // Eliminar carrito de este negocio
+            localStorage.setItem('carts', JSON.stringify(allCarts))
+          } catch (e) {
+            console.error('Error updating carts in localStorage', e)
+          }
+        }
+      }
       
-      // Redirigir a página de confirmación
-      router.push(`/order-confirmation?orderId=12345`)
+      // Redirigir a página de confirmación con el ID real
+      router.push(`/order-confirmation?orderId=${orderId}`)
     } catch (error) {
       console.error('Error creating order:', error)
     } finally {
@@ -1076,6 +1339,13 @@ function CheckoutContent() {
                     </label>
                   </div>
 
+                  {errors.paymentMethod && (
+                    <p className="text-red-500 text-sm mt-2 flex items-center">
+                      <i className="bi bi-exclamation-triangle mr-1"></i>
+                      {errors.paymentMethod}
+                    </p>
+                  )}
+
                   {paymentData.method === 'transfer' && (
                     <div className="mt-6 bg-gray-50 p-4 rounded-lg">
                       <h3 className="font-medium mb-4">💳 Datos para realizar la transferencia</h3>
@@ -1096,6 +1366,12 @@ function CheckoutContent() {
                           <option value="guayaquil">🩷 Banco Guayaquil</option>
                           <option value="produbanco">🟢 Banco Produbanco</option>
                         </select>
+                        {errors.selectedBank && (
+                          <p className="text-red-500 text-xs mt-1 flex items-center">
+                            <i className="bi bi-exclamation-triangle mr-1"></i>
+                            {errors.selectedBank}
+                          </p>
+                        )}
                       </div>
 
                       {/* Mostrar datos bancarios según selección */}
@@ -1141,8 +1417,87 @@ function CheckoutContent() {
                           
                           <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
                             <p className="text-sm text-yellow-800">
-                              <strong>Importante:</strong> Realiza la transferencia por el monto exacto de ${cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0).toFixed(2)} y envía el comprobante por WhatsApp.
+                              <strong>Importante:</strong> Realiza la transferencia por el monto exacto de ${total.toFixed(2)} y sube el comprobante aquí.
                             </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Componente para subir comprobante */}
+                      {paymentData.selectedBank && (
+                        <TransferReceiptUploader
+                          onReceiptUpload={handleReceiptUpload}
+                          uploadedImageUrl={paymentData.receiptImageUrl || null}
+                          isUploading={uploadingReceipt}
+                        />
+                      )}
+
+                      {/* Error del comprobante */}
+                      {errors.receiptImage && (
+                        <p className="text-red-500 text-xs mt-2 flex items-center">
+                          <i className="bi bi-exclamation-triangle mr-1"></i>
+                          {errors.receiptImage}
+                        </p>
+                      )}
+
+                      {/* Estado del pago */}
+                      {paymentData.method === 'transfer' && (
+                        <div className="mt-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Estado del Pago
+                          </label>
+                          <div className="flex items-center space-x-4">
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="paymentStatus"
+                                value="pending"
+                                checked={paymentData.paymentStatus === 'pending'}
+                                onChange={(e) => setPaymentData(prev => ({
+                                  ...prev,
+                                  paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
+                                }))}
+                                className="mr-2"
+                              />
+                              <span className="text-sm text-red-600">
+                                <i className="bi bi-clock mr-1"></i>
+                                Por cobrar
+                              </span>
+                            </label>
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="paymentStatus"
+                                value="validating"
+                                checked={paymentData.paymentStatus === 'validating'}
+                                onChange={(e) => setPaymentData(prev => ({
+                                  ...prev,
+                                  paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
+                                }))}
+                                className="mr-2"
+                              />
+                              <span className="text-sm text-yellow-600">
+                                <i className="bi bi-search mr-1"></i>
+                                Validando pago
+                              </span>
+                            </label>
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="paymentStatus"
+                                value="paid"
+                                checked={paymentData.paymentStatus === 'paid'}
+                                onChange={(e) => setPaymentData(prev => ({
+                                  ...prev,
+                                  paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
+                                }))}
+                                className="mr-2"
+                              />
+                              <span className="text-sm text-green-600">
+                                <i className="bi bi-check-circle mr-1"></i>
+                                Pagado
+                              </span>
+                            </label>
                           </div>
                         </div>
                       )}

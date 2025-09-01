@@ -15,6 +15,38 @@
   .touch-manipulation {
     touch-action: manipulation;
   }
+
+  /* Smooth cart animations */
+  .cart-slide-in {
+    animation: slideInRight 0.3s ease-out;
+  }
+
+  .cart-backdrop {
+    backdrop-filter: blur(4px);
+  }
+
+  /* Floating button pulse effect */
+  .floating-pulse {
+    animation: pulse 2s infinite;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: .8;
+  }
 }
 
 /* Improved tap targets for mobile */

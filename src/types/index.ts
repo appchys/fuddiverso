@@ -110,6 +110,9 @@ export interface OrderTiming {
 
 export interface PaymentInfo {
   method: 'cash' | 'transfer'
+  selectedBank?: string
+  receiptImageUrl?: string
+  paymentStatus?: 'pending' | 'validating' | 'paid'
   bankAccount?: {
     bankName: string
     accountType: string
