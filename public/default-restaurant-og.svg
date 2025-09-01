@@ -1,0 +1,36 @@
+/* Default restaurant image for social media previews */
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background gradient -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ef4444;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#dc2626;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  
+  <!-- Logo/Icon -->
+  <circle cx="600" cy="240" r="80" fill="rgba(255,255,255,0.2)"/>
+  <path d="M560 200h80v80h-80v-80zm20 20v40h40v-40h-40z" fill="white"/>
+  <path d="M570 220h20v20h-20v-20z" fill="#ef4444"/>
+  
+  <!-- Fuddiverso Text -->
+  <text x="600" y="360" font-family="Arial, sans-serif" font-size="48" font-weight="bold" text-anchor="middle" fill="white">
+    Fuddiverso
+  </text>
+  
+  <!-- Subtitle -->
+  <text x="600" y="400" font-family="Arial, sans-serif" font-size="20" text-anchor="middle" fill="rgba(255,255,255,0.9)">
+    Delivery de Comida
+  </text>
+  
+  <!-- Restaurant placeholder text -->
+  <text x="600" y="480" font-family="Arial, sans-serif" font-size="32" font-weight="600" text-anchor="middle" fill="white">
+    Restaurante
+  </text>
+  <text x="600" y="520" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="rgba(255,255,255,0.8)">
+    Ordena tu comida favorita
+  </text>
+</svg>

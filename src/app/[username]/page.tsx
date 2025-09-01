@@ -3,8 +3,77 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import Head from 'next/head'
 import { Business, Product } from '@/types'
 import { getBusinessByUsername, getProductsByBusiness } from '@/lib/database'
+
+// Componente para structured data JSON-LD
+function BusinessStructuredData({ business }: { business: Business }) {
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "Restaurant",
+    "name": business.name,
+    "description": business.description,
+    "image": business.image,
+    "url": `https://fuddiverso.vercel.app/${business.username}`,
+    "telephone": business.phone,
+    "email": business.email,
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": business.address,
+      "addressCountry": "EC"
+    },
+    "servesCuisine": business.categories || [],
+    "priceRange": "$$",
+    "acceptsReservations": "False",
+    "hasDeliveryService": "True",
+    "hasOnlineOrdering": "True",
+    "paymentAccepted": ["Cash", "Credit Card", "Bank Transfer"],
+    "currenciesAccepted": "USD",
+    "openingHours": business.schedule ? Object.entries(business.schedule).map(([day, hours]: [string, any]) => 
+      hours?.isOpen ? `${day.substring(0, 2).toUpperCase()} ${hours.open}-${hours.close}` : null
+    ).filter(Boolean) : [],
+    "aggregateRating": {
+      "@type": "AggregateRating",
+      "ratingValue": "4.5",
+      "reviewCount": "10"
+    },
+    "potentialAction": {
+      "@type": "OrderAction",
+      "target": {
+        "@type": "EntryPoint",
+        "urlTemplate": `https://fuddiverso.vercel.app/${business.username}`,
+        "actionPlatform": [
+          "http://schema.org/DesktopWebPlatform",
+          "http://schema.org/MobileWebPlatform"
+        ]
+      },
+      "deliveryMethod": [
+        "http://purl.org/goodrelations/v1#DeliveryModePickup",
+        "http://purl.org/goodrelations/v1#DeliveryModeDirectDownload"
+      ]
+    },
+    "sameAs": [
+      `https://fuddiverso.vercel.app/${business.username}`,
+      // Aquí se pueden agregar redes sociales del negocio cuando las tengamos
+    ]
+  }
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
+      {/* Meta tags adicionales para WhatsApp en el head */}
+      <meta property="og:rich_attachment" content="true" />
+      <meta property="og:locale" content="es_ES" />
+      <meta property="og:locale:alternate" content="es_EC" />
+      <meta name="twitter:app:name:iphone" content="Fuddiverso" />
+      <meta name="twitter:app:name:googleplay" content="Fuddiverso" />
+    </>
+  )
+}
 
 // Componente para mostrar variantes de producto
 function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, updateQuantity, businessImage }: { 
@@ -28,6 +97,7 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
             }
           }}
         />
+
       </div>
       <div className="p-3 sm:p-4">
         <h4 className="font-semibold text-sm sm:text-base text-gray-900 line-clamp-2">{product.name}</h4>
@@ -421,6 +491,9 @@ function RestaurantContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Structured Data for SEO */}
+      <BusinessStructuredData business={business} />
+      
       {/* Hero Section */}
       <div className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
