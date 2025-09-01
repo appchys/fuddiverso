@@ -2,12 +2,13 @@ import type { Metadata } from 'next'
 import { getBusinessByUsername } from '@/lib/database'
 
 type Props = {
-  params: { username: string }
+  params: Promise<{ username: string }>
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   try {
-    const business = await getBusinessByUsername(params.username)
+    const { username } = await params
+    const business = await getBusinessByUsername(username)
     
     if (!business) {
       return {
