@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect, Suspense, useRef } from 'react'
+import { useState, useEffect, Suspense, useRef, useCallback, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone, validateAndNormalizePhone } from '@/lib/validation'
-import { createOrder, getBusiness, searchClientByPhone, createClient, FirestoreClient, getClientLocations, ClientLocation, getDeliveryFeeForLocation } from '@/lib/database'
+import { createOrder, getBusiness, searchClientByPhone, createClient, FirestoreClient, getClientLocations, ClientLocation, getDeliveryFeeForLocation, createClientLocation } from '@/lib/database'
 import { Business } from '@/types'
 import { GoogleMap } from '@/components/GoogleMap'
 import { useAuth } from '@/contexts/AuthContext'
@@ -394,13 +394,34 @@ function CheckoutContent() {
     }
   }
 
-  // Función para manejar cambio de ubicación en el mapa
-  const handleLocationChange = (lat: number, lng: number) => {
+  // Función para manejar cambio de ubicación en el mapa - optimizada para evitar re-renderizados
+  const handleLocationChange = useCallback((lat: number, lng: number) => {
     setNewLocationData(prev => ({
       ...prev,
       latlong: `${lat}, ${lng}`
     }));
-  }
+  }, []);
+
+  // Memorizar las coordenadas del mapa para evitar parpadeo
+  const mapCoordinates = useMemo(() => {
+    if (!newLocationData.latlong) return null;
+    try {
+      const [lat, lng] = newLocationData.latlong.split(',').map(coord => parseFloat(coord.trim()));
+      if (isNaN(lat) || isNaN(lng)) return null;
+      return { lat, lng };
+    } catch {
+      return null;
+    }
+  }, [newLocationData.latlong]);
+
+  // Handlers optimizados para evitar re-renderizados
+  const handleReferenciaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setNewLocationData(prev => ({ ...prev, referencia: e.target.value }));
+  }, []);
+
+  const handleTarifaChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setNewLocationData(prev => ({ ...prev, tarifa: e.target.value }));
+  }, []);
 
   // Función para guardar nueva ubicación
   const handleSaveNewLocation = async () => {
@@ -410,23 +431,39 @@ function CheckoutContent() {
     }
 
     try {
-      // Aquí iría la lógica para guardar la ubicación en Firebase
-      // Por ahora simulamos la creación
-      const newLocation: ClientLocation = {
-        id: `temp-${Date.now()}`,
+      console.log('💾 Guardando nueva ubicación:', newLocationData);
+      
+      // Guardar en Firebase usando la nueva función
+      const locationId = await createClientLocation({
         id_cliente: clientFound.id,
         latlong: newLocationData.latlong,
         referencia: newLocationData.referencia,
-        sector: 'Nuevo', // Se podría obtener automáticamente
+        tarifa: newLocationData.tarifa,
+        sector: 'Sin especificar' // Se puede mejorar para obtener automáticamente
+      });
+
+      console.log('✅ Ubicación guardada con ID:', locationId);
+
+      // Crear la ubicación con el ID real de Firebase
+      const newLocation: ClientLocation = {
+        id: locationId,
+        id_cliente: clientFound.id,
+        latlong: newLocationData.latlong,
+        referencia: newLocationData.referencia,
+        sector: 'Sin especificar',
         tarifa: newLocationData.tarifa
       };
 
+      // Actualizar el estado local
       setClientLocations(prev => [...prev, newLocation]);
-      handleSelectLocation(newLocation);
+      handleLocationSelect(newLocation);
       closeLocationModal();
+      
+      // Mostrar mensaje de éxito
+      alert('🎉 Ubicación guardada exitosamente');
     } catch (error) {
-      console.error('Error saving location:', error);
-      alert('Error al guardar la ubicación');
+      console.error('❌ Error saving location:', error);
+      alert('Error al guardar la ubicación. Por favor intenta de nuevo.');
     }
   }
 
@@ -496,7 +533,7 @@ function CheckoutContent() {
           setClientLocations(locations);
           // Seleccionar automáticamente la primera ubicación si existe
           if (locations.length > 0) {
-            handleSelectLocation(locations[0]);
+            handleLocationSelect(locations[0]);
           }
         } catch (error) {
           console.error('Error loading client locations:', error);
@@ -563,15 +600,49 @@ function CheckoutContent() {
     }
   }
 
-  // Función para seleccionar una ubicación del cliente
-  const handleSelectLocation = async (location: ClientLocation) => {
-    await handleLocationSelect(location);
+  // Función unificada para seleccionar una ubicación del cliente
+  const handleLocationSelect = async (location: ClientLocation) => {
+    setSelectedLocation(location)
+    
+    // Si la ubicación tiene coordenadas, calcular tarifa automáticamente
+    if (location.latlong) {
+      try {
+        const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const calculatedFee = await calculateDeliveryFee({ lat, lng })
+          
+          // Actualizar la tarifa en la ubicación seleccionada
+          const updatedLocation = { ...location, tarifa: calculatedFee.toString() }
+          setSelectedLocation(updatedLocation)
+          
+          // Actualizar datos de entrega
+          setDeliveryData(prev => ({
+            ...prev,
+            address: location.referencia,
+            references: `${location.sector} - ${location.latlong}`,
+            tarifa: calculatedFee.toString()
+          }));
+          
+          closeLocationModal()
+          return
+        }
+      } catch (error) {
+        console.error('Error calculating automatic delivery fee:', error)
+      }
+    }
+    
+    // Si no se pudo calcular automáticamente, usar tarifa existente
     setDeliveryData(prev => ({
       ...prev,
       address: location.referencia,
-      references: `${location.sector} - ${location.latlong}`
+      references: `${location.sector} - ${location.latlong}`,
+      tarifa: location.tarifa
     }));
+    
+    closeLocationModal()
   }
+
+  // Función duplicada removida
 
   useEffect(() => {
     // Cargar datos del negocio y carrito desde localStorage
@@ -621,7 +692,7 @@ function CheckoutContent() {
           setClientLocations(locations);
           // Seleccionar automáticamente la primera ubicación si existe
           if (locations.length > 0) {
-            handleSelectLocation(locations[0]);
+            handleLocationSelect(locations[0]);
           }
         } catch (error) {
           console.error('Error loading user locations:', error);
@@ -664,27 +735,6 @@ function CheckoutContent() {
       console.error('Error calculating delivery fee:', error)
       // Fallback a tarifa fija si no se puede calcular dinámicamente
       return 1.0
-    }
-  }
-
-  // Función para actualizar tarifa automáticamente cuando se selecciona ubicación
-  const handleLocationSelect = async (location: ClientLocation) => {
-    setSelectedLocation(location)
-    
-    // Si la ubicación tiene coordenadas, calcular tarifa automáticamente
-    if (location.latlong) {
-      try {
-        const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
-        if (!isNaN(lat) && !isNaN(lng)) {
-          const calculatedFee = await calculateDeliveryFee({ lat, lng })
-          
-          // Actualizar la tarifa en la ubicación seleccionada
-          const updatedLocation = { ...location, tarifa: calculatedFee.toString() }
-          setSelectedLocation(updatedLocation)
-        }
-      } catch (error) {
-        console.error('Error parsing location coordinates:', error)
-      }
     }
   }
 
@@ -1736,7 +1786,7 @@ function CheckoutContent() {
                             : 'border-gray-300 hover:bg-gray-50 active:bg-gray-100'
                         }`}
                         onClick={() => {
-                          handleSelectLocation(location);
+                          handleLocationSelect(location);
                           closeLocationModal();
                         }}
                       >
@@ -1792,11 +1842,11 @@ function CheckoutContent() {
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Ubicación en el mapa (mueve el pin para ajustar)
                       </label>
-                      {newLocationData.latlong && (
+                      {mapCoordinates && (
                         <div className="border rounded-lg overflow-hidden">
                           <GoogleMap
-                            latitude={parseFloat(newLocationData.latlong.split(',')[0])}
-                            longitude={parseFloat(newLocationData.latlong.split(',')[1])}
+                            latitude={mapCoordinates.lat}
+                            longitude={mapCoordinates.lng}
                             height="200px"
                             width="100%"
                             zoom={16}
@@ -1815,7 +1865,7 @@ function CheckoutContent() {
                       </label>
                       <textarea
                         value={newLocationData.referencia}
-                        onChange={(e) => setNewLocationData(prev => ({ ...prev, referencia: e.target.value }))}
+                        onChange={handleReferenciaChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                         placeholder="Ej: Casa blanca, portón negro, diagonal al supermercado..."
                         rows={3}
@@ -1839,7 +1889,7 @@ function CheckoutContent() {
                           step="0.01"
                           min="0"
                           value={newLocationData.tarifa}
-                          onChange={(e) => setNewLocationData(prev => ({ ...prev, tarifa: e.target.value }))}
+                          onChange={handleTarifaChange}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                           placeholder="0.00"
                         />
@@ -1854,18 +1904,7 @@ function CheckoutContent() {
                       )}
                     </div>
 
-                    {/* Coordenadas (solo lectura) */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Coordenadas
-                      </label>
-                      <input
-                        type="text"
-                        value={newLocationData.latlong}
-                        readOnly
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm"
-                      />
-                    </div>
+                    {/* Campo de coordenadas eliminado para simplificar la interfaz */}
                   </div>
 
                   <div className="mt-4 pt-3 border-t sm:border-t-0 sm:pt-4 space-y-2">

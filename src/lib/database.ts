@@ -1019,12 +1019,30 @@ export async function getLocationsByClient(clientPhone: string): Promise<ClientL
   try {
     console.log('🔍 Getting locations for client phone:', clientPhone);
 
-    const q = query(
+    // Primero encontrar el ID del cliente usando su número de celular
+    const clientQuery = query(
+      collection(db, 'clients'),
+      where('celular', '==', clientPhone)
+    );
+    
+    const clientSnapshot = await getDocs(clientQuery);
+    
+    if (clientSnapshot.empty) {
+      console.log('❌ No client found with phone:', clientPhone);
+      return [];
+    }
+
+    const clientDoc = clientSnapshot.docs[0];
+    const clientId = clientDoc.data().id;
+    console.log('✅ Client found, ID:', clientId);
+
+    // Ahora buscar las ubicaciones usando el ID del cliente
+    const locationQuery = query(
       collection(db, 'ubicaciones'),
-      where('id_cliente', '==', clientPhone)
+      where('id_cliente', '==', clientId)
     );
 
-    const querySnapshot = await getDocs(q);
+    const querySnapshot = await getDocs(locationQuery);
     console.log('📊 Locations found:', querySnapshot.size);
 
     const locations = querySnapshot.docs.map(doc => ({
@@ -1058,6 +1076,54 @@ export async function updateLocation(locationId: string, locationData: Partial<C
     console.log('✅ Location updated successfully');
   } catch (error) {
     console.error('❌ Error updating location:', error);
+    throw error;
+  }
+}
+
+// Función para crear nueva ubicación de cliente
+export async function createClientLocation(locationData: { id_cliente: string, latlong: string, referencia: string, tarifa: string, sector: string }): Promise<string> {
+  try {
+    console.log('📍 Creating new client location:', locationData);
+    
+    // Si id_cliente parece ser un número de teléfono, necesitamos convertirlo al ID real
+    let clientId = locationData.id_cliente;
+    
+    // Si parece ser un número de celular, buscar el ID real del cliente
+    if (locationData.id_cliente.length > 8 && /^\d+$/.test(locationData.id_cliente)) {
+      console.log('🔍 Converting phone number to client ID:', locationData.id_cliente);
+      
+      const clientQuery = query(
+        collection(db, 'clients'),
+        where('celular', '==', locationData.id_cliente)
+      );
+      
+      const clientSnapshot = await getDocs(clientQuery);
+      
+      if (!clientSnapshot.empty) {
+        const clientDoc = clientSnapshot.docs[0];
+        clientId = clientDoc.data().id;
+        console.log('✅ Found client ID:', clientId);
+      } else {
+        console.log('❌ No client found with phone:', locationData.id_cliente);
+        throw new Error('Cliente no encontrado');
+      }
+    }
+    
+    const cleanedData = cleanObject({
+      id_cliente: clientId,
+      latlong: locationData.latlong,
+      referencia: locationData.referencia,
+      tarifa: locationData.tarifa,
+      sector: locationData.sector || 'Sin especificar',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
+    const docRef = await addDoc(collection(db, 'ubicaciones'), cleanedData);
+    console.log('✅ Client location created with ID:', docRef.id);
+    return docRef.id;
+  } catch (error) {
+    console.error('❌ Error creating client location:', error);
     throw error;
   }
 }
