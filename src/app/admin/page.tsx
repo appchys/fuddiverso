@@ -329,7 +329,7 @@ export default function AdminDashboard() {
                     </td>
                   </tr>
                 )
-              }).filter(Boolean)} {/* Filter out null entries */}
+              }).filter(Boolean)}
             </tbody>
           </table>
         </div>

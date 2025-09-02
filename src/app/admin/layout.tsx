@@ -85,6 +85,16 @@ export default function AdminLayout({
                 >
                   Gestión de Pedidos
                 </Link>
+                <Link
+                  href="/admin/coverage-zones"
+                  className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    pathname === '/admin/coverage-zones'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Zonas de Cobertura
+                </Link>
               </nav>
             </div>
             <button

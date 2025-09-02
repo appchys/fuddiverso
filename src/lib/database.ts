@@ -22,7 +22,12 @@ import {
   GoogleAuthProvider,
   signInWithPopup
 } from 'firebase/auth'
-import { Business, Product, Order } from '../types'
+import { 
+  Business, 
+  Product, 
+  Order, 
+  CoverageZone 
+} from '../types'
 
 // Helper function para limpiar valores undefined de un objeto
 function cleanObject(obj: any): any {
@@ -1192,6 +1197,154 @@ export async function getUserBusinessAccess(userEmail: string, userId: string): 
     };
   } catch (error) {
     console.error('❌ Error checking user business access:', error);
+    throw error;
+  }
+}
+
+// Funciones para Zonas de Cobertura
+export async function getCoverageZones(businessId?: string): Promise<CoverageZone[]> {
+  try {
+    let q;
+    if (businessId) {
+      // Obtener zonas específicas del negocio
+      q = query(
+        collection(db, 'coverageZones'),
+        where('businessId', '==', businessId),
+        orderBy('name')
+      );
+    } else {
+      // Obtener zonas globales (para admin)
+      q = query(
+        collection(db, 'coverageZones'),
+        orderBy('name')
+      );
+    }
+
+    const querySnapshot = await getDocs(q);
+    const zones: CoverageZone[] = [];
+
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      
+      // Helper function to safely convert dates
+      const convertToDate = (dateField: any): Date => {
+        if (!dateField) return new Date();
+        if (dateField.toDate && typeof dateField.toDate === 'function') {
+          return dateField.toDate();
+        }
+        if (dateField instanceof Date) {
+          return dateField;
+        }
+        if (typeof dateField === 'string' || typeof dateField === 'number') {
+          return new Date(dateField);
+        }
+        return new Date();
+      };
+      
+      zones.push({
+        id: doc.id,
+        name: data.name || '',
+        businessId: data.businessId || null,
+        polygon: data.polygon || [],
+        deliveryFee: data.deliveryFee || 0,
+        isActive: data.isActive !== false,
+        createdAt: convertToDate(data.createdAt),
+        updatedAt: convertToDate(data.updatedAt)
+      });
+    });
+
+    return zones;
+  } catch (error) {
+    console.error('Error getting coverage zones:', error);
+    throw error;
+  }
+}
+
+export async function createCoverageZone(zoneData: Omit<CoverageZone, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+  try {
+    const cleanedData = cleanObject({
+      ...zoneData,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
+    const docRef = await addDoc(collection(db, 'coverageZones'), cleanedData);
+    return docRef.id;
+  } catch (error) {
+    console.error('Error creating coverage zone:', error);
+    throw error;
+  }
+}
+
+export async function updateCoverageZone(zoneId: string, updates: Partial<CoverageZone>): Promise<void> {
+  try {
+    const cleanedUpdates = cleanObject({
+      ...updates,
+      updatedAt: serverTimestamp()
+    });
+
+    await updateDoc(doc(db, 'coverageZones', zoneId), cleanedUpdates);
+  } catch (error) {
+    console.error('Error updating coverage zone:', error);
+    throw error;
+  }
+}
+
+export async function deleteCoverageZone(zoneId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'coverageZones', zoneId));
+  } catch (error) {
+    console.error('Error deleting coverage zone:', error);
+    throw error;
+  }
+}
+
+// Función para verificar si una ubicación está dentro de una zona de cobertura
+export function isPointInPolygon(point: { lat: number; lng: number }, polygon: { lat: number; lng: number }[]): boolean {
+  let inside = false;
+  const x = point.lng;
+  const y = point.lat;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lng;
+    const yi = polygon[i].lat;
+    const xj = polygon[j].lng;
+    const yj = polygon[j].lat;
+
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
+}
+
+// Función para obtener la tarifa de envío basada en la ubicación
+export async function getDeliveryFeeForLocation(location: { lat: number; lng: number }, businessId?: string): Promise<number> {
+  try {
+    const zones = await getCoverageZones(businessId);
+    
+    // Buscar en zonas específicas del negocio primero, luego en zonas globales
+    for (const zone of zones) {
+      if (zone.isActive && isPointInPolygon(location, zone.polygon)) {
+        return zone.deliveryFee;
+      }
+    }
+
+    // Si no se encuentra en ninguna zona específica, buscar en zonas globales
+    if (businessId) {
+      const globalZones = await getCoverageZones();
+      for (const zone of globalZones) {
+        if (!zone.businessId && zone.isActive && isPointInPolygon(location, zone.polygon)) {
+          return zone.deliveryFee;
+        }
+      }
+    }
+
+    // Si no está en ninguna zona, retornar tarifa por defecto o error
+    return 0; // O lanzar error si prefieres que no haya entrega fuera de zonas
+  } catch (error) {
+    console.error('Error getting delivery fee for location:', error);
     throw error;
   }
 }

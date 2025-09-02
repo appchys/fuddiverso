@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone, validateAndNormalizePhone } from '@/lib/validation'
-import { createOrder, getBusiness, searchClientByPhone, createClient, FirestoreClient, getClientLocations, ClientLocation } from '@/lib/database'
+import { createOrder, getBusiness, searchClientByPhone, createClient, FirestoreClient, getClientLocations, ClientLocation, getDeliveryFeeForLocation } from '@/lib/database'
 import { Business } from '@/types'
 import { GoogleMap } from '@/components/GoogleMap'
 import { useAuth } from '@/contexts/AuthContext'
@@ -333,6 +333,26 @@ function CheckoutContent() {
   // Effects (also must be declared consistently)
   useEffect(() => { setIsClient(true); }, []);
 
+  // Effect para calcular tarifa automáticamente cuando se ingresan nuevas coordenadas
+  useEffect(() => {
+    const calculateTariffForNewLocation = async () => {
+      if (newLocationData.latlong && business?.id) {
+        try {
+          const [lat, lng] = newLocationData.latlong.split(',').map(coord => parseFloat(coord.trim()))
+          if (!isNaN(lat) && !isNaN(lng)) {
+            const calculatedFee = await calculateDeliveryFee({ lat, lng })
+            setNewLocationData(prev => ({ ...prev, tarifa: calculatedFee.toFixed(2) }))
+          }
+        } catch (error) {
+          console.error('Error calculating tariff for new location:', error)
+        }
+      }
+    }
+
+    const timeoutId = setTimeout(calculateTariffForNewLocation, 1000) // Debounce por 1 segundo
+    return () => clearTimeout(timeoutId)
+  }, [newLocationData.latlong, business?.id])
+
   // Función para abrir el modal
   const openLocationModal = () => {
     setIsLocationModalOpen(true);
@@ -544,8 +564,8 @@ function CheckoutContent() {
   }
 
   // Función para seleccionar una ubicación del cliente
-  const handleSelectLocation = (location: ClientLocation) => {
-    setSelectedLocation(location);
+  const handleSelectLocation = async (location: ClientLocation) => {
+    await handleLocationSelect(location);
     setDeliveryData(prev => ({
       ...prev,
       address: location.referencia,
@@ -632,6 +652,39 @@ function CheckoutContent() {
     } catch (e) {
       console.error('Error parsing carts from localStorage', e)
       return []
+    }
+  }
+
+  // Función para calcular tarifa de envío basada en zonas de cobertura
+  const calculateDeliveryFee = async (location: { lat: number; lng: number }) => {
+    try {
+      const fee = await getDeliveryFeeForLocation(location, business?.id)
+      return fee
+    } catch (error) {
+      console.error('Error calculating delivery fee:', error)
+      // Fallback a tarifa fija si no se puede calcular dinámicamente
+      return 1.0
+    }
+  }
+
+  // Función para actualizar tarifa automáticamente cuando se selecciona ubicación
+  const handleLocationSelect = async (location: ClientLocation) => {
+    setSelectedLocation(location)
+    
+    // Si la ubicación tiene coordenadas, calcular tarifa automáticamente
+    if (location.latlong) {
+      try {
+        const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const calculatedFee = await calculateDeliveryFee({ lat, lng })
+          
+          // Actualizar la tarifa en la ubicación seleccionada
+          const updatedLocation = { ...location, tarifa: calculatedFee.toString() }
+          setSelectedLocation(updatedLocation)
+        }
+      } catch (error) {
+        console.error('Error parsing location coordinates:', error)
+      }
     }
   }
 
@@ -1774,18 +1827,31 @@ function CheckoutContent() {
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Tarifa de envío
+                        {newLocationData.latlong && (
+                          <span className="text-xs text-green-600 ml-2">
+                            (Calculada automáticamente)
+                          </span>
+                        )}
                       </label>
-                      <select
-                        value={newLocationData.tarifa}
-                        onChange={(e) => setNewLocationData(prev => ({ ...prev, tarifa: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                      >
-                        <option value="1">$1.00</option>
-                        <option value="1.5">$1.50</option>
-                        <option value="2">$2.00</option>
-                        <option value="2.5">$2.50</option>
-                        <option value="3">$3.00</option>
-                      </select>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={newLocationData.tarifa}
+                          onChange={(e) => setNewLocationData(prev => ({ ...prev, tarifa: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                          placeholder="0.00"
+                        />
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <span className="text-gray-500 sm:text-sm">$</span>
+                        </div>
+                      </div>
+                      {newLocationData.latlong && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          💡 La tarifa se calcula automáticamente según las zonas de cobertura configuradas
+                        </p>
+                      )}
                     </div>
 
                     {/* Coordenadas (solo lectura) */}

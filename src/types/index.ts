@@ -59,6 +59,20 @@ export interface ClientLocation {
   latlong: string
 }
 
+export interface CoverageZone {
+  id: string
+  name: string
+  businessId?: string // Si es específico de un negocio, sino es zona global
+  polygon: {
+    lat: number
+    lng: number
+  }[]
+  deliveryFee: number
+  isActive: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
 export interface ProductVariant {
   id: string
   name: string
