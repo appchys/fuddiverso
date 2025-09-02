@@ -184,7 +184,7 @@ export default function Header() {
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <Link href="/" className="flex items-center">
-              <h1 className="text-2xl font-bold text-orange-600">FudDiverso</h1>
+              <h1 className="text-2xl font-bold text-orange-600">fuddi.shop</h1>
             </Link>
 
             {/* Navigation */}

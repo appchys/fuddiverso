@@ -1,8 +1,9 @@
 import type { Metadata } from 'next'
+import { BusinessLayoutWrapper } from '@/components/BusinessLayoutWrapper'
 
 export const metadata: Metadata = {
-  title: 'Dashboard - Fuddiverso Business',
-  description: 'Panel de administración para negocios de Fuddiverso',
+  title: 'Dashboard - fuddi.shop Business',
+  description: 'Panel de administración para negocios de fuddi.shop',
 }
 
 export default function BusinessLayout({
@@ -10,9 +11,5 @@ export default function BusinessLayout({
 }: {
   children: React.ReactNode
 }) {
-  return (
-    <>
-      {children}
-    </>
-  )
+  return <BusinessLayoutWrapper>{children}</BusinessLayoutWrapper>
 }

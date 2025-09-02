@@ -5,7 +5,7 @@ import { AuthProvider } from '@/contexts/AuthContext'
 import LayoutWrapper from '@/components/LayoutWrapper'
 
 export const metadata: Metadata = {
-  title: 'Fuddiverso - Delivery de Comida',
+  title: 'fuddi.shop - Delivery de Comida',
   description: 'Plataforma de delivery de comida para negocios y clientes',
 }
 

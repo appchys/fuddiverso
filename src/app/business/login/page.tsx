@@ -5,6 +5,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { signInWithGoogle, handleGoogleRedirectResult, getBusinessByOwner } from "@/lib/database";
 import { useRouter } from "next/navigation";
+import { useBusinessAuth } from "@/contexts/BusinessAuthContext";
 import Link from "next/link";
 
 export default function BusinessLogin() {
@@ -14,6 +15,14 @@ export default function BusinessLogin() {
   const [error, setError] = useState("");
   const [checkingRedirect, setCheckingRedirect] = useState(true);
   const router = useRouter();
+  const { login, isAuthenticated } = useBusinessAuth();
+
+  // Redirigir si ya está autenticado
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.replace("/business/dashboard");
+    }
+  }, [isAuthenticated, router]);
 
   // Manejo de resultado de Google redirect
   useEffect(() => {
@@ -27,8 +36,11 @@ export default function BusinessLogin() {
           if (redirectResult.hasAccess) {
             // Usuario tiene acceso (propietario o administrador)
             if (redirectResult.businessId) {
-              localStorage.setItem("businessId", redirectResult.businessId);
-              localStorage.setItem("ownerId", redirectResult.user.uid);
+              login({
+                uid: redirectResult.user.uid,
+                email: redirectResult.user.email,
+                displayName: redirectResult.user.displayName
+              }, redirectResult.businessId, redirectResult.user.uid);
             }
             router.replace("/business/dashboard");
           } else {
@@ -72,8 +84,11 @@ export default function BusinessLogin() {
         }
         
         if (businessId) {
-          localStorage.setItem("businessId", businessId);
-          localStorage.setItem("ownerId", userCredential.user.uid);
+          login({
+            uid: userCredential.user.uid,
+            email: userCredential.user.email,
+            displayName: userCredential.user.displayName
+          }, businessId, userCredential.user.uid);
         }
         router.replace("/business/dashboard");
       } else {
@@ -125,8 +140,11 @@ export default function BusinessLogin() {
           }
           
           if (businessId) {
-            localStorage.setItem("businessId", businessId);
-            localStorage.setItem("ownerId", result.user.uid);
+            login({
+              uid: result.user.uid,
+              email: result.user.email,
+              displayName: result.user.displayName
+            }, businessId, result.user.uid);
           }
           router.replace("/business/dashboard");
         } else {

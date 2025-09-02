@@ -17,25 +17,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Cargar usuario desde localStorage al iniciar
-    const savedUser = localStorage.getItem('fuddiverso_user')
+    const savedUser = localStorage.getItem('fuddi_shop_user')
     if (savedUser) {
       try {
         setUser(JSON.parse(savedUser))
       } catch (error) {
         console.error('Error parsing saved user:', error)
-        localStorage.removeItem('fuddiverso_user')
+        localStorage.removeItem('fuddi_shop_user')
       }
     }
   }, [])
 
   const login = (userData: FirestoreClient) => {
     setUser(userData)
-    localStorage.setItem('fuddiverso_user', JSON.stringify(userData))
+    localStorage.setItem('fuddi_shop_user', JSON.stringify(userData))
   }
 
   const logout = () => {
     setUser(null)
-    localStorage.removeItem('fuddiverso_user')
+    localStorage.removeItem('fuddi_shop_user')
   }
 
   return (

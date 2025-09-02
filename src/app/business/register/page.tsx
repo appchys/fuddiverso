@@ -165,7 +165,7 @@ function BusinessRegisterForm() {
         <div className="bg-white rounded-lg shadow-md p-6 sm:p-8">
           <div className="text-center mb-6 sm:mb-8">
             <Link href="/" className="text-2xl font-bold text-red-600">
-              Fuddiverso
+              fuddi.shop
             </Link>
             <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mt-4">
               Crear Nueva Tienda
@@ -226,7 +226,7 @@ function BusinessRegisterForm() {
                   placeholder="donmario"
                 />
               </div>
-              <p className="text-gray-500 text-xs mt-1">Este será tu URL: fuddiverso.com/@{formData.username}</p>
+              <p className="text-gray-500 text-xs mt-1">Este será tu URL: fuddi.shop/@{formData.username}</p>
               {errors.username && <p className="text-red-500 text-sm mt-1">{errors.username}</p>}
             </div>
 

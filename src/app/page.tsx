@@ -314,7 +314,7 @@ export default function HomePage() {
               ¿Eres dueño de un restaurante?
             </h2>
             <p className="text-lg sm:text-xl mb-6 sm:mb-8 opacity-90">
-              Únete a miles de restaurantes que ya están creciendo con Fuddiverso. 
+              Únete a miles de restaurantes que ya están creciendo con fuddi.shop. 
               Llega a más clientes y aumenta tus ventas.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -341,7 +341,7 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="md:col-span-2">
               <Link href="/" className="text-2xl font-bold text-orange-500 mb-4 block">
-                Fuddiverso
+                fuddi.shop
               </Link>
               <p className="text-gray-400 mb-4">
                 La plataforma de delivery #1 en Ecuador. Conectamos restaurantes con clientes hambrientos en todo el país.
@@ -377,7 +377,7 @@ export default function HomePage() {
             </div>
           </div>
           <div className="border-t border-gray-800 mt-8 pt-8 text-center">
-            <p className="text-gray-400">© 2024 Fuddiverso. Todos los derechos reservados.</p>
+            <p className="text-gray-400">© 2024 fuddi.shop. Todos los derechos reservados.</p>
             {/* Acceso discreto al admin */}
             <div className="mt-2">
               <Link href="/admin" className="text-xs text-gray-600 hover:text-gray-400">

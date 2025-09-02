@@ -367,7 +367,7 @@ export default function RestaurantPage() {
                 </svg>
               </Link>
               <Link href="/" className="text-2xl font-bold text-red-600">
-                Fuddiverso
+                fuddi.shop
               </Link>
             </div>
             <Link

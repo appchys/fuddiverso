@@ -1485,9 +1485,6 @@ function CheckoutContent() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-gray-500 mt-1">
-                              El estado del pago será actualizado por el restaurante
-                            </p>
                           </div>
                         </div>
                       )}
@@ -1518,9 +1515,24 @@ function CheckoutContent() {
                           deliveryData.type === 'pickup' ? 'Retiro en tienda' :
                           'No seleccionado'
                         }</p>
-                        {deliveryData.type === 'delivery' && (
+                        {deliveryData.type === 'delivery' && selectedLocation && (
                           <>
-                            <p className="text-sm"><strong>Dirección:</strong> {deliveryData.address}</p>
+                            <div className="mt-3 flex items-start gap-3">
+                              <div className="flex-shrink-0">
+                                <LocationMap latlong={selectedLocation.latlong} height="80px" />
+                              </div>
+                              <div className="flex-1">
+                                <p className="text-sm"><strong>Ubicación:</strong> {selectedLocation.sector}</p>
+                                {selectedLocation.referencia && (
+                                  <p className="text-sm mt-1"><strong>Referencias:</strong> {selectedLocation.referencia}</p>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        {deliveryData.type === 'delivery' && !selectedLocation && deliveryData.address && (
+                          <>
+                            <p className="text-sm"><strong>Ubicación:</strong> {deliveryData.address}</p>
                             {deliveryData.references && (
                               <p className="text-sm"><strong>Referencias:</strong> {deliveryData.references}</p>
                             )}

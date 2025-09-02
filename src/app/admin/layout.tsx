@@ -62,7 +62,7 @@ export default function AdminLayout({
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-8">
               <h1 className="text-xl font-bold text-gray-900">
-                FudDiverso Admin
+                fuddi.shop Admin
               </h1>
               <nav className="flex space-x-6">
                 <Link

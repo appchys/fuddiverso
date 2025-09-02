@@ -823,6 +823,7 @@ export async function getBusinessByUsername(username: string): Promise<Business 
         email: businessData.email || '',
         ownerId: businessData.ownerId || '',
         image: businessData.image || '',
+        coverImage: businessData.coverImage || '',
         categories: businessData.categories || [],
         mapLocation: businessData.mapLocation || { lat: 0, lng: 0 },
         references: businessData.references || '',

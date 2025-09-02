@@ -6,16 +6,18 @@ import Link from 'next/link'
 import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct, getBusinessesByOwner, uploadImage, updateBusiness, addBusinessAdministrator, removeBusinessAdministrator, updateAdministratorPermissions, getUserBusinessAccess } from '@/lib/database'
 import { Business, Product, Order } from '@/types'
 import { auth } from '@/lib/firebase'
+import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 
 export default function BusinessDashboard() {
   const router = useRouter()
+  const { user, businessId, ownerId, isAuthenticated, logout, setBusinessId } = useBusinessAuth()
   const [business, setBusiness] = useState<Business | null>(null)
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'profile' | 'admins'>('orders')
-  const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null)
+  const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(businessId)
   const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null) // Nuevo estado
   const [showBusinessDropdown, setShowBusinessDropdown] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
@@ -36,18 +38,18 @@ export default function BusinessDashboard() {
   })
   const [addingAdmin, setAddingAdmin] = useState(false)
 
+  // Protección de ruta - redirigir si no está autenticado
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (!isAuthenticated) {
+      router.push('/business/login');
+    }
+  }, [isAuthenticated, router]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !user || !isAuthenticated) return;
     
     const loadBusinesses = async () => {
       try {
-        const user = auth.currentUser;
-        if (!user) {
-          console.warn('[DASHBOARD] No hay usuario autenticado, redirigiendo a login');
-          router.push('/business/login');
-          return;
-        }
-
         // Obtener acceso completo del usuario (propietario o administrador)
         const businessAccess = await getUserBusinessAccess(
           user.email || '', 
@@ -56,6 +58,7 @@ export default function BusinessDashboard() {
         
         if (!businessAccess.hasAccess) {
           console.warn('[DASHBOARD] Usuario no tiene acceso a ninguna tienda');
+          logout();
           router.push('/business/login');
           return;
         }
@@ -73,12 +76,11 @@ export default function BusinessDashboard() {
         
         setBusinesses(uniqueBusinesses);
         
-        // Seleccionar tienda (preferencia: guardada > primera propia > primera administrada)
-        const storedBusinessId = window.localStorage.getItem('businessId');
+        // Seleccionar tienda (preferencia: del contexto > primera propia > primera administrada)
         let businessToSelect = null;
         
-        if (storedBusinessId) {
-          businessToSelect = uniqueBusinesses.find(b => b.id === storedBusinessId);
+        if (businessId) {
+          businessToSelect = uniqueBusinesses.find(b => b.id === businessId);
         }
         
         if (!businessToSelect) {
@@ -94,6 +96,11 @@ export default function BusinessDashboard() {
           setSelectedBusinessId(businessToSelect.id);
           setBusiness(businessToSelect);
           
+          // Actualizar el contexto si es diferente
+          if (businessToSelect.id !== businessId) {
+            setBusinessId(businessToSelect.id);
+          }
+          
           // Determinar el rol del usuario en esta tienda
           const isOwner = businessAccess.ownedBusinesses.some(b => b.id === businessToSelect.id);
           if (isOwner) {
@@ -105,10 +112,6 @@ export default function BusinessDashboard() {
             );
             setUserRole(adminRole?.role || 'admin');
           }
-          
-          // Guardar en localStorage para que otras páginas puedan acceder
-          localStorage.setItem('currentBusinessId', businessToSelect.id);
-          localStorage.setItem('businessId', businessToSelect.id);
         }
         
       } catch (error) {
@@ -120,7 +123,7 @@ export default function BusinessDashboard() {
     };
 
     loadBusinesses();
-  }, [router]);
+  }, [router, user, businessId, isAuthenticated, logout, setBusinessId]);
 
   // Cargar datos específicos cuando se selecciona una tienda
   useEffect(() => {
@@ -152,8 +155,10 @@ export default function BusinessDashboard() {
       setSelectedBusinessId(businessId);
       setBusiness(selectedBusiness);
       
+      // Actualizar el contexto
+      setBusinessId(businessId);
+      
       // Actualizar el rol del usuario en la nueva tienda
-      const user = auth.currentUser;
       const isOwner = user && selectedBusiness.ownerId === user.uid;
       if (isOwner) {
         setUserRole('owner');
@@ -163,9 +168,6 @@ export default function BusinessDashboard() {
         );
         setUserRole(adminRole?.role || 'admin');
       }
-      
-      // Guardar en localStorage para que otras páginas puedan acceder
-      localStorage.setItem('currentBusinessId', businessId);
     }
   };
 
@@ -418,8 +420,8 @@ export default function BusinessDashboard() {
   }, [showBusinessDropdown]);
 
   const handleLogout = () => {
-    localStorage.removeItem('businessId')
-    router.push('/')
+    logout()
+    router.push('/business/login')
   }
 
   // Función para categorizar pedidos
@@ -628,7 +630,7 @@ export default function BusinessDashboard() {
           <div className="flex justify-between items-center py-3 sm:py-4">
             <div className="flex items-center space-x-3 sm:space-x-6">
               <Link href="/" className="text-xl sm:text-2xl font-bold text-red-600">
-                Fuddiverso
+                fuddi.shop
               </Link>
               <span className="hidden sm:inline text-gray-600">Dashboard</span>
             </div>

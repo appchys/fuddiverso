@@ -16,9 +16,9 @@
   <path d="M560 200h80v80h-80v-80zm20 20v40h40v-40h-40z" fill="white"/>
   <path d="M570 220h20v20h-20v-20z" fill="#ef4444"/>
   
-  <!-- Fuddiverso Text -->
+  <!-- fuddi.shop Text -->
   <text x="600" y="360" font-family="Arial, sans-serif" font-size="48" font-weight="bold" text-anchor="middle" fill="white">
-    Fuddiverso
+    fuddi.shop
   </text>
   
   <!-- Subtitle -->

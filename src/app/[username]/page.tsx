@@ -15,7 +15,7 @@ function BusinessStructuredData({ business }: { business: Business }) {
     "name": business.name,
     "description": business.description,
     "image": business.image,
-    "url": `https://fuddiverso.vercel.app/${business.username}`,
+    "url": `https://fuddi.shop/${business.username}`,
     "telephone": business.phone,
     "email": business.email,
     "address": {
@@ -42,7 +42,7 @@ function BusinessStructuredData({ business }: { business: Business }) {
       "@type": "OrderAction",
       "target": {
         "@type": "EntryPoint",
-        "urlTemplate": `https://fuddiverso.vercel.app/${business.username}`,
+        "urlTemplate": `https://fuddi.shop/${business.username}`,
         "actionPlatform": [
           "http://schema.org/DesktopWebPlatform",
           "http://schema.org/MobileWebPlatform"
@@ -54,7 +54,7 @@ function BusinessStructuredData({ business }: { business: Business }) {
       ]
     },
     "sameAs": [
-      `https://fuddiverso.vercel.app/${business.username}`,
+      `https://fuddi.shop/${business.username}`,
       // Aquí se pueden agregar redes sociales del negocio cuando las tengamos
     ]
   }
@@ -69,8 +69,8 @@ function BusinessStructuredData({ business }: { business: Business }) {
       <meta property="og:rich_attachment" content="true" />
       <meta property="og:locale" content="es_ES" />
       <meta property="og:locale:alternate" content="es_EC" />
-      <meta name="twitter:app:name:iphone" content="Fuddiverso" />
-      <meta name="twitter:app:name:googleplay" content="Fuddiverso" />
+      <meta name="twitter:app:name:iphone" content="fuddi.shop" />
+      <meta name="twitter:app:name:googleplay" content="fuddi.shop" />
     </>
   )
 }
@@ -289,7 +289,10 @@ function RestaurantContent() {
     const loadRestaurantData = async () => {
       try {
         setLoading(true)
+        console.log('🔍 Loading restaurant data for username:', username)
+        
         const businessData = await getBusinessByUsername(username)
+        console.log('📊 Business data received:', businessData)
         
         if (!businessData) {
           setError('Restaurante no encontrado')
@@ -297,8 +300,16 @@ function RestaurantContent() {
         }
 
         setBusiness(businessData)
+        console.log('🖼️ Cover image from business:', businessData.coverImage)
+        
         const productsData = await getProductsByBusiness(businessData.id)
-        setProducts(productsData)
+        console.log('📦 Products data received:', productsData.length, 'products')
+        
+        // Filtrar solo productos disponibles
+        const availableProducts = productsData.filter(product => product.isAvailable)
+        console.log('✅ Available products:', availableProducts.length, 'of', productsData.length)
+        
+        setProducts(availableProducts)
       } catch (err) {
         console.error('Error loading restaurant data:', err)
         setError('Error al cargar el restaurante')
@@ -450,6 +461,47 @@ function RestaurantContent() {
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
   const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
 
+  // Función para determinar si la tienda está abierta
+  const isStoreOpen = () => {
+    if (!business?.schedule) return false;
+    
+    const now = new Date();
+    const currentDay = now.toLocaleDateString('en', { weekday: 'long' }).toLowerCase();
+    const currentTime = now.toLocaleTimeString('en-GB', { hour12: false }).slice(0, 5);
+    
+    const todaySchedule = business.schedule[currentDay];
+    if (!todaySchedule || !todaySchedule.isOpen) return false;
+    
+    return currentTime >= todaySchedule.open && currentTime <= todaySchedule.close;
+  };
+
+  // Función para copiar enlace
+  const copyStoreLink = async () => {
+    const url = `${window.location.origin}/${business?.username}`;
+    try {
+      // Intentar con Clipboard API primero
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url);
+        showNotification('Enlace copiado al portapapeles', 'success');
+      } else {
+        // Fallback para navegadores sin soporte o contextos no seguros
+        const textArea = document.createElement('textarea');
+        textArea.value = url;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        showNotification('Enlace copiado al portapapeles', 'success');
+      }
+    } catch (err) {
+      console.error('Error al copiar enlace:', err);
+      showNotification('Error al copiar enlace', 'error');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -479,15 +531,17 @@ function RestaurantContent() {
     )
   }
 
-  // Agrupar productos por categoría
-  const productsByCategory = products.reduce((acc, product) => {
-    const category = product.category || 'Otros'
-    if (!acc[category]) {
-      acc[category] = []
-    }
-    acc[category].push(product)
-    return acc
-  }, {} as Record<string, Product[]>)
+  // Agrupar productos por categoría (solo productos disponibles)
+  const productsByCategory = products
+    .filter(product => product.isAvailable) // Filtrar solo productos disponibles
+    .reduce((acc, product) => {
+      const category = product.category || 'Otros'
+      if (!acc[category]) {
+        acc[category] = []
+      }
+      acc[category].push(product)
+      return acc
+    }, {} as Record<string, Product[]>)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -496,21 +550,56 @@ function RestaurantContent() {
       
       {/* Hero Section */}
       <div className="bg-white shadow-sm">
+        {/* Cover Image */}
+        {business.coverImage && (
+          <div className="w-full h-48 sm:h-64 bg-gray-200 relative overflow-hidden">
+            <img
+              src={business.coverImage}
+              alt={`Portada de ${business.name}`}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-black bg-opacity-20"></div>
+          </div>
+        )}
+        
         <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
           <div className="flex flex-col sm:flex-row items-center sm:items-start space-y-4 sm:space-y-0 sm:space-x-6">
             {business.image && (
               <img
                 src={business.image}
                 alt={business.name}
-                className="w-20 h-20 sm:w-24 sm:h-24 rounded-lg object-cover"
+                className="w-20 h-20 sm:w-24 sm:h-24 rounded-lg object-cover shadow-lg"
               />
             )}
             <div className="flex-1 text-center sm:text-left">
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{business.name}</h1>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{business.name}</h1>
+                  <div className="flex items-center justify-center sm:justify-start mt-2 space-x-2">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      isStoreOpen() 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      <i className={`bi ${isStoreOpen() ? 'bi-clock' : 'bi-clock-history'} mr-1`}></i>
+                      {isStoreOpen() ? 'Abierta' : 'Cerrada'}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={copyStoreLink}
+                  className="mt-4 sm:mt-0 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition-colors duration-200 flex items-center space-x-2"
+                >
+                  <i className="bi bi-share"></i>
+                  <span className="text-sm font-medium">Copiar enlace</span>
+                </button>
+              </div>
               <p className="text-gray-600 mt-2">{business.description}</p>
               <div className="flex flex-col sm:flex-row items-center sm:items-start sm:space-x-4 mt-4 text-sm text-gray-500 space-y-1 sm:space-y-0">
-                <span className="flex items-center">📍 {business.address}</span>
-                <span className="flex items-center">📞 {business.phone}</span>
+                <span className="flex items-center">
+                  <i className="bi bi-geo-alt mr-1"></i>
+                  {business.address}
+                </span>
               </div>
             </div>
           </div>

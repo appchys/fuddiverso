@@ -160,7 +160,7 @@ export default function ProfilePage() {
                 </div>
                 <div>
                   <h3 className="text-lg font-medium text-gray-900">{user.nombres}</h3>
-                  <p className="text-gray-500">Cliente de Fuddiverso</p>
+                  <p className="text-gray-500">Cliente de fuddi.shop</p>
                 </div>
               </div>
 
