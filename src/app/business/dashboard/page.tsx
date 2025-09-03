@@ -17,6 +17,7 @@ export default function BusinessDashboard() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'profile' | 'admins' | 'manual-order'>('orders')
+  const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today') // Nueva pestaña para pedidos
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(businessId)
   const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null) // Nuevo estado
   const [showBusinessDropdown, setShowBusinessDropdown] = useState(false)
@@ -753,92 +754,119 @@ export default function BusinessDashboard() {
     }
   };
 
-  const OrderCard = ({ order, isToday = false }: { order: Order, isToday?: boolean }) => (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
-      <div className="flex justify-between items-start mb-4">
-        <div className="flex-1">
-          <h3 className="font-bold text-lg text-gray-900 mb-1">
-            {order.customer?.name || 'Cliente sin nombre'}
-          </h3>
-          <p className="text-gray-600 text-sm mb-1">
-            <i className="bi bi-telephone me-1"></i>{order.customer?.phone || 'Sin teléfono'}
-          </p>
-          <p className="text-gray-600 text-sm mb-2">
-            <i className={`bi ${order.delivery?.type === 'delivery' ? 'bi-scooter' : 'bi-shop'} me-1`}></i>
-            {order.delivery?.type === 'delivery' ? 'Entrega a domicilio' : 'Recoger en tienda'}
-            {order.delivery?.references && (
-              <span className="block text-xs text-gray-500 mt-1">
-                <i className="bi bi-geo-alt me-1"></i>{order.delivery.references}
-              </span>
-            )}
-          </p>
-          {isToday && (
-            <p className="text-sm font-medium text-orange-600">
-              <i className="bi bi-clock me-1"></i>{formatTime(order.timing?.scheduledTime || order.createdAt)}
-            </p>
-          )}
-          {!isToday && (
-            <p className="text-sm text-gray-500">
-              📅 {formatDate(order.timing?.scheduledTime || order.createdAt)}
-            </p>
-          )}
-        </div>
-        <div className="text-right ml-4">
-          <span className="text-2xl font-bold text-emerald-600">
-            ${order.total?.toFixed(2) || '0.00'}
-          </span>
-          <div className="mt-2">
-            <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(order.status)}`}>
-              {getStatusText(order.status)}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="border-t pt-4">
-        <h4 className="font-medium text-gray-900 mb-3">Productos:</h4>
-        <div className="space-y-2">
-          {order.items?.map((item: any, index) => (
-            <div key={index} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded-lg">
-              <div className="flex-1">
-                <span className="font-medium text-gray-900">
-                  {item.quantity}x {item.name || item.product?.name || 'Producto sin nombre'}
-                </span>
-                {(item.description || item.product?.description) && (
-                  <p className="text-xs text-gray-500 mt-1">{item.description || item.product?.description}</p>
-                )}
-              </div>
-              <span className="font-bold text-gray-900 ml-4">
-                ${((item.price || item.product?.price || 0) * (item.quantity || 1)).toFixed(2)}
-              </span>
-            </div>
-          )) || (
-            <div className="text-sm text-gray-500 italic">No hay productos</div>
-          )}
-        </div>
-      </div>
-
-      <div className="border-t pt-4 mt-4">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <select
-            value={order.status}
-            onChange={(e) => handleStatusChange(order.id, e.target.value as Order['status'])}
-            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
-          >
-            <option value="pending">🕐 Pendiente</option>
-            <option value="confirmed">✅ Confirmado</option>
-            <option value="preparing">👨‍🍳 Preparando</option>
-            <option value="ready">🔔 Listo</option>
-            <option value="delivered">📦 Entregado</option>
-            <option value="cancelled">❌ Cancelado</option>
-          </select>
-          
-          <div className="flex gap-2">
-            <span className="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded">
-              💳 {order.payment?.method === 'cash' ? 'Efectivo' : 'Tarjeta'}
-            </span>
-          </div>
-        </div>
+  // Componente de tabla para pedidos
+  const OrdersTable = ({ orders, isToday = false }: { orders: Order[], isToday?: boolean }) => (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Cliente
+              </th>
+              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Tipo / Ubicación
+              </th>
+              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                {isToday ? 'Hora' : 'Fecha'}
+              </th>
+              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Productos
+              </th>
+              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Total
+              </th>
+              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Estado
+              </th>
+              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Pago
+              </th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {orders.map((order) => (
+              <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div>
+                    <div className="text-sm font-medium text-gray-900">
+                      {order.customer?.name || 'Cliente sin nombre'}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      <i className="bi bi-telephone me-1"></i>
+                      {order.customer?.phone || 'Sin teléfono'}
+                    </div>
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div>
+                    <div className="text-sm text-gray-900">
+                      <i className={`bi ${order.delivery?.type === 'delivery' ? 'bi-scooter' : 'bi-shop'} me-1`}></i>
+                      {order.delivery?.type === 'delivery' ? 'Delivery' : 'Pickup'}
+                    </div>
+                    {order.delivery?.references && (
+                      <div className="text-xs text-gray-500 truncate max-w-xs">
+                        <i className="bi bi-geo-alt me-1"></i>
+                        {order.delivery.references}
+                      </div>
+                    )}
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {isToday ? (
+                    <span className="font-medium text-orange-600">
+                      <i className="bi bi-clock me-1"></i>
+                      {formatTime(order.timing?.scheduledTime || order.createdAt)}
+                    </span>
+                  ) : (
+                    <span>
+                      {formatDate(order.timing?.scheduledTime || order.createdAt)}
+                    </span>
+                  )}
+                </td>
+                <td className="px-6 py-4">
+                  <div className="text-sm text-gray-900">
+                    {order.items?.slice(0, 2).map((item: any, index) => (
+                      <div key={index} className="truncate">
+                        {item.quantity}x {item.name || item.product?.name || 'Producto'}
+                      </div>
+                    ))}
+                    {order.items && order.items.length > 2 && (
+                      <div className="text-xs text-gray-500">
+                        +{order.items.length - 2} más...
+                      </div>
+                    )}
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <span className="text-lg font-bold text-emerald-600">
+                    ${order.total?.toFixed(2) || '0.00'}
+                  </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <select
+                    value={order.status}
+                    onChange={(e) => handleStatusChange(order.id, e.target.value as Order['status'])}
+                    className={`text-xs font-medium px-3 py-1 rounded-full border-none ${getStatusColor(order.status)} focus:ring-2 focus:ring-red-500`}
+                  >
+                    <option value="pending">🕐 Pendiente</option>
+                    <option value="confirmed">✅ Confirmado</option>
+                    <option value="preparing">👨‍🍳 Preparando</option>
+                    <option value="ready">🔔 Listo</option>
+                    <option value="delivered">📦 Entregado</option>
+                    <option value="cancelled">❌ Cancelado</option>
+                  </select>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <span className="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded">
+                    <i className={`bi ${order.payment?.method === 'cash' ? 'bi-cash' : 'bi-credit-card'} me-1`}></i>
+                    {order.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -1400,86 +1428,137 @@ export default function BusinessDashboard() {
 
         {/* Orders Tab */}
         {activeTab === 'orders' && (
-          <div className="space-y-8">
-            {(() => {
-              const { todayOrders, upcomingOrders, pastOrders } = categorizeOrders();
-              
-              return (
-                <>
-                  {/* Pedidos de Hoy */}
-                  <div>
-                    <div className="flex items-center gap-3 mb-6">
-                      <h2 className="text-2xl font-bold text-gray-900">
-                        <i className="bi bi-calendar-check me-2"></i>Pedidos de Hoy
-                      </h2>
-                      <span className="bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm font-medium">
-                        {todayOrders.length} pedidos
+          <div className="space-y-6">
+            {/* Sub-pestañas para pedidos */}
+            <div className="border-b border-gray-200">
+              <nav className="-mb-px flex space-x-8">
+                <button
+                  onClick={() => setOrdersSubTab('today')}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    ordersSubTab === 'today'
+                      ? 'border-red-500 text-red-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <i className="bi bi-calendar-check me-2"></i>
+                  Pedidos de hoy
+                  {(() => {
+                    const { todayOrders } = categorizeOrders();
+                    return todayOrders.length > 0 && (
+                      <span className="ml-2 bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs">
+                        {todayOrders.length}
                       </span>
-                    </div>
-                    
-                    {todayOrders.length === 0 ? (
-                      <div className="bg-white rounded-xl p-8 text-center border border-gray-200">
-                        <div className="text-6xl mb-4">📅</div>
-                        <p className="text-gray-600 text-lg">No tienes pedidos para hoy</p>
-                        <p className="text-gray-500 text-sm mt-2">Los nuevos pedidos aparecerán aquí</p>
-                      </div>
-                    ) : (
-                      <div className="grid gap-6">
-                        {todayOrders.map((order) => (
-                          <OrderCard key={order.id} order={order} isToday={true} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                    );
+                  })()}
+                </button>
+                <button
+                  onClick={() => setOrdersSubTab('history')}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    ordersSubTab === 'history'
+                      ? 'border-red-500 text-red-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <i className="bi bi-journal-text me-2"></i>
+                  Historial
+                  {(() => {
+                    const { pastOrders, upcomingOrders } = categorizeOrders();
+                    const totalHistorial = pastOrders.length + upcomingOrders.length;
+                    return totalHistorial > 0 && (
+                      <span className="ml-2 bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs">
+                        {totalHistorial}
+                      </span>
+                    );
+                  })()}
+                </button>
+              </nav>
+            </div>
 
-                  {/* Pedidos Próximos */}
-                  {upcomingOrders.length > 0 && (
+            {/* Contenido de las pestañas */}
+            {ordersSubTab === 'today' && (
+              <div>
+                {(() => {
+                  const { todayOrders } = categorizeOrders();
+                  
+                  return todayOrders.length === 0 ? (
+                    <div className="bg-white rounded-xl p-8 text-center border border-gray-200">
+                      <div className="text-6xl mb-4">📅</div>
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes pedidos para hoy</h3>
+                      <p className="text-gray-500 text-sm">Los nuevos pedidos aparecerán aquí</p>
+                    </div>
+                  ) : (
                     <div>
-                      <div className="flex items-center gap-3 mb-6">
-                        <h2 className="text-2xl font-bold text-gray-900">
-                          <i className="bi bi-clock me-2"></i>Pedidos Próximos
+                      <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-xl font-bold text-gray-900">
+                          Pedidos de hoy ({todayOrders.length})
                         </h2>
-                        <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
-                          {upcomingOrders.length} pedidos
+                        <span className="text-sm text-gray-500">
+                          {new Date().toLocaleDateString('es-EC', { 
+                            weekday: 'long', 
+                            year: 'numeric', 
+                            month: 'long', 
+                            day: 'numeric' 
+                          })}
                         </span>
                       </div>
-                      
-                      <div className="grid gap-6">
-                        {upcomingOrders.map((order) => (
-                          <OrderCard key={order.id} order={order} />
-                        ))}
-                      </div>
+                      <OrdersTable orders={todayOrders} isToday={true} />
                     </div>
-                  )}
+                  );
+                })()}
+              </div>
+            )}
 
-                  {/* Historial */}
-                  {pastOrders.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-3 mb-6">
-                        <h2 className="text-2xl font-bold text-gray-900">
-                          <i className="bi bi-journal-text me-2"></i>Historial de Pedidos
-                        </h2>
-                        <span className="bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">
-                          {pastOrders.length} pedidos
-                        </span>
-                      </div>
-                      
-                      <div className="grid gap-6">
-                        {pastOrders.slice(0, 10).map((order) => (
-                          <OrderCard key={order.id} order={order} />
-                        ))}
-                      </div>
-                      
-                      {pastOrders.length > 10 && (
-                        <div className="text-center mt-6">
-                          <p className="text-gray-500">Mostrando los últimos 10 pedidos</p>
+            {ordersSubTab === 'history' && (
+              <div>
+                {(() => {
+                  const { upcomingOrders, pastOrders } = categorizeOrders();
+                  
+                  return (
+                    <div className="space-y-8">
+                      {/* Pedidos Próximos */}
+                      {upcomingOrders.length > 0 && (
+                        <div>
+                          <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-bold text-gray-900">
+                              <i className="bi bi-clock me-2"></i>
+                              Pedidos Próximos ({upcomingOrders.length})
+                            </h2>
+                          </div>
+                          <OrdersTable orders={upcomingOrders} isToday={false} />
+                        </div>
+                      )}
+
+                      {/* Historial de Pedidos */}
+                      {pastOrders.length > 0 ? (
+                        <div>
+                          <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-bold text-gray-900">
+                              <i className="bi bi-archive me-2"></i>
+                              Historial de Pedidos ({pastOrders.length})
+                            </h2>
+                          </div>
+                          <OrdersTable orders={pastOrders.slice(0, 20)} isToday={false} />
+                          
+                          {pastOrders.length > 20 && (
+                            <div className="text-center mt-6 p-4 bg-gray-50 rounded-lg">
+                              <p className="text-gray-500 text-sm">
+                                Mostrando los últimos 20 pedidos de {pastOrders.length} totales
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ) : upcomingOrders.length === 0 && (
+                        <div className="bg-white rounded-xl p-8 text-center border border-gray-200">
+                          <div className="text-6xl mb-4">📋</div>
+                          <h3 className="text-lg font-medium text-gray-900 mb-2">No hay pedidos en el historial</h3>
+                          <p className="text-gray-500 text-sm">Los pedidos completados aparecerán aquí</p>
                         </div>
                       )}
                     </div>
-                  )}
-                </>
-              );
-            })()}
+                  );
+                })()}
+              </div>
+            )}
           </div>
         )}
 
