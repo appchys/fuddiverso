@@ -6,6 +6,7 @@ import {
   getDocs, 
   updateDoc, 
   deleteDoc, 
+  setDoc,
   query, 
   where, 
   limit,
@@ -1422,5 +1423,190 @@ export async function getDeliveryFeeForLocation(location: { lat: number; lng: nu
   } catch (error) {
     console.error('Error getting delivery fee for location:', error);
     throw error;
+  }
+}
+
+// =============================================================================
+// DELIVERIES FUNCTIONS
+// =============================================================================
+
+export interface Delivery {
+  id?: string
+  nombres: string
+  celular: string
+  email: string
+  fotoUrl?: string
+  estado: 'activo' | 'inactivo'
+  fechaRegistro: string
+}
+
+/**
+ * Crear un nuevo delivery
+ */
+export async function createDelivery(deliveryData: Omit<Delivery, 'id'>): Promise<string> {
+  try {
+    const deliveryDoc = {
+      ...deliveryData,
+      fechaRegistro: new Date().toISOString(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }
+
+    const docRef = await addDoc(collection(db, 'deliveries'), deliveryDoc)
+    console.log('Delivery created successfully with ID:', docRef.id)
+    return docRef.id
+  } catch (error) {
+    console.error('Error creating delivery:', error)
+    throw error
+  }
+}
+
+/**
+ * Obtener todos los deliveries
+ */
+export async function getAllDeliveries(): Promise<Delivery[]> {
+  try {
+    const q = query(
+      collection(db, 'deliveries'),
+      orderBy('createdAt', 'desc')
+    )
+    
+    const querySnapshot = await getDocs(q)
+    const deliveries: Delivery[] = []
+    
+    querySnapshot.forEach((doc) => {
+      const data = doc.data()
+      deliveries.push({
+        id: doc.id,
+        nombres: data.nombres || '',
+        celular: data.celular || '',
+        email: data.email || '',
+        fotoUrl: data.fotoUrl,
+        estado: data.estado || 'activo',
+        fechaRegistro: data.fechaRegistro || new Date().toISOString()
+      })
+    })
+    
+    return deliveries
+  } catch (error) {
+    console.error('Error getting deliveries:', error)
+    return []
+  }
+}
+
+/**
+ * Obtener un delivery por ID
+ */
+export async function getDeliveryById(deliveryId: string): Promise<Delivery | null> {
+  try {
+    const docRef = doc(db, 'deliveries', deliveryId)
+    const docSnap = await getDoc(docRef)
+    
+    if (docSnap.exists()) {
+      const data = docSnap.data()
+      return {
+        id: docSnap.id,
+        nombres: data.nombres || '',
+        celular: data.celular || '',
+        email: data.email || '',
+        fotoUrl: data.fotoUrl,
+        estado: data.estado || 'activo',
+        fechaRegistro: data.fechaRegistro || new Date().toISOString()
+      }
+    }
+    
+    return null
+  } catch (error) {
+    console.error('Error getting delivery by ID:', error)
+    return null
+  }
+}
+
+/**
+ * Actualizar un delivery
+ */
+export async function updateDelivery(deliveryId: string, updates: Partial<Delivery>): Promise<void> {
+  try {
+    const docRef = doc(db, 'deliveries', deliveryId)
+    const updateData = {
+      ...updates,
+      updatedAt: serverTimestamp()
+    }
+    
+    // Remover el ID del objeto de actualización si existe
+    delete updateData.id
+    
+    await updateDoc(docRef, updateData)
+    console.log('Delivery updated successfully')
+  } catch (error) {
+    console.error('Error updating delivery:', error)
+    throw error
+  }
+}
+
+/**
+ * Cambiar el estado de un delivery
+ */
+export async function toggleDeliveryStatus(deliveryId: string): Promise<void> {
+  try {
+    const delivery = await getDeliveryById(deliveryId)
+    if (!delivery) {
+      throw new Error('Delivery not found')
+    }
+    
+    const newStatus = delivery.estado === 'activo' ? 'inactivo' : 'activo'
+    await updateDelivery(deliveryId, { estado: newStatus })
+    console.log(`Delivery status changed to: ${newStatus}`)
+  } catch (error) {
+    console.error('Error toggling delivery status:', error)
+    throw error
+  }
+}
+
+/**
+ * Eliminar un delivery
+ */
+export async function deleteDelivery(deliveryId: string): Promise<void> {
+  try {
+    const docRef = doc(db, 'deliveries', deliveryId)
+    await deleteDoc(docRef)
+    console.log('Delivery deleted successfully')
+  } catch (error) {
+    console.error('Error deleting delivery:', error)
+    throw error
+  }
+}
+
+/**
+ * Buscar deliveries por estado
+ */
+export async function getDeliveriesByStatus(estado: 'activo' | 'inactivo'): Promise<Delivery[]> {
+  try {
+    const q = query(
+      collection(db, 'deliveries'),
+      where('estado', '==', estado),
+      orderBy('createdAt', 'desc')
+    )
+    
+    const querySnapshot = await getDocs(q)
+    const deliveries: Delivery[] = []
+    
+    querySnapshot.forEach((doc) => {
+      const data = doc.data()
+      deliveries.push({
+        id: doc.id,
+        nombres: data.nombres || '',
+        celular: data.celular || '',
+        email: data.email || '',
+        fotoUrl: data.fotoUrl,
+        estado: data.estado || 'activo',
+        fechaRegistro: data.fechaRegistro || new Date().toISOString()
+      })
+    })
+    
+    return deliveries
+  } catch (error) {
+    console.error('Error getting deliveries by status:', error)
+    return []
   }
 }

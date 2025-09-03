@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct, getBusinessesByOwner, uploadImage, updateBusiness, addBusinessAdministrator, removeBusinessAdministrator, updateAdministratorPermissions, getUserBusinessAccess, getBusinessCategories, addCategoryToBusiness, searchClientByPhone, getClientLocations, createOrder } from '@/lib/database'
+import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct, getBusinessesByOwner, uploadImage, updateBusiness, addBusinessAdministrator, removeBusinessAdministrator, updateAdministratorPermissions, getUserBusinessAccess, getBusinessCategories, addCategoryToBusiness, searchClientByPhone, getClientLocations, createOrder, getDeliveriesByStatus, createClient } from '@/lib/database'
 import { Business, Product, Order, ProductVariant } from '@/types'
 import { auth } from '@/lib/firebase'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
@@ -74,12 +74,25 @@ export default function BusinessDashboard() {
     }>,
     deliveryType: '' as '' | 'delivery' | 'pickup',
     selectedLocation: null as any,
-    customerLocations: [] as any[]
+    customerLocations: [] as any[],
+    // Datos de timing
+    timingType: 'immediate' as 'immediate' | 'scheduled',
+    scheduledDate: '',
+    scheduledTime: '',
+    // Datos de pago
+    paymentMethod: 'cash' as 'cash' | 'transfer',
+    selectedBank: '',
+    paymentStatus: 'pending' as 'pending' | 'validating' | 'paid',
+    // Delivery asignado
+    selectedDelivery: null as any
   })
   const [searchingClient, setSearchingClient] = useState(false)
   const [clientFound, setClientFound] = useState(false)
   const [loadingClientLocations, setLoadingClientLocations] = useState(false)
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
+  const [availableDeliveries, setAvailableDeliveries] = useState<any[]>([])
+  const [showCreateClient, setShowCreateClient] = useState(false)
+  const [creatingClient, setCreatingClient] = useState(false)
   
   // Estados para modal de variantes
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<Product | null>(null)
@@ -208,6 +221,20 @@ export default function BusinessDashboard() {
 
     loadBusinessData();
   }, [selectedBusinessId]);
+
+  // Cargar deliveries activos
+  useEffect(() => {
+    const loadDeliveries = async () => {
+      try {
+        const deliveries = await getDeliveriesByStatus('activo')
+        setAvailableDeliveries(deliveries)
+      } catch (error) {
+        console.error('Error loading deliveries:', error)
+      }
+    }
+
+    loadDeliveries()
+  }, [])
 
   const handleBusinessChange = (businessId: string) => {
     const selectedBusiness = businesses.find(b => b.id === businessId);
@@ -823,6 +850,7 @@ export default function BusinessDashboard() {
 
     setSearchingClient(true);
     setClientFound(false);
+    setShowCreateClient(false);
 
     try {
       const client = await searchClientByPhone(phoneToSearch);
@@ -843,6 +871,7 @@ export default function BusinessDashboard() {
         }));
       } else {
         setClientFound(false);
+        setShowCreateClient(true); // Mostrar opción para crear cliente
         setManualOrderData(prev => ({
           ...prev,
           customerName: '',
@@ -852,9 +881,37 @@ export default function BusinessDashboard() {
     } catch (error) {
       console.error('Error searching client:', error);
       setClientFound(false);
+      setShowCreateClient(false);
     } finally {
       setSearchingClient(false);
       setLoadingClientLocations(false);
+    }
+  };
+
+  const handleCreateClient = async () => {
+    if (!manualOrderData.customerName.trim() || !manualOrderData.customerPhone.trim()) {
+      alert('Por favor ingresa el nombre del cliente');
+      return;
+    }
+
+    setCreatingClient(true);
+    try {
+      const normalizedPhone = normalizePhone(manualOrderData.customerPhone);
+      const newClient = await createClient({
+        nombres: manualOrderData.customerName.trim(),
+        celular: normalizedPhone
+      });
+
+      if (newClient) {
+        setClientFound(true);
+        setShowCreateClient(false);
+        alert('Cliente creado exitosamente');
+      }
+    } catch (error) {
+      console.error('Error creating client:', error);
+      alert('Error al crear el cliente');
+    } finally {
+      setCreatingClient(false);
     }
   };
 
@@ -1011,9 +1068,21 @@ export default function BusinessDashboard() {
     if (!business || !clientFound || manualOrderData.selectedProducts.length === 0) return;
 
     try {
-      const totalAmount = manualOrderData.selectedProducts.reduce((sum, item) => 
+      const subtotal = manualOrderData.selectedProducts.reduce((sum, item) => 
         sum + (item.price * item.quantity), 0
       );
+
+      // Calcular costo de envío
+      const deliveryCost = manualOrderData.deliveryType === 'delivery' && manualOrderData.selectedLocation
+        ? parseFloat(manualOrderData.selectedLocation.tarifa || '0')
+        : 0;
+
+      const totalAmount = subtotal + deliveryCost;
+
+      // Calcular hora de entrega
+      const deliveryTime = manualOrderData.timingType === 'immediate' 
+        ? new Date(Date.now() + 30 * 60 * 1000).toISOString() // 30 minutos después
+        : new Date(`${manualOrderData.scheduledDate}T${manualOrderData.scheduledTime}`).toISOString();
 
       const orderData = {
         businessId: business.id,
@@ -1030,15 +1099,30 @@ export default function BusinessDashboard() {
         },
         delivery: {
           type: manualOrderData.deliveryType,
-          location: manualOrderData.selectedLocation
+          location: manualOrderData.selectedLocation,
+          scheduledTime: deliveryTime,
+          cost: deliveryCost,
+          assignedDelivery: manualOrderData.selectedDelivery ? {
+            id: manualOrderData.selectedDelivery.id,
+            nombres: manualOrderData.selectedDelivery.nombres,
+            celular: manualOrderData.selectedDelivery.celular
+          } : null
         },
         totalAmount,
+        subtotal,
+        deliveryCost,
         status: 'confirmed' as const,
         payment: {
-          method: 'cash' as const,
-          status: 'pending' as const
+          method: manualOrderData.paymentMethod,
+          status: manualOrderData.paymentStatus,
+          selectedBank: manualOrderData.selectedBank
         },
-        createdByAdmin: true
+        createdByAdmin: true,
+        timing: {
+          type: manualOrderData.timingType,
+          scheduledDate: manualOrderData.scheduledDate,
+          scheduledTime: manualOrderData.scheduledTime
+        }
       };
 
       await createOrder(orderData as any);
@@ -1050,7 +1134,14 @@ export default function BusinessDashboard() {
         selectedProducts: [],
         deliveryType: '',
         selectedLocation: null,
-        customerLocations: []
+        customerLocations: [],
+        timingType: 'immediate',
+        scheduledDate: '',
+        scheduledTime: '',
+        paymentMethod: 'cash',
+        selectedBank: '',
+        paymentStatus: 'pending',
+        selectedDelivery: null
       });
       setClientFound(false);
       
@@ -2156,6 +2247,51 @@ export default function BusinessDashboard() {
                       </div>
                     )}
 
+                    {showCreateClient && !clientFound && (
+                      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <div className="flex items-center mb-3">
+                          <i className="bi bi-exclamation-triangle text-yellow-600 me-2"></i>
+                          <span className="text-sm font-medium text-yellow-800">
+                            Cliente no encontrado
+                          </span>
+                        </div>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Nombre del Cliente
+                            </label>
+                            <input
+                              type="text"
+                              value={manualOrderData.customerName}
+                              onChange={(e) => setManualOrderData(prev => ({
+                                ...prev,
+                                customerName: e.target.value
+                              }))}
+                              placeholder="Escribe el nombre del cliente"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                            />
+                          </div>
+                          <button
+                            onClick={handleCreateClient}
+                            disabled={creatingClient || !manualOrderData.customerName.trim()}
+                            className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center"
+                          >
+                            {creatingClient ? (
+                              <>
+                                <i className="bi bi-arrow-clockwise animate-spin me-2"></i>
+                                Creando cliente...
+                              </>
+                            ) : (
+                              <>
+                                <i className="bi bi-person-plus me-2"></i>
+                                Crear Cliente
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {clientFound && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -2197,6 +2333,32 @@ export default function BusinessDashboard() {
                             </span>
                           </label>
                         </div>
+
+                        {manualOrderData.deliveryType === 'delivery' && (
+                          <div className="mt-3">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Seleccionar Delivery
+                            </label>
+                            <select
+                              value={manualOrderData.selectedDelivery?.id || ''}
+                              onChange={(e) => {
+                                const delivery = availableDeliveries.find(d => d.id === e.target.value);
+                                setManualOrderData(prev => ({
+                                  ...prev,
+                                  selectedDelivery: delivery || null
+                                }));
+                              }}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                            >
+                              <option value="">Seleccionar un delivery</option>
+                              {availableDeliveries.map((delivery) => (
+                                <option key={delivery.id} value={delivery.id}>
+                                  {delivery.nombres} - {delivery.celular}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -2240,6 +2402,180 @@ export default function BusinessDashboard() {
                               <div className="text-blue-700 font-medium">
                                 <strong>Costo de envío:</strong> ${manualOrderData.selectedLocation.tarifa || '0.00'}
                               </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Sección de Fecha y Hora */}
+                    {clientFound && manualOrderData.deliveryType && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          <i className="bi bi-clock me-1"></i>
+                          Tiempo de Entrega
+                        </label>
+                        <div className="space-y-2">
+                          <label className="flex items-center">
+                            <input
+                              type="radio"
+                              name="timingType"
+                              value="immediate"
+                              checked={manualOrderData.timingType === 'immediate'}
+                              onChange={(e) => setManualOrderData(prev => ({
+                                ...prev,
+                                timingType: e.target.value as 'immediate'
+                              }))}
+                              className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">
+                              <i className="bi bi-lightning me-1"></i>
+                              Inmediata (30 min)
+                            </span>
+                          </label>
+                          <label className="flex items-center">
+                            <input
+                              type="radio"
+                              name="timingType"
+                              value="scheduled"
+                              checked={manualOrderData.timingType === 'scheduled'}
+                              onChange={(e) => {
+                                const now = new Date();
+                                const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+                                setManualOrderData(prev => ({
+                                  ...prev,
+                                  timingType: e.target.value as 'scheduled',
+                                  scheduledDate: now.toISOString().split('T')[0],
+                                  scheduledTime: oneHourLater.toTimeString().split(' ')[0].substring(0, 5)
+                                }));
+                              }}
+                              className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">
+                              <i className="bi bi-calendar me-1"></i>
+                              Programada
+                            </span>
+                          </label>
+                        </div>
+
+                        {manualOrderData.timingType === 'scheduled' && (
+                          <div className="mt-3 space-y-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Fecha
+                              </label>
+                              <input
+                                type="date"
+                                value={manualOrderData.scheduledDate}
+                                onChange={(e) => setManualOrderData(prev => ({
+                                  ...prev,
+                                  scheduledDate: e.target.value
+                                }))}
+                                className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                                min={new Date().toISOString().split('T')[0]}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Hora
+                              </label>
+                              <input
+                                type="time"
+                                value={manualOrderData.scheduledTime}
+                                onChange={(e) => setManualOrderData(prev => ({
+                                  ...prev,
+                                  scheduledTime: e.target.value
+                                }))}
+                                className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Sección de Método de Pago */}
+                    {clientFound && manualOrderData.deliveryType && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          <i className="bi bi-credit-card me-1"></i>
+                          Método de Pago
+                        </label>
+                        <div className="space-y-2">
+                          <label className="flex items-center">
+                            <input
+                              type="radio"
+                              name="paymentMethod"
+                              value="cash"
+                              checked={manualOrderData.paymentMethod === 'cash'}
+                              onChange={(e) => setManualOrderData(prev => ({
+                                ...prev,
+                                paymentMethod: e.target.value as 'cash',
+                                paymentStatus: 'pending' // Por cobrar al entregar
+                              }))}
+                              className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">
+                              <i className="bi bi-cash me-1"></i>
+                              Efectivo
+                            </span>
+                          </label>
+                          <label className="flex items-center">
+                            <input
+                              type="radio"
+                              name="paymentMethod"
+                              value="transfer"
+                              checked={manualOrderData.paymentMethod === 'transfer'}
+                              onChange={(e) => setManualOrderData(prev => ({
+                                ...prev,
+                                paymentMethod: e.target.value as 'transfer',
+                                paymentStatus: 'paid' // Automáticamente marcar como pagado
+                              }))}
+                              className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">
+                              <i className="bi bi-bank me-1"></i>
+                              Transferencia
+                            </span>
+                          </label>
+                        </div>
+
+                        {manualOrderData.paymentMethod === 'transfer' && (
+                          <div className="mt-3">
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Banco de transferencia
+                            </label>
+                            <select
+                              value={manualOrderData.selectedBank}
+                              onChange={(e) => setManualOrderData(prev => ({
+                                ...prev,
+                                selectedBank: e.target.value
+                              }))}
+                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                            >
+                              <option value="">Seleccionar banco</option>
+                              <option value="pichincha">🟡 Banco Pichincha</option>
+                              <option value="pacifico">🔵 Banco Pacifico</option>
+                              <option value="guayaquil">🩷 Banco Guayaquil</option>
+                              <option value="produbanco">🟢 Banco Produbanco</option>
+                            </select>
+                            
+                            <div className="mt-2">
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Estado del pago
+                              </label>
+                              <select
+                                value={manualOrderData.paymentStatus}
+                                onChange={(e) => setManualOrderData(prev => ({
+                                  ...prev,
+                                  paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
+                                }))}
+                                className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                              >
+                                <option value="pending">Por cobrar</option>
+                                <option value="validating">Validando</option>
+                                <option value="paid">Pagado</option>
+                              </select>
                             </div>
                           </div>
                         )}
@@ -2358,13 +2694,43 @@ export default function BusinessDashboard() {
 
                   {manualOrderData.selectedProducts.length > 0 && (
                     <div className="border-t pt-4">
-                      <div className="flex justify-between items-center mb-4">
-                        <span className="text-lg font-medium text-gray-900">Total:</span>
-                        <span className="text-lg font-bold text-red-600">
-                          ${manualOrderData.selectedProducts.reduce((sum, item) => 
-                            sum + (item.price * item.quantity), 0
-                          ).toFixed(2)}
-                        </span>
+                      {/* Resumen detallado */}
+                      <div className="space-y-2 mb-4">
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-gray-600">Subtotal:</span>
+                          <span className="font-medium">
+                            ${manualOrderData.selectedProducts.reduce((sum, item) => 
+                              sum + (item.price * item.quantity), 0
+                            ).toFixed(2)}
+                          </span>
+                        </div>
+                        
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-gray-600">Envío:</span>
+                          <span className="font-medium">
+                            ${(manualOrderData.deliveryType === 'delivery' && manualOrderData.selectedLocation
+                              ? parseFloat(manualOrderData.selectedLocation.tarifa || '0')
+                              : 0
+                            ).toFixed(2)}
+                          </span>
+                        </div>
+                        
+                        <div className="border-t pt-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-lg font-medium text-gray-900">Total:</span>
+                            <span className="text-lg font-bold text-red-600">
+                              ${(() => {
+                                const subtotal = manualOrderData.selectedProducts.reduce((sum, item) => 
+                                  sum + (item.price * item.quantity), 0
+                                );
+                                const delivery = manualOrderData.deliveryType === 'delivery' && manualOrderData.selectedLocation
+                                  ? parseFloat(manualOrderData.selectedLocation.tarifa || '0')
+                                  : 0;
+                                return (subtotal + delivery).toFixed(2);
+                              })()}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                       
                       <button
