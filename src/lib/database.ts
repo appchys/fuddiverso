@@ -29,6 +29,16 @@ import {
   CoverageZone 
 } from '../types'
 
+// Helper function para convertir timestamps de Firebase a Date de manera segura
+function toSafeDate(timestamp: any): Date {
+  if (!timestamp) return new Date()
+  if (timestamp instanceof Date) return timestamp
+  if (timestamp?.toDate && typeof timestamp.toDate === 'function') {
+    return timestamp.toDate()
+  }
+  return new Date(timestamp)
+}
+
 // Helper function para limpiar valores undefined de un objeto
 function cleanObject(obj: any): any {
   if (obj === null || obj === undefined) {
@@ -144,7 +154,7 @@ export async function getBusiness(businessId: string): Promise<Business | null> 
       return {
         id: docSnap.id,
         ...docSnap.data(),
-        createdAt: docSnap.data().createdAt?.toDate() || new Date()
+        createdAt: toSafeDate(docSnap.data().createdAt)
       } as Business
     }
     return null
@@ -173,7 +183,7 @@ export async function getBusinessByOwner(ownerId: string): Promise<Business | nu
       const businessData = {
         id: doc.id,
         ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate() || new Date()
+        createdAt: toSafeDate(doc.data().createdAt)
       } as Business
       
       console.log('✅ Found business:', businessData.name, 'ID:', businessData.id);
@@ -194,7 +204,7 @@ export async function getAllBusinesses(): Promise<Business[]> {
     return querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate() || new Date()
+      createdAt: toSafeDate(doc.data().createdAt)
     })) as Business[]
   } catch (error) {
     console.error('Error getting businesses:', error)
@@ -378,7 +388,7 @@ export async function getProductsByBusiness(businessId: string): Promise<Product
     return querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate() || new Date()
+      createdAt: toSafeDate(doc.data().createdAt)
     })) as Product[]
   } catch (error) {
     console.error('Error getting products:', error)
@@ -571,7 +581,7 @@ export async function searchBusinesses(searchTerm: string, category?: string): P
     let businesses = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate() || new Date()
+      createdAt: toSafeDate(doc.data().createdAt)
     })) as Business[]
     
     // Filtrar por término de búsqueda en el frontend
@@ -835,8 +845,8 @@ export async function getBusinessByUsername(username: string): Promise<Business 
         bankAccount: businessData.bankAccount || undefined,
         schedule: businessData.schedule || {},
         isActive: businessData.isActive || false,
-        createdAt: businessData.createdAt?.toDate() || new Date(),
-        updatedAt: businessData.updatedAt?.toDate() || new Date()
+        createdAt: toSafeDate(businessData.createdAt),
+        updatedAt: toSafeDate(businessData.updatedAt)
       };
       
       console.log('✅ Business found:', business);
@@ -1004,8 +1014,8 @@ export async function getOrdersByClient(clientPhone: string): Promise<any[]> {
     const orders = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate() || new Date(),
-      updatedAt: doc.data().updatedAt?.toDate() || new Date()
+      createdAt: toSafeDate(doc.data().createdAt),
+      updatedAt: toSafeDate(doc.data().updatedAt)
     }));
 
     return orders;
@@ -1161,8 +1171,8 @@ export async function getBusinessesByOwner(ownerId: string): Promise<Business[]>
         bankAccount: businessData.bankAccount || undefined,
         schedule: businessData.schedule || {},
         isActive: businessData.isActive !== false,
-        createdAt: businessData.createdAt?.toDate() || new Date(),
-        updatedAt: businessData.updatedAt?.toDate() || new Date()
+        createdAt: toSafeDate(businessData.createdAt),
+        updatedAt: toSafeDate(businessData.updatedAt)
       });
     });
 
@@ -1217,8 +1227,8 @@ export async function getBusinessesByAdministrator(userEmail: string): Promise<B
           bankAccount: businessData.bankAccount || undefined,
           schedule: businessData.schedule || {},
           isActive: businessData.isActive !== false,
-          createdAt: businessData.createdAt?.toDate() || new Date(),
-          updatedAt: businessData.updatedAt?.toDate() || new Date(),
+          createdAt: toSafeDate(businessData.createdAt),
+          updatedAt: toSafeDate(businessData.updatedAt),
           ownerId: businessData.ownerId || '',
           administrators: administrators
         });

@@ -228,7 +228,7 @@ export default function MyOrdersPage() {
                   {/* Información de entrega */}
                   <div className="mb-4 text-sm">
                     <div className="flex items-center text-gray-600 mb-1">
-                      <i className={`bi ${order.delivery.type === 'delivery' ? 'bi-truck' : 'bi-bag'} mr-2`}></i>
+                      <i className={`bi ${order.delivery.type === 'delivery' ? 'bi-scooter' : 'bi-bag'} mr-2`}></i>
                       <span className="font-medium">
                         {order.delivery.type === 'delivery' ? 'Delivery' : 'Retiro en tienda'}
                       </span>

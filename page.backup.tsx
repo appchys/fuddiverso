@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct, getBusinessesByOwner, uploadImage, updateBusiness, addBusinessAdministrator, removeBusinessAdministrator, updateAdministratorPermissions, getUserBusinessAccess, getBusinessCategories, addCategoryToBusiness, searchClientByPhone, getClientLocations, createOrder } from '@/lib/database'
+import { validateEcuadorianPhone, normalizeEcuadorianPhone, validateAndNormalizePhone } from '@/lib/validation'
+import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct, getBusinessesByOwner, uploadImage, updateBusiness, addBusinessAdministrator, removeBusinessAdministrator, updateAdministratorPermissions, getUserBusinessAccess, getBusinessCategories, addCategoryToBusiness, searchClientByPhone, getClientLocations, createOrder, getDeliveryFeeForLocation, FirestoreClient } from '@/lib/database'
 import { Business, Product, Order, ProductVariant } from '@/types'
 import { auth } from '@/lib/firebase'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
@@ -61,6 +62,10 @@ export default function BusinessDashboard() {
   })
   const [addingAdmin, setAddingAdmin] = useState(false)
 
+  // Estados para edición de horarios
+  const [isEditingSchedule, setIsEditingSchedule] = useState(false)
+  const [editedSchedule, setEditedSchedule] = useState<any>(null)
+
   // Estados para orden manual
   const [manualOrderData, setManualOrderData] = useState({
     customerPhone: '',
@@ -74,12 +79,25 @@ export default function BusinessDashboard() {
     }>,
     deliveryType: '' as '' | 'delivery' | 'pickup',
     selectedLocation: null as any,
-    customerLocations: [] as any[]
+    customerLocations: [] as any[],
+    timing: {
+      type: 'immediate' as 'immediate' | 'scheduled',
+      scheduledDate: '',
+      scheduledTime: ''
+    },
+    payment: {
+      method: 'cash' as 'cash' | 'transfer',
+      selectedBank: '',
+      receiptImageUrl: '',
+      paymentStatus: 'pending' as 'pending' | 'validating' | 'paid'
+    },
+    notes: ''
   })
   const [searchingClient, setSearchingClient] = useState(false)
   const [clientFound, setClientFound] = useState(false)
   const [loadingClientLocations, setLoadingClientLocations] = useState(false)
-  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
+  const [isProcessingManualOrder, setIsProcessingManualOrder] = useState(false)
+  const [manualOrderStep, setManualOrderStep] = useState(1)
   
   // Estados para modal de variantes
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<Product | null>(null)
@@ -91,15 +109,6 @@ export default function BusinessDashboard() {
       router.push('/business/login');
     }
   }, [isAuthenticated, router]);
-
-  // Cleanup del timeout al desmontar
-  useEffect(() => {
-    return () => {
-      if (searchTimeout) {
-        clearTimeout(searchTimeout);
-      }
-    };
-  }, [searchTimeout]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !user || !isAuthenticated) return;
@@ -628,6 +637,319 @@ export default function BusinessDashboard() {
     }
   };
 
+  // Funciones para editar horarios
+  const handleEditSchedule = () => {
+    if (!business) return
+    setEditedSchedule({ ...business.schedule })
+    setIsEditingSchedule(true)
+  }
+
+  const handleScheduleChange = (day: string, field: 'open' | 'close' | 'isOpen', value: string | boolean) => {
+    setEditedSchedule((prev: any) => ({
+      ...prev,
+      [day]: {
+        ...prev[day],
+        [field]: value
+      }
+    }))
+  }
+
+  const handleSaveSchedule = async () => {
+    if (!business?.id || !editedSchedule) return
+
+    try {
+      await updateBusiness(business.id, { 
+        schedule: editedSchedule,
+        updatedAt: new Date()
+      })
+      
+      // Actualizar estado local
+      const updatedBusiness = { ...business, schedule: editedSchedule }
+      setBusiness(updatedBusiness)
+      
+      // Actualizar en la lista de negocios
+      setBusinesses(prev => prev.map(b => 
+        b.id === business.id ? updatedBusiness : b
+      ))
+
+      setIsEditingSchedule(false)
+      alert('Horario actualizado exitosamente')
+    } catch (error) {
+      console.error('Error updating schedule:', error)
+      alert('Error al actualizar el horario')
+    }
+  }
+
+  const handleCancelScheduleEdit = () => {
+    setIsEditingSchedule(false)
+    setEditedSchedule(null)
+  }
+
+  // Funciones para manejo de orden manual
+  const searchClientByPhoneNumber = async () => {
+    if (!manualOrderData.customerPhone) return
+
+    setSearchingClient(true)
+    try {
+      console.log('🔍 Original phone input:', manualOrderData.customerPhone)
+      
+      const inputPhone = manualOrderData.customerPhone.trim()
+      let client = null
+      let phoneToSave = inputPhone
+      
+      // Intento 1: Buscar con el número tal como está ingresado
+      console.log('🔍 Attempt 1 - searching with original input:', inputPhone)
+      client = await searchClientByPhone(inputPhone)
+      
+      if (!client) {
+        // Intento 2: Buscar con número normalizado
+        const normalizedPhone = validateAndNormalizePhone(inputPhone)
+        if (normalizedPhone && normalizedPhone !== inputPhone) {
+          console.log('🔍 Attempt 2 - searching with normalized phone:', normalizedPhone)
+          client = await searchClientByPhone(normalizedPhone)
+          if (client) {
+            phoneToSave = normalizedPhone
+          }
+        }
+      }
+      
+      // Intento 3: Si empieza con +593, probar sin el código de país
+      if (!client && inputPhone.startsWith('+593')) {
+        const withoutCountryCode = '0' + inputPhone.substring(4)
+        console.log('🔍 Attempt 3 - searching without country code:', withoutCountryCode)
+        client = await searchClientByPhone(withoutCountryCode)
+        if (client) {
+          phoneToSave = withoutCountryCode
+        }
+      }
+      
+      // Intento 4: Si tiene 9 dígitos, agregar 0 al inicio
+      if (!client && inputPhone.length === 9 && inputPhone.startsWith('9')) {
+        const with0Prefix = '0' + inputPhone
+        console.log('🔍 Attempt 4 - searching with 0 prefix:', with0Prefix)
+        client = await searchClientByPhone(with0Prefix)
+        if (client) {
+          phoneToSave = with0Prefix
+        }
+      }
+
+      console.log('📋 Final search result:', client)
+      
+      if (client) {
+        setManualOrderData(prev => ({
+          ...prev,
+          customerPhone: phoneToSave,
+          customerName: client.nombres || ''
+        }))
+        setClientFound(true)
+        
+        console.log('✅ Client found and loaded:', client.nombres)
+        
+        // Cargar ubicaciones del cliente
+        await loadClientLocations(phoneToSave)
+      } else {
+        setClientFound(false)
+        setManualOrderData(prev => ({
+          ...prev,
+          customerPhone: normalizedPhone,
+          customerName: '',
+          customerLocations: [],
+          selectedLocation: null
+        }))
+        alert('Cliente no encontrado. Puedes crear la orden con un nombre nuevo.')
+      }
+    } catch (error) {
+      console.error('Error searching client:', error)
+      alert('Error al buscar cliente')
+    } finally {
+      setSearchingClient(false)
+    }
+  }
+
+  const loadClientLocations = async (phone: string) => {
+    setLoadingClientLocations(true)
+    try {
+      const locations = await getClientLocations(phone)
+      setManualOrderData(prev => ({
+        ...prev,
+        customerLocations: locations || []
+      }))
+    } catch (error) {
+      console.error('Error loading client locations:', error)
+    } finally {
+      setLoadingClientLocations(false)
+    }
+  }
+
+  const handleAddProductToManualOrder = (product: Product) => {
+    const existingProduct = manualOrderData.selectedProducts.find(p => p.id === product.id)
+    
+    if (existingProduct) {
+      setManualOrderData(prev => ({
+        ...prev,
+        selectedProducts: prev.selectedProducts.map(p => 
+          p.id === product.id 
+            ? { ...p, quantity: p.quantity + 1 }
+            : p
+        )
+      }))
+    } else {
+      setManualOrderData(prev => ({
+        ...prev,
+        selectedProducts: [...prev.selectedProducts, {
+          id: product.id,
+          name: product.name,
+          price: product.price,
+          quantity: 1
+        }]
+      }))
+    }
+  }
+
+  const handleRemoveProductFromManualOrder = (productId: string) => {
+    setManualOrderData(prev => ({
+      ...prev,
+      selectedProducts: prev.selectedProducts.filter(p => p.id !== productId)
+    }))
+  }
+
+  const handleUpdateProductQuantity = (productId: string, quantity: number) => {
+    if (quantity <= 0) {
+      handleRemoveProductFromManualOrder(productId)
+      return
+    }
+
+    setManualOrderData(prev => ({
+      ...prev,
+      selectedProducts: prev.selectedProducts.map(p => 
+        p.id === productId 
+          ? { ...p, quantity }
+          : p
+      )
+    }))
+  }
+
+  const calculateManualOrderTotal = () => {
+    const subtotal = manualOrderData.selectedProducts.reduce((sum, product) => 
+      sum + (product.price * product.quantity), 0
+    )
+    
+    let deliveryFee = 0
+    if (manualOrderData.deliveryType === 'delivery' && manualOrderData.selectedLocation) {
+      deliveryFee = parseFloat(manualOrderData.selectedLocation.tarifa || '0')
+    }
+
+    return {
+      subtotal,
+      deliveryFee,
+      total: subtotal + deliveryFee
+    }
+  }
+
+  const handleSubmitManualOrder = async () => {
+    // Validaciones
+    if (!manualOrderData.customerPhone || !manualOrderData.customerName) {
+      alert('Completa los datos del cliente')
+      return
+    }
+
+    if (manualOrderData.selectedProducts.length === 0) {
+      alert('Agrega al menos un producto')
+      return
+    }
+
+    if (!manualOrderData.deliveryType) {
+      alert('Selecciona el tipo de entrega')
+      return
+    }
+
+    if (manualOrderData.deliveryType === 'delivery' && !manualOrderData.selectedLocation) {
+      alert('Selecciona una ubicación para delivery')
+      return
+    }
+
+    setIsProcessingManualOrder(true)
+    try {
+      const { total } = calculateManualOrderTotal()
+
+      // Preparar timing
+      const deliveryTime = manualOrderData.timing.type === 'immediate' 
+        ? new Date(Date.now() + 30 * 60000).toISOString() // 30 minutos
+        : new Date(`${manualOrderData.timing.scheduledDate}T${manualOrderData.timing.scheduledTime}`).toISOString()
+
+      const orderData = {
+        businessId: selectedBusinessId || '',
+        items: manualOrderData.selectedProducts.map(product => ({
+          productId: product.id,
+          name: product.name,
+          price: product.price,
+          quantity: product.quantity,
+          variant: product.variant || undefined
+        })),
+        customer: {
+          name: manualOrderData.customerName,
+          phone: manualOrderData.customerPhone
+        },
+        delivery: {
+          type: manualOrderData.deliveryType as 'delivery' | 'pickup',
+          references: manualOrderData.deliveryType === 'delivery' ? manualOrderData.selectedLocation?.referencia : undefined
+        },
+        timing: {
+          type: manualOrderData.timing.type,
+          scheduledTime: deliveryTime
+        },
+        payment: {
+          method: manualOrderData.payment.method,
+          selectedBank: manualOrderData.payment.method === 'transfer' ? manualOrderData.payment.selectedBank : undefined,
+          receiptImageUrl: manualOrderData.payment.method === 'transfer' ? manualOrderData.payment.receiptImageUrl : undefined,
+          paymentStatus: manualOrderData.payment.paymentStatus
+        },
+        total,
+        status: 'pending' as 'pending',
+        updatedAt: new Date(),
+        notes: manualOrderData.notes || undefined,
+        createdByAdmin: true // Marcar que fue creada por admin
+      }
+
+      const orderId = await createOrder(orderData)
+      
+      // Limpiar formulario
+      setManualOrderData({
+        customerPhone: '',
+        customerName: '',
+        selectedProducts: [],
+        deliveryType: '',
+        selectedLocation: null,
+        customerLocations: [],
+        timing: {
+          type: 'immediate',
+          scheduledDate: '',
+          scheduledTime: ''
+        },
+        payment: {
+          method: 'cash',
+          selectedBank: '',
+          receiptImageUrl: '',
+          paymentStatus: 'pending'
+        },
+        notes: ''
+      })
+      setClientFound(false)
+      setManualOrderStep(1)
+
+      // Recargar órdenes
+      await loadOrders()
+
+      alert(`¡Orden creada exitosamente! ID: ${orderId}`)
+      
+    } catch (error) {
+      console.error('Error creating manual order:', error)
+      alert('Error al crear la orden')
+    } finally {
+      setIsProcessingManualOrder(false)
+    }
+  }
+
   // Cerrar dropdown al hacer click fuera
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -737,7 +1059,7 @@ export default function BusinessDashboard() {
             <i className="bi bi-telephone me-1"></i>{order.customer?.phone || 'Sin teléfono'}
           </p>
           <p className="text-gray-600 text-sm mb-2">
-            <i className={`bi ${order.delivery?.type === 'delivery' ? 'bi-scooter' : 'bi-shop'} me-1`}></i>
+            <i className={`bi ${order.delivery?.type === 'delivery' ? 'bi-truck' : 'bi-shop'} me-1`}></i>
             {order.delivery?.type === 'delivery' ? 'Entrega a domicilio' : 'Recoger en tienda'}
             {order.delivery?.references && (
               <span className="block text-xs text-gray-500 mt-1">
@@ -815,252 +1137,6 @@ export default function BusinessDashboard() {
       </div>
     </div>
   );
-
-  // Funciones para orden manual
-  const handleSearchClient = async (phone?: string) => {
-    const phoneToSearch = phone || normalizePhone(manualOrderData.customerPhone.trim());
-    if (!phoneToSearch) return;
-
-    setSearchingClient(true);
-    setClientFound(false);
-
-    try {
-      const client = await searchClientByPhone(phoneToSearch);
-      
-      if (client) {
-        setManualOrderData(prev => ({
-          ...prev,
-          customerName: client.nombres || ''
-        }));
-        setClientFound(true);
-        
-        // Cargar ubicaciones del cliente
-        setLoadingClientLocations(true);
-        const locations = await getClientLocations(client.id);
-        setManualOrderData(prev => ({
-          ...prev,
-          customerLocations: locations
-        }));
-      } else {
-        setClientFound(false);
-        setManualOrderData(prev => ({
-          ...prev,
-          customerName: '',
-          customerLocations: []
-        }));
-      }
-    } catch (error) {
-      console.error('Error searching client:', error);
-      setClientFound(false);
-    } finally {
-      setSearchingClient(false);
-      setLoadingClientLocations(false);
-    }
-  };
-
-  const handlePhoneChange = (value: string) => {
-    const normalizedPhone = normalizePhone(value);
-    
-    setManualOrderData(prev => ({
-      ...prev,
-      customerPhone: normalizedPhone
-    }));
-
-    // Limpiar timeout anterior
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
-    }
-
-    // Limpiar estado del cliente si se está editando
-    setClientFound(false);
-    setManualOrderData(prev => ({
-      ...prev,
-      customerName: '',
-      customerLocations: [],
-      selectedLocation: null
-    }));
-
-    // Búsqueda automática después de 800ms de inactividad
-    if (normalizedPhone.trim().length >= 8) { // Mínimo 8 dígitos para buscar
-      const timeout = setTimeout(() => {
-        handleSearchClient(normalizedPhone.trim());
-      }, 800);
-      setSearchTimeout(timeout);
-    }
-  };
-
-  const normalizePhone = (phone: string) => {
-    // Remover todos los caracteres no numéricos excepto el +
-    let normalized = phone.replace(/[^\d+]/g, '');
-    
-    // Si empieza con +593, convertir a formato local
-    if (normalized.startsWith('+593')) {
-      normalized = '0' + normalized.substring(4); // +593 99 -> 099
-    } else if (normalized.startsWith('593')) {
-      normalized = '0' + normalized.substring(3); // 593 99 -> 099
-    }
-    
-    return normalized;
-  };
-
-  const handlePastePhone = async () => {
-    try {
-      // Verificar si la API del clipboard está disponible
-      if (!navigator.clipboard || !navigator.clipboard.readText) {
-        alert('La funcionalidad de pegar no está disponible en este navegador');
-        return;
-      }
-
-      const text = await navigator.clipboard.readText();
-      if (text) {
-        const normalizedPhone = normalizePhone(text);
-        setManualOrderData(prev => ({
-          ...prev,
-          customerPhone: normalizedPhone
-        }));
-        
-        // Buscar inmediatamente después de pegar
-        if (normalizedPhone.length >= 8) {
-          setTimeout(() => {
-            handleSearchClient(normalizedPhone);
-          }, 100);
-        }
-      }
-    } catch (error) {
-      console.error('Error pasting from clipboard:', error);
-      // Fallback: solicitar al usuario que pegue manualmente
-      const manualInput = prompt('Pega el número de teléfono aquí:');
-      if (manualInput) {
-        const normalizedPhone = normalizePhone(manualInput);
-        setManualOrderData(prev => ({
-          ...prev,
-          customerPhone: normalizedPhone
-        }));
-        
-        if (normalizedPhone.length >= 8) {
-          setTimeout(() => {
-            handleSearchClient(normalizedPhone);
-          }, 100);
-        }
-      }
-    }
-  };
-
-  const handleAddProductToOrder = (product: Product) => {
-    if (product.variants && product.variants.length > 0) {
-      setSelectedProductForVariants(product);
-      setIsVariantModalOpen(true);
-    } else {
-      // Producto sin variantes
-      const existingProductIndex = manualOrderData.selectedProducts.findIndex(p => p.id === product.id);
-      
-      if (existingProductIndex >= 0) {
-        const newProducts = [...manualOrderData.selectedProducts];
-        newProducts[existingProductIndex].quantity += 1;
-        setManualOrderData(prev => ({
-          ...prev,
-          selectedProducts: newProducts
-        }));
-      } else {
-        setManualOrderData(prev => ({
-          ...prev,
-          selectedProducts: [...prev.selectedProducts, {
-            id: product.id,
-            name: product.name,
-            price: product.price,
-            quantity: 1
-          }]
-        }));
-      }
-    }
-  };
-
-  const handleAddVariantToOrder = (variant: ProductVariant) => {
-    if (!selectedProductForVariants) return;
-
-    const variantKey = `${selectedProductForVariants.id}-${variant.name}`;
-    const existingProductIndex = manualOrderData.selectedProducts.findIndex(p => 
-      p.id === selectedProductForVariants.id && p.variant === variant.name
-    );
-    
-    if (existingProductIndex >= 0) {
-      const newProducts = [...manualOrderData.selectedProducts];
-      newProducts[existingProductIndex].quantity += 1;
-      setManualOrderData(prev => ({
-        ...prev,
-        selectedProducts: newProducts
-      }));
-    } else {
-      setManualOrderData(prev => ({
-        ...prev,
-        selectedProducts: [...prev.selectedProducts, {
-          id: selectedProductForVariants.id,
-          name: `${selectedProductForVariants.name} - ${variant.name}`,
-          price: variant.price,
-          quantity: 1,
-          variant: variant.name
-        }]
-      }));
-    }
-
-    setIsVariantModalOpen(false);
-    setSelectedProductForVariants(null);
-  };
-
-  const handleCreateManualOrder = async () => {
-    if (!business || !clientFound || manualOrderData.selectedProducts.length === 0) return;
-
-    try {
-      const totalAmount = manualOrderData.selectedProducts.reduce((sum, item) => 
-        sum + (item.price * item.quantity), 0
-      );
-
-      const orderData = {
-        businessId: business.id,
-        items: manualOrderData.selectedProducts.map(item => ({
-          productId: item.id,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-          variant: item.variant
-        })),
-        customer: {
-          name: manualOrderData.customerName,
-          phone: manualOrderData.customerPhone
-        },
-        delivery: {
-          type: manualOrderData.deliveryType,
-          location: manualOrderData.selectedLocation
-        },
-        totalAmount,
-        status: 'confirmed' as const,
-        payment: {
-          method: 'cash' as const,
-          status: 'pending' as const
-        },
-        createdByAdmin: true
-      };
-
-      await createOrder(orderData as any);
-      
-      // Limpiar formulario
-      setManualOrderData({
-        customerPhone: '',
-        customerName: '',
-        selectedProducts: [],
-        deliveryType: '',
-        selectedLocation: null,
-        customerLocations: []
-      });
-      setClientFound(false);
-      
-      alert('Pedido creado exitosamente');
-      setActiveTab('orders'); // Cambiar a la pestaña de pedidos
-    } catch (error) {
-      console.error('Error creating manual order:', error);
-      alert('Error al crear el pedido');
-    }
-  };
 
   if (loading) {
     return (
@@ -1269,6 +1345,18 @@ export default function BusinessDashboard() {
               <span className="sm:hidden">Productos</span>
             </button>
             <button
+              onClick={() => setActiveTab('manual-order')}
+              className={`py-2 px-1 sm:px-2 border-b-2 font-medium text-sm whitespace-nowrap transition-colors ${
+                activeTab === 'manual-order'
+                  ? 'border-red-500 text-red-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <i className="bi bi-plus-circle me-1 sm:me-2"></i>
+              <span className="hidden sm:inline">Crear Pedido</span>
+              <span className="sm:hidden">Crear</span>
+            </button>
+            <button
               onClick={() => setActiveTab('profile')}
               className={`py-2 px-1 sm:px-2 border-b-2 font-medium text-sm whitespace-nowrap transition-colors ${
                 activeTab === 'profile'
@@ -1291,18 +1379,6 @@ export default function BusinessDashboard() {
               <i className="bi bi-people me-1 sm:me-2"></i>
               <span className="hidden sm:inline">Administradores</span>
               <span className="sm:hidden">Admins</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('manual-order')}
-              className={`py-2 px-1 sm:px-2 border-b-2 font-medium text-sm whitespace-nowrap transition-colors ${
-                activeTab === 'manual-order'
-                  ? 'border-red-500 text-red-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <i className="bi bi-plus-circle me-1 sm:me-2"></i>
-              <span className="hidden sm:inline">Crear Pedido</span>
-              <span className="sm:hidden">Pedido</span>
             </button>
           </nav>
         </div>
@@ -1511,6 +1587,490 @@ export default function BusinessDashboard() {
             )}
           </div>
         )}
+
+        {/* Manual Order Tab */}
+        {activeTab === 'manual-order' && (
+          <div>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">
+                <i className="bi bi-plus-circle me-2"></i>Crear Pedido Manual
+              </h2>
+              <button
+                onClick={() => {
+                  // Resetear formulario
+                  setManualOrderData({
+                    customerPhone: '',
+                    customerName: '',
+                    selectedProducts: [],
+                    deliveryType: '',
+                    selectedLocation: null,
+                    customerLocations: [],
+                    timing: {
+                      type: 'immediate',
+                      scheduledDate: '',
+                      scheduledTime: ''
+                    },
+                    payment: {
+                      method: 'cash',
+                      selectedBank: '',
+                      receiptImageUrl: '',
+                      paymentStatus: 'pending'
+                    },
+                    notes: ''
+                  })
+                  setClientFound(false)
+                  setManualOrderStep(1)
+                }}
+                className="text-gray-600 hover:text-gray-800"
+              >
+                <i className="bi bi-arrow-clockwise me-1"></i>Limpiar Formulario
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              {/* Columna 1: Información del Cliente */}
+              <div className="xl:col-span-1">
+                <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                  <h3 className="text-lg font-semibold mb-4">
+                    <i className="bi bi-person me-2"></i>Cliente
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Teléfono
+                      </label>
+                      <div className="flex space-x-2">
+                        <input
+                          type="text"
+                          value={manualOrderData.customerPhone}
+                          onChange={(e) => setManualOrderData(prev => ({
+                            ...prev,
+                            customerPhone: e.target.value
+                          }))}
+                          placeholder="0987654321"
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                        />
+                        <button
+                          onClick={searchClientByPhoneNumber}
+                          disabled={searchingClient || !manualOrderData.customerPhone}
+                          className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {searchingClient ? (
+                            <i className="bi bi-hourglass-split"></i>
+                          ) : (
+                            <i className="bi bi-search"></i>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Nombre
+                      </label>
+                      <input
+                        type="text"
+                        value={manualOrderData.customerName}
+                        onChange={(e) => setManualOrderData(prev => ({
+                          ...prev,
+                          customerName: e.target.value
+                        }))}
+                        placeholder="Nombre del cliente"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
+                    </div>
+
+                    {clientFound && (
+                      <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <div className="flex items-center text-green-800">
+                          <i className="bi bi-check-circle me-2"></i>
+                          <span className="text-sm font-medium">Cliente encontrado</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Tipo de Entrega */}
+                <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                  <h3 className="text-lg font-semibold mb-4">
+                    <i className="bi bi-truck me-2"></i>Entrega
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => setManualOrderData(prev => ({
+                          ...prev,
+                          deliveryType: 'pickup'
+                        }))}
+                        className={`p-3 border-2 rounded-lg text-center ${
+                          manualOrderData.deliveryType === 'pickup'
+                            ? 'border-red-500 bg-red-50'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <i className="bi bi-shop text-xl mb-1 block"></i>
+                        <span className="text-sm font-medium">Pickup</span>
+                      </button>
+                      
+                      <button
+                        onClick={() => setManualOrderData(prev => ({
+                          ...prev,
+                          deliveryType: 'delivery'
+                        }))}
+                        className={`p-3 border-2 rounded-lg text-center ${
+                          manualOrderData.deliveryType === 'delivery'
+                            ? 'border-red-500 bg-red-50'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <i className="bi bi-truck text-xl mb-1 block"></i>
+                        <span className="text-sm font-medium">Delivery</span>
+                      </button>
+                    </div>
+
+                    {/* Ubicaciones para delivery */}
+                    {manualOrderData.deliveryType === 'delivery' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Ubicación
+                        </label>
+                        
+                        {loadingClientLocations ? (
+                          <div className="text-center py-3 text-gray-500">
+                            <i className="bi bi-hourglass-split"></i> Cargando...
+                          </div>
+                        ) : manualOrderData.customerLocations.length > 0 ? (
+                          <div className="space-y-2">
+                            {manualOrderData.customerLocations.map((location, index) => (
+                              <button
+                                key={index}
+                                onClick={() => setManualOrderData(prev => ({
+                                  ...prev,
+                                  selectedLocation: location
+                                }))}
+                                className={`w-full p-3 border rounded-lg text-left text-sm ${
+                                  manualOrderData.selectedLocation === location
+                                    ? 'border-red-500 bg-red-50'
+                                    : 'border-gray-300 hover:border-gray-400'
+                                }`}
+                              >
+                                <div className="flex justify-between items-center">
+                                  <div className="font-medium">{location.referencia}</div>
+                                  <div className="text-red-600 font-bold">+${location.tarifa}</div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-3 text-gray-500 text-sm">
+                            No hay ubicaciones guardadas
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Horario */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Horario
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => setManualOrderData(prev => ({
+                            ...prev,
+                            timing: { ...prev.timing, type: 'immediate' }
+                          }))}
+                          className={`p-3 border-2 rounded-lg text-center ${
+                            manualOrderData.timing.type === 'immediate'
+                              ? 'border-red-500 bg-red-50'
+                              : 'border-gray-300 hover:border-gray-400'
+                          }`}
+                        >
+                          <i className="bi bi-lightning text-lg mb-1 block"></i>
+                          <span className="text-xs font-medium">Inmediato</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => setManualOrderData(prev => ({
+                            ...prev,
+                            timing: { ...prev.timing, type: 'scheduled' }
+                          }))}
+                          className={`p-3 border-2 rounded-lg text-center ${
+                            manualOrderData.timing.type === 'scheduled'
+                              ? 'border-red-500 bg-red-50'
+                              : 'border-gray-300 hover:border-gray-400'
+                          }`}
+                        >
+                          <i className="bi bi-calendar text-lg mb-1 block"></i>
+                          <span className="text-xs font-medium">Programado</span>
+                        </button>
+                      </div>
+
+                      {manualOrderData.timing.type === 'scheduled' && (
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <input
+                            type="date"
+                            value={manualOrderData.timing.scheduledDate}
+                            onChange={(e) => setManualOrderData(prev => ({
+                              ...prev,
+                              timing: { ...prev.timing, scheduledDate: e.target.value }
+                            }))}
+                            min={new Date().toISOString().split('T')[0]}
+                            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                          />
+                          <input
+                            type="time"
+                            value={manualOrderData.timing.scheduledTime}
+                            onChange={(e) => setManualOrderData(prev => ({
+                              ...prev,
+                              timing: { ...prev.timing, scheduledTime: e.target.value }
+                            }))}
+                            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Método de Pago */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Pago
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => setManualOrderData(prev => ({
+                            ...prev,
+                            payment: { ...prev.payment, method: 'cash', paymentStatus: 'paid' }
+                          }))}
+                          className={`p-3 border-2 rounded-lg text-center ${
+                            manualOrderData.payment.method === 'cash'
+                              ? 'border-red-500 bg-red-50'
+                              : 'border-gray-300 hover:border-gray-400'
+                          }`}
+                        >
+                          <i className="bi bi-cash text-lg mb-1 block"></i>
+                          <span className="text-xs font-medium">Efectivo</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => setManualOrderData(prev => ({
+                            ...prev,
+                            payment: { ...prev.payment, method: 'transfer', paymentStatus: 'pending' }
+                          }))}
+                          className={`p-3 border-2 rounded-lg text-center ${
+                            manualOrderData.payment.method === 'transfer'
+                              ? 'border-red-500 bg-red-50'
+                              : 'border-gray-300 hover:border-gray-400'
+                          }`}
+                        >
+                          <i className="bi bi-bank text-lg mb-1 block"></i>
+                          <span className="text-xs font-medium">Transferencia</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Notas */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Notas (opcional)
+                      </label>
+                      <textarea
+                        value={manualOrderData.notes}
+                        onChange={(e) => setManualOrderData(prev => ({
+                          ...prev,
+                          notes: e.target.value
+                        }))}
+                        placeholder="Instrucciones especiales..."
+                        rows={2}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Columna 2: Lista de Productos */}
+              <div className="xl:col-span-1">
+                <div className="bg-white rounded-lg shadow-md p-6">
+                  <h3 className="text-lg font-semibold mb-4">
+                    <i className="bi bi-box-seam me-2"></i>Productos Disponibles
+                  </h3>
+                  
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {products.map((product) => (
+                      <div key={product.id} className="border rounded-lg p-3 hover:shadow-sm transition-shadow">
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex-1">
+                            <h4 className="font-medium text-gray-900 text-sm">{product.name}</h4>
+                            <p className="text-xs text-gray-600 line-clamp-2">{product.description}</p>
+                          </div>
+                          <div className="text-right ml-2">
+                            {product.variants && product.variants.length > 0 ? (
+                              <span className="text-red-600 font-bold text-sm">
+                                Desde ${Math.min(...product.variants.filter((v: any) => v.isAvailable).map((v: any) => v.price)).toFixed(2)}
+                              </span>
+                            ) : (
+                              <span className="text-red-600 font-bold text-sm">${product.price.toFixed(2)}</span>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="flex justify-between items-center">
+                          <span className={`px-2 py-1 rounded-full text-xs ${
+                            product.isAvailable 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-red-100 text-red-800'
+                          }`}>
+                            {product.isAvailable ? 'Disponible' : 'No disponible'}
+                          </span>
+                          
+                          {product.isAvailable && (
+                            <button
+                              onClick={() => handleAddProductToManualOrder(product)}
+                              className="bg-red-600 text-white px-3 py-1 rounded-md hover:bg-red-700 text-xs"
+                            >
+                              <i className="bi bi-plus me-1"></i>Agregar
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Columna 3: Carrito y Resumen */}
+              <div className="xl:col-span-1">
+                {/* Productos en el carrito */}
+                <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                  <h3 className="text-lg font-semibold mb-4">
+                    <i className="bi bi-cart me-2"></i>Productos Seleccionados ({manualOrderData.selectedProducts.length})
+                  </h3>
+                  
+                  {manualOrderData.selectedProducts.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <i className="bi bi-cart text-3xl mb-2 block"></i>
+                      <p className="text-sm">No hay productos seleccionados</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-h-64 overflow-y-auto">
+                      {manualOrderData.selectedProducts.map((product) => (
+                        <div key={product.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                          <div className="flex-1">
+                            <span className="font-medium text-sm">{product.name}</span>
+                            <div className="text-xs text-gray-600">${product.price} c/u</div>
+                            {product.variant && (
+                              <div className="text-xs text-blue-600">• {product.variant}</div>
+                            )}
+                          </div>
+                          
+                          <div className="flex items-center space-x-2">
+                            <div className="flex items-center space-x-1">
+                              <button
+                                onClick={() => handleUpdateProductQuantity(product.id, product.quantity - 1)}
+                                className="w-6 h-6 bg-red-100 text-red-600 rounded-full hover:bg-red-200 text-xs"
+                              >
+                                <i className="bi bi-dash"></i>
+                              </button>
+                              <span className="w-6 text-center text-sm">{product.quantity}</span>
+                              <button
+                                onClick={() => handleUpdateProductQuantity(product.id, product.quantity + 1)}
+                                className="w-6 h-6 bg-red-100 text-red-600 rounded-full hover:bg-red-200 text-xs"
+                              >
+                                <i className="bi bi-plus"></i>
+                              </button>
+                            </div>
+                            
+                            <span className="font-bold text-sm min-w-[50px] text-right">
+                              ${(product.price * product.quantity).toFixed(2)}
+                            </span>
+                            
+                            <button
+                              onClick={() => handleRemoveProductFromManualOrder(product.id)}
+                              className="text-red-600 hover:text-red-700 text-xs"
+                            >
+                              <i className="bi bi-trash"></i>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Resumen de costos */}
+                {manualOrderData.selectedProducts.length > 0 && (
+                  <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h3 className="text-lg font-semibold mb-4">
+                      <i className="bi bi-calculator me-2"></i>Resumen
+                    </h3>
+                    
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm">
+                        <span>Productos:</span>
+                        <span>${calculateManualOrderTotal().subtotal.toFixed(2)}</span>
+                      </div>
+                      
+                      {manualOrderData.deliveryType === 'delivery' && manualOrderData.selectedLocation && (
+                        <div className="flex justify-between text-sm">
+                          <span>Delivery:</span>
+                          <span>+${calculateManualOrderTotal().deliveryFee.toFixed(2)}</span>
+                        </div>
+                      )}
+                      
+                      <div className="border-t pt-3">
+                        <div className="flex justify-between font-bold text-lg">
+                          <span>Total:</span>
+                          <span className="text-red-600">${calculateManualOrderTotal().total.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Botón de crear pedido */}
+                <div className="bg-white rounded-lg shadow-md p-6">
+                  <button
+                    onClick={handleSubmitManualOrder}
+                    disabled={
+                      isProcessingManualOrder ||
+                      !manualOrderData.customerPhone ||
+                      !manualOrderData.customerName ||
+                      manualOrderData.selectedProducts.length === 0 ||
+                      !manualOrderData.deliveryType ||
+                      (manualOrderData.deliveryType === 'delivery' && !manualOrderData.selectedLocation) ||
+                      (manualOrderData.timing.type === 'scheduled' && (!manualOrderData.timing.scheduledDate || !manualOrderData.timing.scheduledTime))
+                    }
+                    className="w-full bg-red-600 text-white py-3 px-4 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                  >
+                    {isProcessingManualOrder ? (
+                      <>
+                        <i className="bi bi-hourglass-split me-2"></i>
+                        Creando pedido...
+                      </>
+                    ) : (
+                      <>
+                        <i className="bi bi-check-circle me-2"></i>
+                        Crear Pedido (${calculateManualOrderTotal().total.toFixed(2)})
+                      </>
+                    )}
+                  </button>
+
+                  {/* Validaciones */}
+                  <div className="mt-3 text-xs text-gray-500">
+                    {!manualOrderData.customerPhone && <div>• Ingresa el teléfono del cliente</div>}
+                    {!manualOrderData.customerName && <div>• Ingresa el nombre del cliente</div>}
+                    {manualOrderData.selectedProducts.length === 0 && <div>• Selecciona al menos un producto</div>}
+                    {!manualOrderData.deliveryType && <div>• Selecciona el tipo de entrega</div>}
+                    {manualOrderData.deliveryType === 'delivery' && !manualOrderData.selectedLocation && <div>• Selecciona una ubicación para delivery</div>}
+                    {manualOrderData.timing.type === 'scheduled' && (!manualOrderData.timing.scheduledDate || !manualOrderData.timing.scheduledTime) && <div>• Completa la fecha y hora programada</div>}
+                  </div>
+                </div>
+              </div>
+            </div>
 
         {/* Profile Tab */}
         {activeTab === 'profile' && (
@@ -1850,6 +2410,129 @@ export default function BusinessDashboard() {
                 </>
               )}
             </div>
+
+            {/* Sección de Horarios */}
+            <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 mt-4 sm:mt-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  <i className="bi bi-clock me-2"></i>Horarios de Atención
+                </h3>
+                {!isEditingSchedule && (
+                  <button
+                    onClick={handleEditSchedule}
+                    className="bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                  >
+                    <i className="bi bi-pencil me-1"></i>Editar
+                  </button>
+                )}
+              </div>
+
+              {!isEditingSchedule ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {Object.entries(business.schedule).map(([day, schedule]) => {
+                    const dayNames: Record<string, string> = {
+                      monday: 'Lunes',
+                      tuesday: 'Martes', 
+                      wednesday: 'Miércoles',
+                      thursday: 'Jueves',
+                      friday: 'Viernes',
+                      saturday: 'Sábado',
+                      sunday: 'Domingo'
+                    }
+                    
+                    return (
+                      <div key={day} className="bg-gray-50 rounded-lg p-3">
+                        <div className="font-medium text-gray-900 mb-1">
+                          {dayNames[day]}
+                        </div>
+                        {schedule.isOpen ? (
+                          <div className="text-sm text-gray-600">
+                            <span className="text-green-600 font-medium">Abierto</span>
+                            <br />
+                            {schedule.open} - {schedule.close}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-red-600 font-medium">Cerrado</div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {Object.entries(editedSchedule).map(([day, schedule]: [string, any]) => {
+                    const dayNames: Record<string, string> = {
+                      monday: 'Lunes',
+                      tuesday: 'Martes', 
+                      wednesday: 'Miércoles',
+                      thursday: 'Jueves',
+                      friday: 'Viernes',
+                      saturday: 'Sábado',
+                      sunday: 'Domingo'
+                    }
+                    
+                    return (
+                      <div key={day} className="bg-gray-50 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="font-medium text-gray-900">{dayNames[day]}</h4>
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={schedule.isOpen}
+                              onChange={(e) => handleScheduleChange(day, 'isOpen', e.target.checked)}
+                              className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">Abierto</span>
+                          </label>
+                        </div>
+                        
+                        {schedule.isOpen && (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                Hora de apertura
+                              </label>
+                              <input
+                                type="time"
+                                value={schedule.open}
+                                onChange={(e) => handleScheduleChange(day, 'open', e.target.value)}
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                Hora de cierre
+                              </label>
+                              <input
+                                type="time"
+                                value={schedule.close}
+                                onChange={(e) => handleScheduleChange(day, 'close', e.target.value)}
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                  
+                  <div className="flex space-x-3 pt-4">
+                    <button
+                      onClick={handleSaveSchedule}
+                      className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
+                    >
+                      <i className="bi bi-check-lg me-2"></i>Guardar Horarios
+                    </button>
+                    <button
+                      onClick={handleCancelScheduleEdit}
+                      className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -2076,369 +2759,7 @@ export default function BusinessDashboard() {
             )}
           </div>
         )}
-
-        {/* Manual Order Tab */}
-        {activeTab === 'manual-order' && (
-          <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-            <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-medium text-gray-900">
-                <i className="bi bi-plus-circle me-2"></i>
-                Crear Pedido Manual
-              </h2>
-              <p className="text-sm text-gray-500 mt-1">
-                Registra pedidos directamente en el sistema
-              </p>
-            </div>
-
-            <div className="p-4 sm:p-6">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Columna 1: Información del Cliente */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="text-md font-medium text-gray-900 mb-4">
-                    <i className="bi bi-person me-2"></i>
-                    Información del Cliente
-                  </h3>
-                  
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Teléfono del Cliente
-                      </label>
-                      <div className="flex space-x-2">
-                        <input
-                          type="text"
-                          value={manualOrderData.customerPhone}
-                          onChange={(e) => handlePhoneChange(e.target.value)}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                          placeholder="0987654321 o +593 98 765 4321"
-                        />
-                        <button
-                          onClick={handlePastePhone}
-                          className="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors flex items-center"
-                          title="Pegar número desde portapapeles"
-                        >
-                          <i className="bi bi-clipboard"></i>
-                          <span className="ml-1 hidden sm:inline text-xs">Pegar</span>
-                        </button>
-                        <button
-                          onClick={() => handleSearchClient()}
-                          disabled={searchingClient || !manualOrderData.customerPhone.trim()}
-                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          {searchingClient ? (
-                            <i className="bi bi-arrow-clockwise animate-spin"></i>
-                          ) : (
-                            <i className="bi bi-search"></i>
-                          )}
-                        </button>
-                      </div>
-                      {searchingClient && (
-                        <p className="text-xs text-blue-600 mt-1">
-                          <i className="bi bi-arrow-clockwise animate-spin me-1"></i>
-                          Buscando cliente...
-                        </p>
-                      )}
-                      {!searchingClient && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          Acepta formatos: 0987654321 o +593 98 765 4321
-                        </p>
-                      )}
-                    </div>
-
-                    {clientFound && (
-                      <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                        <div className="flex items-center">
-                          <i className="bi bi-check-circle text-green-600 me-2"></i>
-                          <span className="text-sm font-medium text-green-800">
-                            Cliente encontrado: {manualOrderData.customerName}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {clientFound && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Tipo de Entrega
-                        </label>
-                        <div className="space-y-2">
-                          <label className="flex items-center">
-                            <input
-                              type="radio"
-                              name="deliveryType"
-                              value="delivery"
-                              checked={manualOrderData.deliveryType === 'delivery'}
-                              onChange={(e) => setManualOrderData(prev => ({
-                                ...prev,
-                                deliveryType: e.target.value as 'delivery'
-                              }))}
-                              className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">
-                              <i className="bi bi-scooter me-1"></i>
-                              Delivery
-                            </span>
-                          </label>
-                          <label className="flex items-center">
-                            <input
-                              type="radio"
-                              name="deliveryType"
-                              value="pickup"
-                              checked={manualOrderData.deliveryType === 'pickup'}
-                              onChange={(e) => setManualOrderData(prev => ({
-                                ...prev,
-                                deliveryType: e.target.value as 'pickup'
-                              }))}
-                              className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">
-                              <i className="bi bi-bag me-1"></i>
-                              Pickup
-                            </span>
-                          </label>
-                        </div>
-                      </div>
-                    )}
-
-                    {clientFound && manualOrderData.deliveryType === 'delivery' && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Dirección de Entrega
-                        </label>
-                        <select
-                          value={manualOrderData.selectedLocation?.id || ''}
-                          onChange={(e) => {
-                            const location = manualOrderData.customerLocations.find(loc => loc.id === e.target.value);
-                            setManualOrderData(prev => ({
-                              ...prev,
-                              selectedLocation: location || null
-                            }));
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                        >
-                          <option value="">Seleccionar dirección</option>
-                          {manualOrderData.customerLocations.map((location) => (
-                            <option key={location.id} value={location.id}>
-                              {location.name} - {location.address} | Ref: {location.referencia || 'Sin referencia'} | Envío: ${location.tarifa || '0.00'}
-                            </option>
-                          ))}
-                        </select>
-                        
-                        {manualOrderData.selectedLocation && (
-                          <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                            <div className="text-sm">
-                              <div className="font-medium text-blue-900 mb-1">
-                                <i className="bi bi-geo-alt me-1"></i>
-                                {manualOrderData.selectedLocation.name}
-                              </div>
-                              <div className="text-blue-700 mb-1">
-                                <strong>Dirección:</strong> {manualOrderData.selectedLocation.address}
-                              </div>
-                              <div className="text-blue-700 mb-1">
-                                <strong>Referencia:</strong> {manualOrderData.selectedLocation.referencia || 'Sin referencia'}
-                              </div>
-                              <div className="text-blue-700 font-medium">
-                                <strong>Costo de envío:</strong> ${manualOrderData.selectedLocation.tarifa || '0.00'}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Columna 2: Lista de Productos */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="text-md font-medium text-gray-900 mb-4">
-                    <i className="bi bi-basket me-2"></i>
-                    Productos Disponibles
-                  </h3>
-                  
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {products.filter(p => p.isAvailable).map((product) => (
-                      <div
-                        key={product.id}
-                        className="bg-white p-3 rounded-lg border border-gray-200 hover:border-red-300 transition-colors cursor-pointer"
-                        onClick={() => handleAddProductToOrder(product)}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <h4 className="text-sm font-medium text-gray-900">
-                              {product.name}
-                            </h4>
-                            <p className="text-xs text-gray-500 mt-1">
-                              {product.description}
-                            </p>
-                            <div className="flex items-center mt-2">
-                              <span className="text-sm font-medium text-red-600">
-                                ${product.price.toFixed(2)}
-                              </span>
-                              {product.variants && product.variants.length > 0 && (
-                                <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                                  {product.variants.length} variantes
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <button className="ml-2 text-red-600 hover:text-red-700">
-                            <i className="bi bi-plus-circle text-lg"></i>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Columna 3: Carrito y Resumen */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="text-md font-medium text-gray-900 mb-4">
-                    <i className="bi bi-cart me-2"></i>
-                    Carrito ({manualOrderData.selectedProducts.length})
-                  </h3>
-                  
-                  <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
-                    {manualOrderData.selectedProducts.map((item, index) => (
-                      <div key={index} className="bg-white p-3 rounded-lg border border-gray-200">
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <h4 className="text-sm font-medium text-gray-900">
-                              {item.name}
-                            </h4>
-                            <div className="flex items-center justify-between mt-2">
-                              <span className="text-sm text-red-600 font-medium">
-                                ${item.price.toFixed(2)} x {item.quantity}
-                              </span>
-                              <div className="flex items-center space-x-2">
-                                <button
-                                  onClick={() => {
-                                    const newProducts = [...manualOrderData.selectedProducts];
-                                    if (newProducts[index].quantity > 1) {
-                                      newProducts[index].quantity -= 1;
-                                    } else {
-                                      newProducts.splice(index, 1);
-                                    }
-                                    setManualOrderData(prev => ({
-                                      ...prev,
-                                      selectedProducts: newProducts
-                                    }));
-                                  }}
-                                  className="text-gray-500 hover:text-red-600"
-                                >
-                                  <i className="bi bi-dash-circle"></i>
-                                </button>
-                                <span className="text-sm">{item.quantity}</span>
-                                <button
-                                  onClick={() => {
-                                    const newProducts = [...manualOrderData.selectedProducts];
-                                    newProducts[index].quantity += 1;
-                                    setManualOrderData(prev => ({
-                                      ...prev,
-                                      selectedProducts: newProducts
-                                    }));
-                                  }}
-                                  className="text-gray-500 hover:text-red-600"
-                                >
-                                  <i className="bi bi-plus-circle"></i>
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    
-                    {manualOrderData.selectedProducts.length === 0 && (
-                      <div className="text-center py-8 text-gray-500">
-                        <i className="bi bi-cart-x text-3xl mb-2"></i>
-                        <p className="text-sm">No hay productos seleccionados</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {manualOrderData.selectedProducts.length > 0 && (
-                    <div className="border-t pt-4">
-                      <div className="flex justify-between items-center mb-4">
-                        <span className="text-lg font-medium text-gray-900">Total:</span>
-                        <span className="text-lg font-bold text-red-600">
-                          ${manualOrderData.selectedProducts.reduce((sum, item) => 
-                            sum + (item.price * item.quantity), 0
-                          ).toFixed(2)}
-                        </span>
-                      </div>
-                      
-                      <button
-                        onClick={handleCreateManualOrder}
-                        disabled={!clientFound || manualOrderData.selectedProducts.length === 0 || !manualOrderData.deliveryType}
-                        className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        <i className="bi bi-check-circle me-2"></i>
-                        Crear Pedido
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
-
-      {/* Modal de Variantes */}
-      {isVariantModalOpen && selectedProductForVariants && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full max-h-[80vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Seleccionar Variante
-                </h3>
-                <button
-                  onClick={() => {
-                    setIsVariantModalOpen(false);
-                    setSelectedProductForVariants(null);
-                  }}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <i className="bi bi-x-lg"></i>
-                </button>
-              </div>
-
-              <div className="mb-4">
-                <h4 className="font-medium text-gray-900">{selectedProductForVariants.name}</h4>
-                <p className="text-sm text-gray-500">{selectedProductForVariants.description}</p>
-              </div>
-
-              <div className="space-y-3">
-                {selectedProductForVariants.variants?.map((variant, index) => (
-                  <div
-                    key={index}
-                    onClick={() => handleAddVariantToOrder(variant)}
-                    className="border border-gray-200 rounded-lg p-3 hover:border-red-300 hover:bg-red-50 cursor-pointer transition-colors"
-                  >
-                    <div className="flex justify-between items-center">
-                      <div className="flex-1">
-                        <h5 className="font-medium text-gray-900">{variant.name}</h5>
-                        {variant.description && (
-                          <p className="text-sm text-gray-500">{variant.description}</p>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <span className="text-lg font-medium text-red-600">
-                          ${variant.price.toFixed(2)}
-                        </span>
-                        {!variant.isAvailable && (
-                          <p className="text-xs text-red-500">No disponible</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )) || []}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Modal de Edición de Producto */}
       {showEditModal && (

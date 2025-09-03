@@ -430,7 +430,7 @@ export default function MyLocationsPage() {
                         <p className="text-gray-600 mb-2">{location.referencia}</p>
                         <div className="flex items-center space-x-4 text-sm text-gray-500">
                           <span className="flex items-center">
-                            <i className="bi bi-truck mr-1"></i>
+                            <i className="bi bi-scooter mr-1"></i>
                             Envío: ${location.tarifa}
                           </span>
                           {location.latlong && (
