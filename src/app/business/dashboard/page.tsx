@@ -2468,16 +2468,7 @@ export default function BusinessDashboard() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto">
             <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h2 className="text-lg font-medium text-gray-900">
-                    <i className="bi bi-plus-circle me-2"></i>
-                    Crear Pedido Manual
-                  </h2>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Registra pedidos directamente en el sistema
-                  </p>
-                </div>
+              <div className="flex justify-end">
                 <button
                   onClick={() => setShowManualOrderModal(false)}
                   className="text-gray-400 hover:text-gray-600"
@@ -2641,75 +2632,91 @@ export default function BusinessDashboard() {
                         </div>
 
                         {manualOrderData.deliveryType === 'delivery' && (
-                          <div className="mt-3">
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Seleccionar Delivery
-                            </label>
-                            <select
-                              value={manualOrderData.selectedDelivery?.id || ''}
-                              onChange={(e) => {
-                                const delivery = availableDeliveries.find(d => d.id === e.target.value);
-                                setManualOrderData(prev => ({
-                                  ...prev,
-                                  selectedDelivery: delivery || null
-                                }));
-                              }}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                            >
-                              <option value="">Seleccionar un delivery</option>
-                              {availableDeliveries.map((delivery) => (
-                                <option key={delivery.id} value={delivery.id}>
-                                  {delivery.nombres} - {delivery.celular}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                          <>
+                            {/* Dirección de Entrega - PRIMERO */}
+                            {clientFound && (
+                              <div className="mt-3">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Dirección de Entrega
+                                </label>
+                                <select
+                                  value={manualOrderData.selectedLocation?.id || ''}
+                                  onChange={(e) => {
+                                    const location = manualOrderData.customerLocations.find(loc => loc.id === e.target.value);
+                                    setManualOrderData(prev => ({
+                                      ...prev,
+                                      selectedLocation: location || null
+                                    }));
+                                  }}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                                >
+                                  <option value="">Seleccionar dirección</option>
+                                  {manualOrderData.customerLocations.map((location) => (
+                                    <option key={location.id} value={location.id}>
+                                      {location.name} - {location.address} | Ref: {location.referencia || 'Sin referencia'} | Envío: ${location.tarifa || '0.00'}
+                                    </option>
+                                  ))}
+                                </select>
+                                
+                                {manualOrderData.selectedLocation && (
+                                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* Mapa estático */}
+                                    <div className="aspect-square">
+                                      <img
+                                        src={`https://maps.googleapis.com/maps/api/staticmap?center=${manualOrderData.selectedLocation.latlong}&zoom=16&size=400x400&markers=color:red%7C${manualOrderData.selectedLocation.latlong}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`}
+                                        alt="Ubicación de entrega"
+                                        className="w-full h-full object-cover rounded-lg border border-gray-200"
+                                      />
+                                    </div>
+                                    
+                                    {/* Información de la ubicación */}
+                                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                                      <div className="text-sm">
+                                        <div className="font-medium text-blue-900 mb-2">
+                                          <i className="bi bi-geo-alt me-1"></i>
+                                          {manualOrderData.selectedLocation.name}
+                                        </div>
+                                        <div className="text-blue-700 mb-2">
+                                          <strong>Dirección:</strong> {manualOrderData.selectedLocation.address}
+                                        </div>
+                                        <div className="text-blue-700 mb-2">
+                                          <strong>Referencia:</strong> {manualOrderData.selectedLocation.referencia || 'Sin referencia'}
+                                        </div>
+                                        <div className="text-blue-700 font-medium">
+                                          <strong>Costo de envío:</strong> ${manualOrderData.selectedLocation.tarifa || '0.00'}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
 
-                    {clientFound && manualOrderData.deliveryType === 'delivery' && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Dirección de Entrega
-                        </label>
-                        <select
-                          value={manualOrderData.selectedLocation?.id || ''}
-                          onChange={(e) => {
-                            const location = manualOrderData.customerLocations.find(loc => loc.id === e.target.value);
-                            setManualOrderData(prev => ({
-                              ...prev,
-                              selectedLocation: location || null
-                            }));
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                        >
-                          <option value="">Seleccionar dirección</option>
-                          {manualOrderData.customerLocations.map((location) => (
-                            <option key={location.id} value={location.id}>
-                              {location.name} - {location.address} | Ref: {location.referencia || 'Sin referencia'} | Envío: ${location.tarifa || '0.00'}
-                            </option>
-                          ))}
-                        </select>
-                        
-                        {manualOrderData.selectedLocation && (
-                          <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                            <div className="text-sm">
-                              <div className="font-medium text-blue-900 mb-1">
-                                <i className="bi bi-geo-alt me-1"></i>
-                                {manualOrderData.selectedLocation.name}
-                              </div>
-                              <div className="text-blue-700 mb-1">
-                                <strong>Dirección:</strong> {manualOrderData.selectedLocation.address}
-                              </div>
-                              <div className="text-blue-700 mb-1">
-                                <strong>Referencia:</strong> {manualOrderData.selectedLocation.referencia || 'Sin referencia'}
-                              </div>
-                              <div className="text-blue-700 font-medium">
-                                <strong>Costo de envío:</strong> ${manualOrderData.selectedLocation.tarifa || '0.00'}
-                              </div>
+                            {/* Seleccionar Delivery - SEGUNDO */}
+                            <div className="mt-4">
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Seleccionar Delivery
+                              </label>
+                              <select
+                                value={manualOrderData.selectedDelivery?.id || ''}
+                                onChange={(e) => {
+                                  const delivery = availableDeliveries.find(d => d.id === e.target.value);
+                                  setManualOrderData(prev => ({
+                                    ...prev,
+                                    selectedDelivery: delivery || null
+                                  }));
+                                }}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                              >
+                                <option value="">Seleccionar un delivery</option>
+                                {availableDeliveries.map((delivery) => (
+                                  <option key={delivery.id} value={delivery.id}>
+                                    {delivery.nombres} - {delivery.celular}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
-                          </div>
+                          </>
                         )}
                       </div>
                     )}
@@ -2909,9 +2916,6 @@ export default function BusinessDashboard() {
                             <h4 className="text-sm font-medium text-gray-900">
                               {product.name}
                             </h4>
-                            <p className="text-xs text-gray-500 mt-1">
-                              {product.description}
-                            </p>
                             <div className="flex items-center mt-2">
                               <span className="text-sm font-medium text-red-600">
                                 ${product.price.toFixed(2)}
