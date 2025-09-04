@@ -460,6 +460,79 @@ export default function BusinessDashboard() {
     setCollapsedDates(newCollapsed)
   }
 
+  // Nueva función para enviar mensaje de WhatsApp al delivery
+  const handleSendWhatsAppToDelivery = (order: Order) => {
+    const assignedDeliveryId = order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery
+    if (!assignedDeliveryId) {
+      alert('Este pedido no tiene un delivery asignado')
+      return
+    }
+
+    const delivery = availableDeliveries.find(d => d.id === assignedDeliveryId)
+    if (!delivery) {
+      alert('No se encontró la información del delivery')
+      return
+    }
+
+    // Construir el mensaje de WhatsApp
+    const customerName = order.customer?.name || 'Cliente sin nombre'
+    const customerPhone = order.customer?.phone || 'Sin teléfono'
+    const references = order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'
+    
+    // Crear enlace de Google Maps si hay coordenadas
+    let locationLink = ''
+    if (order.delivery?.latlong) {
+      locationLink = `https://www.google.com/maps/place/${order.delivery.latlong}`
+    } else if (order.delivery?.mapLocation) {
+      locationLink = `https://www.google.com/maps/place/${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}`
+    }
+
+    // Construir lista de productos
+    const productsList = order.items?.map((item: any) => 
+      `${item.quantity} de ${item.name || item.product?.name || 'Producto'}`
+    ).join('\n') || 'Sin productos'
+
+    // Calcular totales
+    const deliveryCost = order.delivery?.deliveryCost || 1 // Costo por defecto
+    const subtotal = order.total - deliveryCost
+    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'
+    
+    // Construir mensaje
+    let message = `*Datos del cliente*\n`
+    message += `Cliente: ${customerName}\n`
+    message += `Celular: ${customerPhone}\n\n`
+    
+    message += `*Lugar de entrega*\n`
+    message += `Referencias: ${references}\n`
+    if (locationLink) {
+      message += `Ubicación: ${locationLink}\n\n`
+    } else {
+      message += `\n`
+    }
+    
+    message += `*Detalle del pedido*\n`
+    message += `${productsList}\n\n`
+    
+    message += `*Detalles del pago*\n`
+    message += `Valor del pedido: $${subtotal.toFixed(2)}\n`
+    message += `Envío: $${deliveryCost.toFixed(2)}\n\n`
+    message += `Forma de pago: ${paymentMethod}\n`
+    
+    // Solo mostrar "Total a cobrar" si es efectivo
+    if (order.payment?.method === 'cash') {
+      message += `Total a cobrar: $${order.total.toFixed(2)}`
+    }
+
+    // Limpiar el número de teléfono del delivery (quitar espacios, guiones, etc.)
+    const cleanPhone = delivery.celular.replace(/\D/g, '')
+    
+    // Crear enlace de WhatsApp
+    const whatsappUrl = `https://web.whatsapp.com/send?phone=593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}&text=${encodeURIComponent(message)}`
+    
+    // Abrir WhatsApp Web
+    window.open(whatsappUrl, '_blank')
+  }
+
   const handleToggleAvailability = async (productId: string, currentAvailability: boolean) => {
     try {
       await updateProduct(productId, { isAvailable: !currentAvailability })
@@ -1423,10 +1496,22 @@ export default function BusinessDashboard() {
                   e.stopPropagation()
                   handleMarkAsDelivered(order.id)
                 }}
-                className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 transition-colors"
+                className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"
                 title="Marcar como entregado"
               >
-                📦 Entregado
+                <i className="bi bi-check-lg text-lg"></i>
+              </button>
+            )}
+            {isToday && order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery) && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleSendWhatsAppToDelivery(order)
+                }}
+                className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"
+                title="Enviar mensaje de WhatsApp al delivery"
+              >
+                <i className="bi bi-whatsapp text-lg"></i>
               </button>
             )}
             <button

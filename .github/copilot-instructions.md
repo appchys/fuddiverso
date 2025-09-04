@@ -26,10 +26,28 @@ En checkout y en registro de ordenes manuales y en otras partes de la app, se us
 
 
 Nuevas implementaciones a realizar:
-1. En Dashboard, en pedidos de hoy, abrir un modal de detalles del pedido al hacer click en cualquier parte de la fila del pedido. El modal debe tener un botón para cerrar.
+1. En Dashboard, en pedidos de hoy, agregar un botón en cada fila del pedido para indicar que fue pagado con transferencia. Al hacer click en el botón, debe cambiar el estado del pago a "pagado" y actualizar la vista.
 
-2. En Dashboard, en pedidos de hoy, agregar un botón en cada fila del pedido para marcar el pedido como entregado. Al hacer click en el botón, debe cambiar el estado del pedido a "entregado" y actualizar la vista.
+2. En Dashboard, en pedidos de hoy, agregar un botón en cada fila del pedido para enviar un mensaje de whatsapp al delivery asignado al pedido. El mensaje debe tener este formato:
 
-3. En Dashboard, en pedidos de hoy, agregar un botón en cada fila del pedido para indicar que fue pagado con transferencia. Al hacer click en el botón, debe cambiar el estado del pago a "pagado" y actualizar la vista.
+*Datos del cliente*
+Cliente: Kevin Albuja
+Celular: 0988280285
 
-4. En Dashboard, en historial de pedidos, quiero que los pedidos estén agrupados por fecha y ésta esté colapsada por defecto. Al hacer click en la fecha, debe expandirse para mostrar los pedidos de ese día.
+*Lugar de entrega*
+Referencias: Casa tres pisos color entre amarillo Frente a la coop de ahorro y crédito salitre
+Ubicación: : https://www.google.com/maps/place/-1.866538,-79.984276
+
+*Detalle del pedido*
+1 de 80 Unidades
+
+*Detalles del pago*
+Valor del pedido: $14.5
+Envío: $1
+
+Forma de pago: Efectivo
+Total a cobrar: $15.5 (mostrar este campo solo si la forma de pago es efectivo)
+
+Este botón debe abrir whatsapp web con el mensaje ya escrito y listo para enviar, solo debe ser un ícono bootstrap button con el ícono de whatsapp
+
+3. Cambia el botón de marcar como entregado por un ícono bootstrap button con el ícono de check, y no pongas texto en el botón, solo el ícono.
