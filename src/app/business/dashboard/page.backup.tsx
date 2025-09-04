@@ -18,9 +18,8 @@ export default function BusinessDashboard() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'profile' | 'admins'>('orders')
-  const [showManualOrderModal, setShowManualOrderModal] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today') // Nueva pestaña para pedidos
+  const [showManualOrderModal, setShowManualOrderModal] = useState(false) // Modal para crear pedido
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(businessId)
   const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null) // Nuevo estado
   const [showBusinessDropdown, setShowBusinessDropdown] = useState(false)
@@ -149,6 +148,7 @@ export default function BusinessDashboard() {
         );
         
         if (!businessAccess.hasAccess) {
+          console.warn('[DASHBOARD] Usuario no tiene acceso a ninguna tienda');
           logout();
           router.push('/business/login');
           return;
@@ -206,6 +206,7 @@ export default function BusinessDashboard() {
         }
         
       } catch (error) {
+        console.error('Error loading businesses:', error);
         router.push('/business/login');
       } finally {
         setLoading(false);
@@ -236,7 +237,7 @@ export default function BusinessDashboard() {
         // Actualizar localStorage
         localStorage.setItem('businessId', selectedBusinessId);
       } catch (error) {
-        // Error loading business data
+        console.error('Error loading business data:', error);
       }
     };
 
@@ -250,7 +251,7 @@ export default function BusinessDashboard() {
         const deliveries = await getDeliveriesByStatus('activo')
         setAvailableDeliveries(deliveries)
       } catch (error) {
-        // Error loading deliveries
+        console.error('Error loading deliveries:', error)
       }
     }
 
@@ -287,7 +288,7 @@ export default function BusinessDashboard() {
         order.id === orderId ? { ...order, status: newStatus } : order
       ))
     } catch (error) {
-      // Error updating order status
+      console.error('Error updating order status:', error)
     }
   }
 
@@ -310,7 +311,7 @@ export default function BusinessDashboard() {
         } : order
       ))
     } catch (error) {
-      // Error updating delivery assignment
+      console.error('Error updating delivery assignment:', error)
     }
   }
 
@@ -375,6 +376,7 @@ export default function BusinessDashboard() {
       setShowEditOrderModal(false)
       setEditingOrder(null)
     } catch (error) {
+      console.error('Error updating order:', error)
       alert('Error al actualizar la orden')
     } finally {
       setUpdatingOrder(false)
@@ -394,6 +396,7 @@ export default function BusinessDashboard() {
       
       alert('Orden eliminada correctamente')
     } catch (error) {
+      console.error('Error deleting order:', error)
       alert('Error al eliminar la orden')
     }
   }
@@ -405,7 +408,7 @@ export default function BusinessDashboard() {
         product.id === productId ? { ...product, isAvailable: !currentAvailability } : product
       ))
     } catch (error) {
-      // Error updating product availability
+      console.error('Error updating product availability:', error)
     }
   }
 
@@ -415,7 +418,7 @@ export default function BusinessDashboard() {
         await deleteProduct(productId)
         setProducts(prev => prev.filter(product => product.id !== productId))
       } catch (error) {
-        // Error deleting product
+        console.error('Error deleting product:', error)
       }
     }
   }
@@ -486,6 +489,7 @@ export default function BusinessDashboard() {
       handleCloseEditModal()
       alert('Producto actualizado exitosamente')
     } catch (error) {
+      console.error('Error updating product:', error)
       setEditErrors({ submit: 'Error al actualizar el producto' })
     } finally {
       setUploading(false)
@@ -576,6 +580,7 @@ export default function BusinessDashboard() {
       setShowNewCategoryForm(false)
       setNewCategory('')
     } catch (error) {
+      console.error('Error adding category:', error)
       alert('Error al agregar la categoría')
     }
   }
@@ -605,6 +610,7 @@ export default function BusinessDashboard() {
       ));
       
     } catch (error) {
+      console.error('Error subiendo imagen de portada:', error);
       alert('Error al subir la imagen de portada. Inténtalo de nuevo.');
     } finally {
       setUploadingCover(false);
@@ -636,6 +642,7 @@ export default function BusinessDashboard() {
       ));
       
     } catch (error) {
+      console.error('Error subiendo imagen de perfil:', error);
       alert('Error al subir la imagen de perfil. Inténtalo de nuevo.');
     } finally {
       setUploadingProfile(false);
@@ -673,6 +680,7 @@ export default function BusinessDashboard() {
       
       alert('Información actualizada exitosamente');
     } catch (error) {
+      console.error('Error guardando perfil:', error);
       alert('Error al guardar los cambios. Inténtalo de nuevo.');
     }
   };
@@ -724,6 +732,7 @@ export default function BusinessDashboard() {
       setShowAddAdminModal(false);
       alert('Administrador agregado exitosamente');
     } catch (error: any) {
+      console.error('Error adding admin:', error);
       alert(error.message || 'Error al agregar administrador');
     } finally {
       setAddingAdmin(false);
@@ -747,6 +756,7 @@ export default function BusinessDashboard() {
       
       alert('Administrador removido exitosamente');
     } catch (error: any) {
+      console.error('Error removing admin:', error);
       alert(error.message || 'Error al remover administrador');
     }
   };
@@ -768,6 +778,7 @@ export default function BusinessDashboard() {
       
       alert('Permisos actualizados exitosamente');
     } catch (error: any) {
+      console.error('Error updating permissions:', error);
       alert(error.message || 'Error al actualizar permisos');
     }
   };
@@ -784,18 +795,6 @@ export default function BusinessDashboard() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showBusinessDropdown]);
-
-  // Cerrar sidebar en pantallas grandes
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 1024) { // lg breakpoint
-        setSidebarOpen(false);
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   const handleLogout = () => {
     logout()
@@ -951,10 +950,35 @@ export default function BusinessDashboard() {
                   <div>
                     {order.delivery?.type === 'delivery' ? (
                       <div className="text-sm text-gray-900">
-                        <i className="bi bi-geo-alt me-1"></i>
-                        <span className="text-xs text-gray-600 max-w-xs truncate">
-                          {order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
-                        </span>
+                        <div className="flex items-start space-x-2">
+                          {/* Mapa estático si hay coordenadas */}
+                          {order.delivery?.mapLocation && (
+                            <div className="flex-shrink-0">
+                              <img
+                                src={`https://maps.googleapis.com/maps/api/staticmap?center=${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}&zoom=15&size=60x60&markers=color:red%7C${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || 'AIzaSyBSBMTGjQHmVVbKP_G3xWRCDaHJuiGGjis'}`}
+                                alt="Ubicación"
+                                className="w-12 h-12 rounded border object-cover"
+                                onError={(e) => {
+                                  // Si falla el mapa, mostrar solo el ícono
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center text-xs text-gray-600">
+                              <i className="bi bi-geo-alt me-1"></i>
+                              <span className="truncate">
+                                {order.delivery?.references || 'Sin referencia'}
+                              </span>
+                            </div>
+                            {order.delivery?.mapLocation && (
+                              <div className="text-xs text-gray-400 mt-1">
+                                {order.delivery.mapLocation.lat.toFixed(4)}, {order.delivery.mapLocation.lng.toFixed(4)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     ) : (
                       <div className="text-sm text-gray-900">
@@ -1013,7 +1037,7 @@ export default function BusinessDashboard() {
                       <option value="">Sin asignar</option>
                       {availableDeliveries?.map((delivery) => (
                         <option key={delivery.id} value={delivery.id}>
-                          {delivery.nombres} - {delivery.celular}
+                          {delivery.nombre || delivery.name} - {delivery.telefono || delivery.phone}
                         </option>
                       ))}
                     </select>
@@ -1089,6 +1113,7 @@ export default function BusinessDashboard() {
         }));
       }
     } catch (error) {
+      console.error('Error searching client:', error);
       setClientFound(false);
       setShowCreateClient(false);
     } finally {
@@ -1117,6 +1142,7 @@ export default function BusinessDashboard() {
         alert('Cliente creado exitosamente');
       }
     } catch (error) {
+      console.error('Error creating client:', error);
       alert('Error al crear el cliente');
     } finally {
       setCreatingClient(false);
@@ -1192,6 +1218,7 @@ export default function BusinessDashboard() {
         }
       }
     } catch (error) {
+      console.error('Error pasting from clipboard:', error);
       // Fallback: solicitar al usuario que pegue manualmente
       const manualInput = prompt('Pega el número de teléfono aquí:');
       if (manualInput) {
@@ -1286,46 +1313,65 @@ export default function BusinessDashboard() {
 
       const totalAmount = subtotal + deliveryCost;
 
-      // Calcular hora de entrega
-      const deliveryTime = manualOrderData.timingType === 'immediate' 
-        ? new Date(Date.now() + 30 * 60 * 1000).toISOString() // 30 minutos después
-        : new Date(`${manualOrderData.scheduledDate}T${manualOrderData.scheduledTime}`).toISOString();
+      // Calcular hora de entrega - para inmediata agregar 30 minutos
+      let scheduledTime;
+      if (manualOrderData.timingType === 'immediate') {
+        scheduledTime = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 minutos después
+      } else {
+        scheduledTime = new Date(`${manualOrderData.scheduledDate}T${manualOrderData.scheduledTime}`).toISOString();
+      }
 
+      // Estructura compatible con checkout
       const orderData = {
         businessId: business.id,
-        items: manualOrderData.selectedProducts.map(item => ({
-          productId: item.id,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-          variant: item.variant
-        })),
         customer: {
           name: manualOrderData.customerName,
           phone: manualOrderData.customerPhone
         },
+        items: manualOrderData.selectedProducts.map(item => ({
+          businessId: business.id,
+          businessName: business.username || business.name,
+          productId: item.id,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          variant: item.variant,
+          id: `${item.id}-${Date.now()}` // Generar ID único para el item
+        })),
         delivery: {
           type: manualOrderData.deliveryType,
-          references: manualOrderData.selectedLocation?.address || '',
-          assignedDelivery: manualOrderData.selectedDelivery?.id
+          references: manualOrderData.selectedLocation?.referencia || '', // Usar referencia correcta
+          ...(manualOrderData.deliveryType === 'delivery' && manualOrderData.selectedLocation && {
+            mapLocation: {
+              lat: parseFloat(manualOrderData.selectedLocation.latlong?.split(',')[0] || '0'),
+              lng: parseFloat(manualOrderData.selectedLocation.latlong?.split(',')[1] || '0')
+            }
+          }),
+          ...(manualOrderData.selectedDelivery && {
+            assignedDelivery: manualOrderData.selectedDelivery.id
+          })
         },
-        total: totalAmount,
-        subtotal,
-        deliveryCost,
-        status: 'confirmed' as const,
         payment: {
           method: manualOrderData.paymentMethod,
-          status: manualOrderData.paymentStatus,
-          selectedBank: manualOrderData.selectedBank
+          paymentStatus: manualOrderData.paymentStatus,
+          ...(manualOrderData.paymentMethod === 'transfer' && {
+            selectedBank: manualOrderData.selectedBank
+          })
         },
-        createdByAdmin: true,
         timing: {
           type: manualOrderData.timingType,
-          scheduledDate: manualOrderData.scheduledDate,
-          scheduledTime: manualOrderData.scheduledTime
-        }
+          scheduledTime: scheduledTime,
+          ...(manualOrderData.timingType === 'scheduled' && {
+            scheduledDate: manualOrderData.scheduledDate
+          })
+        },
+        total: totalAmount,
+        status: 'confirmed' as const,
+        createdByAdmin: true
       };
 
+      console.log('Creando orden manual con estructura:', orderData);
+      
       await createOrder(orderData as any);
       
       // Limpiar formulario
@@ -1347,8 +1393,15 @@ export default function BusinessDashboard() {
       setClientFound(false);
       
       alert('Pedido creado exitosamente');
+      
+      // Recargar órdenes
+      if (selectedBusinessId) {
+        const updatedOrders = await getOrdersByBusiness(selectedBusinessId);
+        setOrders(updatedOrders);
+      }
       setActiveTab('orders'); // Cambiar a la pestaña de pedidos
     } catch (error) {
+      console.error('Error creating manual order:', error);
       alert('Error al crear el pedido');
     }
   };
@@ -1365,6 +1418,7 @@ export default function BusinessDashboard() {
   }
 
   if (!business) {
+    console.warn('[DASHBOARD] No se pudo cargar la información del negocio. businessId:', localStorage.getItem('businessId'));
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -1386,15 +1440,7 @@ export default function BusinessDashboard() {
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-3 sm:py-4">
-            <div className="flex items-center space-x-3">
-              {/* Botón de menú móvil */}
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="lg:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
-              >
-                <i className="bi bi-list text-xl"></i>
-              </button>
-              
+            <div className="flex items-center space-x-3 sm:space-x-6">
               <Link href="/" className="text-xl sm:text-2xl font-bold text-red-600">
                 fuddi.shop
               </Link>
@@ -1539,106 +1585,82 @@ export default function BusinessDashboard() {
       </header>
 
       {/* Layout con Sidebar */}
-      <div className="flex h-screen">
-        {/* Overlay para móvil */}
-        {sidebarOpen && (
-          <div 
-            className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
-
+      <div className="flex h-screen pt-16"> {/* pt-16 para compensar header fijo */}
         {/* Sidebar */}
-        <div className={`
-          w-64 bg-white shadow-sm border-r border-gray-200 fixed h-full overflow-y-auto z-50 transition-transform duration-300 ease-in-out
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-          lg:translate-x-0 lg:static lg:z-auto
-        `}>
-          <div className="p-4">
-            {/* Header del sidebar para móvil */}
-            <div className="flex justify-between items-center mb-4 lg:hidden">
-              <span className="font-semibold text-gray-900">Menú</span>
-              <button
-                onClick={() => setSidebarOpen(false)}
-                className="p-2 rounded-lg text-gray-600 hover:bg-gray-100"
-              >
-                <i className="bi bi-x-lg"></i>
-              </button>
-            </div>
-
-            <nav className="space-y-2">
-              <button
-                onClick={() => {
-                  setActiveTab('orders')
-                  setSidebarOpen(false)
-                }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
-                  activeTab === 'orders'
-                    ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <i className="bi bi-clipboard-check me-3 text-lg"></i>
-                <span className="font-medium">Pedidos</span>
-                <span className="ml-auto bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs">
+        <div className="w-64 bg-white shadow-lg border-r border-gray-200 fixed left-0 top-16 bottom-0 overflow-y-auto">
+          <nav className="p-4 space-y-2">
+            <button
+              onClick={() => setActiveTab('orders')}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left font-medium transition-colors ${
+                activeTab === 'orders'
+                  ? 'bg-red-50 text-red-700 border border-red-200'
+                  : 'text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <i className="bi bi-clipboard-check text-lg"></i>
+              <span>Pedidos</span>
+              {orders.length > 0 && (
+                <span className="ml-auto bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs">
                   {orders.length}
                 </span>
-              </button>
-              
-              <button
-                onClick={() => {
-                  setActiveTab('products')
-                  setSidebarOpen(false)
-                }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
-                  activeTab === 'products'
-                    ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <i className="bi bi-box-seam me-3 text-lg"></i>
-                <span className="font-medium">Productos</span>
-                <span className="ml-auto bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs">
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('products')}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left font-medium transition-colors ${
+                activeTab === 'products'
+                  ? 'bg-red-50 text-red-700 border border-red-200'
+                  : 'text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <i className="bi bi-box-seam text-lg"></i>
+              <span>Productos</span>
+              {products.length > 0 && (
+                <span className="ml-auto bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs">
                   {products.length}
                 </span>
-              </button>
-              
-              <button
-                onClick={() => {
-                  setActiveTab('profile')
-                  setSidebarOpen(false)
-                }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
-                  activeTab === 'profile'
-                    ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <i className="bi bi-shop me-3 text-lg"></i>
-                <span className="font-medium">Perfil</span>
-              </button>
-              
-              <button
-                onClick={() => {
-                  setActiveTab('admins')
-                  setSidebarOpen(false)
-                }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
-                  activeTab === 'admins'
-                    ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <i className="bi bi-people me-3 text-lg"></i>
-                <span className="font-medium">Administradores</span>
-              </button>
-            </nav>
-          </div>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left font-medium transition-colors ${
+                activeTab === 'profile'
+                  ? 'bg-red-50 text-red-700 border border-red-200'
+                  : 'text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <i className="bi bi-shop text-lg"></i>
+              <span>Perfil de Tienda</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('admins')}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left font-medium transition-colors ${
+                activeTab === 'admins'
+                  ? 'bg-red-50 text-red-700 border border-red-200'
+                  : 'text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <i className="bi bi-people text-lg"></i>
+              <span>Administradores</span>
+            </button>
+          </nav>
         </div>
 
-        {/* Main Content */}
-        <div className="flex-1 lg:ml-64 overflow-y-auto">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+        {/* Contenido Principal */}
+        <div className="flex-1 ml-64 p-6 overflow-y-auto">
+          {/* Botón Flotante - Solo visible en la pestaña de pedidos */}
+          {activeTab === 'orders' && (
+            <button
+              onClick={() => setShowManualOrderModal(true)}
+              className="fixed bottom-6 right-6 bg-red-600 hover:bg-red-700 text-white p-4 rounded-full shadow-lg transition-all duration-200 hover:scale-105 z-50"
+              title="Crear nuevo pedido"
+            >
+              <i className="bi bi-plus text-2xl"></i>
+            </button>
+          )}
 
         {/* Orders Tab */}
         {activeTab === 'orders' && (
@@ -2460,6 +2482,7 @@ export default function BusinessDashboard() {
             )}
           </div>
         )}
+
         </div>
       </div>
 
@@ -2467,27 +2490,19 @@ export default function BusinessDashboard() {
       {showManualOrderModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h2 className="text-lg font-medium text-gray-900">
-                    <i className="bi bi-plus-circle me-2"></i>
-                    Crear Pedido Manual
-                  </h2>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Registra pedidos directamente en el sistema
-                  </p>
-                </div>
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-semibold text-gray-900">
+                  <i className="bi bi-plus-circle me-2"></i>Crear Pedido Manual
+                </h3>
                 <button
                   onClick={() => setShowManualOrderModal(false)}
                   className="text-gray-400 hover:text-gray-600"
                 >
-                  <i className="bi bi-x-lg text-xl"></i>
+                  <i className="bi bi-x-lg"></i>
                 </button>
               </div>
-            </div>
 
-            <div className="p-4 sm:p-6">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Columna 1: Información del Cliente */}
                 <div className="bg-gray-50 rounded-lg p-4">
@@ -3053,8 +3068,7 @@ export default function BusinessDashboard() {
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* Modal de Variantes */}
       {isVariantModalOpen && selectedProductForVariants && (
@@ -3518,6 +3532,37 @@ export default function BusinessDashboard() {
                       />
                     </div>
                   </div>
+                  
+                  {/* Mapa estático si hay coordenadas */}
+                  {editingOrder?.delivery?.mapLocation && (
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <h5 className="text-sm font-medium text-gray-700 mb-2">Ubicación en el Mapa</h5>
+                      <div className="flex items-start space-x-4">
+                        <div className="flex-shrink-0">
+                          <img
+                            src={`https://maps.googleapis.com/maps/api/staticmap?center=${editingOrder.delivery.mapLocation.lat},${editingOrder.delivery.mapLocation.lng}&zoom=15&size=200x150&markers=color:red%7C${editingOrder.delivery.mapLocation.lat},${editingOrder.delivery.mapLocation.lng}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || 'AIzaSyBSBMTGjQHmVVbKP_G3xWRCDaHJuiGGjis'}`}
+                            alt="Ubicación de entrega"
+                            className="w-48 h-36 rounded border object-cover"
+                            onError={(e) => {
+                              // Si falla el mapa, ocultar la imagen
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-600">
+                            <strong>Coordenadas:</strong><br />
+                            Lat: {editingOrder.delivery.mapLocation.lat.toFixed(6)}<br />
+                            Lng: {editingOrder.delivery.mapLocation.lng.toFixed(6)}
+                          </p>
+                          <p className="text-sm text-gray-600 mt-2">
+                            <strong>Referencias:</strong><br />
+                            {editingOrder.delivery.references || 'Sin referencias'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Información de Timing */}
@@ -3673,15 +3718,7 @@ export default function BusinessDashboard() {
           </div>
         </div>
       )}
-
-      {/* Botón flotante para crear pedido */}
-      <button
-        onClick={() => setShowManualOrderModal(true)}
-        className="fixed bottom-4 right-4 lg:bottom-6 lg:right-6 bg-red-600 hover:bg-red-700 text-white rounded-full p-3 lg:p-4 shadow-lg transition-colors z-50"
-        title="Crear Pedido"
-      >
-        <i className="bi bi-plus-lg text-lg lg:text-xl"></i>
-      </button>
+        </div>
       </div>
     </div>
   )

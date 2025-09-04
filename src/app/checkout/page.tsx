@@ -22,6 +22,7 @@ function LocationMap({ latlong, height = "96px" }: { latlong: string; height?: s
       }
       return { lat, lng };
     } catch (error) {
+      console.error('Error parsing coordinates:', error);
       return null;
     }
   };
@@ -430,6 +431,8 @@ function CheckoutContent() {
     }
 
     try {
+      console.log('💾 Guardando nueva ubicación:', newLocationData);
+      
       // Guardar en Firebase usando la nueva función
       const locationId = await createClientLocation({
         id_cliente: clientFound.id,
@@ -438,6 +441,8 @@ function CheckoutContent() {
         tarifa: newLocationData.tarifa,
         sector: 'Sin especificar' // Se puede mejorar para obtener automáticamente
       });
+
+      console.log('✅ Ubicación guardada con ID:', locationId);
 
       // Crear la ubicación con el ID real de Firebase
       const newLocation: ClientLocation = {
@@ -851,12 +856,7 @@ function CheckoutContent() {
         },
         delivery: {
           type: deliveryData.type as 'delivery' | 'pickup',
-          references: deliveryData.type === 'delivery' ? 
-            (selectedLocation?.referencia || deliveryData.address) : undefined,
-          mapLocation: deliveryData.type === 'delivery' && selectedLocation ? {
-            lat: parseFloat(selectedLocation.latlong.split(',')[0].trim()),
-            lng: parseFloat(selectedLocation.latlong.split(',')[1].trim())
-          } : undefined
+          references: deliveryData.type === 'delivery' ? deliveryData.address : undefined
         },
         timing: {
           type: timingData.type,
