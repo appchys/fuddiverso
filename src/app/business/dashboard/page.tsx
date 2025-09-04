@@ -128,6 +128,9 @@ export default function BusinessDashboard() {
   // Estados para historial agrupado por fecha
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set())
 
+  // Estados para categorías colapsadas en pedidos de hoy
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set(['delivered']))
+
   // Protección de ruta - redirigir si no está autenticado
   useEffect(() => {
     if (!isAuthenticated) {
@@ -458,6 +461,16 @@ export default function BusinessDashboard() {
       newCollapsed.add(dateKey)
     }
     setCollapsedDates(newCollapsed)
+  }
+
+  const toggleCategoryCollapse = (category: string) => {
+    const newCollapsed = new Set(collapsedCategories)
+    if (newCollapsed.has(category)) {
+      newCollapsed.delete(category)
+    } else {
+      newCollapsed.add(category)
+    }
+    setCollapsedCategories(newCollapsed)
   }
 
   // Nueva función para enviar mensaje de WhatsApp al delivery
@@ -1250,6 +1263,9 @@ export default function BusinessDashboard() {
                     Hora
                   </th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Acciones
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Cliente
                   </th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1268,34 +1284,42 @@ export default function BusinessDashboard() {
                     Delivery
                   </th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Acciones
+                    Editar
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white">
                 {groupedOrders.map(({ status, orders: statusOrders }, groupIndex) => (
                   <React.Fragment key={`group-${status}`}>
-                    {/* Título del estado */}
+                    {/* Título del estado - ahora clickeable */}
                     <tr key={`title-${status}`} className="bg-gray-50">
-                      <td colSpan={8} className="px-4 py-3 border-b border-gray-200">
-                        <h3 className="text-md font-semibold text-gray-900 flex items-center">
-                          <span className="mr-2">
-                            {status === 'pending' && '🕐'}
-                            {status === 'confirmed' && '✅'}
-                            {status === 'preparing' && '👨‍🍳'}
-                            {status === 'ready' && '🔔'}
-                            {status === 'delivered' && '📦'}
-                            {status === 'cancelled' && '❌'}
-                          </span>
-                          {getStatusDisplayName(status)}
-                          <span className="ml-2 bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
-                            {statusOrders.length}
-                          </span>
-                        </h3>
+                      <td colSpan={9} className="px-4 py-3 border-b border-gray-200">
+                        <button
+                          onClick={() => toggleCategoryCollapse(status)}
+                          className="w-full text-left hover:bg-gray-100 rounded px-2 py-1 transition-colors"
+                        >
+                          <h3 className="text-md font-semibold text-gray-900 flex items-center">
+                            <span className="mr-2">
+                              {status === 'pending' && '🕐'}
+                              {status === 'confirmed' && '✅'}
+                              {status === 'preparing' && '👨‍🍳'}
+                              {status === 'ready' && '🔔'}
+                              {status === 'delivered' && '📦'}
+                              {status === 'cancelled' && '❌'}
+                            </span>
+                            {getStatusDisplayName(status)}
+                            <span className="ml-2 bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
+                              {statusOrders.length}
+                            </span>
+                            <span className="ml-auto">
+                              <i className={`bi ${collapsedCategories.has(status) ? 'bi-chevron-down' : 'bi-chevron-up'} text-gray-400`}></i>
+                            </span>
+                          </h3>
+                        </button>
                       </td>
                     </tr>
-                    {/* Órdenes del estado */}
-                    {statusOrders.map((order, orderIndex) => (
+                    {/* Órdenes del estado - solo mostrar si no está colapsado */}
+                    {!collapsedCategories.has(status) && statusOrders.map((order, orderIndex) => (
                       <OrderRow 
                         key={order.id} 
                         order={order} 
@@ -1383,6 +1407,35 @@ export default function BusinessDashboard() {
             </span>
           )}
         </td>
+        {/* Nueva columna de acciones principales */}
+        <td className="px-3 py-2 whitespace-nowrap">
+          <div className="flex space-x-1">
+            {isToday && order.status !== 'delivered' && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleMarkAsDelivered(order.id)
+                }}
+                className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"
+                title="Marcar como entregado"
+              >
+                <i className="bi bi-check-lg text-lg"></i>
+              </button>
+            )}
+            {isToday && order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery) && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleSendWhatsAppToDelivery(order)
+                }}
+                className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"
+                title="Enviar mensaje de WhatsApp al delivery"
+              >
+                <i className="bi bi-whatsapp text-lg"></i>
+              </button>
+            )}
+          </div>
+        </td>
         <td 
           className="px-3 py-2 whitespace-nowrap cursor-pointer"
           onClick={() => handleShowOrderDetails(order)}
@@ -1415,7 +1468,7 @@ export default function BusinessDashboard() {
           <div className="text-sm text-gray-900">
             {order.items?.slice(0, 2).map((item: any, index) => (
               <div key={index} className="truncate">
-                {item.quantity}x {item.name || item.product?.name || 'Producto'}
+                {item.quantity}x {item.variant || item.name || item.product?.name || 'Producto'}
               </div>
             ))}
             {order.items && order.items.length > 2 && (
@@ -1459,10 +1512,11 @@ export default function BusinessDashboard() {
                   e.stopPropagation()
                   handleMarkAsPaid(order.id)
                 }}
-                className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 transition-colors"
+                className="text-xs bg-green-600 text-white px-3 py-1 rounded-full hover:bg-green-700 transition-colors font-medium"
                 title="Marcar como pagado"
               >
-                ✓ Pagado
+                <i className="bi bi-check-circle me-1"></i>
+                Pagado
               </button>
             )}
           </div>
@@ -1492,30 +1546,6 @@ export default function BusinessDashboard() {
         )}
         <td className="px-3 py-2 whitespace-nowrap">
           <div className="flex space-x-1">
-            {isToday && order.status !== 'delivered' && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleMarkAsDelivered(order.id)
-                }}
-                className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"
-                title="Marcar como entregado"
-              >
-                <i className="bi bi-check-lg text-lg"></i>
-              </button>
-            )}
-            {isToday && order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery) && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleSendWhatsAppToDelivery(order)
-                }}
-                className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"
-                title="Enviar mensaje de WhatsApp al delivery"
-              >
-                <i className="bi bi-whatsapp text-lg"></i>
-              </button>
-            )}
             <button
               onClick={(e) => {
                 e.stopPropagation()
