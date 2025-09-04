@@ -975,73 +975,79 @@ export default function BusinessDashboard() {
       const groupedOrders = groupOrdersWithTitles(groupOrdersByStatus(orders));
       
       return (
-        <div className="space-y-6">
-          {groupedOrders.map(({ status, orders: statusOrders }) => (
-            <div key={status} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-                  <span className="mr-2">
-                    {status === 'pending' && '🕐'}
-                    {status === 'confirmed' && '✅'}
-                    {status === 'preparing' && '👨‍🍳'}
-                    {status === 'ready' && '🔔'}
-                    {status === 'delivered' && '📦'}
-                    {status === 'cancelled' && '❌'}
-                  </span>
-                  {getStatusDisplayName(status)}
-                  <span className="ml-2 bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
-                    {statusOrders.length}
-                  </span>
-                </h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Hora
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Cliente
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Ubicación / Tipo
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Productos
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Total
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Estado
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Pago
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Delivery
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Acciones
-                      </th>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Hora
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Cliente
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Productos
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Total
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Estado
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Pago
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Delivery
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Acciones
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white">
+                {groupedOrders.map(({ status, orders: statusOrders }, groupIndex) => (
+                  <>
+                    {/* Título del estado */}
+                    <tr key={`title-${status}`} className="bg-gray-50">
+                      <td colSpan={8} className="px-4 py-3 border-b border-gray-200">
+                        <h3 className="text-md font-semibold text-gray-900 flex items-center">
+                          <span className="mr-2">
+                            {status === 'pending' && '🕐'}
+                            {status === 'confirmed' && '✅'}
+                            {status === 'preparing' && '👨‍🍳'}
+                            {status === 'ready' && '🔔'}
+                            {status === 'delivered' && '📦'}
+                            {status === 'cancelled' && '❌'}
+                          </span>
+                          {getStatusDisplayName(status)}
+                          <span className="ml-2 bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
+                            {statusOrders.length}
+                          </span>
+                        </h3>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {statusOrders.map((order) => (
-                      <OrderRow key={order.id} order={order} isToday={isToday} />
+                    {/* Órdenes del estado */}
+                    {statusOrders.map((order, orderIndex) => (
+                      <OrderRow 
+                        key={order.id} 
+                        order={order} 
+                        isToday={isToday}
+                        isLastInGroup={orderIndex === statusOrders.length - 1}
+                        isLastGroup={groupIndex === groupedOrders.length - 1}
+                      />
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
+                  </>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       );
     }
 
     // Para pedidos históricos, mantener tabla simple
-    const sortedOrders = orders;
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
@@ -1053,9 +1059,6 @@ export default function BusinessDashboard() {
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Cliente
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Ubicación / Tipo
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Productos
@@ -1075,7 +1078,7 @@ export default function BusinessDashboard() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {sortedOrders.map((order) => (
+              {orders.map((order) => (
                 <OrderRow key={order.id} order={order} isToday={isToday} />
               ))}
             </tbody>
@@ -1086,9 +1089,19 @@ export default function BusinessDashboard() {
   };
 
   // Componente para fila de orden
-  const OrderRow = ({ order, isToday }: { order: Order, isToday: boolean }) => {
+  const OrderRow = ({ order, isToday, isLastInGroup = false, isLastGroup = false }: { 
+    order: Order, 
+    isToday: boolean,
+    isLastInGroup?: boolean,
+    isLastGroup?: boolean 
+  }) => {
+    // Agregar border-bottom más grueso entre grupos
+    const borderClass = isLastInGroup && !isLastGroup 
+      ? "border-b-4 border-gray-300" 
+      : "border-b border-gray-200";
+
     return (
-      <tr className="hover:bg-gray-50 transition-colors">
+      <tr className={`hover:bg-gray-50 transition-colors ${borderClass}`}>
         <td className="px-3 py-2 whitespace-nowrap text-sm">
           {isToday ? (
             <span className={`font-medium ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
@@ -1107,26 +1120,20 @@ export default function BusinessDashboard() {
               {order.customer?.name || 'Cliente sin nombre'}
             </div>
             <div className="text-xs text-gray-500">
-              <i className="bi bi-telephone me-1"></i>
-              {order.customer?.phone || 'Sin teléfono'}
+              {order.delivery?.type === 'delivery' ? (
+                <>
+                  <i className="bi bi-geo-alt me-1"></i>
+                  <span className="max-w-xs truncate">
+                    {order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <i className="bi bi-shop me-1"></i>
+                  <span className="font-medium text-blue-600">Retiro en tienda</span>
+                </>
+              )}
             </div>
-          </div>
-        </td>
-        <td className="px-3 py-2 whitespace-nowrap">
-          <div>
-            {order.delivery?.type === 'delivery' ? (
-              <div className="text-sm text-gray-900">
-                <i className="bi bi-geo-alt me-1"></i>
-                <span className="text-xs text-gray-600 max-w-xs truncate">
-                  {order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
-                </span>
-              </div>
-            ) : (
-              <div className="text-sm text-gray-900">
-                <i className="bi bi-shop me-1"></i>
-                <span className="font-medium text-blue-600">Retiro</span>
-              </div>
-            )}
           </div>
         </td>
         <td className="px-3 py-2">
