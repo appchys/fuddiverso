@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct, getBusinessesByOwner, uploadImage, updateBusiness, addBusinessAdministrator, removeBusinessAdministrator, updateAdministratorPermissions, getUserBusinessAccess, getBusinessCategories, addCategoryToBusiness, searchClientByPhone, getClientLocations, createOrder, getDeliveriesByStatus, createClient } from '@/lib/database'
 import { Business, Product, Order, ProductVariant } from '@/types'
-import { auth } from '@/lib/firebase'
+import { auth, db } from '@/lib/firebase'
+import { doc, updateDoc } from 'firebase/firestore'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 
 export default function BusinessDashboard() {
@@ -268,6 +269,31 @@ export default function BusinessDashboard() {
       ))
     } catch (error) {
       console.error('Error updating order status:', error)
+    }
+  }
+
+  const handleDeliveryAssignment = async (orderId: string, deliveryId: string) => {
+    try {
+      // Actualizar la orden con el delivery asignado
+      const orderRef = doc(db, 'orders', orderId)
+      await updateDoc(orderRef, {
+        'delivery.assignedDelivery': deliveryId || null
+      })
+      
+      // Actualizar estado local
+      setOrders(orders.map(order => 
+        order.id === orderId 
+          ? { 
+              ...order, 
+              delivery: { 
+                ...order.delivery, 
+                assignedDelivery: deliveryId || undefined 
+              } 
+            } 
+          : order
+      ))
+    } catch (error) {
+      console.error('Error assigning delivery:', error)
     }
   }
 
@@ -762,13 +788,13 @@ export default function BusinessDashboard() {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                {isToday ? 'Hora' : 'Fecha'}
+              </th>
+              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Cliente
               </th>
               <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Tipo / Ubicación
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                {isToday ? 'Hora' : 'Fecha'}
+                Ubicación / Tipo
               </th>
               <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Productos
@@ -782,11 +808,28 @@ export default function BusinessDashboard() {
               <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Pago
               </th>
+              {isToday && (
+                <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Delivery
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {orders.map((order) => (
               <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {isToday ? (
+                    <span className="font-medium text-orange-600">
+                      <i className="bi bi-clock me-1"></i>
+                      {formatTime(order.timing?.scheduledTime || order.createdAt)}
+                    </span>
+                  ) : (
+                    <span>
+                      {formatDate(order.timing?.scheduledTime || order.createdAt)}
+                    </span>
+                  )}
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div>
                     <div className="text-sm font-medium text-gray-900">
@@ -800,29 +843,20 @@ export default function BusinessDashboard() {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div>
-                    <div className="text-sm text-gray-900">
-                      <i className={`bi ${order.delivery?.type === 'delivery' ? 'bi-scooter' : 'bi-shop'} me-1`}></i>
-                      {order.delivery?.type === 'delivery' ? 'Delivery' : 'Pickup'}
-                    </div>
-                    {order.delivery?.references && (
-                      <div className="text-xs text-gray-500 truncate max-w-xs">
+                    {order.delivery?.type === 'delivery' ? (
+                      <div className="text-sm text-gray-900">
                         <i className="bi bi-geo-alt me-1"></i>
-                        {order.delivery.references}
+                        <span className="text-xs text-gray-600 max-w-xs truncate">
+                          {order.delivery?.references || 'Sin referencia'}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-900">
+                        <i className="bi bi-shop me-1"></i>
+                        <span className="font-medium text-blue-600">Retiro</span>
                       </div>
                     )}
                   </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {isToday ? (
-                    <span className="font-medium text-orange-600">
-                      <i className="bi bi-clock me-1"></i>
-                      {formatTime(order.timing?.scheduledTime || order.createdAt)}
-                    </span>
-                  ) : (
-                    <span>
-                      {formatDate(order.timing?.scheduledTime || order.createdAt)}
-                    </span>
-                  )}
                 </td>
                 <td className="px-6 py-4">
                   <div className="text-sm text-gray-900">
@@ -863,6 +897,29 @@ export default function BusinessDashboard() {
                     {order.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'}
                   </span>
                 </td>
+                {isToday && order.delivery?.type === 'delivery' && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <select
+                      value={order.delivery?.assignedDelivery || ''}
+                      onChange={(e) => handleDeliveryAssignment(order.id, e.target.value)}
+                      className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-red-500"
+                    >
+                      <option value="">Sin asignar</option>
+                      {availableDeliveries.map((delivery) => (
+                        <option key={delivery.id} value={delivery.id}>
+                          {delivery.nombre} - {delivery.telefono}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                )}
+                {isToday && order.delivery?.type === 'pickup' && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="text-xs text-gray-400 italic">
+                      N/A
+                    </span>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

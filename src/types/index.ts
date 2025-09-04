@@ -114,6 +114,7 @@ export interface DeliveryInfo {
     lng: number
   }
   photo?: string
+  assignedDelivery?: string // ID del delivery asignado
 }
 
 export interface OrderTiming {
