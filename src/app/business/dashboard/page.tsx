@@ -505,7 +505,6 @@ export default function BusinessDashboard() {
         b.id === business.id ? updatedBusiness : b
       ));
       
-      console.log('Imagen de portada subida exitosamente:', imageUrl);
     } catch (error) {
       console.error('Error subiendo imagen de portada:', error);
       alert('Error al subir la imagen de portada. Inténtalo de nuevo.');
@@ -538,7 +537,6 @@ export default function BusinessDashboard() {
         b.id === business.id ? updatedBusiness : b
       ));
       
-      console.log('Imagen de perfil subida exitosamente:', imageUrl);
     } catch (error) {
       console.error('Error subiendo imagen de perfil:', error);
       alert('Error al subir la imagen de perfil. Inténtalo de nuevo.');
@@ -577,7 +575,6 @@ export default function BusinessDashboard() {
       setEditedBusiness(null);
       
       alert('Información actualizada exitosamente');
-      console.log('Perfil actualizado exitosamente:', editedBusiness);
     } catch (error) {
       console.error('Error guardando perfil:', error);
       alert('Error al guardar los cambios. Inténtalo de nuevo.');
@@ -781,10 +778,11 @@ export default function BusinessDashboard() {
   };
 
   // Componente de tabla para pedidos
-  const OrdersTable = ({ orders, isToday = false }: { orders: Order[], isToday?: boolean }) => (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full">
+  const OrdersTable = ({ orders, isToday = false }: { orders: Order[], isToday?: boolean }) => {
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -847,7 +845,7 @@ export default function BusinessDashboard() {
                       <div className="text-sm text-gray-900">
                         <i className="bi bi-geo-alt me-1"></i>
                         <span className="text-xs text-gray-600 max-w-xs truncate">
-                          {order.delivery?.references || 'Sin referencia'}
+                          {order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
                         </span>
                       </div>
                     ) : (
@@ -874,7 +872,7 @@ export default function BusinessDashboard() {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className="text-lg font-bold text-emerald-600">
-                    ${order.total?.toFixed(2) || '0.00'}
+                    ${(order.total || (order as any).totalAmount || 0).toFixed(2)}
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
@@ -900,14 +898,14 @@ export default function BusinessDashboard() {
                 {isToday && order.delivery?.type === 'delivery' && (
                   <td className="px-6 py-4 whitespace-nowrap">
                     <select
-                      value={order.delivery?.assignedDelivery || ''}
+                      value={order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery || ''}
                       onChange={(e) => handleDeliveryAssignment(order.id, e.target.value)}
                       className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-red-500"
                     >
                       <option value="">Sin asignar</option>
-                      {availableDeliveries.map((delivery) => (
+                      {availableDeliveries?.map((delivery) => (
                         <option key={delivery.id} value={delivery.id}>
-                          {delivery.nombre} - {delivery.telefono}
+                          {delivery.nombre || delivery.name} - {delivery.telefono || delivery.phone}
                         </option>
                       ))}
                     </select>
@@ -926,7 +924,8 @@ export default function BusinessDashboard() {
         </table>
       </div>
     </div>
-  );
+    );
+  };
 
   // Funciones para orden manual
   const handleSearchClient = async (phone?: string) => {
@@ -1184,16 +1183,10 @@ export default function BusinessDashboard() {
         },
         delivery: {
           type: manualOrderData.deliveryType,
-          location: manualOrderData.selectedLocation,
-          scheduledTime: deliveryTime,
-          cost: deliveryCost,
-          assignedDelivery: manualOrderData.selectedDelivery ? {
-            id: manualOrderData.selectedDelivery.id,
-            nombres: manualOrderData.selectedDelivery.nombres,
-            celular: manualOrderData.selectedDelivery.celular
-          } : null
+          references: manualOrderData.selectedLocation?.address || '',
+          assignedDelivery: manualOrderData.selectedDelivery?.id
         },
-        totalAmount,
+        total: totalAmount,
         subtotal,
         deliveryCost,
         status: 'confirmed' as const,
