@@ -482,7 +482,9 @@ export default function BusinessDashboard() {
     // Crear enlace de Google Maps si hay coordenadas
     let locationLink = ''
     if (order.delivery?.latlong) {
-      locationLink = `https://www.google.com/maps/place/${order.delivery.latlong}`
+      // Limpiar espacios en blanco de las coordenadas
+      const cleanCoords = order.delivery.latlong.replace(/\s+/g, '')
+      locationLink = `https://www.google.com/maps/place/${cleanCoords}`
     } else if (order.delivery?.mapLocation) {
       locationLink = `https://www.google.com/maps/place/${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}`
     }
@@ -527,7 +529,7 @@ export default function BusinessDashboard() {
     const cleanPhone = delivery.celular.replace(/\D/g, '')
     
     // Crear enlace de WhatsApp
-    const whatsappUrl = `https://web.whatsapp.com/send?phone=593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}&text=${encodeURIComponent(message)}`
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}&text=${encodeURIComponent(message)}`
     
     // Abrir WhatsApp Web
     window.open(whatsappUrl, '_blank')
