@@ -556,6 +556,30 @@ export async function getOrder(orderId: string): Promise<Order | null> {
   }
 }
 
+export async function updateOrder(orderId: string, orderData: Partial<Omit<Order, 'id' | 'createdAt'>>) {
+  try {
+    const docRef = doc(db, 'orders', orderId)
+    const cleanData = cleanObject(orderData)
+    await updateDoc(docRef, { 
+      ...cleanData,
+      updatedAt: serverTimestamp()
+    })
+  } catch (error) {
+    console.error('Error updating order:', error)
+    throw error
+  }
+}
+
+export async function deleteOrder(orderId: string) {
+  try {
+    const docRef = doc(db, 'orders', orderId)
+    await deleteDoc(docRef)
+  } catch (error) {
+    console.error('Error deleting order:', error)
+    throw error
+  }
+}
+
 // Funciones para subir imágenes
 export async function uploadImage(file: File, path: string): Promise<string> {
   try {
