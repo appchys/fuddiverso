@@ -121,6 +121,13 @@ export default function BusinessDashboard() {
   })
   const [updatingOrder, setUpdatingOrder] = useState(false)
 
+  // Estados para modal de detalles del pedido
+  const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(false)
+  const [selectedOrderDetails, setSelectedOrderDetails] = useState<Order | null>(null)
+
+  // Estados para historial agrupado por fecha
+  const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set())
+
   // Protección de ruta - redirigir si no está autenticado
   useEffect(() => {
     if (!isAuthenticated) {
@@ -232,6 +239,12 @@ export default function BusinessDashboard() {
         // Cargar órdenes
         const ordersData = await getOrdersByBusiness(selectedBusinessId);
         setOrders(ordersData);
+
+        // Inicializar fechas colapsadas para el historial
+        const { pastOrders } = categorizeOrdersForData(ordersData);
+        const groupedPastOrders = groupOrdersByDate(pastOrders);
+        const allDates = groupedPastOrders.map(({ date }) => date);
+        setCollapsedDates(new Set(allDates)); // Colapsar todas las fechas por defecto
 
         // Actualizar localStorage
         localStorage.setItem('businessId', selectedBusinessId);
@@ -396,6 +409,55 @@ export default function BusinessDashboard() {
     } catch (error) {
       alert('Error al eliminar la orden')
     }
+  }
+
+  // Nuevas funciones para las implementaciones solicitadas
+  const handleShowOrderDetails = (order: Order) => {
+    setSelectedOrderDetails(order)
+    setShowOrderDetailsModal(true)
+  }
+
+  const handleMarkAsDelivered = async (orderId: string) => {
+    if (!window.confirm('¿Marcar este pedido como entregado?')) {
+      return
+    }
+    await handleStatusChange(orderId, 'delivered')
+  }
+
+  const handleMarkAsPaid = async (orderId: string) => {
+    if (!window.confirm('¿Marcar este pedido como pagado por transferencia?')) {
+      return
+    }
+    
+    try {
+      const orderRef = doc(db, 'orders', orderId)
+      await updateDoc(orderRef, {
+        'payment.paymentStatus': 'paid'
+      })
+      
+      // Actualizar estado local
+      setOrders(orders.map(order => 
+        order.id === orderId ? { 
+          ...order, 
+          payment: { 
+            ...order.payment, 
+            paymentStatus: 'paid' 
+          } 
+        } : order
+      ))
+    } catch (error) {
+      alert('Error al actualizar el estado de pago')
+    }
+  }
+
+  const toggleDateCollapse = (dateKey: string) => {
+    const newCollapsed = new Set(collapsedDates)
+    if (newCollapsed.has(dateKey)) {
+      newCollapsed.delete(dateKey)
+    } else {
+      newCollapsed.add(dateKey)
+    }
+    setCollapsedDates(newCollapsed)
   }
 
   const handleToggleAvailability = async (productId: string, currentAvailability: boolean) => {
@@ -839,6 +901,74 @@ export default function BusinessDashboard() {
     return { todayOrders, upcomingOrders, pastOrders };
   };
 
+  // Función para agrupar pedidos por fecha
+  const groupOrdersByDate = (orders: Order[]) => {
+    const grouped = orders.reduce((acc, order) => {
+      const orderDate = getOrderDateTime(order)
+      const dateKey = orderDate.toLocaleDateString('es-EC', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+      
+      if (!acc[dateKey]) {
+        acc[dateKey] = []
+      }
+      acc[dateKey].push(order)
+      return acc
+    }, {} as Record<string, Order[]>)
+
+    // Convertir a array y ordenar por fecha (más reciente primero)
+    return Object.entries(grouped)
+      .sort(([dateA], [dateB]) => {
+        const orderA = grouped[dateA][0]
+        const orderB = grouped[dateB][0]
+        return getOrderDateTime(orderB).getTime() - getOrderDateTime(orderA).getTime()
+      })
+      .map(([date, orders]) => ({
+        date,
+        orders: orders.sort((a, b) => getOrderDateTime(b).getTime() - getOrderDateTime(a).getTime())
+      }))
+  }
+
+  // Función auxiliar para categorizar pedidos (para usar en useEffect)
+  const categorizeOrdersForData = (ordersData: Order[]) => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const todayOrders = ordersData.filter(order => {
+      const orderDate = getOrderDateTime(order);
+      return orderDate >= today && orderDate < tomorrow;
+    }).sort((a, b) => {
+      const timeA = getOrderDateTime(a).getTime();
+      const timeB = getOrderDateTime(b).getTime();
+      return timeA - timeB;
+    });
+
+    const upcomingOrders = ordersData.filter(order => {
+      const orderDate = getOrderDateTime(order);
+      return orderDate >= tomorrow;
+    }).sort((a, b) => {
+      const timeA = getOrderDateTime(a).getTime();
+      const timeB = getOrderDateTime(b).getTime();
+      return timeA - timeB;
+    });
+
+    const pastOrders = ordersData.filter(order => {
+      const orderDate = getOrderDateTime(order);
+      return orderDate < today;
+    }).sort((a, b) => {
+      const timeA = getOrderDateTime(a).getTime();
+      const timeB = getOrderDateTime(b).getTime();
+      return timeB - timeA;
+    });
+
+    return { todayOrders, upcomingOrders, pastOrders };
+  }
+
   const formatTime = (dateValue: string | Date) => {
     try {
       const date = typeof dateValue === 'string' ? new Date(dateValue) : dateValue;
@@ -1163,7 +1293,10 @@ export default function BusinessDashboard() {
 
     return (
       <tr className={`hover:bg-gray-50 transition-colors ${borderClass}`}>
-        <td className="px-3 py-2 whitespace-nowrap text-sm">
+        <td 
+          className="px-3 py-2 whitespace-nowrap text-sm cursor-pointer"
+          onClick={() => handleShowOrderDetails(order)}
+        >
           {isToday ? (
             <span className={`font-medium ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
               <i className="bi bi-clock me-1"></i>
@@ -1175,7 +1308,10 @@ export default function BusinessDashboard() {
             </span>
           )}
         </td>
-        <td className="px-3 py-2 whitespace-nowrap">
+        <td 
+          className="px-3 py-2 whitespace-nowrap cursor-pointer"
+          onClick={() => handleShowOrderDetails(order)}
+        >
           <div>
             <div className="text-sm font-medium text-gray-900">
               {order.customer?.name || 'Cliente sin nombre'}
@@ -1197,7 +1333,10 @@ export default function BusinessDashboard() {
             </div>
           </div>
         </td>
-        <td className="px-3 py-2">
+        <td 
+          className="px-3 py-2 cursor-pointer"
+          onClick={() => handleShowOrderDetails(order)}
+        >
           <div className="text-sm text-gray-900">
             {order.items?.slice(0, 2).map((item: any, index) => (
               <div key={index} className="truncate">
@@ -1211,7 +1350,10 @@ export default function BusinessDashboard() {
             )}
           </div>
         </td>
-        <td className="px-3 py-2 whitespace-nowrap">
+        <td 
+          className="px-3 py-2 whitespace-nowrap cursor-pointer"
+          onClick={() => handleShowOrderDetails(order)}
+        >
           <span className="text-lg font-bold text-emerald-600">
             ${(order.total || (order as any).totalAmount || 0).toFixed(2)}
           </span>
@@ -1231,10 +1373,24 @@ export default function BusinessDashboard() {
           </select>
         </td>
         <td className="px-3 py-2 whitespace-nowrap">
-          <span className="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded">
-            <i className={`bi ${order.payment?.method === 'cash' ? 'bi-cash' : 'bi-credit-card'} me-1`}></i>
-            {order.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'}
-          </span>
+          <div className="flex items-center space-x-2">
+            <span className="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded">
+              <i className={`bi ${order.payment?.method === 'cash' ? 'bi-cash' : 'bi-credit-card'} me-1`}></i>
+              {order.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'}
+            </span>
+            {isToday && order.payment?.method === 'transfer' && order.payment?.paymentStatus !== 'paid' && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleMarkAsPaid(order.id)
+                }}
+                className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 transition-colors"
+                title="Marcar como pagado"
+              >
+                ✓ Pagado
+              </button>
+            )}
+          </div>
         </td>
         {isToday && order.delivery?.type === 'delivery' && (
           <td className="px-3 py-2 whitespace-nowrap">
@@ -1261,15 +1417,33 @@ export default function BusinessDashboard() {
         )}
         <td className="px-3 py-2 whitespace-nowrap">
           <div className="flex space-x-1">
+            {isToday && order.status !== 'delivered' && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleMarkAsDelivered(order.id)
+                }}
+                className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 transition-colors"
+                title="Marcar como entregado"
+              >
+                📦 Entregado
+              </button>
+            )}
             <button
-              onClick={() => handleEditOrder(order)}
+              onClick={(e) => {
+                e.stopPropagation()
+                handleEditOrder(order)
+              }}
               className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50"
               title="Editar orden"
             >
               <i className="bi bi-pencil text-sm"></i>
             </button>
             <button
-              onClick={() => handleDeleteOrder(order.id)}
+              onClick={(e) => {
+                e.stopPropagation()
+                handleDeleteOrder(order.id)
+              }}
               className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50"
               title="Eliminar orden"
             >
@@ -1971,6 +2145,7 @@ export default function BusinessDashboard() {
               <div>
                 {(() => {
                   const { upcomingOrders, pastOrders } = categorizeOrders();
+                  const groupedPastOrders = groupOrdersByDate(pastOrders.slice(0, 100)); // Limitar a 100 pedidos
                   
                   return (
                     <div className="space-y-8">
@@ -1987,24 +2162,88 @@ export default function BusinessDashboard() {
                         </div>
                       )}
 
-                      {/* Historial de Pedidos */}
-                      {pastOrders.length > 0 ? (
+                      {/* Historial de Pedidos Agrupado por Fecha */}
+                      {groupedPastOrders.length > 0 ? (
                         <div>
                           <div className="flex items-center justify-between mb-4">
                             <h2 className="text-xl font-bold text-gray-900">
                               <i className="bi bi-archive me-2"></i>
                               Historial de Pedidos ({pastOrders.length})
                             </h2>
+                            {pastOrders.length > 100 && (
+                              <span className="text-sm text-gray-500">
+                                Mostrando los últimos 100 pedidos
+                              </span>
+                            )}
                           </div>
-                          <OrdersTable orders={pastOrders.slice(0, 20)} isToday={false} />
                           
-                          {pastOrders.length > 20 && (
-                            <div className="text-center mt-6 p-4 bg-gray-50 rounded-lg">
-                              <p className="text-gray-500 text-sm">
-                                Mostrando los últimos 20 pedidos de {pastOrders.length} totales
-                              </p>
-                            </div>
-                          )}
+                          <div className="space-y-4">
+                            {groupedPastOrders.map(({ date, orders }) => {
+                              const isCollapsed = collapsedDates.has(date);
+                              return (
+                                <div key={date} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                  {/* Header de fecha colapsable */}
+                                  <button
+                                    onClick={() => toggleDateCollapse(date)}
+                                    className="w-full px-4 py-3 bg-gray-50 border-b border-gray-200 text-left hover:bg-gray-100 transition-colors"
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <h3 className="text-lg font-semibold text-gray-900 capitalize">
+                                        {date}
+                                        <span className="ml-2 bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
+                                          {orders.length}
+                                        </span>
+                                      </h3>
+                                      <div className="flex items-center">
+                                        <span className="text-sm text-gray-500 mr-2">
+                                          ${orders.reduce((sum, order) => sum + (order.total || 0), 0).toFixed(2)} total
+                                        </span>
+                                        <i className={`bi ${isCollapsed ? 'bi-chevron-down' : 'bi-chevron-up'} text-gray-400`}></i>
+                                      </div>
+                                    </div>
+                                  </button>
+                                  
+                                  {/* Tabla de pedidos (colapsable) */}
+                                  {!isCollapsed && (
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full">
+                                        <thead className="bg-gray-50">
+                                          <tr>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                              Hora
+                                            </th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                              Cliente
+                                            </th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                              Productos
+                                            </th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                              Total
+                                            </th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                              Estado
+                                            </th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                              Pago
+                                            </th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                              Acciones
+                                            </th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                          {orders.map((order) => (
+                                            <OrderRow key={order.id} order={order} isToday={false} />
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       ) : upcomingOrders.length === 0 && (
                         <div className="bg-white rounded-xl p-8 text-center border border-gray-200">
@@ -3694,6 +3933,187 @@ export default function BusinessDashboard() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Detalles del Pedido */}
+      {showOrderDetailsModal && selectedOrderDetails && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">
+                  Detalles del Pedido
+                </h2>
+                <button
+                  onClick={() => setShowOrderDetailsModal(false)}
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Información del Cliente */}
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  <i className="bi bi-person-fill me-2"></i>
+                  Información del Cliente
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Nombre:</span>
+                    <p className="text-gray-900">{selectedOrderDetails.customer?.name || 'Sin nombre'}</p>
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Teléfono:</span>
+                    <p className="text-gray-900">{selectedOrderDetails.customer?.phone || 'Sin teléfono'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Información de Entrega */}
+              <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  <i className="bi bi-truck me-2"></i>
+                  Información de Entrega
+                </h3>
+                <div className="space-y-2">
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Tipo:</span>
+                    <span className={`ml-2 px-2 py-1 rounded text-sm ${
+                      selectedOrderDetails.delivery?.type === 'delivery' 
+                        ? 'bg-blue-100 text-blue-800' 
+                        : 'bg-green-100 text-green-800'
+                    }`}>
+                      {selectedOrderDetails.delivery?.type === 'delivery' ? 'Domicilio' : 'Retiro en tienda'}
+                    </span>
+                  </div>
+                  {selectedOrderDetails.delivery?.type === 'delivery' && (
+                    <div>
+                      <span className="text-sm font-medium text-gray-500">Dirección:</span>
+                      <p className="text-gray-900 mt-1">
+                        {selectedOrderDetails.delivery?.references || (selectedOrderDetails.delivery as any)?.reference || 'Sin referencia'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Productos */}
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  <i className="bi bi-bag-fill me-2"></i>
+                  Productos ({selectedOrderDetails.items?.length || 0})
+                </h3>
+                <div className="space-y-3">
+                  {selectedOrderDetails.items?.map((item: any, index) => (
+                    <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <div>
+                        <p className="font-medium text-gray-900">
+                          {item.name || item.product?.name || 'Producto'}
+                        </p>
+                        {item.variant && (
+                          <p className="text-sm text-gray-500">Variante: {item.variant}</p>
+                        )}
+                        <p className="text-sm text-gray-500">Cantidad: {item.quantity}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-gray-900">
+                          ${((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          ${(item.price || 0).toFixed(2)} c/u
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Información de Pago */}
+              <div className="mb-6 p-4 bg-green-50 rounded-lg">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  <i className="bi bi-credit-card-fill me-2"></i>
+                  Información de Pago
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Método:</span>
+                    <p className="text-gray-900">
+                      {selectedOrderDetails.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Estado:</span>
+                    <span className={`ml-1 px-2 py-1 rounded text-sm ${
+                      selectedOrderDetails.payment?.paymentStatus === 'paid' 
+                        ? 'bg-green-100 text-green-800'
+                        : selectedOrderDetails.payment?.paymentStatus === 'validating'
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {selectedOrderDetails.payment?.paymentStatus === 'paid' ? 'Pagado' : 
+                       selectedOrderDetails.payment?.paymentStatus === 'validating' ? 'Validando' : 'Pendiente'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Total:</span>
+                    <p className="text-xl font-bold text-green-600">
+                      ${(selectedOrderDetails.total || 0).toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Estado y Fechas */}
+              <div className="mb-6 p-4 bg-purple-50 rounded-lg">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  <i className="bi bi-info-circle-fill me-2"></i>
+                  Estado del Pedido
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Estado actual:</span>
+                    <span className={`ml-2 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(selectedOrderDetails.status)}`}>
+                      {selectedOrderDetails.status === 'pending' && '🕐 Pendiente'}
+                      {selectedOrderDetails.status === 'confirmed' && '✅ Confirmado'}
+                      {selectedOrderDetails.status === 'preparing' && '👨‍🍳 Preparando'}
+                      {selectedOrderDetails.status === 'ready' && '🔔 Listo'}
+                      {selectedOrderDetails.status === 'delivered' && '📦 Entregado'}
+                      {selectedOrderDetails.status === 'cancelled' && '❌ Cancelado'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Fecha del pedido:</span>
+                    <p className="text-gray-900">
+                      {formatDate(getOrderDateTime(selectedOrderDetails))} {formatTime(getOrderDateTime(selectedOrderDetails))}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Acciones rápidas */}
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    setShowOrderDetailsModal(false)
+                    handleEditOrder(selectedOrderDetails)
+                  }}
+                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <i className="bi bi-pencil me-2"></i>
+                  Editar Pedido
+                </button>
+                <button
+                  onClick={() => setShowOrderDetailsModal(false)}
+                  className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
           </div>
         </div>
