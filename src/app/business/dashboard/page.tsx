@@ -810,29 +810,29 @@ export default function BusinessDashboard() {
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     const todayOrders = orders.filter(order => {
-      const orderDate = new Date(order.timing?.scheduledTime || order.createdAt);
+      const orderDate = getOrderDateTime(order);
       return orderDate >= today && orderDate < tomorrow;
     }).sort((a, b) => {
-      const timeA = new Date(a.timing?.scheduledTime || a.createdAt).getTime();
-      const timeB = new Date(b.timing?.scheduledTime || b.createdAt).getTime();
+      const timeA = getOrderDateTime(a).getTime();
+      const timeB = getOrderDateTime(b).getTime();
       return timeA - timeB;
     });
 
     const upcomingOrders = orders.filter(order => {
-      const orderDate = new Date(order.timing?.scheduledTime || order.createdAt);
+      const orderDate = getOrderDateTime(order);
       return orderDate >= tomorrow;
     }).sort((a, b) => {
-      const timeA = new Date(a.timing?.scheduledTime || a.createdAt).getTime();
-      const timeB = new Date(b.timing?.scheduledTime || b.createdAt).getTime();
+      const timeA = getOrderDateTime(a).getTime();
+      const timeB = getOrderDateTime(b).getTime();
       return timeA - timeB;
     });
 
     const pastOrders = orders.filter(order => {
-      const orderDate = new Date(order.timing?.scheduledTime || order.createdAt);
+      const orderDate = getOrderDateTime(order);
       return orderDate < today;
     }).sort((a, b) => {
-      const timeA = new Date(a.timing?.scheduledTime || a.createdAt).getTime();
-      const timeB = new Date(b.timing?.scheduledTime || b.createdAt).getTime();
+      const timeA = getOrderDateTime(a).getTime();
+      const timeB = getOrderDateTime(b).getTime();
       return timeB - timeA;
     });
 
@@ -882,174 +882,334 @@ export default function BusinessDashboard() {
     }
   };
 
+  // Función helper para obtener la fecha/hora de una orden
+  const getOrderDateTime = (order: Order) => {
+    // Si tiene timing con scheduledDate y scheduledTime, usar esos
+    if (order.timing?.scheduledDate && order.timing?.scheduledTime) {
+      // Usar hora local en lugar de UTC
+      const scheduledDateStr = typeof order.timing.scheduledDate === 'string' 
+        ? order.timing.scheduledDate 
+        : order.timing.scheduledDate.toISOString().split('T')[0];
+      const [year, month, day] = scheduledDateStr.split('-').map(Number);
+      const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number);
+      return new Date(year, month - 1, day, hours, minutes); // month - 1 porque Date usa 0-indexed months
+    }
+    // Si tiene solo scheduledTime (formato anterior), usar createdAt para la fecha
+    else if (order.timing?.scheduledTime) {
+      const createdDate = new Date(order.createdAt);
+      const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number);
+      const orderDate = new Date(createdDate);
+      orderDate.setHours(hours, minutes, 0, 0);
+      return orderDate;
+    }
+    // Fallback a createdAt
+    else {
+      return new Date(order.createdAt);
+    }
+  };
+
+  const getStatusDisplayName = (status: string) => {
+    switch (status) {
+      case 'preparing': return 'Preparando';
+      case 'ready': return 'Listos';
+      case 'completed': return 'Completados';
+      case 'delivered': return 'Entregados';
+      case 'cancelled': return 'Cancelados';
+      case 'pending': return 'Pendientes';
+      case 'confirmed': return 'Confirmados';
+      default: return status;
+    }
+  };
+
+  // Función para determinar si una orden está próxima (dentro de 30 minutos)
+  const isOrderUpcoming = (order: Order) => {
+    const orderTime = getOrderDateTime(order);
+    const now = new Date();
+    const diffInMinutes = (orderTime.getTime() - now.getTime()) / (1000 * 60);
+    
+    // Está dentro de los próximos 30 minutos
+    return diffInMinutes <= 30 && diffInMinutes >= 0;
+  };
+
+  // Función para agrupar y ordenar pedidos por estado
+  const groupOrdersByStatus = (orders: Order[]) => {
+    const statusOrder = ['pending', 'confirmed', 'preparing', 'ready', 'delivered', 'cancelled'];
+    
+    return orders.sort((a, b) => {
+      const aIndex = statusOrder.indexOf(a.status);
+      const bIndex = statusOrder.indexOf(b.status);
+      
+      if (aIndex !== bIndex) {
+        return aIndex - bIndex;
+      }
+      
+      // Si tienen el mismo estado, ordenar por hora
+      const timeA = getOrderDateTime(a).getTime();
+      const timeB = getOrderDateTime(b).getTime();
+      
+      return timeA - timeB;
+    });
+  };
+
+  // Función para agrupar órdenes por estado para mostrar títulos
+  const groupOrdersWithTitles = (orders: Order[]) => {
+    const grouped: { [status: string]: Order[] } = {};
+    const statusOrder = ['pending', 'confirmed', 'preparing', 'ready', 'delivered', 'cancelled'];
+    
+    orders.forEach(order => {
+      if (!grouped[order.status]) {
+        grouped[order.status] = [];
+      }
+      grouped[order.status].push(order);
+    });
+    
+    return statusOrder.filter(status => grouped[status]?.length > 0).map(status => ({
+      status,
+      orders: grouped[status]
+    }));
+  };
+
   // Componente de tabla para pedidos
   const OrdersTable = ({ orders, isToday = false }: { orders: Order[], isToday?: boolean }) => {
+    if (isToday) {
+      const groupedOrders = groupOrdersWithTitles(groupOrdersByStatus(orders));
+      
+      return (
+        <div className="space-y-6">
+          {groupedOrders.map(({ status, orders: statusOrders }) => (
+            <div key={status} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                  <span className="mr-2">
+                    {status === 'pending' && '🕐'}
+                    {status === 'confirmed' && '✅'}
+                    {status === 'preparing' && '👨‍🍳'}
+                    {status === 'ready' && '🔔'}
+                    {status === 'delivered' && '📦'}
+                    {status === 'cancelled' && '❌'}
+                  </span>
+                  {getStatusDisplayName(status)}
+                  <span className="ml-2 bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
+                    {statusOrders.length}
+                  </span>
+                </h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Hora
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Cliente
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Ubicación / Tipo
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Productos
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Total
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Estado
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Pago
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Delivery
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Acciones
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {statusOrders.map((order) => (
+                      <OrderRow key={order.id} order={order} isToday={isToday} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // Para pedidos históricos, mantener tabla simple
+    const sortedOrders = orders;
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                {isToday ? 'Hora' : 'Fecha'}
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Cliente
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Ubicación / Tipo
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Productos
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Total
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Estado
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Pago
-              </th>
-              {isToday && (
-                <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Delivery
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Fecha
                 </th>
-              )}
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Acciones
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {orders.map((order) => (
-              <tr key={order.id} className="hover:bg-gray-50 transition-colors">
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {isToday ? (
-                    <span className="font-medium text-orange-600">
-                      <i className="bi bi-clock me-1"></i>
-                      {formatTime(order.timing?.scheduledTime || order.createdAt)}
-                    </span>
-                  ) : (
-                    <span>
-                      {formatDate(order.timing?.scheduledTime || order.createdAt)}
-                    </span>
-                  )}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div>
-                    <div className="text-sm font-medium text-gray-900">
-                      {order.customer?.name || 'Cliente sin nombre'}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      <i className="bi bi-telephone me-1"></i>
-                      {order.customer?.phone || 'Sin teléfono'}
-                    </div>
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div>
-                    {order.delivery?.type === 'delivery' ? (
-                      <div className="text-sm text-gray-900">
-                        <i className="bi bi-geo-alt me-1"></i>
-                        <span className="text-xs text-gray-600 max-w-xs truncate">
-                          {order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="text-sm text-gray-900">
-                        <i className="bi bi-shop me-1"></i>
-                        <span className="font-medium text-blue-600">Retiro</span>
-                      </div>
-                    )}
-                  </div>
-                </td>
-                <td className="px-6 py-4">
-                  <div className="text-sm text-gray-900">
-                    {order.items?.slice(0, 2).map((item: any, index) => (
-                      <div key={index} className="truncate">
-                        {item.quantity}x {item.name || item.product?.name || 'Producto'}
-                      </div>
-                    ))}
-                    {order.items && order.items.length > 2 && (
-                      <div className="text-xs text-gray-500">
-                        +{order.items.length - 2} más...
-                      </div>
-                    )}
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="text-lg font-bold text-emerald-600">
-                    ${(order.total || (order as any).totalAmount || 0).toFixed(2)}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <select
-                    value={order.status}
-                    onChange={(e) => handleStatusChange(order.id, e.target.value as Order['status'])}
-                    className={`text-xs font-medium px-3 py-1 rounded-full border-none ${getStatusColor(order.status)} focus:ring-2 focus:ring-red-500`}
-                  >
-                    <option value="pending">🕐 Pendiente</option>
-                    <option value="confirmed">✅ Confirmado</option>
-                    <option value="preparing">👨‍🍳 Preparando</option>
-                    <option value="ready">🔔 Listo</option>
-                    <option value="delivered">📦 Entregado</option>
-                    <option value="cancelled">❌ Cancelado</option>
-                  </select>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded">
-                    <i className={`bi ${order.payment?.method === 'cash' ? 'bi-cash' : 'bi-credit-card'} me-1`}></i>
-                    {order.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'}
-                  </span>
-                </td>
-                {isToday && order.delivery?.type === 'delivery' && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <select
-                      value={order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery || ''}
-                      onChange={(e) => handleDeliveryAssignment(order.id, e.target.value)}
-                      className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-red-500"
-                    >
-                      <option value="">Sin asignar</option>
-                      {availableDeliveries?.map((delivery) => (
-                        <option key={delivery.id} value={delivery.id}>
-                          {delivery.nombres} - {delivery.celular}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                )}
-                {isToday && order.delivery?.type === 'pickup' && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-xs text-gray-400 italic">
-                      N/A
-                    </span>
-                  </td>
-                )}
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => handleEditOrder(order)}
-                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                      title="Editar orden"
-                    >
-                      <i className="bi bi-pencil"></i> Editar
-                    </button>
-                    <button
-                      onClick={() => handleDeleteOrder(order.id)}
-                      className="text-red-600 hover:text-red-800 text-sm font-medium"
-                      title="Eliminar orden"
-                    >
-                      <i className="bi bi-trash"></i> Eliminar
-                    </button>
-                  </div>
-                </td>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Cliente
+                </th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Ubicación / Tipo
+                </th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Productos
+                </th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Total
+                </th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Estado
+                </th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Pago
+                </th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Acciones
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {sortedOrders.map((order) => (
+                <OrderRow key={order.id} order={order} isToday={isToday} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+    );
+  };
+
+  // Componente para fila de orden
+  const OrderRow = ({ order, isToday }: { order: Order, isToday: boolean }) => {
+    return (
+      <tr className="hover:bg-gray-50 transition-colors">
+        <td className="px-3 py-2 whitespace-nowrap text-sm">
+          {isToday ? (
+            <span className={`font-medium ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
+              <i className="bi bi-clock me-1"></i>
+              {formatTime(getOrderDateTime(order))}
+            </span>
+          ) : (
+            <span className="text-gray-900">
+              {formatDate(getOrderDateTime(order))}
+            </span>
+          )}
+        </td>
+        <td className="px-3 py-2 whitespace-nowrap">
+          <div>
+            <div className="text-sm font-medium text-gray-900">
+              {order.customer?.name || 'Cliente sin nombre'}
+            </div>
+            <div className="text-xs text-gray-500">
+              <i className="bi bi-telephone me-1"></i>
+              {order.customer?.phone || 'Sin teléfono'}
+            </div>
+          </div>
+        </td>
+        <td className="px-3 py-2 whitespace-nowrap">
+          <div>
+            {order.delivery?.type === 'delivery' ? (
+              <div className="text-sm text-gray-900">
+                <i className="bi bi-geo-alt me-1"></i>
+                <span className="text-xs text-gray-600 max-w-xs truncate">
+                  {order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
+                </span>
+              </div>
+            ) : (
+              <div className="text-sm text-gray-900">
+                <i className="bi bi-shop me-1"></i>
+                <span className="font-medium text-blue-600">Retiro</span>
+              </div>
+            )}
+          </div>
+        </td>
+        <td className="px-3 py-2">
+          <div className="text-sm text-gray-900">
+            {order.items?.slice(0, 2).map((item: any, index) => (
+              <div key={index} className="truncate">
+                {item.quantity}x {item.name || item.product?.name || 'Producto'}
+              </div>
+            ))}
+            {order.items && order.items.length > 2 && (
+              <div className="text-xs text-gray-500">
+                +{order.items.length - 2} más...
+              </div>
+            )}
+          </div>
+        </td>
+        <td className="px-3 py-2 whitespace-nowrap">
+          <span className="text-lg font-bold text-emerald-600">
+            ${(order.total || (order as any).totalAmount || 0).toFixed(2)}
+          </span>
+        </td>
+        <td className="px-3 py-2 whitespace-nowrap">
+          <select
+            value={order.status}
+            onChange={(e) => handleStatusChange(order.id, e.target.value as Order['status'])}
+            className={`text-xs font-medium px-3 py-1 rounded-full border-none ${getStatusColor(order.status)} focus:ring-2 focus:ring-red-500`}
+          >
+            <option value="pending">🕐 Pendiente</option>
+            <option value="confirmed">✅ Confirmado</option>
+            <option value="preparing">👨‍🍳 Preparando</option>
+            <option value="ready">🔔 Listo</option>
+            <option value="delivered">📦 Entregado</option>
+            <option value="cancelled">❌ Cancelado</option>
+          </select>
+        </td>
+        <td className="px-3 py-2 whitespace-nowrap">
+          <span className="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded">
+            <i className={`bi ${order.payment?.method === 'cash' ? 'bi-cash' : 'bi-credit-card'} me-1`}></i>
+            {order.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'}
+          </span>
+        </td>
+        {isToday && order.delivery?.type === 'delivery' && (
+          <td className="px-3 py-2 whitespace-nowrap">
+            <select
+              value={order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery || ''}
+              onChange={(e) => handleDeliveryAssignment(order.id, e.target.value)}
+              className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-red-500"
+            >
+              <option value="">Sin asignar</option>
+              {availableDeliveries?.map((delivery) => (
+                <option key={delivery.id} value={delivery.id}>
+                  {delivery.nombres} - {delivery.celular}
+                </option>
+              ))}
+            </select>
+          </td>
+        )}
+        {isToday && order.delivery?.type === 'pickup' && (
+          <td className="px-3 py-2 whitespace-nowrap">
+            <span className="text-xs text-gray-400 italic">
+              N/A
+            </span>
+          </td>
+        )}
+        <td className="px-3 py-2 whitespace-nowrap">
+          <div className="flex space-x-1">
+            <button
+              onClick={() => handleEditOrder(order)}
+              className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50"
+              title="Editar orden"
+            >
+              <i className="bi bi-pencil text-sm"></i>
+            </button>
+            <button
+              onClick={() => handleDeleteOrder(order.id)}
+              className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50"
+              title="Eliminar orden"
+            >
+              <i className="bi bi-trash text-sm"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
     );
   };
 
@@ -1286,10 +1446,19 @@ export default function BusinessDashboard() {
 
       const totalAmount = subtotal + deliveryCost;
 
-      // Calcular hora de entrega
-      const deliveryTime = manualOrderData.timingType === 'immediate' 
-        ? new Date(Date.now() + 30 * 60 * 1000).toISOString() // 30 minutos después
-        : new Date(`${manualOrderData.scheduledDate}T${manualOrderData.scheduledTime}`).toISOString();
+      // Calcular hora de entrega unificada
+      let scheduledTime, scheduledDate;
+      
+      if (manualOrderData.timingType === 'immediate') {
+        // Para inmediato: fecha y hora actuales + 30 minutos
+        const deliveryTime = new Date(Date.now() + 30 * 60 * 1000);
+        scheduledDate = deliveryTime.toISOString().split('T')[0]; // YYYY-MM-DD
+        scheduledTime = deliveryTime.toTimeString().slice(0, 5); // HH:MM
+      } else {
+        // Para programado: usar los valores seleccionados
+        scheduledDate = manualOrderData.scheduledDate;
+        scheduledTime = manualOrderData.scheduledTime;
+      }
 
       const orderData = {
         businessId: business.id,
@@ -1307,22 +1476,22 @@ export default function BusinessDashboard() {
         delivery: {
           type: manualOrderData.deliveryType,
           references: manualOrderData.selectedLocation?.address || '',
-          assignedDelivery: manualOrderData.selectedDelivery?.id
+          assignedDelivery: manualOrderData.selectedDelivery?.id,
+          deliveryCost
         },
         total: totalAmount,
         subtotal,
-        deliveryCost,
         status: 'confirmed' as const,
         payment: {
           method: manualOrderData.paymentMethod,
-          status: manualOrderData.paymentStatus,
+          paymentStatus: manualOrderData.paymentStatus,
           selectedBank: manualOrderData.selectedBank
         },
         createdByAdmin: true,
         timing: {
           type: manualOrderData.timingType,
-          scheduledDate: manualOrderData.scheduledDate,
-          scheduledTime: manualOrderData.scheduledTime
+          scheduledDate,
+          scheduledTime
         }
       };
 
@@ -1345,9 +1514,16 @@ export default function BusinessDashboard() {
         selectedDelivery: null
       });
       setClientFound(false);
+      setShowManualOrderModal(false); // Cerrar el modal
       
       alert('Pedido creado exitosamente');
       setActiveTab('orders'); // Cambiar a la pestaña de pedidos
+      
+      // Recargar pedidos
+      if (selectedBusinessId) {
+        const ordersData = await getOrdersByBusiness(selectedBusinessId);
+        setOrders(ordersData);
+      }
     } catch (error) {
       alert('Error al crear el pedido');
     }
