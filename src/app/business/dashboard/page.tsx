@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct, getBusinessesByOwner, uploadImage, updateBusiness, addBusinessAdministrator, removeBusinessAdministrator, updateAdministratorPermissions, getUserBusinessAccess, getBusinessCategories, addCategoryToBusiness, searchClientByPhone, getClientLocations, createOrder, getDeliveriesByStatus, createClient, updateOrder, deleteOrder } from '@/lib/database'
-import { Business, Product, Order, ProductVariant } from '@/types'
+import { Business, Product, Order, ProductVariant, ClientLocation } from '@/types'
 import { auth, db } from '@/lib/firebase'
 import { doc, updateDoc } from 'firebase/firestore'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
@@ -77,8 +77,8 @@ export default function BusinessDashboard() {
       variant?: string;
     }>,
     deliveryType: '' as '' | 'delivery' | 'pickup',
-    selectedLocation: null as any,
-    customerLocations: [] as any[],
+    selectedLocation: null as ClientLocation | null,
+    customerLocations: [] as ClientLocation[],
     // Datos de timing
     timingType: 'immediate' as 'immediate' | 'scheduled',
     scheduledDate: '',
@@ -840,20 +840,36 @@ export default function BusinessDashboard() {
   };
 
   const formatTime = (dateValue: string | Date) => {
-    const date = typeof dateValue === 'string' ? new Date(dateValue) : dateValue;
-    return date.toLocaleTimeString('es-EC', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      const date = typeof dateValue === 'string' ? new Date(dateValue) : dateValue;
+      if (isNaN(date.getTime())) {
+        return 'Hora inválida';
+      }
+      return date.toLocaleTimeString('es-EC', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      console.warn('Error formatting time:', error);
+      return 'Hora inválida';
+    }
   };
 
   const formatDate = (dateValue: string | Date) => {
-    const date = typeof dateValue === 'string' ? new Date(dateValue) : dateValue;
-    return date.toLocaleDateString('es-EC', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
+    try {
+      const date = typeof dateValue === 'string' ? new Date(dateValue) : dateValue;
+      if (isNaN(date.getTime())) {
+        return 'Fecha inválida';
+      }
+      return date.toLocaleDateString('es-EC', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    } catch (error) {
+      console.warn('Error formatting date:', error);
+      return 'Fecha inválida';
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -884,27 +900,72 @@ export default function BusinessDashboard() {
 
   // Función helper para obtener la fecha/hora de una orden
   const getOrderDateTime = (order: Order) => {
-    // Si tiene timing con scheduledDate y scheduledTime, usar esos
-    if (order.timing?.scheduledDate && order.timing?.scheduledTime) {
-      // Usar hora local en lugar de UTC
-      const scheduledDateStr = typeof order.timing.scheduledDate === 'string' 
-        ? order.timing.scheduledDate 
-        : order.timing.scheduledDate.toISOString().split('T')[0];
-      const [year, month, day] = scheduledDateStr.split('-').map(Number);
-      const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number);
-      return new Date(year, month - 1, day, hours, minutes); // month - 1 porque Date usa 0-indexed months
-    }
-    // Si tiene solo scheduledTime (formato anterior), usar createdAt para la fecha
-    else if (order.timing?.scheduledTime) {
-      const createdDate = new Date(order.createdAt);
-      const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number);
-      const orderDate = new Date(createdDate);
-      orderDate.setHours(hours, minutes, 0, 0);
-      return orderDate;
-    }
-    // Fallback a createdAt
-    else {
-      return new Date(order.createdAt);
+    try {
+      // Si tiene timing con scheduledDate y scheduledTime, usar esos
+      if (order.timing?.scheduledDate && order.timing?.scheduledTime) {
+        // Convertir scheduledDate a string independientemente del tipo
+        let scheduledDateStr: string;
+        if (typeof order.timing.scheduledDate === 'string') {
+          scheduledDateStr = order.timing.scheduledDate;
+        } else if (order.timing.scheduledDate instanceof Date) {
+          // Verificar que la fecha sea válida antes de usar toISOString
+          if (isNaN(order.timing.scheduledDate.getTime())) {
+            throw new Error('Invalid Date object');
+          }
+          scheduledDateStr = order.timing.scheduledDate.toISOString().split('T')[0];
+        } else {
+          // Si es timestamp de Firebase u otro formato
+          const tempDate = new Date(order.timing.scheduledDate as any);
+          if (isNaN(tempDate.getTime())) {
+            throw new Error('Invalid date value');
+          }
+          scheduledDateStr = tempDate.toISOString().split('T')[0];
+        }
+        
+        const [year, month, day] = scheduledDateStr.split('-').map(Number);
+        const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number);
+        
+        // Verificar que todos los valores sean números válidos
+        if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(hours) || isNaN(minutes)) {
+          throw new Error('Invalid date components');
+        }
+        
+        const resultDate = new Date(year, month - 1, day, hours, minutes);
+        if (isNaN(resultDate.getTime())) {
+          throw new Error('Constructed date is invalid');
+        }
+        
+        return resultDate;
+      }
+      // Si tiene solo scheduledTime (formato anterior), usar createdAt para la fecha
+      else if (order.timing?.scheduledTime) {
+        const createdDate = new Date(order.createdAt);
+        if (isNaN(createdDate.getTime())) {
+          throw new Error('Invalid createdAt date');
+        }
+        
+        const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number);
+        if (isNaN(hours) || isNaN(minutes)) {
+          throw new Error('Invalid time format');
+        }
+        
+        const orderDate = new Date(createdDate);
+        orderDate.setHours(hours, minutes, 0, 0);
+        return orderDate;
+      }
+      // Fallback a createdAt
+      else {
+        const fallbackDate = new Date(order.createdAt);
+        if (isNaN(fallbackDate.getTime())) {
+          // Si createdAt también es inválido, usar fecha actual
+          return new Date();
+        }
+        return fallbackDate;
+      }
+    } catch (error) {
+      console.warn('Error parsing order date for order:', order.id, error);
+      // En caso de cualquier error, devolver la fecha actual
+      return new Date();
     }
   };
 
@@ -1008,7 +1069,7 @@ export default function BusinessDashboard() {
               </thead>
               <tbody className="bg-white">
                 {groupedOrders.map(({ status, orders: statusOrders }, groupIndex) => (
-                  <>
+                  <React.Fragment key={`group-${status}`}>
                     {/* Título del estado */}
                     <tr key={`title-${status}`} className="bg-gray-50">
                       <td colSpan={8} className="px-4 py-3 border-b border-gray-200">
@@ -1038,7 +1099,7 @@ export default function BusinessDashboard() {
                         isLastGroup={groupIndex === groupedOrders.length - 1}
                       />
                     ))}
-                  </>
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
@@ -1482,7 +1543,8 @@ export default function BusinessDashboard() {
         },
         delivery: {
           type: manualOrderData.deliveryType,
-          references: manualOrderData.selectedLocation?.address || '',
+          references: manualOrderData.selectedLocation?.referencia || '',
+          latlong: manualOrderData.selectedLocation?.latlong || '',
           assignedDelivery: manualOrderData.selectedDelivery?.id,
           deliveryCost
         },
@@ -2648,60 +2710,68 @@ export default function BusinessDashboard() {
 
       {/* Modal de Crear Pedido Manual */}
       {showManualOrderModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
-              <div className="flex justify-end">
-                <button
-                  onClick={() => setShowManualOrderModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <i className="bi bi-x-lg text-xl"></i>
-                </button>
-              </div>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+          <div className="bg-white rounded-lg w-full max-w-7xl max-h-[95vh] overflow-y-auto">
+            {/* Header del modal */}
+            <div className="sticky top-0 bg-white px-4 sm:px-6 py-3 border-b border-gray-200 flex justify-between items-center">
+              <h2 className="text-lg sm:text-xl font-semibold text-gray-900">
+                <i className="bi bi-plus-circle me-2"></i>
+                Crear Pedido Manual
+              </h2>
+              <button
+                onClick={() => setShowManualOrderModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1"
+              >
+                <i className="bi bi-x-lg text-lg sm:text-xl"></i>
+              </button>
             </div>
 
-            <div className="p-4 sm:p-6">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="p-3 sm:p-6">
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6">
                 {/* Columna 1: Información del Cliente */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="text-md font-medium text-gray-900 mb-4">
+                <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
+                  <h3 className="text-sm sm:text-md font-medium text-gray-900 mb-3 sm:mb-4">
                     <i className="bi bi-person me-2"></i>
                     Información del Cliente
                   </h3>
                   
-                  <div className="space-y-4">
+                  <div className="space-y-3 sm:space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                         Teléfono del Cliente
                       </label>
-                      <div className="flex space-x-2">
+                      <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
                         <input
                           type="text"
                           value={manualOrderData.customerPhone}
                           onChange={(e) => handlePhoneChange(e.target.value)}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                          className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                           placeholder="0987654321 o +593 98 765 4321"
                         />
-                        <button
-                          onClick={handlePastePhone}
-                          className="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors flex items-center"
-                          title="Pegar número desde portapapeles"
-                        >
-                          <i className="bi bi-clipboard"></i>
-                          <span className="ml-1 hidden sm:inline text-xs">Pegar</span>
-                        </button>
-                        <button
-                          onClick={() => handleSearchClient()}
-                          disabled={searchingClient || !manualOrderData.customerPhone.trim()}
-                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          {searchingClient ? (
-                            <i className="bi bi-arrow-clockwise animate-spin"></i>
-                          ) : (
-                            <i className="bi bi-search"></i>
-                          )}
-                        </button>
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={handlePastePhone}
+                            className="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors flex items-center text-xs sm:text-sm"
+                            title="Pegar número desde portapapeles"
+                          >
+                            <i className="bi bi-clipboard"></i>
+                            <span className="ml-1 hidden sm:inline">Pegar</span>
+                          </button>
+                          <button
+                            onClick={() => handleSearchClient()}
+                            disabled={searchingClient || !manualOrderData.customerPhone.trim()}
+                            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-xs sm:text-sm"
+                          >
+                            {searchingClient ? (
+                              <i className="bi bi-arrow-clockwise animate-spin"></i>
+                            ) : (
+                              <>
+                                <i className="bi bi-search"></i>
+                                <span className="ml-1 hidden sm:inline">Buscar</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                       {searchingClient && (
                         <p className="text-xs text-blue-600 mt-1">
@@ -2774,11 +2844,11 @@ export default function BusinessDashboard() {
 
                     {clientFound && (
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                           Tipo de Entrega
                         </label>
-                        <div className="space-y-2">
-                          <label className="flex items-center">
+                        <div className="grid grid-cols-2 gap-2 sm:space-y-0 sm:block sm:space-y-2">
+                          <label className="flex items-center p-2 sm:p-0 border border-gray-200 rounded-lg sm:border-none sm:rounded-none cursor-pointer hover:bg-gray-50 sm:hover:bg-transparent">
                             <input
                               type="radio"
                               name="deliveryType"
@@ -2790,12 +2860,12 @@ export default function BusinessDashboard() {
                               }))}
                               className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
                             />
-                            <span className="ml-2 text-sm text-gray-700">
+                            <span className="ml-2 text-xs sm:text-sm text-gray-700">
                               <i className="bi bi-scooter me-1"></i>
                               Delivery
                             </span>
                           </label>
-                          <label className="flex items-center">
+                          <label className="flex items-center p-2 sm:p-0 border border-gray-200 rounded-lg sm:border-none sm:rounded-none cursor-pointer hover:bg-gray-50 sm:hover:bg-transparent">
                             <input
                               type="radio"
                               name="deliveryType"
@@ -2807,7 +2877,7 @@ export default function BusinessDashboard() {
                               }))}
                               className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
                             />
-                            <span className="ml-2 text-sm text-gray-700">
+                            <span className="ml-2 text-xs sm:text-sm text-gray-700">
                               <i className="bi bi-bag me-1"></i>
                               Pickup
                             </span>
@@ -2836,7 +2906,7 @@ export default function BusinessDashboard() {
                                   <option value="">Seleccionar dirección</option>
                                   {manualOrderData.customerLocations.map((location) => (
                                     <option key={location.id} value={location.id}>
-                                      {location.name} - {location.address} | Ref: {location.referencia || 'Sin referencia'} | Envío: ${location.tarifa || '0.00'}
+                                      {location.sector} | Ref: {location.referencia || 'Sin referencia'} | Envío: ${location.tarifa || '0.00'}
                                     </option>
                                   ))}
                                 </select>
@@ -2857,10 +2927,10 @@ export default function BusinessDashboard() {
                                       <div className="text-sm">
                                         <div className="font-medium text-blue-900 mb-2">
                                           <i className="bi bi-geo-alt me-1"></i>
-                                          {manualOrderData.selectedLocation.name}
+                                          {manualOrderData.selectedLocation.sector}
                                         </div>
                                         <div className="text-blue-700 mb-2">
-                                          <strong>Dirección:</strong> {manualOrderData.selectedLocation.address}
+                                          <strong>Coordenadas:</strong> {manualOrderData.selectedLocation.latlong}
                                         </div>
                                         <div className="text-blue-700 mb-2">
                                           <strong>Referencia:</strong> {manualOrderData.selectedLocation.referencia || 'Sin referencia'}
@@ -3081,26 +3151,26 @@ export default function BusinessDashboard() {
                 </div>
 
                 {/* Columna 2: Lista de Productos */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="text-md font-medium text-gray-900 mb-4">
+                <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
+                  <h3 className="text-sm sm:text-md font-medium text-gray-900 mb-3 sm:mb-4">
                     <i className="bi bi-basket me-2"></i>
                     Productos Disponibles
                   </h3>
                   
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                  <div className="space-y-2 max-h-80 sm:max-h-96 overflow-y-auto">
                     {products.filter(p => p.isAvailable).map((product) => (
                       <div
                         key={product.id}
-                        className="bg-white p-3 rounded-lg border border-gray-200 hover:border-red-300 transition-colors cursor-pointer"
+                        className="bg-white p-2 sm:p-3 rounded-lg border border-gray-200 hover:border-red-300 transition-colors cursor-pointer"
                         onClick={() => handleAddProductToOrder(product)}
                       >
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
-                            <h4 className="text-sm font-medium text-gray-900">
+                            <h4 className="text-xs sm:text-sm font-medium text-gray-900">
                               {product.name}
                             </h4>
-                            <div className="flex items-center mt-2">
-                              <span className="text-sm font-medium text-red-600">
+                            <div className="flex items-center mt-1 sm:mt-2">
+                              <span className="text-xs sm:text-sm font-medium text-red-600">
                                 ${product.price.toFixed(2)}
                               </span>
                               {product.variants && product.variants.length > 0 && (
@@ -3120,25 +3190,25 @@ export default function BusinessDashboard() {
                 </div>
 
                 {/* Columna 3: Carrito y Resumen */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="text-md font-medium text-gray-900 mb-4">
+                <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
+                  <h3 className="text-sm sm:text-md font-medium text-gray-900 mb-3 sm:mb-4">
                     <i className="bi bi-cart me-2"></i>
                     Carrito ({manualOrderData.selectedProducts.length})
                   </h3>
                   
-                  <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
+                  <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto mb-3 sm:mb-4">
                     {manualOrderData.selectedProducts.map((item, index) => (
-                      <div key={index} className="bg-white p-3 rounded-lg border border-gray-200">
+                      <div key={index} className="bg-white p-2 sm:p-3 rounded-lg border border-gray-200">
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
-                            <h4 className="text-sm font-medium text-gray-900">
+                            <h4 className="text-xs sm:text-sm font-medium text-gray-900">
                               {item.name}
                             </h4>
-                            <div className="flex items-center justify-between mt-2">
-                              <span className="text-sm text-red-600 font-medium">
+                            <div className="flex items-center justify-between mt-1 sm:mt-2">
+                              <span className="text-xs sm:text-sm text-red-600 font-medium">
                                 ${item.price.toFixed(2)} x {item.quantity}
                               </span>
-                              <div className="flex items-center space-x-2">
+                              <div className="flex items-center space-x-1 sm:space-x-2">
                                 <button
                                   onClick={() => {
                                     const newProducts = [...manualOrderData.selectedProducts];
@@ -3152,11 +3222,11 @@ export default function BusinessDashboard() {
                                       selectedProducts: newProducts
                                     }));
                                   }}
-                                  className="text-gray-500 hover:text-red-600"
+                                  className="text-gray-500 hover:text-red-600 p-1"
                                 >
-                                  <i className="bi bi-dash-circle"></i>
+                                  <i className="bi bi-dash-circle text-xs sm:text-sm"></i>
                                 </button>
-                                <span className="text-sm">{item.quantity}</span>
+                                <span className="text-xs sm:text-sm font-medium text-gray-600">{item.quantity}</span>
                                 <button
                                   onClick={() => {
                                     const newProducts = [...manualOrderData.selectedProducts];
@@ -3166,9 +3236,9 @@ export default function BusinessDashboard() {
                                       selectedProducts: newProducts
                                     }));
                                   }}
-                                  className="text-gray-500 hover:text-red-600"
+                                  className="text-gray-500 hover:text-red-600 p-1"
                                 >
-                                  <i className="bi bi-plus-circle"></i>
+                                  <i className="bi bi-plus-circle text-xs sm:text-sm"></i>
                                 </button>
                               </div>
                             </div>
@@ -3178,18 +3248,18 @@ export default function BusinessDashboard() {
                     ))}
                     
                     {manualOrderData.selectedProducts.length === 0 && (
-                      <div className="text-center py-8 text-gray-500">
-                        <i className="bi bi-cart-x text-3xl mb-2"></i>
-                        <p className="text-sm">No hay productos seleccionados</p>
+                      <div className="text-center py-6 sm:py-8 text-gray-500">
+                        <i className="bi bi-cart-x text-2xl sm:text-3xl mb-2"></i>
+                        <p className="text-xs sm:text-sm">No hay productos seleccionados</p>
                       </div>
                     )}
                   </div>
 
                   {manualOrderData.selectedProducts.length > 0 && (
-                    <div className="border-t pt-4">
+                    <div className="border-t pt-3 sm:pt-4">
                       {/* Resumen detallado */}
-                      <div className="space-y-2 mb-4">
-                        <div className="flex justify-between items-center text-sm">
+                      <div className="space-y-2 mb-3 sm:mb-4">
+                        <div className="flex justify-between items-center text-xs sm:text-sm">
                           <span className="text-gray-600">Subtotal:</span>
                           <span className="font-medium">
                             ${manualOrderData.selectedProducts.reduce((sum, item) => 
@@ -3198,7 +3268,7 @@ export default function BusinessDashboard() {
                           </span>
                         </div>
                         
-                        <div className="flex justify-between items-center text-sm">
+                        <div className="flex justify-between items-center text-xs sm:text-sm">
                           <span className="text-gray-600">Envío:</span>
                           <span className="font-medium">
                             ${(manualOrderData.deliveryType === 'delivery' && manualOrderData.selectedLocation
@@ -3210,8 +3280,8 @@ export default function BusinessDashboard() {
                         
                         <div className="border-t pt-2">
                           <div className="flex justify-between items-center">
-                            <span className="text-lg font-medium text-gray-900">Total:</span>
-                            <span className="text-lg font-bold text-red-600">
+                            <span className="text-sm sm:text-lg font-medium text-gray-900">Total:</span>
+                            <span className="text-sm sm:text-lg font-bold text-red-600">
                               ${(() => {
                                 const subtotal = manualOrderData.selectedProducts.reduce((sum, item) => 
                                   sum + (item.price * item.quantity), 0
@@ -3226,14 +3296,23 @@ export default function BusinessDashboard() {
                         </div>
                       </div>
                       
-                      <button
-                        onClick={handleCreateManualOrder}
-                        disabled={!clientFound || manualOrderData.selectedProducts.length === 0 || !manualOrderData.deliveryType}
-                        className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        <i className="bi bi-check-circle me-2"></i>
-                        Crear Pedido
-                      </button>
+                      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 pt-4 border-t border-gray-200">
+                        <button
+                          onClick={() => setShowManualOrderModal(false)}
+                          className="w-full sm:w-auto px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm sm:text-base"
+                        >
+                          <i className="bi bi-x-circle me-2"></i>
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={handleCreateManualOrder}
+                          disabled={!clientFound || manualOrderData.selectedProducts.length === 0 || !manualOrderData.deliveryType}
+                          className="w-full sm:flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm sm:text-base"
+                        >
+                          <i className="bi bi-check-circle me-2"></i>
+                          Crear Pedido
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -3864,7 +3943,7 @@ export default function BusinessDashboard() {
       {/* Botón flotante para crear pedido */}
       <button
         onClick={() => setShowManualOrderModal(true)}
-        className="fixed bottom-4 right-4 lg:bottom-6 lg:right-6 bg-red-600 hover:bg-red-700 text-white rounded-full p-3 lg:p-4 shadow-lg transition-colors z-50"
+        className="fixed bottom-4 right-4 lg:bottom-6 lg:right-6 bg-red-600 hover:bg-red-700 text-white rounded-full w-12 h-12 lg:w-16 lg:h-16 shadow-lg transition-colors z-50 flex items-center justify-center"
         title="Crear Pedido"
       >
         <i className="bi bi-plus-lg text-lg lg:text-xl"></i>

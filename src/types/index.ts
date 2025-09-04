@@ -109,12 +109,14 @@ export interface Customer {
 export interface DeliveryInfo {
   type: 'delivery' | 'pickup'
   references?: string
+  latlong?: string // Coordenadas en formato "lat, lng" desde tabla ubicaciones
   mapLocation?: {
     lat: number
     lng: number
   }
   photo?: string
   assignedDelivery?: string // ID del delivery asignado
+  deliveryCost?: number // Costo de envío desde tabla ubicaciones
 }
 
 export interface OrderTiming {
