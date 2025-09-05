@@ -596,12 +596,7 @@ export async function uploadImage(file: File, path: string): Promise<string> {
 // Función para buscar negocios por categoría o nombre
 export async function searchBusinesses(searchTerm: string, category?: string): Promise<Business[]> {
   try {
-    let q = collection(db, 'businesses')
-    
-    if (category && category !== 'all') {
-      q = query(collection(db, 'businesses'), where('category', '==', category)) as any
-    }
-    
+    const q = collection(db, 'businesses')
     const querySnapshot = await getDocs(q)
     let businesses = querySnapshot.docs.map(doc => ({
       id: doc.id,
@@ -609,7 +604,14 @@ export async function searchBusinesses(searchTerm: string, category?: string): P
       createdAt: toSafeDate(doc.data().createdAt)
     })) as Business[]
     
-    // Filtrar por término de búsqueda en el frontend
+    // Filtrar por categoría
+    if (category && category !== 'all') {
+      businesses = businesses.filter(business => 
+        business.categories && business.categories.includes(category)
+      )
+    }
+    
+    // Filtrar por término de búsqueda
     if (searchTerm) {
       businesses = businesses.filter(business => 
         business.name.toLowerCase().includes(searchTerm.toLowerCase()) ||

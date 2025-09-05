@@ -3,45 +3,52 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
-import { getOrdersByClient, getBusiness } from '@/lib/database'
+import { getOrdersByClient, getBusiness, getDeliveryById } from '@/lib/database'
 import Link from 'next/link'
 
 interface Order {
   id: string
+  businessId: string
   customer: {
     name: string
     phone: string
   }
-  business: {
+  business?: {
     id: string
     name: string
     address: string
+    image?: string
   }
   items: Array<{
     name: string
     quantity: number
     price: number
-    subtotal: number
+    productId: string
+    variant?: string
   }>
   delivery: {
     type: 'delivery' | 'pickup'
-    address?: string
+    deliveryCost?: number
+    latlong?: string
     references?: string
-    fee?: number
+    assignedDelivery?: string
   }
   payment: {
     method: 'cash' | 'transfer'
-    bankDetails?: any
+    paymentStatus: string
+    selectedBank?: string
   }
-  scheduling: {
+  timing: {
     type: 'immediate' | 'scheduled'
-    date?: string
-    time?: string
+    scheduledDate?: any
+    scheduledTime?: string
   }
+  subtotal: number
   total: number
   status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
   createdAt: Date
-  updatedAt: Date
+  updatedAt?: Date
+  createdByAdmin?: boolean
 }
 
 export default function MyOrdersPage() {
@@ -50,6 +57,7 @@ export default function MyOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [currentTime, setCurrentTime] = useState(new Date())
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -59,6 +67,15 @@ export default function MyOrdersPage() {
 
     loadOrders()
   }, [user, isAuthenticated, router])
+
+  // Actualizar tiempo cada minuto para mostrar información en tiempo real
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 60000) // Actualizar cada minuto
+
+    return () => clearInterval(interval)
+  }, [])
 
   const loadOrders = async () => {
     if (!user?.celular) return
@@ -77,11 +94,13 @@ export default function MyOrdersPage() {
               business: business ? {
                 id: business.id,
                 name: business.name,
-                address: business.address
+                address: business.address,
+                image: business.image
               } : {
                 id: order.businessId,
                 name: 'Negocio no disponible',
-                address: ''
+                address: '',
+                image: undefined
               }
             }
           } catch (err) {
@@ -91,14 +110,42 @@ export default function MyOrdersPage() {
               business: {
                 id: order.businessId,
                 name: 'Negocio no disponible',
-                address: ''
+                address: '',
+                image: undefined
               }
             }
           }
         })
       )
 
-      setOrders(enrichedOrders)
+      // Ordenar por fecha de entrega (más próximos primero)
+      const sortedOrders = enrichedOrders.sort((a, b) => {
+        // Función helper para obtener la fecha/hora de entrega
+        const getDeliveryDateTime = (order: Order) => {
+          if (order.timing?.type === 'scheduled' && order.timing.scheduledDate) {
+            // Para pedidos programados, usar la fecha programada
+            const baseDate = new Date(order.timing.scheduledDate.seconds * 1000)
+            
+            // Si hay hora programada, agregar la hora
+            if (order.timing.scheduledTime) {
+              const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number)
+              baseDate.setHours(hours, minutes, 0, 0)
+            }
+            
+            return baseDate.getTime()
+          } else {
+            // Para pedidos inmediatos, usar la fecha de creación
+            return new Date(order.createdAt).getTime()
+          }
+        }
+        
+        const dateA = getDeliveryDateTime(a)
+        const dateB = getDeliveryDateTime(b)
+        
+        return dateA - dateB
+      })
+
+      setOrders(sortedOrders)
     } catch (err) {
       console.error('Error loading orders:', err)
       setError('Error al cargar los pedidos')
@@ -128,6 +175,67 @@ export default function MyOrdersPage() {
       case 'delivered': return 'Entregado'
       case 'cancelled': return 'Cancelado'
       default: return status
+    }
+  }
+
+  const handleOrderReceived = (orderId: string) => {
+    // TODO: Implementar actualización del estado del pedido a "delivered"
+    console.log('Pedido recibido:', orderId)
+    // Aquí puedes agregar la lógica para actualizar el estado en Firebase
+  }
+
+  const handleContactDelivery = async (order: Order) => {
+    try {
+      if (order.delivery.assignedDelivery) {
+        const delivery = await getDeliveryById(order.delivery.assignedDelivery)
+        if (delivery && delivery.celular) {
+          const phone = delivery.celular
+          const message = `Hola ${delivery.nombres || 'estimado repartidor'}, tengo una consulta sobre mi pedido del negocio ${order.business?.name || 'negocio'}. ¡Gracias!`
+          window.open(`https://wa.me/593${phone.substring(1)}?text=${encodeURIComponent(message)}`, '_blank')
+        } else {
+          alert('No se pudo obtener la información del repartidor')
+        }
+      } else {
+        alert('No hay repartidor asignado para este pedido')
+      }
+    } catch (error) {
+      console.error('Error getting delivery info:', error)
+      alert('Error al obtener la información del repartidor')
+    }
+  }
+
+  const getDeliveryText = (order: Order) => {
+    if (!order.timing?.scheduledDate) return 'Horario no definido'
+    
+    const scheduledDate = new Date(order.timing.scheduledDate.seconds * 1000)
+    const timeText = order.timing.scheduledTime || ''
+    
+    // Verificar si es hoy
+    const today = new Date()
+    const isToday = scheduledDate.toDateString() === today.toDateString()
+    
+    if (order.timing.type === 'immediate') {
+      if (isToday) {
+        return `Entrega estimada: Hoy a las ${timeText}`
+      } else {
+        const dateText = scheduledDate.toLocaleDateString('es-ES', { 
+          weekday: 'long',
+          day: 'numeric', 
+          month: 'long'
+        })
+        return `Entrega estimada: ${dateText} a las ${timeText}`
+      }
+    } else {
+      if (isToday) {
+        return `Programado para: Hoy a las ${timeText}`
+      } else {
+        const dateText = scheduledDate.toLocaleDateString('es-ES', { 
+          weekday: 'long',
+          day: 'numeric', 
+          month: 'long'
+        })
+        return `Programado para: ${dateText} a las ${timeText}`
+      }
     }
   }
 
@@ -187,23 +295,32 @@ export default function MyOrdersPage() {
                 {/* Header del pedido */}
                 <div className="px-6 py-4 bg-gray-50 border-b">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-medium text-gray-900">{order.business.name}</h3>
-                      <p className="text-sm text-gray-600">Pedido #{order.id.slice(-8)}</p>
+                    <div className="flex items-center space-x-4">
+                      {/* Imagen de la tienda */}
+                      <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                        {order.business?.image ? (
+                          <img 
+                            src={order.business.image} 
+                            alt={order.business.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                            <i className="bi bi-shop text-gray-400 text-lg"></i>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-medium text-gray-900">{order.business?.name || 'Negocio no disponible'}</h3>
+                        <p className="text-sm text-gray-600">
+                          {getDeliveryText(order)}
+                        </p>
+                      </div>
                     </div>
                     <div className="text-right">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
                         {getStatusText(order.status)}
                       </span>
-                      <p className="text-sm text-gray-500 mt-1">
-                        {order.createdAt.toLocaleDateString('es-ES', { 
-                          year: 'numeric', 
-                          month: 'short', 
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </p>
                     </div>
                   </div>
                 </div>
@@ -217,9 +334,9 @@ export default function MyOrdersPage() {
                       {order.items.map((item, index) => (
                         <div key={index} className="flex justify-between items-center text-sm">
                           <span className="text-gray-600">
-                            {item.quantity}x {item.name}
+                            {item.quantity || 0}x {item.name}
                           </span>
-                          <span className="font-medium">${item.subtotal.toFixed(2)}</span>
+                          <span className="font-medium">${((item.price || 0) * (item.quantity || 0)).toFixed(2)}</span>
                         </div>
                       ))}
                     </div>
@@ -233,8 +350,8 @@ export default function MyOrdersPage() {
                         {order.delivery.type === 'delivery' ? 'Delivery' : 'Retiro en tienda'}
                       </span>
                     </div>
-                    {order.delivery.type === 'delivery' && order.delivery.address && (
-                      <p className="text-gray-600 ml-5">{order.delivery.address}</p>
+                    {order.delivery.type === 'delivery' && order.delivery.references && (
+                      <p className="text-gray-600 ml-5">{order.delivery.references}</p>
                     )}
                   </div>
 
@@ -242,31 +359,55 @@ export default function MyOrdersPage() {
                   <div className="border-t pt-4">
                     <div className="flex justify-between items-center">
                       <span className="text-lg font-medium text-gray-900">Total:</span>
-                      <span className="text-lg font-bold text-red-600">${order.total.toFixed(2)}</span>
+                      <span className="text-lg font-bold text-red-600">${(order.total || 0).toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Acciones */}
                 <div className="px-6 py-4 bg-gray-50 border-t">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4 text-sm text-gray-600">
-                      <span className="flex items-center">
-                        <i className={`bi ${order.payment.method === 'cash' ? 'bi-cash' : 'bi-credit-card'} mr-1`}></i>
-                        {order.payment.method === 'cash' ? 'Efectivo' : 'Transferencia'}
-                      </span>
-                      <span className="flex items-center">
-                        <i className={`bi ${order.scheduling.type === 'immediate' ? 'bi-clock' : 'bi-calendar'} mr-1`}></i>
-                        {order.scheduling.type === 'immediate' ? 'Inmediato' : 'Programado'}
-                      </span>
-                    </div>
+                  {/* Información de pago y tipo en móviles */}
+                  <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mb-4">
+                    <span className="flex items-center">
+                      <i className={`bi ${order.payment?.method === 'cash' ? 'bi-cash' : 'bi-credit-card'} mr-1`}></i>
+                      {order.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'}
+                    </span>
+                    <span className="flex items-center">
+                      <i className={`bi ${order.timing?.type === 'immediate' ? 'bi-clock' : 'bi-calendar'} mr-1`}></i>
+                      {order.timing?.type === 'immediate' ? 'Inmediato' : 'Programado'}
+                    </span>
+                  </div>
+                  
+                  {/* Botones - stack en móviles, inline en desktop */}
+                  <div className="flex flex-col sm:flex-row gap-3 sm:gap-2 sm:justify-end">
+                    {/* Botón Contactar Repartidor - solo para delivery y pedidos listos */}
+                    {order.delivery.type === 'delivery' && order.status === 'ready' && (
+                      <button 
+                        onClick={() => handleContactDelivery(order)}
+                        className="w-full sm:w-auto inline-flex items-center justify-center px-4 py-3 sm:px-3 sm:py-1.5 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium"
+                      >
+                        <i className="bi bi-chat-dots mr-2"></i>
+                        Contactar Repartidor
+                      </button>
+                    )}
                     
+                    {/* Botón Recibido - solo para pedidos ready */}
+                    {order.status === 'ready' && (
+                      <button 
+                        onClick={() => handleOrderReceived(order.id)}
+                        className="w-full sm:w-auto inline-flex items-center justify-center px-4 py-3 sm:px-3 sm:py-1.5 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors font-medium"
+                      >
+                        <i className="bi bi-check-circle mr-2"></i>
+                        Marcar como Recibido
+                      </button>
+                    )}
+                    
+                    {/* Botón Cancelar - solo para pedidos pending */}
                     {order.status === 'pending' && (
-                      <div className="flex space-x-2">
-                        <button className="text-red-600 hover:text-red-700 text-sm font-medium">
-                          Cancelar
-                        </button>
-                      </div>
+                      <button className="w-full sm:w-auto inline-flex items-center justify-center px-4 py-3 sm:px-3 sm:py-1.5 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors font-medium">
+                        <i className="bi bi-x-circle mr-2"></i>
+                        Cancelar Pedido
+                      </button>
                     )}
                   </div>
                 </div>

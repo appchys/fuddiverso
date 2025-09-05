@@ -4,6 +4,11 @@ Cosas a tener en cuenta:
 - Siempre háblame en español.
 - Evita el uso de emojis, usa bootstrap icons.
 - Evita crear alertas para el usuario, usa modales o notificaciones.
+- Estamos en Ecuador, la zona horaria es UTC-5.
+- La moneda es USD, usa el símbolo $.
+- La app es para muchos negocios de comida, no para uno solo. 
+- Pretendo que haya un módulo para delivery.
+
 - Creé manualmente 2 colecciones en firebase y creo que no las comprendes bien, las explico:
 
   clients: colección que contiene los datos de los clientes, cada documento tiene el id del cliente y los siguientes campos, se llaman así tal cual:
@@ -23,31 +28,164 @@ Cosas a tener en cuenta:
 En checkout y en registro de ordenes manuales y en otras partes de la app, se usa la colección clients para obtener los datos del cliente, y la colección ubicaciones para obtener la ubicación del cliente refereciada por el campo id_cliente que es igual al id del cliente.
 
 
+Necesito revisar el código de checkout y registro de ordenes manuales, ya que las órdenes creadas desde el checkout no tienen la misma estructura en firebase que las manuales.
+
+Te comparto como es la estructura de una orden manual para que la uses de referencia:
 
 
-Nuevas implementaciones a realizar:
-1. En Dashboard, en pedidos de hoy, agregar un botón en cada fila del pedido para indicar que fue pagado con transferencia. Al hacer click en el botón, debe cambiar el estado del pago a "pagado" y actualizar la vista.
+  businessId
+"0FeNtdYThoTRMPJ6qaS7"
+(cadena)
 
-2. En Dashboard, en pedidos de hoy, agregar un botón en cada fila del pedido para enviar un mensaje de whatsapp al delivery asignado al pedido. El mensaje debe tener este formato:
 
-*Datos del cliente*
-Cliente: Kevin Albuja
-Celular: 0988280285
+createdAt
+4 de septiembre de 2025, 3:36:49 p.m. UTC-5
+(marca de tiempo)
 
-*Lugar de entrega*
-Referencias: Casa tres pisos color entre amarillo Frente a la coop de ahorro y crédito salitre
-Ubicación: : https://www.google.com/maps/place/-1.866538,-79.984276
 
-*Detalle del pedido*
-1 de 80 Unidades
+createdByAdmin
+true
+(booleano)
 
-*Detalles del pago*
-Valor del pedido: $14.5
-Envío: $1
 
-Forma de pago: Efectivo
-Total a cobrar: $15.5 (mostrar este campo solo si la forma de pago es efectivo)
 
-Este botón debe abrir whatsapp web con el mensaje ya escrito y listo para enviar, solo debe ser un ícono bootstrap button con el ícono de whatsapp
+customer
+(mapa)
 
-3. Cambia el botón de marcar como entregado por un ícono bootstrap button con el ícono de check, y no pongas texto en el botón, solo el ícono.
+
+name
+"Pedro Sánchez"
+(cadena)
+
+
+phone
+"0990815097"
+(cadena)
+
+
+
+delivery
+(mapa)
+
+
+assignedDelivery
+"SskWkBmgVtI2j9WJdUDZ"
+(cadena)
+
+
+deliveryCost
+1
+(número)
+
+
+latlong
+"-1.865759, -79.977809"
+(cadena)
+
+
+references
+"Daule, Vicente Rocafuerte"
+(cadena)
+
+
+type
+"delivery"
+(cadena)
+
+
+
+items
+(array)
+
+
+
+0
+(mapa)
+
+
+name
+"Wantancitos y Tequeños - 15 wantancitos + 9 tequeños "
+(cadena)
+
+
+price
+5.5
+(número)
+
+
+productId
+"p6xNQZL0gnxbMXxOffhE"
+(cadena)
+
+
+quantity
+1
+(número)
+
+
+variant
+"15 wantancitos + 9 tequeños "
+(cadena)
+
+
+
+payment
+(mapa)
+
+
+method
+"cash"
+(cadena)
+
+
+paymentStatus
+"pending"
+(cadena)
+
+
+selectedBank
+""
+(cadena)
+
+
+status
+"ready"
+(cadena)
+
+
+subtotal
+5.5
+(número)
+
+
+
+timing
+(mapa)
+
+
+scheduledDate
+"2025-09-04"
+(cadena)
+
+
+scheduledTime
+"16:06"
+(cadena)
+
+
+type
+"immediate"
+(cadena)
+
+
+total
+6.5
+(número)
+
+
+updatedAt
+4 de septiembre de 2025, 5:47:27 p.m. UTC-5
+(marca de tiempo)
+
+
+Tambien quiero cambiar en la pestaña Pedidos de hoy, dentro hay un título que dice Pedidos de hoy (x), quiero que en su lugar esté la suma de los totales de las órdenes que se muestran en la lista.

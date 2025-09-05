@@ -128,10 +128,13 @@ export interface OrderTiming {
 }
 
 export interface PaymentInfo {
-  method: 'cash' | 'transfer'
+  method: 'cash' | 'transfer' | 'mixed'
   selectedBank?: string
   receiptImageUrl?: string
   paymentStatus?: 'pending' | 'validating' | 'paid'
+  // Campos para pago mixto
+  cashAmount?: number
+  transferAmount?: number
   bankAccount?: {
     bankName: string
     accountType: string

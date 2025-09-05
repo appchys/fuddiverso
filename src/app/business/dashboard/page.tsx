@@ -19,7 +19,7 @@ export default function BusinessDashboard() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'profile' | 'admins'>('orders')
   const [showManualOrderModal, setShowManualOrderModal] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true) // Abierto por defecto en desktop
   const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today') // Nueva pestaña para pedidos
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(businessId)
   const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null) // Nuevo estado
@@ -84,9 +84,13 @@ export default function BusinessDashboard() {
     scheduledDate: '',
     scheduledTime: '',
     // Datos de pago
-    paymentMethod: 'cash' as 'cash' | 'transfer',
+    paymentMethod: 'cash' as 'cash' | 'transfer' | 'mixed',
     selectedBank: '',
     paymentStatus: 'pending' as 'pending' | 'validating' | 'paid',
+    // Pago mixto
+    cashAmount: 0,
+    transferAmount: 0,
+    total: 0,
     // Delivery asignado
     selectedDelivery: null as any
   })
@@ -113,9 +117,11 @@ export default function BusinessDashboard() {
     timingType: 'immediate' as 'immediate' | 'scheduled',
     scheduledDate: '',
     scheduledTime: '',
-    paymentMethod: 'cash' as 'cash' | 'transfer',
+    paymentMethod: 'cash' as 'cash' | 'transfer' | 'mixed',
     selectedBank: '',
     paymentStatus: 'pending' as 'pending' | 'validating' | 'paid',
+    cashAmount: 0,
+    transferAmount: 0,
     total: 0,
     status: 'pending' as Order['status']
   })
@@ -273,6 +279,30 @@ export default function BusinessDashboard() {
     loadDeliveries()
   }, [])
 
+  // Efecto para calcular automáticamente el total del pedido manual
+  useEffect(() => {
+    const subtotal = manualOrderData.selectedProducts.reduce((sum, item) => 
+      sum + (item.price * item.quantity), 0
+    );
+    const delivery = manualOrderData.deliveryType === 'delivery' && manualOrderData.selectedLocation
+      ? parseFloat(manualOrderData.selectedLocation.tarifa || '0')
+      : 0;
+    const newTotal = subtotal + delivery;
+    
+    // Solo actualizar si el total cambió
+    if (Math.abs(manualOrderData.total - newTotal) > 0.01) {
+      setManualOrderData(prev => ({
+        ...prev,
+        total: newTotal,
+        // Si es pago mixto y algún valor está en 0, distribuir automáticamente
+        ...(prev.paymentMethod === 'mixed' && (prev.cashAmount === 0 && prev.transferAmount === 0) && {
+          cashAmount: newTotal / 2,
+          transferAmount: newTotal / 2
+        })
+      }));
+    }
+  }, [manualOrderData.selectedProducts, manualOrderData.deliveryType, manualOrderData.selectedLocation]);
+
   const handleBusinessChange = (businessId: string) => {
     const selectedBusiness = businesses.find(b => b.id === businessId);
     if (selectedBusiness) {
@@ -379,6 +409,8 @@ export default function BusinessDashboard() {
       paymentMethod: order.payment.method,
       selectedBank: order.payment.selectedBank || '',
       paymentStatus: order.payment.paymentStatus || 'pending',
+      cashAmount: (order.payment as any)?.cashAmount || 0,
+      transferAmount: (order.payment as any)?.transferAmount || 0,
       total: order.total,
       status: order.status
     })
@@ -428,7 +460,11 @@ export default function BusinessDashboard() {
           method: editOrderData.paymentMethod,
           selectedBank: editOrderData.selectedBank,
           paymentStatus: editOrderData.paymentStatus,
-          bankAccount: editingOrder.payment.bankAccount
+          bankAccount: editingOrder.payment.bankAccount,
+          ...(editOrderData.paymentMethod === 'mixed' && {
+            cashAmount: editOrderData.cashAmount || 0,
+            transferAmount: editOrderData.transferAmount || 0
+          })
         },
         total: editOrderData.total,
         status: editOrderData.status
@@ -557,7 +593,7 @@ export default function BusinessDashboard() {
 
     // Construir lista de productos
     const productsList = order.items?.map((item: any) => 
-      `${item.quantity} de ${item.name || item.product?.name || 'Producto'}`
+      `${item.quantity} de ${item.variant || item.name || item.product?.name || 'Producto'}`
     ).join('\n') || 'Sin productos'
 
     // Calcular totales
@@ -988,18 +1024,6 @@ export default function BusinessDashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showBusinessDropdown]);
 
-  // Cerrar sidebar en pantallas grandes
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 1024) { // lg breakpoint
-        setSidebarOpen(false);
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
   const handleLogout = () => {
     logout()
     router.push('/business/login')
@@ -1359,37 +1383,6 @@ export default function BusinessDashboard() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Hora
-                  </th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Acciones
-                  </th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Cliente
-                  </th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Productos
-                  </th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Total
-                  </th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Estado
-                  </th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Pago
-                  </th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Delivery
-                  </th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Editar
-                  </th>
-                </tr>
-              </thead>
               <tbody className="bg-white">
                 {groupedOrders.map(({ status, orders: statusOrders }, groupIndex) => (
                   <React.Fragment key={`group-${status}`}>
@@ -1444,31 +1437,6 @@ export default function BusinessDashboard() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Fecha
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Cliente
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Productos
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Estado
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Pago
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Acciones
-                </th>
-              </tr>
-            </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {orders.map((order) => (
                 <OrderRow key={order.id} order={order} isToday={isToday} />
@@ -1604,9 +1572,26 @@ export default function BusinessDashboard() {
         </td>
         <td className="px-3 py-2 whitespace-nowrap">
           <div className="flex items-center space-x-2">
-            <span className="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded">
-              <i className={`bi ${order.payment?.method === 'cash' ? 'bi-cash' : 'bi-credit-card'} me-1`}></i>
-              {order.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'}
+            <span className={`text-xs px-2 py-1 rounded ${
+              order.payment?.method === 'cash' 
+                ? 'text-green-700 bg-green-100' 
+                : order.payment?.method === 'mixed'
+                  ? 'text-yellow-700 bg-yellow-100'
+                  : 'text-blue-700 bg-blue-100'
+            }`}>
+              <i className={`bi ${
+                order.payment?.method === 'cash' 
+                  ? 'bi-cash' 
+                  : order.payment?.method === 'mixed'
+                    ? 'bi-cash-coin'
+                    : 'bi-credit-card'
+              } me-1`}></i>
+              {order.payment?.method === 'cash' 
+                ? 'Efectivo' 
+                : order.payment?.method === 'mixed'
+                  ? 'Mixto'
+                  : 'Transferencia'
+              }
             </span>
             {isToday && order.payment?.method === 'transfer' && order.payment?.paymentStatus !== 'paid' && (
               <button
@@ -1625,18 +1610,31 @@ export default function BusinessDashboard() {
         </td>
         {isToday && order.delivery?.type === 'delivery' && (
           <td className="px-3 py-2 whitespace-nowrap">
-            <select
-              value={order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery || ''}
-              onChange={(e) => handleDeliveryAssignment(order.id, e.target.value)}
-              className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-red-500"
-            >
-              <option value="">Sin asignar</option>
-              {availableDeliveries?.map((delivery) => (
-                <option key={delivery.id} value={delivery.id}>
-                  {delivery.nombres} - {delivery.celular}
-                </option>
-              ))}
-            </select>
+            {(() => {
+              const currentDeliveryId = order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery;
+              const currentDelivery = availableDeliveries?.find(d => d.id === currentDeliveryId);
+              
+              return (
+                <div className="relative">
+                  <select
+                    value={currentDeliveryId || ''}
+                    onChange={(e) => handleDeliveryAssignment(order.id, e.target.value)}
+                    className={`text-xs px-2 py-1 rounded-full border-0 font-medium transition-colors ${
+                      currentDelivery 
+                        ? 'bg-blue-100 text-blue-800' 
+                        : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    <option value="">Sin asignar</option>
+                    {availableDeliveries?.map((delivery) => (
+                      <option key={delivery.id} value={delivery.id}>
+                        {delivery.nombres}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })()}
           </td>
         )}
         {isToday && order.delivery?.type === 'pickup' && (
@@ -1962,7 +1960,11 @@ export default function BusinessDashboard() {
         payment: {
           method: manualOrderData.paymentMethod,
           paymentStatus: manualOrderData.paymentStatus,
-          selectedBank: manualOrderData.selectedBank
+          selectedBank: manualOrderData.selectedBank,
+          ...(manualOrderData.paymentMethod === 'mixed' && {
+            cashAmount: manualOrderData.cashAmount,
+            transferAmount: manualOrderData.transferAmount
+          })
         },
         createdByAdmin: true,
         timing: {
@@ -1988,12 +1990,14 @@ export default function BusinessDashboard() {
         paymentMethod: 'cash',
         selectedBank: '',
         paymentStatus: 'pending',
+        cashAmount: 0,
+        transferAmount: 0,
+        total: 0,
         selectedDelivery: null
       });
       setClientFound(false);
       setShowManualOrderModal(false); // Cerrar el modal
       
-      alert('Pedido creado exitosamente');
       setActiveTab('orders'); // Cambiar a la pestaña de pedidos
       
       // Recargar pedidos
@@ -2043,7 +2047,7 @@ export default function BusinessDashboard() {
               {/* Botón de menú móvil */}
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="lg:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+                className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
               >
                 <i className="bi bi-list text-xl"></i>
               </button>
@@ -2193,7 +2197,7 @@ export default function BusinessDashboard() {
 
       {/* Layout con Sidebar */}
       <div className="flex h-screen">
-        {/* Overlay para móvil */}
+        {/* Overlay solo en móvil */}
         {sidebarOpen && (
           <div 
             className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
@@ -2205,11 +2209,10 @@ export default function BusinessDashboard() {
         <div className={`
           w-64 bg-white shadow-sm border-r border-gray-200 fixed h-full overflow-y-auto z-50 transition-transform duration-300 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-          lg:translate-x-0 lg:static lg:z-auto
         `}>
           <div className="p-4">
-            {/* Header del sidebar para móvil */}
-            <div className="flex justify-between items-center mb-4 lg:hidden">
+            {/* Header del sidebar */}
+            <div className="flex justify-between items-center mb-4">
               <span className="font-semibold text-gray-900">Menú</span>
               <button
                 onClick={() => setSidebarOpen(false)}
@@ -2290,7 +2293,7 @@ export default function BusinessDashboard() {
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 lg:ml-64 overflow-y-auto">
+        <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
 
         {/* Orders Tab */}
@@ -2357,7 +2360,40 @@ export default function BusinessDashboard() {
                     <div>
                       <div className="flex items-center justify-between mb-4">
                         <h2 className="text-xl font-bold text-gray-900">
-                          Pedidos de hoy: ${todayOrders.reduce((sum, order) => sum + (order.total || 0), 0).toFixed(2)}
+                          {(() => {
+                            const cashTotal = todayOrders
+                              .reduce((sum, order) => {
+                                if (order.payment?.method === 'cash') {
+                                  return sum + (order.total || 0);
+                                } else if (order.payment?.method === 'mixed') {
+                                  return sum + ((order.payment as any)?.cashAmount || 0);
+                                }
+                                return sum;
+                              }, 0);
+                            
+                            const transferTotal = todayOrders
+                              .reduce((sum, order) => {
+                                if (order.payment?.method === 'transfer') {
+                                  return sum + (order.total || 0);
+                                } else if (order.payment?.method === 'mixed') {
+                                  return sum + ((order.payment as any)?.transferAmount || 0);
+                                }
+                                return sum;
+                              }, 0);
+                            
+                            return (
+                              <span className="flex items-center space-x-4">
+                                <span className="text-green-600">
+                                  <i className="bi bi-cash me-1"></i>
+                                  ${cashTotal.toFixed(2)}
+                                </span>
+                                <span className="text-blue-600">
+                                  <i className="bi bi-credit-card me-1"></i>
+                                  ${transferTotal.toFixed(2)}
+                                </span>
+                              </span>
+                            );
+                          })()}
                         </h2>
                         <span className="text-sm text-gray-500">
                           {new Date().toLocaleDateString('es-EC', { 
@@ -3200,7 +3236,7 @@ export default function BusinessDashboard() {
             </div>
 
             <div className="p-3 sm:p-6">
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
                 {/* Columna 1: Información del Cliente */}
                 <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
                   <h3 className="text-sm sm:text-md font-medium text-gray-900 mb-3 sm:mb-4">
@@ -3420,27 +3456,89 @@ export default function BusinessDashboard() {
 
                             {/* Seleccionar Delivery - SEGUNDO */}
                             <div className="mt-4">
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                              <label className="block text-sm font-medium text-gray-700 mb-3">
                                 Seleccionar Delivery
                               </label>
-                              <select
-                                value={manualOrderData.selectedDelivery?.id || ''}
-                                onChange={(e) => {
-                                  const delivery = availableDeliveries.find(d => d.id === e.target.value);
-                                  setManualOrderData(prev => ({
-                                    ...prev,
-                                    selectedDelivery: delivery || null
-                                  }));
-                                }}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                              >
-                                <option value="">Seleccionar un delivery</option>
-                                {availableDeliveries.map((delivery) => (
-                                  <option key={delivery.id} value={delivery.id}>
-                                    {delivery.nombres} - {delivery.celular}
-                                  </option>
-                                ))}
-                              </select>
+                              {!manualOrderData.selectedDelivery ? (
+                                <div className="grid gap-3">
+                                  {availableDeliveries.map((delivery) => (
+                                    <div
+                                      key={delivery.id}
+                                      onClick={() => {
+                                        setManualOrderData(prev => ({
+                                          ...prev,
+                                          selectedDelivery: delivery
+                                        }));
+                                      }}
+                                      className="flex items-center p-3 border border-gray-200 rounded-lg hover:border-red-300 hover:bg-red-50 cursor-pointer transition-all group"
+                                    >
+                                      <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 flex-shrink-0 mr-3">
+                                        {delivery.imagen ? (
+                                          <img 
+                                            src={delivery.imagen} 
+                                            alt={delivery.nombres}
+                                            className="w-full h-full object-cover"
+                                          />
+                                        ) : (
+                                          <div className="w-full h-full flex items-center justify-center bg-red-100 text-red-600">
+                                            <i className="bi bi-person-circle text-2xl"></i>
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="flex-1">
+                                        <h4 className="font-medium text-gray-900 group-hover:text-red-600">{delivery.nombres}</h4>
+                                        <p className="text-sm text-gray-500">
+                                          <i className="bi bi-telephone me-1"></i>
+                                          {delivery.celular}
+                                        </p>
+                                        {delivery.estado && (
+                                          <p className="text-xs text-green-600 mt-1">
+                                            <i className="bi bi-check-circle me-1"></i>
+                                            {delivery.estado}
+                                          </p>
+                                        )}
+                                      </div>
+                                      <div className="flex-shrink-0">
+                                        <i className="bi bi-chevron-right text-gray-400 group-hover:text-red-500"></i>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="flex items-center p-3 border border-red-200 rounded-lg bg-red-50">
+                                  <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 flex-shrink-0 mr-3">
+                                    {manualOrderData.selectedDelivery.imagen ? (
+                                      <img 
+                                        src={manualOrderData.selectedDelivery.imagen} 
+                                        alt={manualOrderData.selectedDelivery.nombres}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center bg-red-100 text-red-600">
+                                        <i className="bi bi-person-circle text-2xl"></i>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex-1">
+                                    <h4 className="font-medium text-red-900">{manualOrderData.selectedDelivery.nombres}</h4>
+                                    <p className="text-sm text-red-700">
+                                      <i className="bi bi-telephone me-1"></i>
+                                      {manualOrderData.selectedDelivery.celular}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      setManualOrderData(prev => ({
+                                        ...prev,
+                                        selectedDelivery: null
+                                      }));
+                                    }}
+                                    className="flex-shrink-0 p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
+                                  >
+                                    <i className="bi bi-x-lg"></i>
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </>
                         )}
@@ -3527,94 +3625,6 @@ export default function BusinessDashboard() {
                                 }))}
                                 className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
                               />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Sección de Método de Pago */}
-                    {clientFound && manualOrderData.deliveryType && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <i className="bi bi-credit-card me-1"></i>
-                          Método de Pago
-                        </label>
-                        <div className="space-y-2">
-                          <label className="flex items-center">
-                            <input
-                              type="radio"
-                              name="paymentMethod"
-                              value="cash"
-                              checked={manualOrderData.paymentMethod === 'cash'}
-                              onChange={(e) => setManualOrderData(prev => ({
-                                ...prev,
-                                paymentMethod: e.target.value as 'cash',
-                                paymentStatus: 'pending' // Por cobrar al entregar
-                              }))}
-                              className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">
-                              <i className="bi bi-cash me-1"></i>
-                              Efectivo
-                            </span>
-                          </label>
-                          <label className="flex items-center">
-                            <input
-                              type="radio"
-                              name="paymentMethod"
-                              value="transfer"
-                              checked={manualOrderData.paymentMethod === 'transfer'}
-                              onChange={(e) => setManualOrderData(prev => ({
-                                ...prev,
-                                paymentMethod: e.target.value as 'transfer',
-                                paymentStatus: 'paid' // Automáticamente marcar como pagado
-                              }))}
-                              className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">
-                              <i className="bi bi-bank me-1"></i>
-                              Transferencia
-                            </span>
-                          </label>
-                        </div>
-
-                        {manualOrderData.paymentMethod === 'transfer' && (
-                          <div className="mt-3">
-                            <label className="block text-xs font-medium text-gray-600 mb-1">
-                              Banco de transferencia
-                            </label>
-                            <select
-                              value={manualOrderData.selectedBank}
-                              onChange={(e) => setManualOrderData(prev => ({
-                                ...prev,
-                                selectedBank: e.target.value
-                              }))}
-                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
-                            >
-                              <option value="">Seleccionar banco</option>
-                              <option value="pichincha">🟡 Banco Pichincha</option>
-                              <option value="pacifico">🔵 Banco Pacifico</option>
-                              <option value="guayaquil">🩷 Banco Guayaquil</option>
-                              <option value="produbanco">🟢 Banco Produbanco</option>
-                            </select>
-                            
-                            <div className="mt-2">
-                              <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Estado del pago
-                              </label>
-                              <select
-                                value={manualOrderData.paymentStatus}
-                                onChange={(e) => setManualOrderData(prev => ({
-                                  ...prev,
-                                  paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
-                                }))}
-                                className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
-                              >
-                                <option value="pending">Por cobrar</option>
-                                <option value="validating">Validando</option>
-                                <option value="paid">Pagado</option>
-                              </select>
                             </div>
                           </div>
                         )}
@@ -3768,6 +3778,200 @@ export default function BusinessDashboard() {
                           </div>
                         </div>
                       </div>
+                      
+                      {/* Sección de Método de Pago */}
+                      {clientFound && manualOrderData.deliveryType && (
+                        <div className="border-t pt-4 mt-4">
+                          <h4 className="text-sm font-medium text-gray-900 mb-3">
+                            <i className="bi bi-credit-card me-2"></i>
+                            Método de Pago
+                          </h4>
+                          <div className="space-y-2">
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="paymentMethod"
+                                value="cash"
+                                checked={manualOrderData.paymentMethod === 'cash'}
+                                onChange={(e) => setManualOrderData(prev => ({
+                                  ...prev,
+                                  paymentMethod: e.target.value as 'cash',
+                                  paymentStatus: 'pending',
+                                  cashAmount: 0,
+                                  transferAmount: 0
+                                }))}
+                                className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                              />
+                              <span className="ml-2 text-sm text-gray-700">
+                                <i className="bi bi-cash me-1"></i>
+                                Efectivo
+                              </span>
+                            </label>
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="paymentMethod"
+                                value="transfer"
+                                checked={manualOrderData.paymentMethod === 'transfer'}
+                                onChange={(e) => setManualOrderData(prev => ({
+                                  ...prev,
+                                  paymentMethod: e.target.value as 'transfer',
+                                  paymentStatus: 'paid',
+                                  cashAmount: 0,
+                                  transferAmount: 0
+                                }))}
+                                className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                              />
+                              <span className="ml-2 text-sm text-gray-700">
+                                <i className="bi bi-bank me-1"></i>
+                                Transferencia
+                              </span>
+                            </label>
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="paymentMethod"
+                                value="mixed"
+                                checked={manualOrderData.paymentMethod === 'mixed'}
+                                onChange={(e) => setManualOrderData(prev => ({
+                                  ...prev,
+                                  paymentMethod: e.target.value as 'mixed',
+                                  paymentStatus: 'pending',
+                                  cashAmount: 0,
+                                  transferAmount: 0
+                                }))}
+                                className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                              />
+                              <span className="ml-2 text-sm text-gray-700">
+                                <i className="bi bi-cash-coin me-1"></i>
+                                Pago Mixto (Efectivo + Transferencia)
+                              </span>
+                            </label>
+                          </div>
+
+                          {/* Configuración de Pago Mixto */}
+                          {manualOrderData.paymentMethod === 'mixed' && (
+                            <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                              <h5 className="text-xs font-medium text-yellow-800 mb-2">
+                                <i className="bi bi-calculator me-1"></i>
+                                Distribución del Pago
+                              </h5>
+                              <div className="space-y-2">
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                                    Monto en Efectivo
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={manualOrderData.cashAmount || ''}
+                                    onChange={(e) => {
+                                      const cash = parseFloat(e.target.value) || 0;
+                                      const total = manualOrderData.total;
+                                      const transfer = Math.max(0, total - cash);
+                                      setManualOrderData(prev => ({
+                                        ...prev,
+                                        cashAmount: cash,
+                                        transferAmount: transfer
+                                      }));
+                                    }}
+                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                                    Monto por Transferencia
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={manualOrderData.transferAmount || ''}
+                                    onChange={(e) => {
+                                      const transfer = parseFloat(e.target.value) || 0;
+                                      const total = manualOrderData.total;
+                                      const cash = Math.max(0, total - transfer);
+                                      setManualOrderData(prev => ({
+                                        ...prev,
+                                        cashAmount: cash,
+                                        transferAmount: transfer
+                                      }));
+                                    }}
+                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                                  />
+                                </div>
+                                <div className="text-xs text-gray-600 bg-white p-2 rounded border">
+                                  <div className="flex justify-between">
+                                    <span>Total del pedido:</span>
+                                    <span className="font-medium">${manualOrderData.total.toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex justify-between text-green-600">
+                                    <span>Efectivo:</span>
+                                    <span>${(manualOrderData.cashAmount || 0).toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex justify-between text-blue-600">
+                                    <span>Transferencia:</span>
+                                    <span>${(manualOrderData.transferAmount || 0).toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex justify-between font-medium border-t pt-1 mt-1">
+                                    <span>Suma:</span>
+                                    <span className={
+                                      Math.abs((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0) - manualOrderData.total) < 0.01
+                                        ? 'text-green-600' 
+                                        : 'text-red-600'
+                                    }>
+                                      ${((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0)).toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {(manualOrderData.paymentMethod === 'transfer' || manualOrderData.paymentMethod === 'mixed') && (
+                            <div className="mt-3">
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Banco de transferencia
+                              </label>
+                              <select
+                                value={manualOrderData.selectedBank}
+                                onChange={(e) => setManualOrderData(prev => ({
+                                  ...prev,
+                                  selectedBank: e.target.value
+                                }))}
+                                className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                              >
+                                <option value="">Seleccionar banco</option>
+                                <option value="pichincha">🟡 Banco Pichincha</option>
+                                <option value="pacifico">🔵 Banco Pacifico</option>
+                                <option value="guayaquil">🩷 Banco Guayaquil</option>
+                                <option value="produbanco">🟢 Banco Produbanco</option>
+                              </select>
+                              
+                              <div className="mt-2">
+                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                  Estado del pago
+                                </label>
+                                <select
+                                  value={manualOrderData.paymentStatus}
+                                  onChange={(e) => setManualOrderData(prev => ({
+                                    ...prev,
+                                    paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
+                                  }))}
+                                  className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                                >
+                                  <option value="pending">Por cobrar</option>
+                                  <option value="validating">Validando</option>
+                                  <option value="paid">Pagado</option>
+                                </select>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       
                       <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 pt-4 border-t border-gray-200">
                         <button
@@ -4494,49 +4698,184 @@ export default function BusinessDashboard() {
                 <div className="space-y-4">
                   <h4 className="text-lg font-medium text-gray-900">Información de Pago</h4>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
                         Método de Pago
                       </label>
-                      <select
-                        value={editOrderData.paymentMethod}
-                        onChange={(e) => setEditOrderData({...editOrderData, paymentMethod: e.target.value as 'cash' | 'transfer'})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                      >
-                        <option value="cash">Efectivo</option>
-                        <option value="transfer">Transferencia</option>
-                      </select>
+                      <div className="space-y-2">
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            name="editPaymentMethod"
+                            value="cash"
+                            checked={editOrderData.paymentMethod === 'cash'}
+                            onChange={(e) => setEditOrderData({
+                              ...editOrderData, 
+                              paymentMethod: e.target.value as 'cash',
+                              cashAmount: 0,
+                              transferAmount: 0
+                            })}
+                            className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">
+                            <i className="bi bi-cash me-1"></i>
+                            Efectivo
+                          </span>
+                        </label>
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            name="editPaymentMethod"
+                            value="transfer"
+                            checked={editOrderData.paymentMethod === 'transfer'}
+                            onChange={(e) => setEditOrderData({
+                              ...editOrderData, 
+                              paymentMethod: e.target.value as 'transfer',
+                              cashAmount: 0,
+                              transferAmount: 0
+                            })}
+                            className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">
+                            <i className="bi bi-bank me-1"></i>
+                            Transferencia
+                          </span>
+                        </label>
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            name="editPaymentMethod"
+                            value="mixed"
+                            checked={editOrderData.paymentMethod === 'mixed'}
+                            onChange={(e) => setEditOrderData({
+                              ...editOrderData, 
+                              paymentMethod: e.target.value as 'mixed',
+                              cashAmount: editOrderData.total / 2,
+                              transferAmount: editOrderData.total / 2
+                            })}
+                            className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">
+                            <i className="bi bi-cash-coin me-1"></i>
+                            Pago Mixto (Efectivo + Transferencia)
+                          </span>
+                        </label>
+                      </div>
                     </div>
+
+                    {/* Configuración de Pago Mixto */}
+                    {editOrderData.paymentMethod === 'mixed' && (
+                      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <h5 className="text-sm font-medium text-yellow-800 mb-3">
+                          <i className="bi bi-calculator me-1"></i>
+                          Distribución del Pago
+                        </h5>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Monto en Efectivo
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="0.00"
+                              value={editOrderData.cashAmount || ''}
+                              onChange={(e) => {
+                                const cash = parseFloat(e.target.value) || 0;
+                                const total = editOrderData.total;
+                                const transfer = Math.max(0, total - cash);
+                                setEditOrderData({
+                                  ...editOrderData,
+                                  cashAmount: cash,
+                                  transferAmount: transfer
+                                });
+                              }}
+                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Monto por Transferencia
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="0.00"
+                              value={editOrderData.transferAmount || ''}
+                              onChange={(e) => {
+                                const transfer = parseFloat(e.target.value) || 0;
+                                const total = editOrderData.total;
+                                const cash = Math.max(0, total - transfer);
+                                setEditOrderData({
+                                  ...editOrderData,
+                                  cashAmount: cash,
+                                  transferAmount: transfer
+                                });
+                              }}
+                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-3 text-xs text-gray-600 bg-white p-2 rounded border">
+                          <div className="flex justify-between">
+                            <span>Total del pedido:</span>
+                            <span className="font-medium">${editOrderData.total.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-green-600">
+                            <span>Efectivo:</span>
+                            <span>${(editOrderData.cashAmount || 0).toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-blue-600">
+                            <span>Transferencia:</span>
+                            <span>${(editOrderData.transferAmount || 0).toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between font-medium border-t pt-1 mt-1">
+                            <span>Suma:</span>
+                            <span className={
+                              Math.abs((editOrderData.cashAmount || 0) + (editOrderData.transferAmount || 0) - editOrderData.total) < 0.01
+                                ? 'text-green-600' 
+                                : 'text-red-600'
+                            }>
+                              ${((editOrderData.cashAmount || 0) + (editOrderData.transferAmount || 0)).toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Estado de Pago
-                      </label>
-                      <select
-                        value={editOrderData.paymentStatus}
-                        onChange={(e) => setEditOrderData({...editOrderData, paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                      >
-                        <option value="pending">Pendiente</option>
-                        <option value="validating">Validando</option>
-                        <option value="paid">Pagado</option>
-                      </select>
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Total ($)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={editOrderData.total}
-                        onChange={(e) => setEditOrderData({...editOrderData, total: parseFloat(e.target.value) || 0})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                        required
-                      />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Estado de Pago
+                        </label>
+                        <select
+                          value={editOrderData.paymentStatus}
+                          onChange={(e) => setEditOrderData({...editOrderData, paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'})}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                        >
+                          <option value="pending">Pendiente</option>
+                          <option value="validating">Validando</option>
+                          <option value="paid">Pagado</option>
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Total ($)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editOrderData.total}
+                          onChange={(e) => setEditOrderData({...editOrderData, total: parseFloat(e.target.value) || 0})}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                          required
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -4561,11 +4900,21 @@ export default function BusinessDashboard() {
                   </div>
                 </div>
 
+                {/* Mensaje de validación para pago mixto */}
+                {editOrderData.paymentMethod === 'mixed' && Math.abs((editOrderData.cashAmount || 0) + (editOrderData.transferAmount || 0) - editOrderData.total) >= 0.01 && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                    <p className="text-sm text-red-600 flex items-center">
+                      <i className="bi bi-exclamation-triangle me-2"></i>
+                      La suma de efectivo y transferencia debe ser igual al total del pedido.
+                    </p>
+                  </div>
+                )}
+
                 {/* Botones */}
                 <div className="flex space-x-4">
                   <button
                     type="submit"
-                    disabled={updatingOrder}
+                    disabled={updatingOrder || (editOrderData.paymentMethod === 'mixed' && Math.abs((editOrderData.cashAmount || 0) + (editOrderData.transferAmount || 0) - editOrderData.total) >= 0.01)}
                     className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
                   >
                     {updatingOrder ? (

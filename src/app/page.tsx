@@ -5,47 +5,66 @@ import Link from 'next/link'
 import { getAllBusinesses, searchBusinesses } from '@/lib/database'
 import { Business } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
+import { useSearchParams } from 'next/navigation'
 
 export default function HomePage() {
   const { user } = useAuth()
+  const searchParams = useSearchParams()
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [followedBusinesses, setFollowedBusinesses] = useState<Set<string>>(new Set())
-
-  const categories = [
-    'all',
-    'Hamburguesas',
-    'Pizza',
-    'Comida Rápida',
-    'Postres',
-    'Bebidas',
-    'Ensaladas',
-    'Carnes',
-    'Pasta',
-    'Mariscos',
-    'Comida Vegana'
-  ]
+  const [categories, setCategories] = useState<string[]>(['all'])
 
   useEffect(() => {
-    loadBusinesses()
+    // Leer parámetros de búsqueda de la URL
+    const urlSearch = searchParams.get('search') || ''
+    const urlCategory = searchParams.get('category') || 'all'
+    
+    setSearchTerm(urlSearch)
+    setSelectedCategory(urlCategory)
+    
+    // Cargar negocios con los parámetros de la URL
+    loadBusinessesWithParams(urlSearch, urlCategory)
+    
     // Cargar restaurantes seguidos del usuario
     if (user) {
       loadFollowedBusinesses()
     }
-  }, [user])
+  }, [searchParams, user])
 
-  const loadBusinesses = async () => {
+  const loadBusinessesWithParams = async (search: string, category: string) => {
     try {
       setLoading(true)
-      const data = await getAllBusinesses()
+      const data = search || category !== 'all' 
+        ? await searchBusinesses(search, category)
+        : await getAllBusinesses()
+      
       setBusinesses(data)
+      
+      // Extraer categorías únicas de los negocios
+      const allBusinesses = await getAllBusinesses()
+      const uniqueCategories = new Set<string>()
+      allBusinesses.forEach(business => {
+        if (business.categories && business.categories.length > 0) {
+          business.categories.forEach(category => {
+            uniqueCategories.add(category)
+          })
+        }
+      })
+      setCategories(['all', ...Array.from(uniqueCategories).sort()])
     } catch (error) {
       console.error('Error loading businesses:', error)
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleCategoryChange = async (category: string) => {
+    setSelectedCategory(category)
+    window.history.pushState({}, '', category === 'all' ? '/' : `/?category=${category}`)
+    await loadBusinessesWithParams(searchTerm, category)
   }
 
   const loadFollowedBusinesses = () => {
@@ -95,84 +114,41 @@ export default function HomePage() {
     }
   }
 
-  const handleCategoryChange = async (category: string) => {
-    setSelectedCategory(category)
-    try {
-      setLoading(true)
-      const data = await searchBusinesses(searchTerm, category)
-      setBusinesses(data)
-    } catch (error) {
-      console.error('Error filtering by category:', error)
-    } finally {
-      setLoading(false)
-    }
+  const getCategoryColor = (index: number) => {
+    const colors = [
+      '#a4d2b3', // Verde suave
+      '#fee369', // Amarillo
+      '#f9cccb', // Rosa suave
+      '#d8dce0'  // Gris azulado
+    ]
+    return colors[index % colors.length]
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Search Section - Más sutil */}
-      <section className="bg-white py-6 border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="max-w-3xl mx-auto">
-            <div className="flex flex-col gap-3">
-              <div className="relative">
-                <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                <input
-                  type="text"
-                  placeholder="Buscar restaurantes o comida..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
-                />
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => handleCategoryChange(e.target.value)}
-                  className="flex-1 px-3 py-2.5 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
-                >
-                  {categories.map(category => (
-                    <option key={category} value={category}>
-                      {category === 'all' ? 'Todas las categorías' : category}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={handleSearch}
-                  className="bg-orange-500 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-orange-600 transition-colors text-sm sm:min-w-[100px]"
-                >
-                  Buscar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* Quick Categories - Rappi Style */}
       <section className="py-8 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">¿Qué estás buscando?</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            {[
-              { name: 'Hamburguesas', emoji: '🍔', color: 'bg-yellow-100 text-yellow-800' },
-              { name: 'Pizza', emoji: '🍕', color: 'bg-red-100 text-red-800' },
-              { name: 'Comida Rápida', emoji: '🌭', color: 'bg-orange-100 text-orange-800' },
-              { name: 'Postres', emoji: '🍰', color: 'bg-pink-100 text-pink-800' },
-              { name: 'Bebidas', emoji: '🥤', color: 'bg-blue-100 text-blue-800' },
-              { name: 'Ensaladas', emoji: '🥗', color: 'bg-green-100 text-green-800' }
-            ].map((cat) => (
+            {categories.slice(1).map((category, index) => ( // Excluir 'all' del display
               <button
-                key={cat.name}
-                onClick={() => handleCategoryChange(cat.name)}
-                className={`${cat.color} p-4 rounded-xl hover:scale-105 transition-transform cursor-pointer text-center`}
+                key={category}
+                onClick={() => handleCategoryChange(category)}
+                className={`p-4 rounded-xl hover:scale-105 transition-transform cursor-pointer text-center text-gray-800 font-medium ${selectedCategory === category ? 'ring-2 ring-orange-500' : ''}`}
+                style={{ backgroundColor: getCategoryColor(index) }}
               >
-                <div className="text-3xl mb-2">{cat.emoji}</div>
-                <div className="text-sm font-medium">{cat.name}</div>
+                <div className="text-3xl mb-2">🍽️</div>
+                <div className="text-sm font-medium">{category}</div>
               </button>
             ))}
+            <button
+              onClick={() => handleCategoryChange('all')}
+              className={`bg-gray-100 text-gray-800 p-4 rounded-xl hover:scale-105 transition-transform cursor-pointer text-center hover:bg-gray-200 ${selectedCategory === 'all' ? 'ring-2 ring-orange-500' : ''}`}
+            >
+              <div className="text-3xl mb-2">🍽️</div>
+              <div className="text-sm font-medium">Ver Todo</div>
+            </button>
           </div>
         </div>
       </section>
@@ -201,7 +177,7 @@ export default function HomePage() {
                 No se encontraron restaurantes
               </p>
               <button
-                onClick={loadBusinesses}
+                onClick={() => loadBusinessesWithParams('', 'all')}
                 className="bg-orange-500 text-white px-6 py-2 rounded-lg hover:bg-orange-600"
               >
                 Recargar
@@ -227,28 +203,19 @@ export default function HomePage() {
                             <span className="text-4xl">🍽️</span>
                           </div>
                         )}
-                        <div className="absolute top-3 left-3">
-                          <span className="bg-white/90 backdrop-blur-sm text-orange-600 text-xs font-medium px-2 py-1 rounded-full">
-                            {business.categories?.slice(0, 1)[0] || 'Restaurante'}
-                          </span>
-                        </div>
                         <div className="absolute top-3 right-3">
                           <button
                             onClick={(e) => {
                               e.preventDefault()
                               handleFollowToggle(business.id)
                             }}
-                            className={`p-2 rounded-full transition-all ${
-                              followedBusinesses.has(business.id)
-                                ? 'bg-orange-500 text-white'
-                                : 'bg-white/90 backdrop-blur-sm text-gray-600 hover:text-orange-500'
-                            }`}
+                            className="transition-all"
                             title={followedBusinesses.has(business.id) ? 'Dejar de seguir' : 'Seguir restaurante'}
                           >
                             {followedBusinesses.has(business.id) ? (
-                              <i className="bi bi-heart-fill text-sm"></i>
+                              <i className="bi bi-heart-fill text-xl text-red-500"></i>
                             ) : (
-                              <i className="bi bi-heart text-sm"></i>
+                              <i className="bi bi-heart text-xl text-white drop-shadow-lg"></i>
                             )}
                           </button>
                         </div>
@@ -347,14 +314,14 @@ export default function HomePage() {
                 La plataforma de delivery #1 en Ecuador. Conectamos restaurantes con clientes hambrientos en todo el país.
               </p>
               <div className="flex space-x-4">
-                <a href="#" className="text-gray-400 hover:text-white">
+                <a href="https://instagram.com/fuddi.shop" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white">
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z"/>
+                    <path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 6.618 5.367 11.986 11.988 11.986s11.987-5.368 11.987-11.986C24.014 5.367 18.635.001 12.017.001zM8.449 16.988c-1.297 0-2.448-.49-3.323-1.297C4.198 14.897 3.708 13.746 3.708 12.45s.49-2.448 1.418-3.323c.875-.807 2.026-1.297 3.323-1.297s2.448.49 3.323 1.297c.928.875 1.418 2.026 1.418 3.323s-.49 2.447-1.418 3.322c-.875.807-2.026 1.297-3.323 1.297zm7.498-9.316c-.428 0-.807-.342-.807-.77s.342-.77.77-.77.77.342.77.77-.342.77-.77.77zm0 0M12.017 7.771c-2.312 0-4.187 1.875-4.187 4.187s1.875 4.187 4.187 4.187 4.187-1.875 4.187-4.187-1.875-4.187-4.187-4.187z"/>
                   </svg>
                 </a>
-                <a href="#" className="text-gray-400 hover:text-white">
+                <a href="https://wa.me/593984612236" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white">
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M22.46 6c-.77.35-1.6.58-2.46.69.88-.53 1.56-1.37 1.88-2.38-.83.5-1.75.85-2.72 1.05C18.37 4.5 17.26 4 16 4c-2.35 0-4.27 1.92-4.27 4.29 0 .34.04.67.11.98C8.28 9.09 5.11 7.38 3 4.79c-.37.63-.58 1.37-.58 2.15 0 1.49.75 2.81 1.91 3.56-.71 0-1.37-.2-1.95-.5v.03c0 2.08 1.48 3.82 3.44 4.21a4.22 4.22 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.98 8.521 8.521 0 0 1-5.33 1.84c-.34 0-.68-.02-1.02-.06C3.44 20.29 5.7 21 8.12 21 16 21 20.33 14.46 20.33 8.79c0-.19 0-.37-.01-.56.84-.6 1.56-1.36 2.14-2.23z"/>
+                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
                   </svg>
                 </a>
               </div>
