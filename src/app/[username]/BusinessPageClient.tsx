@@ -147,6 +147,8 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage }: 
                   onAddToCart({
                     ...product,
                     selectedVariant,
+                    variantName: selectedVariant.name,
+                    productName: product.name,
                     price: selectedVariant.price,
                     uniqueId: `${product.id}_${selectedVariant.name.replace(/\s+/g, '_')}`
                   });
@@ -269,6 +271,8 @@ export default function BusinessPageClient({ username }: { username: string }) {
     // Si no tiene variantes, agregar directamente
     const productToAdd = {
       ...product,
+      variantName: null, // No tiene variante
+      productName: product.name,
       uniqueId: product.uniqueId || product.id,
       businessId: business?.id,
       quantity: 1
@@ -490,9 +494,22 @@ export default function BusinessPageClient({ username }: { username: string }) {
                           className="w-12 h-12 object-cover rounded"
                         />
                         <div className="flex-1">
-                          <h4 className="font-medium text-sm">{item.name}</h4>
-                          {item.selectedVariant && (
-                            <p className="text-xs text-gray-600">{item.selectedVariant.name}</p>
+                          {/* Manejar tanto formato nuevo como antiguo */}
+                          {item.variantName ? (
+                            // Formato nuevo: campos separados
+                            <>
+                              <h4 className="font-medium text-sm">{item.variantName}</h4>
+                              <p className="text-xs text-gray-600">{item.productName}</p>
+                            </>
+                          ) : item.name && item.name.includes(' - ') ? (
+                            // Formato antiguo: extraer de nombre combinado
+                            <>
+                              <h4 className="font-medium text-sm">{item.name.split(' - ')[1]}</h4>
+                              <p className="text-xs text-gray-600">{item.name.split(' - ')[0]}</p>
+                            </>
+                          ) : (
+                            // Producto sin variante
+                            <h4 className="font-medium text-sm">{item.productName || item.name}</h4>
                           )}
                           <p className="text-red-500 font-semibold">${item.price.toFixed(2)}</p>
                         </div>

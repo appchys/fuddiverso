@@ -10,6 +10,7 @@ import { GoogleMap } from '@/components/GoogleMap'
 import { useAuth } from '@/contexts/AuthContext'
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { Timestamp } from 'firebase/firestore'
 
 // Componente para mostrar mapa pequeño de ubicación
 function LocationMap({ latlong, height = "96px" }: { latlong: string; height?: string }) {
@@ -329,6 +330,18 @@ function CheckoutContent() {
     referencia: '',
     tarifa: '1'
   })
+
+  // Función para calcular tarifa de envío basada en zonas de cobertura
+  const calculateDeliveryFee = async (location: { lat: number; lng: number }) => {
+    try {
+      const fee = await getDeliveryFeeForLocation(location, business?.id)
+      return fee
+    } catch (error) {
+      console.error('Error calculating delivery fee:', error)
+      // Fallback a tarifa fija si no se puede calcular dinámicamente
+      return 1.0
+    }
+  }
 
   // Effects (also must be declared consistently)
   useEffect(() => { setIsClient(true); }, []);
@@ -726,18 +739,6 @@ function CheckoutContent() {
     }
   }
 
-  // Función para calcular tarifa de envío basada en zonas de cobertura
-  const calculateDeliveryFee = async (location: { lat: number; lng: number }) => {
-    try {
-      const fee = await getDeliveryFeeForLocation(location, business?.id)
-      return fee
-    } catch (error) {
-      console.error('Error calculating delivery fee:', error)
-      // Fallback a tarifa fija si no se puede calcular dinámicamente
-      return 1.0
-    }
-  }
-
   // Función para calcular el costo de envío
   const getDeliveryCost = () => {
     if (!deliveryData.type) {
@@ -843,33 +844,59 @@ function CheckoutContent() {
       }
 
       // Calcular tiempo de entrega
-      const deliveryTime = timingData.type === 'immediate' 
-        ? new Date(Date.now() + 30 * 60000).toISOString() // 30 minutos
-        : new Date(`${timingData.scheduledDate}T${timingData.scheduledTime}`).toISOString()
+      let scheduledTime, scheduledDate;
+      
+      if (timingData.type === 'immediate') {
+        // Para inmediato: fecha y hora actuales + 30 minutos
+        const deliveryTime = new Date(Date.now() + 30 * 60 * 1000);
+        scheduledDate = Timestamp.fromDate(deliveryTime); // Convertir a Timestamp de Firebase
+        scheduledTime = deliveryTime.toTimeString().slice(0, 5); // HH:MM
+      } else {
+        // Para programado: convertir string a Date y luego a Timestamp
+        const programmedDate = new Date(timingData.scheduledDate);
+        scheduledDate = Timestamp.fromDate(programmedDate);
+        scheduledTime = timingData.scheduledTime;
+      }
+
+      // Calcular subtotal (sin envío)
+      const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+      const deliveryCost = selectedLocation?.tarifa ? parseFloat(selectedLocation.tarifa) : 0;
 
       const orderData = {
         businessId: searchParams.get('businessId') || '',
-        items: cartItems,
+        items: cartItems.map((item: any) => ({
+          productId: item.id.split('-')[0], // Remover sufijo, solo el ID del producto
+          name: item.variantName || item.productName || item.name, // Solo el nombre de la variante
+          price: item.price,
+          quantity: item.quantity,
+          variant: item.variantName || item.name // Usar variant si existe, sino el nombre
+        })),
         customer: {
           name: customerData.name,
           phone: customerData.phone
         },
         delivery: {
           type: deliveryData.type as 'delivery' | 'pickup',
-          references: deliveryData.type === 'delivery' ? deliveryData.address : undefined
+          references: deliveryData.type === 'delivery' ? deliveryData.address : undefined,
+          latlong: selectedLocation?.latlong || undefined,
+          deliveryCost: deliveryData.type === 'delivery' ? deliveryCost : 0,
+          assignedDelivery: undefined // Se asignará después en el dashboard
         },
         timing: {
           type: timingData.type,
-          scheduledTime: deliveryTime
+          scheduledDate,
+          scheduledTime
         },
         payment: {
           method: paymentData.method,
-          selectedBank: paymentData.method === 'transfer' ? paymentData.selectedBank : undefined,
+          selectedBank: paymentData.method === 'transfer' ? paymentData.selectedBank : '',
           receiptImageUrl: paymentData.method === 'transfer' ? paymentData.receiptImageUrl : undefined,
-          paymentStatus: paymentData.method === 'transfer' ? paymentData.paymentStatus : 'paid'
+          paymentStatus: paymentData.method === 'transfer' ? paymentData.paymentStatus : 'pending'
         },
         total,
+        subtotal,
         status: 'pending' as 'pending',
+        createdByAdmin: false, // Indicar que viene del checkout
         updatedAt: new Date()
       }
 
@@ -1713,7 +1740,14 @@ function CheckoutContent() {
                 {cartItems.map((item: any, index: number) => (
                   <div key={index} className="flex justify-between items-center gap-2">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{item.name}</p>
+                      {item.variantName ? (
+                        <>
+                          <p className="text-sm font-medium truncate">{item.variantName}</p>
+                          <p className="text-xs text-gray-500">{item.productName}</p>
+                        </>
+                      ) : (
+                        <p className="text-sm font-medium truncate">{item.productName || item.name}</p>
+                      )}
                       <p className="text-xs text-gray-500">Cantidad: {item.quantity}</p>
                     </div>
                     <p className="text-sm font-medium shrink-0">${(item.price * item.quantity).toFixed(2)}</p>

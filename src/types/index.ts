@@ -1,3 +1,5 @@
+import { Timestamp } from 'firebase/firestore'
+
 export interface Business {
   id: string
   name: string
@@ -121,7 +123,7 @@ export interface DeliveryInfo {
 
 export interface OrderTiming {
   type: 'immediate' | 'scheduled'
-  scheduledDate?: Date
+  scheduledDate?: Date | Timestamp
   scheduledTime?: string
 }
 
@@ -147,7 +149,9 @@ export interface Order {
   timing: OrderTiming
   payment: PaymentInfo
   total: number
+  subtotal?: number
   status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
   createdAt: Date
   updatedAt: Date
+  createdByAdmin?: boolean
 }

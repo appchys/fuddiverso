@@ -44,11 +44,22 @@ function OrderConfirmationContent() {
     }
 
     loadOrderData(orderId)
+    
+    // Configurar actualización automática del estado cada 30 segundos
+    const interval = setInterval(() => {
+      if (orderId) {
+        loadOrderData(orderId, false) // No mostrar loading en actualizaciones automáticas
+      }
+    }, 30000) // 30 segundos
+
+    return () => clearInterval(interval)
   }, [orderId])
 
-  const loadOrderData = async (orderId: string) => {
+  const loadOrderData = async (orderId: string, showLoadingState = true) => {
     try {
-      setLoading(true)
+      if (showLoadingState) {
+        setLoading(true)
+      }
       
       // Cargar datos reales de la orden
       const orderData = await getOrder(orderId)
@@ -61,27 +72,52 @@ function OrderConfirmationContent() {
 
       setOrder(orderData)
       
-      // Cargar datos del negocio
-      const businessData = await getBusiness(orderData.businessId)
-      if (businessData) {
-        setBusiness(businessData)
-      }
-
-      // Buscar cliente por teléfono para obtener información adicional
-      try {
-        const client = await searchClientByPhone(orderData.customer.phone)
-        if (client) {
-          setClientFound(client)
+      // Solo cargar business y cliente en la primera carga
+      if (showLoadingState) {
+        // Cargar datos del negocio
+        const businessData = await getBusiness(orderData.businessId)
+        if (businessData) {
+          setBusiness(businessData)
         }
-      } catch (error) {
-        console.log('Cliente no encontrado en la base de datos, usando datos de la orden')
+
+        // Buscar cliente por teléfono para obtener información adicional
+        try {
+          const client = await searchClientByPhone(orderData.customer.phone)
+          if (client) {
+            setClientFound(client)
+          }
+        } catch (error) {
+          console.log('Cliente no encontrado en la base de datos, usando datos de la orden')
+        }
       }
 
     } catch (error) {
       console.error('Error loading order data:', error)
       setError('Error al cargar los datos del pedido')
     } finally {
-      setLoading(false)
+      if (showLoadingState) {
+        setLoading(false)
+      }
+    }
+  }
+
+  // Función para obtener el estado formateado
+  const getOrderStatusDisplay = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return { text: '🕐 Pendiente', color: 'bg-gray-100 text-gray-800' }
+      case 'confirmed':
+        return { text: '✅ Confirmado', color: 'bg-green-100 text-green-800' }
+      case 'preparing':
+        return { text: '👨‍🍳 Preparando', color: 'bg-yellow-100 text-yellow-800' }
+      case 'ready':
+        return { text: '🔔 Listo', color: 'bg-blue-100 text-blue-800' }
+      case 'delivered':
+        return { text: '📦 Entregado', color: 'bg-green-100 text-green-800' }
+      case 'cancelled':
+        return { text: '❌ Cancelado', color: 'bg-red-100 text-red-800' }
+      default:
+        return { text: '✅ Confirmado', color: 'bg-green-100 text-green-800' }
     }
   }
 
@@ -168,10 +204,9 @@ function OrderConfirmationContent() {
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold text-gray-800">Confirmación de Pedido</h1>
             <div className="flex items-center space-x-2">
-              <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
-                ✓ Confirmado
+              <span className={`px-3 py-1 rounded-full text-sm font-medium ${getOrderStatusDisplay(order.status).color}`}>
+                {getOrderStatusDisplay(order.status).text}
               </span>
-              <span className="text-gray-500 text-sm">#{order.id}</span>
             </div>
           </div>
         </div>
@@ -223,7 +258,22 @@ function OrderConfirmationContent() {
                         />
                       )}
                       <div className="flex-1">
-                        <h3 className="font-medium text-gray-800">{item.name}</h3>
+                        {/* Manejar casos de variantes nuevas y antiguas */}
+                        {item.variant && item.variant !== item.name ? (
+                          <>
+                            <h3 className="font-medium text-gray-800">{item.variant}</h3>
+                            <p className="text-gray-500 text-xs">
+                              {item.name.includes(' - ') ? item.name.split(' - ')[0] : item.name}
+                            </p>
+                          </>
+                        ) : item.name.includes(' - ') ? (
+                          <>
+                            <h3 className="font-medium text-gray-800">{item.name.split(' - ')[1]}</h3>
+                            <p className="text-gray-500 text-xs">{item.name.split(' - ')[0]}</p>
+                          </>
+                        ) : (
+                          <h3 className="font-medium text-gray-800">{item.name}</h3>
+                        )}
                         <p className="text-gray-600 text-sm">{item.description}</p>
                         <p className="text-gray-500 text-sm">Cantidad: {item.quantity}</p>
                       </div>
@@ -380,7 +430,7 @@ function OrderConfirmationContent() {
             {/* Tiempo estimado */}
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
               <div className="text-center">
-                <div className="text-2xl font-bold text-red-500 mb-1">30-45 min</div>
+                <div className="text-2xl font-bold text-red-500 mb-1">25-30 min</div>
                 <div className="text-sm text-red-600">Tiempo estimado de entrega</div>
               </div>
             </div>

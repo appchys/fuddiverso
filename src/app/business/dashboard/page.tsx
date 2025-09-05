@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct, getBusinessesByOwner, uploadImage, updateBusiness, addBusinessAdministrator, removeBusinessAdministrator, updateAdministratorPermissions, getUserBusinessAccess, getBusinessCategories, addCategoryToBusiness, searchClientByPhone, getClientLocations, createOrder, getDeliveriesByStatus, createClient, updateOrder, deleteOrder } from '@/lib/database'
 import { Business, Product, Order, ProductVariant, ClientLocation } from '@/types'
 import { auth, db } from '@/lib/firebase'
-import { doc, updateDoc } from 'firebase/firestore'
+import { doc, updateDoc, Timestamp } from 'firebase/firestore'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 
 export default function BusinessDashboard() {
@@ -339,7 +339,42 @@ export default function BusinessDashboard() {
       deliveryType: order.delivery.type,
       references: order.delivery.references || '',
       timingType: order.timing.type,
-      scheduledDate: order.timing.scheduledDate ? new Date(order.timing.scheduledDate).toISOString().split('T')[0] : '',
+      scheduledDate: order.timing.scheduledDate ? (() => {
+        try {
+          let date: Date;
+          
+          if (order.timing.scheduledDate instanceof Date) {
+            if (isNaN(order.timing.scheduledDate.getTime())) {
+              return '';
+            }
+            date = order.timing.scheduledDate;
+          } else if (order.timing.scheduledDate && typeof order.timing.scheduledDate === 'object') {
+            const timestampObj = order.timing.scheduledDate as any;
+            if (typeof timestampObj.seconds === 'number' && typeof timestampObj.nanoseconds === 'number') {
+              // Firebase Timestamp con seconds y nanoseconds
+              const milliseconds = timestampObj.seconds * 1000 + Math.floor(timestampObj.nanoseconds / 1000000);
+              date = new Date(milliseconds);
+            } else if ('toDate' in timestampObj && typeof timestampObj.toDate === 'function') {
+              // Firebase Timestamp con método toDate
+              date = timestampObj.toDate();
+            } else {
+              date = new Date(timestampObj);
+            }
+          } else {
+            date = new Date(order.timing.scheduledDate as any);
+          }
+          
+          if (isNaN(date.getTime())) {
+            return '';
+          }
+          
+          // Formatear fecha para input type="date" (YYYY-MM-DD)
+          return formatDateForInput(date);
+        } catch (error) {
+          console.error('Error parsing scheduledDate:', error, order.timing.scheduledDate);
+          return '';
+        }
+      })() : '',
       scheduledTime: order.timing.scheduledTime || '',
       paymentMethod: order.payment.method,
       selectedBank: order.payment.selectedBank || '',
@@ -368,8 +403,26 @@ export default function BusinessDashboard() {
         },
         timing: {
           type: editOrderData.timingType,
-          scheduledDate: editOrderData.scheduledDate ? new Date(editOrderData.scheduledDate) : undefined,
-          scheduledTime: editOrderData.scheduledTime
+          scheduledDate: editOrderData.timingType === 'immediate' 
+            ? Timestamp.fromDate(new Date(Date.now() + 30 * 60 * 1000))
+            : (() => {
+                if (editOrderData.scheduledDate && editOrderData.scheduledTime) {
+                  // Crear fecha en zona horaria local (Ecuador)
+                  const [year, month, day] = editOrderData.scheduledDate.split('-').map(Number);
+                  const [hours, minutes] = editOrderData.scheduledTime.split(':').map(Number);
+                  const programmedDate = new Date(year, month - 1, day, hours, minutes);
+                  
+                  if (isNaN(programmedDate.getTime())) {
+                    throw new Error('Fecha programada inválida');
+                  }
+                  
+                  return Timestamp.fromDate(programmedDate);
+                }
+                return undefined;
+              })(),
+          scheduledTime: editOrderData.timingType === 'immediate'
+            ? new Date(Date.now() + 30 * 60 * 1000).toTimeString().slice(0, 5)
+            : editOrderData.scheduledTime
         },
         payment: {
           method: editOrderData.paymentMethod,
@@ -952,9 +1005,32 @@ export default function BusinessDashboard() {
     router.push('/business/login')
   }
 
+  // Función helper para obtener la fecha actual en zona horaria de Ecuador (UTC-5)
+  const getEcuadorDate = (date?: Date) => {
+    const targetDate = date || new Date();
+    const ecuadorOffset = -5 * 60; // UTC-5 en minutos
+    return new Date(targetDate.getTime() + (ecuadorOffset + targetDate.getTimezoneOffset()) * 60000);
+  };
+
+  // Función helper para formatear fecha para input date en zona horaria de Ecuador
+  const formatDateForInput = (date?: Date) => {
+    if (!date) {
+      const ecuadorDate = getEcuadorDate();
+      return ecuadorDate.toISOString().split('T')[0];
+    }
+    
+    // Para fechas que vienen de Firebase o que ya están en la zona horaria correcta,
+    // usar directamente los componentes de fecha sin conversión adicional
+    // Esto evita el problema de doble conversión de zona horaria
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // Función para categorizar pedidos
   const categorizeOrders = () => {
-    const now = new Date();
+    const now = getEcuadorDate();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -1121,39 +1197,49 @@ export default function BusinessDashboard() {
     try {
       // Si tiene timing con scheduledDate y scheduledTime, usar esos
       if (order.timing?.scheduledDate && order.timing?.scheduledTime) {
-        // Convertir scheduledDate a string independientemente del tipo
-        let scheduledDateStr: string;
-        if (typeof order.timing.scheduledDate === 'string') {
-          scheduledDateStr = order.timing.scheduledDate;
-        } else if (order.timing.scheduledDate instanceof Date) {
-          // Verificar que la fecha sea válida antes de usar toISOString
-          if (isNaN(order.timing.scheduledDate.getTime())) {
-            throw new Error('Invalid Date object');
+        // Manejar diferentes tipos de scheduledDate
+        let dateToUse: Date;
+        
+        if (order.timing.scheduledDate instanceof Date) {
+          // Es un objeto Date
+          dateToUse = order.timing.scheduledDate;
+        } else if (order.timing.scheduledDate && typeof order.timing.scheduledDate === 'object') {
+          // Verificar si es un Timestamp de Firebase (con seconds y nanoseconds)
+          const timestampObj = order.timing.scheduledDate as any;
+          if (typeof timestampObj.seconds === 'number' && typeof timestampObj.nanoseconds === 'number') {
+            // Convertir manualmente usando seconds y nanoseconds
+            const milliseconds = timestampObj.seconds * 1000 + Math.floor(timestampObj.nanoseconds / 1000000);
+            dateToUse = new Date(milliseconds);
+          } else if ('toDate' in timestampObj && typeof timestampObj.toDate === 'function') {
+            dateToUse = timestampObj.toDate();
+          } else {
+            dateToUse = new Date(timestampObj);
           }
-          scheduledDateStr = order.timing.scheduledDate.toISOString().split('T')[0];
+        } else if (typeof order.timing.scheduledDate === 'string') {
+          // Es un string
+          dateToUse = new Date(order.timing.scheduledDate);
         } else {
-          // Si es timestamp de Firebase u otro formato
-          const tempDate = new Date(order.timing.scheduledDate as any);
-          if (isNaN(tempDate.getTime())) {
-            throw new Error('Invalid date value');
-          }
-          scheduledDateStr = tempDate.toISOString().split('T')[0];
+          // Fallback: intentar convertir a Date
+          dateToUse = new Date(order.timing.scheduledDate as any);
         }
         
-        const [year, month, day] = scheduledDateStr.split('-').map(Number);
+        // Verificar que la fecha sea válida
+        if (isNaN(dateToUse.getTime())) {
+          console.error('Invalid date after conversion for order:', order.id, dateToUse);
+          throw new Error('Invalid date after conversion');
+        }
+        
+        // Parsear la hora del scheduledTime
         const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number);
         
-        // Verificar que todos los valores sean números válidos
-        if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(hours) || isNaN(minutes)) {
-          throw new Error('Invalid date components');
+        // Verificar que los valores de hora sean válidos
+        if (isNaN(hours) || isNaN(minutes)) {
+          console.error('Invalid time components for order:', order.id, order.timing.scheduledTime);
+          throw new Error('Invalid time components');
         }
         
-        const resultDate = new Date(year, month - 1, day, hours, minutes);
-        if (isNaN(resultDate.getTime())) {
-          throw new Error('Constructed date is invalid');
-        }
-        
-        return resultDate;
+        // El scheduledDate ya contiene la fecha y hora correctas, solo necesitamos validar
+        return dateToUse;
       }
       // Si tiene solo scheduledTime (formato anterior), usar createdAt para la fecha
       else if (order.timing?.scheduledTime) {
@@ -1175,14 +1261,30 @@ export default function BusinessDashboard() {
       else {
         const fallbackDate = new Date(order.createdAt);
         if (isNaN(fallbackDate.getTime())) {
-          // Si createdAt también es inválido, usar fecha actual
-          return new Date();
+          // Si createdAt también es inválido, intentar usar cualquier fecha disponible
+          console.error('Invalid createdAt for order:', order.id, order.createdAt);
+          // Como último recurso, usar la fecha actual pero log el error
+          const currentDate = new Date();
+          console.warn('Using current date as fallback for order:', order.id);
+          return currentDate;
         }
         return fallbackDate;
       }
     } catch (error) {
-      console.warn('Error parsing order date for order:', order.id, error);
-      // En caso de cualquier error, devolver la fecha actual
+      console.error('Error parsing order date for order:', order.id, error, {
+        timing: order.timing,
+        createdAt: order.createdAt
+      });
+      // En caso de cualquier error, usar la fecha de creación como fallback más seguro
+      try {
+        const createdAtFallback = new Date(order.createdAt);
+        if (!isNaN(createdAtFallback.getTime())) {
+          return createdAtFallback;
+        }
+      } catch (e) {
+        console.error('Even createdAt failed for order:', order.id);
+      }
+      // Como último último recurso
       return new Date();
     }
   };
@@ -1811,12 +1913,27 @@ export default function BusinessDashboard() {
       if (manualOrderData.timingType === 'immediate') {
         // Para inmediato: fecha y hora actuales + 30 minutos
         const deliveryTime = new Date(Date.now() + 30 * 60 * 1000);
-        scheduledDate = deliveryTime.toISOString().split('T')[0]; // YYYY-MM-DD
+        scheduledDate = Timestamp.fromDate(deliveryTime);
         scheduledTime = deliveryTime.toTimeString().slice(0, 5); // HH:MM
       } else {
-        // Para programado: usar los valores seleccionados
-        scheduledDate = manualOrderData.scheduledDate;
-        scheduledTime = manualOrderData.scheduledTime;
+        // Para programado: crear fecha en zona horaria de Ecuador (UTC-5)
+        const selectedDate = manualOrderData.scheduledDate;
+        const selectedTime = manualOrderData.scheduledTime;
+        
+        // Parsear la fecha seleccionada (formato YYYY-MM-DD)
+        const [year, month, day] = selectedDate.split('-').map(Number);
+        const [hours, minutes] = selectedTime.split(':').map(Number);
+        
+        // Crear fecha en zona horaria local (Ecuador)
+        const programmedDate = new Date(year, month - 1, day, hours, minutes);
+        
+        // Verificar que la fecha sea válida
+        if (isNaN(programmedDate.getTime())) {
+          throw new Error('Fecha programada inválida');
+        }
+        
+        scheduledDate = Timestamp.fromDate(programmedDate);
+        scheduledTime = selectedTime;
       }
 
       const orderData = {
@@ -2240,7 +2357,7 @@ export default function BusinessDashboard() {
                     <div>
                       <div className="flex items-center justify-between mb-4">
                         <h2 className="text-xl font-bold text-gray-900">
-                          Pedidos de hoy ({todayOrders.length})
+                          Pedidos de hoy: ${todayOrders.reduce((sum, order) => sum + (order.total || 0), 0).toFixed(2)}
                         </h2>
                         <span className="text-sm text-gray-500">
                           {new Date().toLocaleDateString('es-EC', { 
@@ -3362,12 +3479,12 @@ export default function BusinessDashboard() {
                               value="scheduled"
                               checked={manualOrderData.timingType === 'scheduled'}
                               onChange={(e) => {
-                                const now = new Date();
-                                const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+                                const ecuadorNow = getEcuadorDate();
+                                const oneHourLater = new Date(ecuadorNow.getTime() + 60 * 60 * 1000);
                                 setManualOrderData(prev => ({
                                   ...prev,
                                   timingType: e.target.value as 'scheduled',
-                                  scheduledDate: now.toISOString().split('T')[0],
+                                  scheduledDate: formatDateForInput(), // Sin parámetro para usar fecha actual de Ecuador
                                   scheduledTime: oneHourLater.toTimeString().split(' ')[0].substring(0, 5)
                                 }));
                               }}
@@ -3394,7 +3511,7 @@ export default function BusinessDashboard() {
                                   scheduledDate: e.target.value
                                 }))}
                                 className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
-                                min={new Date().toISOString().split('T')[0]}
+                                min={formatDateForInput()}
                               />
                             </div>
                             <div>
@@ -4353,6 +4470,7 @@ export default function BusinessDashboard() {
                             value={editOrderData.scheduledDate}
                             onChange={(e) => setEditOrderData({...editOrderData, scheduledDate: e.target.value})}
                             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                            min={formatDateForInput()}
                           />
                         </div>
                         

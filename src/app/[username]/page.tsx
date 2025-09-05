@@ -224,6 +224,8 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage }: 
                   onAddToCart({
                     id: `${product.id}-${selectedVariant.id}`,
                     name: `${product.name} - ${selectedVariant.name}`,
+                    variantName: selectedVariant.name,
+                    productName: product.name,
                     price: selectedVariant.price,
                     image: product.image,
                     description: selectedVariant.description || product.description,
@@ -357,6 +359,8 @@ function RestaurantContent() {
     const cartItem = {
       id: product.id,
       name: product.name,
+      variantName: null, // No tiene variante
+      productName: product.name,
       price: product.price,
       image: product.image,
       description: product.description,
