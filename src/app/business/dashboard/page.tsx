@@ -8,14 +8,17 @@ import { Business, Product, Order, ProductVariant, ClientLocation } from '@/type
 import { auth, db } from '@/lib/firebase'
 import { doc, updateDoc, Timestamp } from 'firebase/firestore'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
+import { usePushNotifications } from '@/hooks/usePushNotifications'
 
 export default function BusinessDashboard() {
   const router = useRouter()
   const { user, businessId, ownerId, isAuthenticated, logout, setBusinessId } = useBusinessAuth()
+  const { permission, requestPermission, showNotification, isSupported } = usePushNotifications()
   const [business, setBusiness] = useState<Business | null>(null)
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [orders, setOrders] = useState<Order[]>([])
+  const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'profile' | 'admins'>('orders')
   const [showManualOrderModal, setShowManualOrderModal] = useState(false)
@@ -247,7 +250,26 @@ export default function BusinessDashboard() {
 
         // Cargar órdenes
         const ordersData = await getOrdersByBusiness(selectedBusinessId);
+        
+        // Detectar nuevos pedidos para notificaciones
+        if (previousOrdersCount > 0 && ordersData.length > previousOrdersCount) {
+          const newOrders = ordersData.slice(0, ordersData.length - previousOrdersCount);
+          
+          // Enviar notificación por cada nuevo pedido
+          newOrders.forEach((order: Order) => {
+            if (permission === 'granted') {
+              showNotification({
+                title: '🍕 Nuevo Pedido Recibido',
+                body: `${order.customer?.name || 'Cliente'} - $${order.total.toFixed(2)}`,
+                url: '/business/dashboard',
+                orderId: order.id
+              });
+            }
+          });
+        }
+        
         setOrders(ordersData);
+        setPreviousOrdersCount(ordersData.length);
 
         // Inicializar fechas colapsadas para el historial
         const { pastOrders } = categorizeOrdersForData(ordersData);
@@ -278,6 +300,41 @@ export default function BusinessDashboard() {
 
     loadDeliveries()
   }, [])
+
+  // Efecto para recargar pedidos periódicamente y detectar nuevos
+  useEffect(() => {
+    if (!selectedBusinessId) return
+
+    const interval = setInterval(async () => {
+      try {
+        const ordersData = await getOrdersByBusiness(selectedBusinessId);
+        
+        // Detectar nuevos pedidos
+        if (previousOrdersCount > 0 && ordersData.length > previousOrdersCount) {
+          const newOrders = ordersData.slice(0, ordersData.length - previousOrdersCount);
+          
+          // Enviar notificación por cada nuevo pedido
+          newOrders.forEach((order: Order) => {
+            if (permission === 'granted') {
+              showNotification({
+                title: '🍕 Nuevo Pedido Recibido',
+                body: `${order.customer?.name || 'Cliente'} - $${order.total.toFixed(2)}`,
+                url: '/business/dashboard',
+                orderId: order.id
+              });
+            }
+          });
+        }
+        
+        setOrders(ordersData);
+        setPreviousOrdersCount(ordersData.length);
+      } catch (error) {
+        console.error('Error recargando pedidos:', error);
+      }
+    }, 30000); // Recargar cada 30 segundos
+
+    return () => clearInterval(interval);
+  }, [selectedBusinessId, previousOrdersCount, permission, showNotification])
 
   // Efecto para calcular automáticamente el total del pedido manual
   useEffect(() => {
@@ -562,18 +619,36 @@ export default function BusinessDashboard() {
     setCollapsedCategories(newCollapsed)
   }
 
-  // Nueva función para enviar mensaje de WhatsApp al delivery
-  const handleSendWhatsAppToDelivery = (order: Order) => {
-    const assignedDeliveryId = order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery
-    if (!assignedDeliveryId) {
-      alert('Este pedido no tiene un delivery asignado')
-      return
-    }
+  // Función unificada para enviar mensajes de WhatsApp
+  const handleSendWhatsApp = (order: Order) => {
+    let phone = ''
+    let title = ''
+    
+    if (order.delivery.type === 'delivery') {
+      // Para delivery, enviar al delivery asignado
+      const assignedDeliveryId = order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery
+      if (!assignedDeliveryId) {
+        alert('Este pedido no tiene un delivery asignado')
+        return
+      }
 
-    const delivery = availableDeliveries.find(d => d.id === assignedDeliveryId)
-    if (!delivery) {
-      alert('No se encontró la información del delivery')
-      return
+      const delivery = availableDeliveries.find(d => d.id === assignedDeliveryId)
+      if (!delivery) {
+        alert('No se encontró la información del delivery')
+        return
+      }
+      
+      phone = delivery.celular
+      title = 'Enviar mensaje de WhatsApp al delivery'
+    } else {
+      // Para retiro, enviar al número de la tienda
+      if (!business?.phone) {
+        alert('No se encontró el número de teléfono de la tienda')
+        return
+      }
+      
+      phone = business.phone
+      title = 'Enviar mensaje de WhatsApp a la tienda'
     }
 
     // Construir el mensaje de WhatsApp
@@ -581,14 +656,16 @@ export default function BusinessDashboard() {
     const customerPhone = order.customer?.phone || 'Sin teléfono'
     const references = order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'
     
-    // Crear enlace de Google Maps si hay coordenadas
+    // Crear enlace de Google Maps si hay coordenadas (solo para delivery)
     let locationLink = ''
-    if (order.delivery?.latlong) {
-      // Limpiar espacios en blanco de las coordenadas
-      const cleanCoords = order.delivery.latlong.replace(/\s+/g, '')
-      locationLink = `https://www.google.com/maps/place/${cleanCoords}`
-    } else if (order.delivery?.mapLocation) {
-      locationLink = `https://www.google.com/maps/place/${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}`
+    if (order.delivery.type === 'delivery') {
+      if (order.delivery?.latlong) {
+        // Limpiar espacios en blanco de las coordenadas
+        const cleanCoords = order.delivery.latlong.replace(/\s+/g, '')
+        locationLink = `https://www.google.com/maps/place/${cleanCoords}`
+      } else if (order.delivery?.mapLocation) {
+        locationLink = `https://www.google.com/maps/place/${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}`
+      }
     }
 
     // Construir lista de productos
@@ -597,21 +674,28 @@ export default function BusinessDashboard() {
     ).join('\n') || 'Sin productos'
 
     // Calcular totales
-    const deliveryCost = order.delivery?.deliveryCost || 1 // Costo por defecto
+    const deliveryCost = order.delivery.type === 'delivery' ? (order.delivery?.deliveryCost || 1) : 0
     const subtotal = order.total - deliveryCost
-    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'
+    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : 
+                         order.payment?.method === 'transfer' ? 'Transferencia' :
+                         order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
     
     // Construir mensaje
     let message = `*Datos del cliente*\n`
     message += `Cliente: ${customerName}\n`
     message += `Celular: ${customerPhone}\n\n`
     
-    message += `*Lugar de entrega*\n`
-    message += `Referencias: ${references}\n`
-    if (locationLink) {
-      message += `Ubicación: ${locationLink}\n\n`
+    if (order.delivery.type === 'delivery') {
+      message += `*Lugar de entrega*\n`
+      message += `Referencias: ${references}\n`
+      if (locationLink) {
+        message += `Ubicación: ${locationLink}\n\n`
+      } else {
+        message += `\n`
+      }
     } else {
-      message += `\n`
+      message += `*Tipo de entrega*\n`
+      message += `🏪 Retiro en tienda\n\n`
     }
     
     message += `*Detalle del pedido*\n`
@@ -619,16 +703,29 @@ export default function BusinessDashboard() {
     
     message += `*Detalles del pago*\n`
     message += `Valor del pedido: $${subtotal.toFixed(2)}\n`
-    message += `Envío: $${deliveryCost.toFixed(2)}\n\n`
+    
+    if (order.delivery.type === 'delivery') {
+      message += `Envío: $${deliveryCost.toFixed(2)}\n\n`
+    }
+    
     message += `Forma de pago: ${paymentMethod}\n`
     
-    // Solo mostrar "Total a cobrar" si es efectivo
-    if (order.payment?.method === 'cash') {
+    // Mostrar detalles de pago mixto si aplica
+    if (order.payment?.method === 'mixed') {
+      const payment = order.payment as any
+      if (payment.cashAmount && payment.transferAmount) {
+        message += `- Efectivo: $${payment.cashAmount.toFixed(2)}\n`
+        message += `- Transferencia: $${payment.transferAmount.toFixed(2)}\n\n`
+      }
+    }
+    
+    // Solo mostrar "Total a cobrar" si es efectivo o pago mixto
+    if (order.payment?.method === 'cash' || order.payment?.method === 'mixed') {
       message += `Total a cobrar: $${order.total.toFixed(2)}`
     }
 
-    // Limpiar el número de teléfono del delivery (quitar espacios, guiones, etc.)
-    const cleanPhone = delivery.celular.replace(/\D/g, '')
+    // Limpiar el número de teléfono (quitar espacios, guiones, etc.)
+    const cleanPhone = phone.replace(/\D/g, '')
     
     // Crear enlace de WhatsApp
     const whatsappUrl = `https://api.whatsapp.com/send?phone=593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}&text=${encodeURIComponent(message)}`
@@ -1492,14 +1589,17 @@ export default function BusinessDashboard() {
                 <i className="bi bi-check-lg text-lg"></i>
               </button>
             )}
-            {isToday && order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery) && (
+            {isToday && (
+              (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
+              (order.delivery?.type === 'pickup' && business?.phone)
+            ) && (
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  handleSendWhatsAppToDelivery(order)
+                  handleSendWhatsApp(order)
                 }}
                 className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"
-                title="Enviar mensaje de WhatsApp al delivery"
+                title={order.delivery?.type === 'delivery' ? 'Enviar mensaje de WhatsApp al delivery' : 'Enviar mensaje de WhatsApp a la tienda'}
               >
                 <i className="bi bi-whatsapp text-lg"></i>
               </button>
@@ -2182,6 +2282,18 @@ export default function BusinessDashboard() {
                   </div>
                 )}
               </div>
+
+              {/* Botón de Notificaciones */}
+              {isSupported && permission !== 'granted' && (
+                <button
+                  onClick={requestPermission}
+                  className="bg-blue-100 text-blue-700 px-2 sm:px-4 py-2 rounded-lg hover:bg-blue-200 transition-colors text-sm sm:text-base"
+                  title="Activar notificaciones de pedidos nuevos"
+                >
+                  <i className="bi bi-bell sm:me-2"></i>
+                  <span className="hidden sm:inline">Notificaciones</span>
+                </button>
+              )}
 
               <button
                 onClick={handleLogout}

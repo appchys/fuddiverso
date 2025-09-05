@@ -1,6 +1,24 @@
 Cosas a tener en cuenta:
 - La aplicación se usará mayormente en dispositivos móviles.
 - Evita los errores TypeScript al desplegar en Vercel.
+- **CRÍTICO**: Siempre envuelve `useSearchParams()` en un boundary de Suspense para evitar errores de build en Vercel. Este error causa que falle el deployment: "useSearchParams() should be wrapped in a suspense boundary". NUNCA uses useSearchParams() directamente sin Suspense.
+- **PATRÓN OBLIGATORIO** para useSearchParams():
+  ```tsx
+  import { Suspense } from 'react'
+  
+  function SearchComponent() {
+    const searchParams = useSearchParams()
+    // tu código aquí
+  }
+  
+  export default function Page() {
+    return (
+      <Suspense fallback={<div>Cargando...</div>}>
+        <SearchComponent />
+      </Suspense>
+    )
+  }
+  ```
 - Siempre háblame en español.
 - Evita el uso de emojis, usa bootstrap icons.
 - Evita crear alertas para el usuario, usa modales o notificaciones.

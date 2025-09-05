@@ -204,6 +204,22 @@ export default function MyOrdersPage() {
     }
   }
 
+  const handleContactBusiness = async (order: Order) => {
+    try {
+      const business = await getBusiness(order.businessId)
+      if (business && business.celular) {
+        const phone = business.celular
+        const message = `Hola ${business.name}, tengo una consulta sobre mi pedido para retiro. ¡Gracias!`
+        window.open(`https://wa.me/593${phone.substring(1)}?text=${encodeURIComponent(message)}`, '_blank')
+      } else {
+        alert('No se pudo obtener la información de contacto del negocio')
+      }
+    } catch (error) {
+      console.error('Error getting business info:', error)
+      alert('Error al obtener la información del negocio')
+    }
+  }
+
   const getDeliveryText = (order: Order) => {
     if (!order.timing?.scheduledDate) return 'Horario no definido'
     
