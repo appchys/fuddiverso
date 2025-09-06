@@ -14,6 +14,9 @@ export const usePushNotifications = () => {
   const [subscription, setSubscription] = useState<PushSubscription | null>(null)
 
   useEffect(() => {
+    // Solo ejecutar en el cliente
+    if (typeof window === 'undefined') return
+
     if ('Notification' in window) {
       setPermission(Notification.permission)
     }
@@ -37,7 +40,7 @@ export const usePushNotifications = () => {
   }, [])
 
   const requestPermission = async (): Promise<boolean> => {
-    if (!('Notification' in window)) {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
       console.log('Este navegador no soporta notificaciones')
       return false
     }
@@ -75,9 +78,13 @@ export const usePushNotifications = () => {
   }
 
   const showNotification = (options: PushNotificationOptions) => {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+      return
+    }
+
     if (!('serviceWorker' in navigator) || permission !== 'granted') {
       // Fallback a notificación del navegador
-      if (permission === 'granted') {
+      if (permission === 'granted' && 'Notification' in window) {
         new Notification(options.title, {
           body: options.body,
           icon: options.icon || '/icon-192x192.png'
@@ -118,12 +125,16 @@ export const usePushNotifications = () => {
     requestPermission,
     subscribe,
     showNotification,
-    isSupported: 'Notification' in window && 'serviceWorker' in navigator
+    isSupported: typeof window !== 'undefined' && 'Notification' in window && 'serviceWorker' in navigator
   }
 }
 
 // Función auxiliar para convertir clave VAPID
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  if (typeof window === 'undefined') {
+    return new Uint8Array()
+  }
+
   const padding = '='.repeat((4 - base64String.length % 4) % 4)
   const base64 = (base64String + padding)
     .replace(/-/g, '+')
