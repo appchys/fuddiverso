@@ -204,22 +204,6 @@ export default function MyOrdersPage() {
     }
   }
 
-  const handleContactBusiness = async (order: Order) => {
-    try {
-      const business = await getBusiness(order.businessId)
-      if (business && business.phone) {
-        const phone = business.phone
-        const message = `Hola ${business.name}, tengo una consulta sobre mi pedido para retiro. ¡Gracias!`
-        window.open(`https://wa.me/593${phone.substring(1)}?text=${encodeURIComponent(message)}`, '_blank')
-      } else {
-        alert('No se pudo obtener la información de contacto del negocio')
-      }
-    } catch (error) {
-      console.error('Error getting business info:', error)
-      alert('Error al obtener la información del negocio')
-    }
-  }
-
   const getDeliveryText = (order: Order) => {
     if (!order.timing?.scheduledDate) return 'Horario no definido'
     
@@ -396,17 +380,6 @@ export default function MyOrdersPage() {
                   
                   {/* Botones - stack en móviles, inline en desktop */}
                   <div className="flex flex-col sm:flex-row gap-3 sm:gap-2 sm:justify-end">
-                    {/* Botón Contactar Repartidor - solo para delivery y pedidos listos */}
-                    {order.delivery.type === 'delivery' && order.status === 'ready' && (
-                      <button 
-                        onClick={() => handleContactDelivery(order)}
-                        className="w-full sm:w-auto inline-flex items-center justify-center px-4 py-3 sm:px-3 sm:py-1.5 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors font-medium"
-                      >
-                        <i className="bi bi-chat-dots mr-2"></i>
-                        Contactar Repartidor
-                      </button>
-                    )}
-                    
                     {/* Botón Recibido - solo para pedidos ready */}
                     {order.status === 'ready' && (
                       <button 
@@ -415,14 +388,6 @@ export default function MyOrdersPage() {
                       >
                         <i className="bi bi-check-circle mr-2"></i>
                         Marcar como Recibido
-                      </button>
-                    )}
-                    
-                    {/* Botón Cancelar - solo para pedidos pending */}
-                    {order.status === 'pending' && (
-                      <button className="w-full sm:w-auto inline-flex items-center justify-center px-4 py-3 sm:px-3 sm:py-1.5 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors font-medium">
-                        <i className="bi bi-x-circle mr-2"></i>
-                        Cancelar Pedido
                       </button>
                     )}
                   </div>

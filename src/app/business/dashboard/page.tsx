@@ -22,7 +22,7 @@ export default function BusinessDashboard() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'profile' | 'admins'>('orders')
   const [showManualOrderModal, setShowManualOrderModal] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true) // Abierto por defecto en desktop
+  const [sidebarOpen, setSidebarOpen] = useState(false) // Cerrado por defecto
   const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today') // Nueva pestaña para pedidos
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(businessId)
   const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null) // Nuevo estado
@@ -264,8 +264,22 @@ export default function BusinessDashboard() {
               const title = `${businessName} - ${orderType}`;
               
               // Construir descripción con elementos del carrito
-              const itemsCount = order.items?.length || 0;
-              const itemsText = itemsCount === 1 ? '1 elemento' : `${itemsCount} elementos`;
+              const items = order.items || [];
+              let itemsText = '';
+              
+              if (items.length === 1) {
+                // Un solo elemento: mostrar nombre específico del producto
+                const item = items[0];
+                itemsText = item.product?.name || 'Producto';
+              } else if (items.length > 1) {
+                // Múltiples elementos: mostrar el primero + "y X más"
+                const firstItem = items[0];
+                const firstName = firstItem.product?.name || 'Producto';
+                itemsText = `${firstName} y ${items.length - 1} más`;
+              } else {
+                itemsText = 'Sin productos';
+              }
+              
               const deliveryType = order.delivery?.type === 'delivery' ? 'Delivery' : 'Retiro';
               const body = `${itemsText} - ${deliveryType} - $${order.total.toFixed(2)}`;
               
@@ -333,8 +347,22 @@ export default function BusinessDashboard() {
               const title = `${businessName} - ${orderType}`;
               
               // Construir descripción con elementos del carrito
-              const itemsCount = order.items?.length || 0;
-              const itemsText = itemsCount === 1 ? '1 elemento' : `${itemsCount} elementos`;
+              const items = order.items || [];
+              let itemsText = '';
+              
+              if (items.length === 1) {
+                // Un solo elemento: mostrar nombre específico del producto
+                const item = items[0];
+                itemsText = item.product?.name || 'Producto';
+              } else if (items.length > 1) {
+                // Múltiples elementos: mostrar el primero + "y X más"
+                const firstItem = items[0];
+                const firstName = firstItem.product?.name || 'Producto';
+                itemsText = `${firstName} y ${items.length - 1} más`;
+              } else {
+                itemsText = 'Sin productos';
+              }
+              
               const deliveryType = order.delivery?.type === 'delivery' ? 'Delivery' : 'Retiro';
               const body = `${itemsText} - ${deliveryType} - $${order.total.toFixed(2)}`;
               
@@ -2305,30 +2333,6 @@ export default function BusinessDashboard() {
                 )}
               </div>
 
-              {/* Botón de Notificaciones */}
-              {isIOS ? (
-                <div className="hidden sm:block bg-yellow-100 text-yellow-700 px-2 sm:px-4 py-2 rounded-lg text-sm">
-                  <i className="bi bi-info-circle sm:me-2"></i>
-                  <span className="hidden sm:inline">iOS no soporta notificaciones push</span>
-                </div>
-              ) : needsUserAction ? (
-                <button
-                  onClick={requestPermission}
-                  className="bg-blue-100 text-blue-700 px-3 sm:px-4 py-2 rounded-lg hover:bg-blue-200 transition-colors text-sm font-medium"
-                  title="Activar notificaciones de pedidos nuevos"
-                >
-                  <i className="bi bi-bell sm:me-2"></i>
-                  <span className="hidden sm:inline">Activar Notificaciones</span>
-                  <span className="sm:hidden">🔔</span>
-                </button>
-              ) : permission === 'granted' ? (
-                <div className="bg-green-100 text-green-700 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium">
-                  <i className="bi bi-check-circle sm:me-2"></i>
-                  <span className="hidden sm:inline">Notificaciones Activas</span>
-                  <span className="sm:hidden">✓</span>
-                </div>
-              ) : null}
-
               <button
                 onClick={handleLogout}
                 className="bg-gray-100 text-gray-700 px-2 sm:px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors text-sm sm:text-base"
@@ -2434,6 +2438,17 @@ export default function BusinessDashboard() {
                 <i className="bi bi-people me-3 text-lg"></i>
                 <span className="font-medium">Administradores</span>
               </button>
+              
+              {/* Botón de Notificaciones - solo si no es iOS y necesita acción */}
+              {!isIOS && needsUserAction && (
+                <button
+                  onClick={requestPermission}
+                  className="w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors bg-blue-50 text-blue-600 hover:bg-blue-100 border-l-4 border-blue-500"
+                >
+                  <i className="bi bi-bell me-3 text-lg"></i>
+                  <span className="font-medium">Activar Notificaciones</span>
+                </button>
+              )}
             </nav>
           </div>
         </div>
