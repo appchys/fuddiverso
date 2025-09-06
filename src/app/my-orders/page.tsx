@@ -207,8 +207,8 @@ export default function MyOrdersPage() {
   const handleContactBusiness = async (order: Order) => {
     try {
       const business = await getBusiness(order.businessId)
-      if (business && business.celular) {
-        const phone = business.celular
+      if (business && business.phone) {
+        const phone = business.phone
         const message = `Hola ${business.name}, tengo una consulta sobre mi pedido para retiro. ¡Gracias!`
         window.open(`https://wa.me/593${phone.substring(1)}?text=${encodeURIComponent(message)}`, '_blank')
       } else {
