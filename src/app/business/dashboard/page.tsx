@@ -133,6 +133,13 @@ export default function BusinessDashboard() {
   // Estados para modal de detalles del pedido
   const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(false)
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<Order | null>(null)
+  const [showEditPaymentModal, setShowEditPaymentModal] = useState(false)
+  const [paymentEditingOrder, setPaymentEditingOrder] = useState<Order | null>(null)
+  const [editPaymentData, setEditPaymentData] = useState({
+    method: 'cash' as 'cash' | 'transfer' | 'mixed',
+    cashAmount: 0,
+    transferAmount: 0
+  })
 
   // Estados para historial agrupado por fecha
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set())
@@ -614,6 +621,51 @@ export default function BusinessDashboard() {
   const handleShowOrderDetails = (order: Order) => {
     setSelectedOrderDetails(order)
     setShowOrderDetailsModal(true)
+  }
+
+  const handleEditPayment = (order: Order) => {
+    setPaymentEditingOrder(order)
+    setEditPaymentData({
+      method: order.payment?.method || 'cash',
+      cashAmount: (order.payment as any)?.cashAmount || 0,
+      transferAmount: (order.payment as any)?.transferAmount || 0
+    })
+    setShowEditPaymentModal(true)
+  }
+
+  const handleSavePaymentEdit = async () => {
+    if (!paymentEditingOrder) return
+
+    try {
+      let paymentUpdate: any = {
+        method: editPaymentData.method,
+        paymentStatus: 'pending'
+      }
+
+      if (editPaymentData.method === 'mixed') {
+        paymentUpdate.cashAmount = editPaymentData.cashAmount
+        paymentUpdate.transferAmount = editPaymentData.transferAmount
+      }
+
+      await updateOrder(paymentEditingOrder.id, {
+        payment: {
+          ...paymentEditingOrder.payment,
+          ...paymentUpdate
+        }
+      })
+
+      // Actualizar la lista local
+      setOrders(orders.map(order => 
+        order.id === paymentEditingOrder.id 
+          ? { ...order, payment: { ...order.payment, ...paymentUpdate } }
+          : order
+      ))
+
+      setShowEditPaymentModal(false)
+      setPaymentEditingOrder(null)
+    } catch (error) {
+      console.error('Error updating payment:', error)
+    }
   }
 
   const handleMarkAsDelivered = async (orderId: string) => {
@@ -1722,27 +1774,58 @@ export default function BusinessDashboard() {
         </td>
         <td className="px-3 py-2 whitespace-nowrap">
           <div className="flex items-center space-x-2">
-            <span className={`text-xs px-2 py-1 rounded ${
-              order.payment?.method === 'cash' 
-                ? 'text-green-700 bg-green-100' 
-                : order.payment?.method === 'mixed'
-                  ? 'text-yellow-700 bg-yellow-100'
-                  : 'text-blue-700 bg-blue-100'
-            }`}>
-              <i className={`bi ${
-                order.payment?.method === 'cash' 
-                  ? 'bi-cash' 
+            {isToday ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleEditPayment(order)
+                }}
+                className={`text-xs px-2 py-1 rounded hover:opacity-80 transition-opacity ${
+                  order.payment?.method === 'cash' 
+                    ? 'text-green-700 bg-green-100 hover:bg-green-200' 
+                    : order.payment?.method === 'mixed'
+                      ? 'text-yellow-700 bg-yellow-100 hover:bg-yellow-200'
+                      : 'text-blue-700 bg-blue-100 hover:bg-blue-200'
+                }`}
+                title="Editar método de pago"
+              >
+                <i className={`bi ${
+                  order.payment?.method === 'cash' 
+                    ? 'bi-cash' 
+                    : order.payment?.method === 'mixed'
+                      ? 'bi-cash-coin'
+                      : 'bi-credit-card'
+                } me-1`}></i>
+                {order.payment?.method === 'cash' 
+                  ? 'Efectivo' 
                   : order.payment?.method === 'mixed'
-                    ? 'bi-cash-coin'
-                    : 'bi-credit-card'
-              } me-1`}></i>
-              {order.payment?.method === 'cash' 
-                ? 'Efectivo' 
-                : order.payment?.method === 'mixed'
-                  ? 'Mixto'
-                  : 'Transferencia'
-              }
-            </span>
+                    ? 'Mixto'
+                    : 'Transferencia'
+                }
+              </button>
+            ) : (
+              <span className={`text-xs px-2 py-1 rounded ${
+                order.payment?.method === 'cash' 
+                  ? 'text-green-700 bg-green-100' 
+                  : order.payment?.method === 'mixed'
+                    ? 'text-yellow-700 bg-yellow-100'
+                    : 'text-blue-700 bg-blue-100'
+              }`}>
+                <i className={`bi ${
+                  order.payment?.method === 'cash' 
+                    ? 'bi-cash' 
+                    : order.payment?.method === 'mixed'
+                      ? 'bi-cash-coin'
+                      : 'bi-credit-card'
+                } me-1`}></i>
+                {order.payment?.method === 'cash' 
+                  ? 'Efectivo' 
+                  : order.payment?.method === 'mixed'
+                    ? 'Mixto'
+                    : 'Transferencia'
+                }
+              </span>
+            )}
             {isToday && order.payment?.method === 'transfer' && order.payment?.paymentStatus !== 'paid' && (
               <button
                 onClick={(e) => {
@@ -4711,6 +4794,191 @@ export default function BusinessDashboard() {
                   className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
                 >
                   Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Edición de Método de Pago */}
+      {showEditPaymentModal && paymentEditingOrder && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-gray-900">
+                  <i className="bi bi-credit-card me-2"></i>
+                  Editar Método de Pago
+                </h2>
+                <button
+                  onClick={() => setShowEditPaymentModal(false)}
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Información del pedido */}
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600">Pedido de:</p>
+                <p className="text-lg font-semibold text-gray-900">
+                  {paymentEditingOrder.customer?.name || 'Cliente sin nombre'}
+                </p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Total: <span className="font-bold text-emerald-600">
+                    ${(paymentEditingOrder.total || 0).toFixed(2)}
+                  </span>
+                </p>
+              </div>
+
+              {/* Selección de método de pago */}
+              <div className="space-y-4 mb-6">
+                <label className="block text-sm font-medium text-gray-700">
+                  Método de Pago
+                </label>
+                
+                <div className="space-y-3">
+                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="cash"
+                      checked={editPaymentData.method === 'cash'}
+                      onChange={(e) => setEditPaymentData({
+                        ...editPaymentData,
+                        method: e.target.value as 'cash',
+                        cashAmount: 0,
+                        transferAmount: 0
+                      })}
+                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                    />
+                    <span className="ml-3 text-gray-700">
+                      <i className="bi bi-cash me-2 text-green-600"></i>
+                      Efectivo
+                    </span>
+                  </label>
+
+                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="transfer"
+                      checked={editPaymentData.method === 'transfer'}
+                      onChange={(e) => setEditPaymentData({
+                        ...editPaymentData,
+                        method: e.target.value as 'transfer',
+                        cashAmount: 0,
+                        transferAmount: 0
+                      })}
+                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                    />
+                    <span className="ml-3 text-gray-700">
+                      <i className="bi bi-credit-card me-2 text-blue-600"></i>
+                      Transferencia
+                    </span>
+                  </label>
+
+                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="mixed"
+                      checked={editPaymentData.method === 'mixed'}
+                      onChange={(e) => setEditPaymentData({
+                        ...editPaymentData,
+                        method: e.target.value as 'mixed',
+                        cashAmount: 0,
+                        transferAmount: 0
+                      })}
+                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                    />
+                    <span className="ml-3 text-gray-700">
+                      <i className="bi bi-cash-coin me-2 text-yellow-600"></i>
+                      Mixto (Efectivo + Transferencia)
+                    </span>
+                  </label>
+                </div>
+
+                {/* Montos para pago mixto */}
+                {editPaymentData.method === 'mixed' && (
+                  <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                    <h4 className="text-sm font-medium text-gray-900 mb-3">
+                      Distribución del Pago
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Efectivo
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          max={paymentEditingOrder.total || 0}
+                          step="0.01"
+                          value={editPaymentData.cashAmount}
+                          onChange={(e) => {
+                            const cashAmount = parseFloat(e.target.value) || 0
+                            const transferAmount = (paymentEditingOrder.total || 0) - cashAmount
+                            setEditPaymentData({
+                              ...editPaymentData,
+                              cashAmount,
+                              transferAmount: Math.max(0, transferAmount)
+                            })
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-red-500 focus:border-red-500"
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Transferencia
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          max={paymentEditingOrder.total || 0}
+                          step="0.01"
+                          value={editPaymentData.transferAmount}
+                          onChange={(e) => {
+                            const transferAmount = parseFloat(e.target.value) || 0
+                            const cashAmount = (paymentEditingOrder.total || 0) - transferAmount
+                            setEditPaymentData({
+                              ...editPaymentData,
+                              transferAmount,
+                              cashAmount: Math.max(0, cashAmount)
+                            })
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-red-500 focus:border-red-500"
+                          placeholder="0.00"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-2 text-sm text-gray-600">
+                      Total: ${((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)).toFixed(2)} / ${(paymentEditingOrder.total || 0).toFixed(2)}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Botones de acción */}
+              <div className="flex space-x-3">
+                <button
+                  onClick={handleSavePaymentEdit}
+                  disabled={editPaymentData.method === 'mixed' && 
+                    ((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)) !== (paymentEditingOrder.total || 0)
+                  }
+                  className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  <i className="bi bi-check-lg me-2"></i>
+                  Guardar Cambios
+                </button>
+                <button
+                  onClick={() => setShowEditPaymentModal(false)}
+                  className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancelar
                 </button>
               </div>
             </div>
