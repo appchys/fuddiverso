@@ -13,6 +13,18 @@ export const usePushNotifications = () => {
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null)
   const [subscription, setSubscription] = useState<PushSubscription | null>(null)
 
+  // Detectar compatibilidad más específica
+  const isSupported = typeof window !== 'undefined' && 
+    'Notification' in window && 
+    'serviceWorker' in navigator && 
+    'PushManager' in window
+
+  // Detectar iOS (Safari no soporta notificaciones push)
+  const isIOS = typeof window !== 'undefined' && 
+    /iPad|iPhone|iPod/.test(navigator.userAgent)
+
+  const isCompatible = isSupported && !isIOS
+
   useEffect(() => {
     // Solo ejecutar en el cliente
     if (typeof window === 'undefined') return
@@ -125,7 +137,9 @@ export const usePushNotifications = () => {
     requestPermission,
     subscribe,
     showNotification,
-    isSupported: typeof window !== 'undefined' && 'Notification' in window && 'serviceWorker' in navigator
+    isSupported: isCompatible,
+    isIOS,
+    needsUserAction: permission === 'default' && isCompatible
   }
 }
 

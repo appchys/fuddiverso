@@ -13,7 +13,7 @@ import { usePushNotifications } from '@/hooks/usePushNotifications'
 export default function BusinessDashboard() {
   const router = useRouter()
   const { user, businessId, ownerId, isAuthenticated, logout, setBusinessId } = useBusinessAuth()
-  const { permission, requestPermission, showNotification, isSupported } = usePushNotifications()
+  const { permission, requestPermission, showNotification, isSupported, isIOS, needsUserAction } = usePushNotifications()
   const [business, setBusiness] = useState<Business | null>(null)
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -258,9 +258,20 @@ export default function BusinessDashboard() {
           // Enviar notificación por cada nuevo pedido
           newOrders.forEach((order: Order) => {
             if (permission === 'granted') {
+              // Construir título y descripción personalizados
+              const businessName = business?.name || 'Tu Tienda';
+              const orderType = order.timing?.type === 'immediate' ? 'Pedido Inmediato' : 'Pedido Programado';
+              const title = `${businessName} - ${orderType}`;
+              
+              // Construir descripción con elementos del carrito
+              const itemsCount = order.items?.length || 0;
+              const itemsText = itemsCount === 1 ? '1 elemento' : `${itemsCount} elementos`;
+              const deliveryType = order.delivery?.type === 'delivery' ? 'Delivery' : 'Retiro';
+              const body = `${itemsText} - ${deliveryType} - $${order.total.toFixed(2)}`;
+              
               showNotification({
-                title: '🍕 Nuevo Pedido Recibido',
-                body: `${order.customer?.name || 'Cliente'} - $${order.total.toFixed(2)}`,
+                title,
+                body,
                 url: '/business/dashboard',
                 orderId: order.id
               });
@@ -316,9 +327,20 @@ export default function BusinessDashboard() {
           // Enviar notificación por cada nuevo pedido
           newOrders.forEach((order: Order) => {
             if (permission === 'granted') {
+              // Construir título y descripción personalizados
+              const businessName = business?.name || 'Tu Tienda';
+              const orderType = order.timing?.type === 'immediate' ? 'Pedido Inmediato' : 'Pedido Programado';
+              const title = `${businessName} - ${orderType}`;
+              
+              // Construir descripción con elementos del carrito
+              const itemsCount = order.items?.length || 0;
+              const itemsText = itemsCount === 1 ? '1 elemento' : `${itemsCount} elementos`;
+              const deliveryType = order.delivery?.type === 'delivery' ? 'Delivery' : 'Retiro';
+              const body = `${itemsText} - ${deliveryType} - $${order.total.toFixed(2)}`;
+              
               showNotification({
-                title: '🍕 Nuevo Pedido Recibido',
-                body: `${order.customer?.name || 'Cliente'} - $${order.total.toFixed(2)}`,
+                title,
+                body,
                 url: '/business/dashboard',
                 orderId: order.id
               });
@@ -2284,16 +2306,28 @@ export default function BusinessDashboard() {
               </div>
 
               {/* Botón de Notificaciones */}
-              {isSupported && permission !== 'granted' && (
+              {isIOS ? (
+                <div className="hidden sm:block bg-yellow-100 text-yellow-700 px-2 sm:px-4 py-2 rounded-lg text-sm">
+                  <i className="bi bi-info-circle sm:me-2"></i>
+                  <span className="hidden sm:inline">iOS no soporta notificaciones push</span>
+                </div>
+              ) : needsUserAction ? (
                 <button
                   onClick={requestPermission}
-                  className="bg-blue-100 text-blue-700 px-2 sm:px-4 py-2 rounded-lg hover:bg-blue-200 transition-colors text-sm sm:text-base"
+                  className="bg-blue-100 text-blue-700 px-3 sm:px-4 py-2 rounded-lg hover:bg-blue-200 transition-colors text-sm font-medium"
                   title="Activar notificaciones de pedidos nuevos"
                 >
                   <i className="bi bi-bell sm:me-2"></i>
-                  <span className="hidden sm:inline">Notificaciones</span>
+                  <span className="hidden sm:inline">Activar Notificaciones</span>
+                  <span className="sm:hidden">🔔</span>
                 </button>
-              )}
+              ) : permission === 'granted' ? (
+                <div className="bg-green-100 text-green-700 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium">
+                  <i className="bi bi-check-circle sm:me-2"></i>
+                  <span className="hidden sm:inline">Notificaciones Activas</span>
+                  <span className="sm:hidden">✓</span>
+                </div>
+              ) : null}
 
               <button
                 onClick={handleLogout}
