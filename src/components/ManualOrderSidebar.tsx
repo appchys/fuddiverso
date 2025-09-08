@@ -132,6 +132,12 @@ export default function ManualOrderSidebar({
       try {
         const deliveries = await getDeliveriesByStatus('activo')
         setAvailableDeliveries(deliveries)
+        
+        // Seleccionar automáticamente a Sergio Alvarado como delivery predeterminado
+        const defaultDelivery = deliveries.find(d => d.celular === '0978697867')
+        if (defaultDelivery) {
+          setManualOrderData(prev => ({ ...prev, selectedDelivery: defaultDelivery }))
+        }
       } catch (error) {
         console.error('Error loading deliveries:', error)
       }
@@ -912,20 +918,14 @@ export default function ManualOrderSidebar({
                   </div>
                 </div>
               ) : (
-                <div className="p-3 bg-gray-50 border border-gray-200 rounded-md mb-3">
-                  <p className="text-sm text-gray-600 text-center">Sin asignar</p>
-                </div>
+                <button
+                  onClick={() => setShowDeliveryModal(true)}
+                  className="w-full p-3 rounded-lg border-2 border-gray-300 hover:border-gray-400 transition-all flex items-center justify-center space-x-2 text-gray-700"
+                >
+                  <i className="bi bi-person-plus"></i>
+                  <span className="text-sm font-medium">Asignar delivery</span>
+                </button>
               )}
-              
-              <button
-                onClick={() => setShowDeliveryModal(true)}
-                className="w-full p-3 rounded-lg border-2 border-gray-300 hover:border-gray-400 transition-all flex items-center justify-center space-x-2 text-gray-700"
-              >
-                <i className="bi bi-person-plus"></i>
-                <span className="text-sm font-medium">
-                  {manualOrderData.selectedDelivery ? 'Cambiar delivery' : 'Asignar delivery'}
-                </span>
-              </button>
             </div>
           )}
 
