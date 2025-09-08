@@ -83,6 +83,7 @@ export default function ManualOrderSidebar({
 
   const [searchingClient, setSearchingClient] = useState(false)
   const [clientFound, setClientFound] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [loadingClientLocations, setLoadingClientLocations] = useState(false)
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
   const [availableDeliveries, setAvailableDeliveries] = useState<any[]>([])
@@ -136,6 +137,37 @@ export default function ManualOrderSidebar({
       loadDeliveries()
     }
   }, [isOpen, business?.id])
+
+  // Obtener categorías únicas de los productos
+  const getUniqueCategories = () => {
+    const categories = products.map(product => product.category).filter(Boolean)
+    return Array.from(new Set(categories))
+  }
+
+  // Filtrar productos por categoría
+  const getFilteredProducts = () => {
+    if (selectedCategory === 'all') {
+      return products
+    }
+    return products.filter(product => product.category === selectedCategory)
+  }
+
+  // Manejar selección de delivery
+  const handleDeliverySelect = () => {
+    setManualOrderData(prev => ({ ...prev, deliveryType: 'delivery' }))
+    setShowLocationModal(true)
+  }
+
+  // Obtener fecha y hora inicial para programación
+  const getInitialScheduledDateTime = () => {
+    const now = new Date()
+    const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000) // +1 hora
+    
+    const date = now.toISOString().split('T')[0] // Formato YYYY-MM-DD
+    const time = oneHourLater.toTimeString().slice(0, 5) // Formato HH:MM
+    
+    return { date, time }
+  }
 
   // Búsqueda de cliente por teléfono
   const handlePhoneSearch = async (phone: string) => {
@@ -518,7 +550,7 @@ export default function ManualOrderSidebar({
       <div className="absolute right-0 top-0 h-full w-full max-w-lg bg-white shadow-xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">Crear Pedido Manual</h2>
+          <h2 className="text-lg font-semibold">Nuevo pedido</h2>
           <button
             onClick={handleCancel}
             className="p-2 hover:bg-gray-100 rounded-full"
@@ -549,23 +581,25 @@ export default function ManualOrderSidebar({
               )}
             </div>
 
-            {/* Campo de nombre del cliente */}
-            <div className="mt-3">
-              <input
-                type="text"
-                value={manualOrderData.customerName}
-                onChange={(e) => setManualOrderData(prev => ({ ...prev, customerName: e.target.value }))}
-                placeholder="Nombre del cliente"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+            {/* Campo de nombre del cliente - solo visible cuando no se encuentra */}
+            {showCreateClient && manualOrderData.customerPhone.length >= 10 && (
+              <div className="mt-3">
+                <input
+                  type="text"
+                  value={manualOrderData.customerName}
+                  onChange={(e) => setManualOrderData(prev => ({ ...prev, customerName: e.target.value }))}
+                  placeholder="Nombre del cliente"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            )}
 
             {/* Resultado de búsqueda */}
             {clientFound ? (
               <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
                 <p className="text-sm text-green-800">
                   <i className="bi bi-check-circle me-2"></i>
-                  Cliente encontrado
+                  Cliente encontrado: <span className="font-medium">{manualOrderData.customerName}</span>
                 </p>
               </div>
             ) : showCreateClient && manualOrderData.customerPhone.length >= 10 ? (
@@ -585,11 +619,41 @@ export default function ManualOrderSidebar({
           {/* Selección de productos - siempre visible */}
           <div className="mb-6">
             <h3 className="text-sm font-medium text-gray-700 mb-3">Productos</h3>
-            <div className="space-y-2 max-h-40 overflow-y-auto">
-              {products.filter(p => p.isAvailable).map((product) => (
+            
+            {/* Filtro de categorías */}
+            <div className="mb-3">
+              <div className="flex flex-wrap gap-2 text-xs">
+                <button
+                  onClick={() => setSelectedCategory('all')}
+                  className={`px-2 py-1 rounded transition-colors ${
+                    selectedCategory === 'all'
+                      ? 'text-blue-600 font-medium'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Todos
+                </button>
+                {getUniqueCategories().map(category => (
+                  <button
+                    key={category}
+                    onClick={() => setSelectedCategory(category)}
+                    className={`px-2 py-1 rounded transition-colors ${
+                      selectedCategory === category
+                        ? 'text-blue-600 font-medium'
+                        : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-4 gap-1 max-h-40 overflow-y-auto">
+              {getFilteredProducts().filter(p => p.isAvailable).map((product) => (
                 <div 
                   key={product.id} 
-                  className="flex items-center p-2 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors"
+                  className="aspect-square p-1 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col items-center justify-center text-center"
                   onClick={() => {
                     if (product.variants && product.variants.length > 0) {
                       setSelectedProductForVariants(product)
@@ -600,7 +664,7 @@ export default function ManualOrderSidebar({
                   }}
                 >
                   {/* Imagen del producto */}
-                  <div className="w-12 h-12 mr-3 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
+                  <div className="w-6 h-6 mb-1 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
                     {product.image ? (
                       <img
                         src={product.image}
@@ -609,21 +673,17 @@ export default function ManualOrderSidebar({
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <i className="bi bi-image text-gray-400 text-lg"></i>
+                        <i className="bi bi-image text-gray-400 text-xs"></i>
                       </div>
                     )}
                   </div>
                   
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{product.name}</p>
+                  <div className="flex-1 flex flex-col justify-center">
+                    <p className="text-xs font-medium leading-tight mb-1 line-clamp-2">{product.name}</p>
                     <p className="text-xs text-gray-500">${product.price}</p>
                     {product.variants && product.variants.length > 0 && (
-                      <p className="text-xs text-blue-600">{product.variants.length} variantes</p>
+                      <p className="text-xs text-blue-600">{product.variants.length} var.</p>
                     )}
-                  </div>
-                  
-                  <div className="flex items-center text-blue-600">
-                    <i className="bi bi-plus-circle text-lg"></i>
                   </div>
                 </div>
               ))}
@@ -671,62 +731,67 @@ export default function ManualOrderSidebar({
           {/* Tipo de entrega - siempre visible */}
           <div className="mb-6">
             <h3 className="text-sm font-medium text-gray-700 mb-3">Tipo de entrega</h3>
-            <div className="space-y-2">
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="deliveryType"
-                  value="pickup"
-                  checked={manualOrderData.deliveryType === 'pickup'}
-                  onChange={(e) => setManualOrderData(prev => ({ ...prev, deliveryType: e.target.value as 'pickup' | 'delivery' }))}
-                  className="mr-2"
-                />
-                <span className="text-sm">Recoger en tienda</span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="deliveryType"
-                  value="delivery"
-                  checked={manualOrderData.deliveryType === 'delivery'}
-                  onChange={(e) => setManualOrderData(prev => ({ ...prev, deliveryType: e.target.value as 'pickup' | 'delivery' }))}
-                  className="mr-2"
-                />
-                <span className="text-sm">Delivery</span>
-              </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setManualOrderData(prev => ({ ...prev, deliveryType: 'pickup' }))}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                  manualOrderData.deliveryType === 'pickup'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <i className="bi bi-shop text-lg"></i>
+                <span className="text-xs font-medium">Recoger en tienda</span>
+              </button>
+              
+              <button
+                type="button"
+                onClick={handleDeliverySelect}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                  manualOrderData.deliveryType === 'delivery'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <i className="bi bi-truck text-lg"></i>
+                <span className="text-xs font-medium">Delivery</span>
+              </button>
             </div>
           </div>
 
           {/* Ubicaciones del cliente */}
           {manualOrderData.deliveryType === 'delivery' && (
             <div className="mb-6">
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="text-sm font-medium text-gray-700">Ubicación</h3>
-                <button
-                  onClick={() => setShowLocationModal(true)}
-                  className="text-sm bg-blue-600 text-white px-3 py-1 rounded-md hover:bg-blue-700 transition-colors"
-                  disabled={!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10}
-                >
-                  <i className="bi bi-geo-alt mr-1"></i>
-                  Seleccionar ubicación
-                </button>
-              </div>
+              <h3 className="text-sm font-medium text-gray-700 mb-3">Ubicación</h3>
               
               {(!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10) ? (
                 <p className="text-sm text-gray-500">Ingresa un número de teléfono válido para gestionar ubicaciones</p>
               ) : manualOrderData.selectedLocation ? (
-                <div className="p-3 bg-green-50 border border-green-200 rounded-md">
+                <div className="p-3 bg-green-50 border border-green-200 rounded-md mb-3 relative">
                   <p className="text-sm font-medium text-green-800">{manualOrderData.selectedLocation.referencia}</p>
                   <p className="text-xs text-green-600">Tarifa: ${parseFloat(manualOrderData.selectedLocation.tarifa)}</p>
                   <button
                     onClick={() => setShowLocationModal(true)}
-                    className="text-xs text-blue-600 hover:text-blue-700 mt-1"
+                    className="absolute top-3 right-3 text-green-600 hover:text-green-700 transition-colors"
+                    disabled={!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10}
                   >
-                    Cambiar ubicación
+                    <i className="bi bi-chevron-down"></i>
                   </button>
                 </div>
               ) : (
-                <p className="text-sm text-gray-500">No hay ubicación seleccionada</p>
+                <p className="text-sm text-gray-500 mb-3">No hay ubicación seleccionada</p>
+              )}
+              
+              {!manualOrderData.selectedLocation && (
+                <button
+                  onClick={() => setShowLocationModal(true)}
+                  className="w-full p-3 rounded-lg border-2 border-gray-300 hover:border-gray-400 transition-all flex items-center justify-center space-x-2 text-gray-700"
+                  disabled={!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10}
+                >
+                  <i className="bi bi-geo-alt"></i>
+                  <span className="text-sm font-medium">Seleccionar ubicación</span>
+                </button>
               )}
             </div>
           )}
@@ -734,64 +799,60 @@ export default function ManualOrderSidebar({
           {/* Método de pago - siempre visible */}
           <div className="mb-6">
             <h3 className="text-sm font-medium text-gray-700 mb-3">Método de pago</h3>
-            <div className="space-y-2">
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="paymentMethod"
-                  value="cash"
-                  checked={manualOrderData.paymentMethod === 'cash'}
-                  onChange={(e) => setManualOrderData(prev => ({ 
-                    ...prev, 
-                    paymentMethod: e.target.value as 'cash',
-                    cashAmount: 0,
-                    transferAmount: 0
-                  }))}
-                  className="mr-2"
-                />
-                <span className="text-sm">
-                  <i className="bi bi-cash me-1"></i>
-                  Efectivo
-                </span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="paymentMethod"
-                  value="transfer"
-                  checked={manualOrderData.paymentMethod === 'transfer'}
-                  onChange={(e) => setManualOrderData(prev => ({ 
-                    ...prev, 
-                    paymentMethod: e.target.value as 'transfer',
-                    cashAmount: 0,
-                    transferAmount: 0
-                  }))}
-                  className="mr-2"
-                />
-                <span className="text-sm">
-                  <i className="bi bi-bank me-1"></i>
-                  Transferencia
-                </span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="paymentMethod"
-                  value="mixed"
-                  checked={manualOrderData.paymentMethod === 'mixed'}
-                  onChange={(e) => setManualOrderData(prev => ({ 
-                    ...prev, 
-                    paymentMethod: e.target.value as 'mixed',
-                    cashAmount: prev.total / 2,
-                    transferAmount: prev.total / 2
-                  }))}
-                  className="mr-2"
-                />
-                <span className="text-sm">
-                  <i className="bi bi-cash-coin me-1"></i>
-                  Pago Mixto (Efectivo + Transferencia)
-                </span>
-              </label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setManualOrderData(prev => ({ 
+                  ...prev, 
+                  paymentMethod: 'cash',
+                  cashAmount: 0,
+                  transferAmount: 0
+                }))}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                  manualOrderData.paymentMethod === 'cash'
+                    ? 'border-green-500 bg-green-50 text-green-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <i className="bi bi-cash text-lg"></i>
+                <span className="text-xs font-medium">Efectivo</span>
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setManualOrderData(prev => ({ 
+                  ...prev, 
+                  paymentMethod: 'transfer',
+                  cashAmount: 0,
+                  transferAmount: 0
+                }))}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                  manualOrderData.paymentMethod === 'transfer'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <i className="bi bi-bank text-lg"></i>
+                <span className="text-xs font-medium">Transferencia</span>
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setManualOrderData(prev => ({ 
+                  ...prev, 
+                  paymentMethod: 'mixed',
+                  cashAmount: prev.total / 2,
+                  transferAmount: prev.total / 2
+                }))}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                  manualOrderData.paymentMethod === 'mixed'
+                    ? 'border-purple-500 bg-purple-50 text-purple-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <i className="bi bi-cash-coin text-lg"></i>
+                <span className="text-xs font-medium">Mixto</span>
+              </button>
             </div>
 
             {/* Configuración de Pago Mixto */}
@@ -880,33 +941,44 @@ export default function ManualOrderSidebar({
           {/* Timing - siempre visible */}
           <div className="mb-6">
             <h3 className="text-sm font-medium text-gray-700 mb-3">Programación</h3>
-            <div className="space-y-2">
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="timingType"
-                  value="immediate"
-                  checked={manualOrderData.timingType === 'immediate'}
-                  onChange={(e) => setManualOrderData(prev => ({ ...prev, timingType: e.target.value as 'immediate' }))}
-                  className="mr-2"
-                />
-                <span className="text-sm">Inmediato</span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="timingType"
-                  value="scheduled"
-                  checked={manualOrderData.timingType === 'scheduled'}
-                  onChange={(e) => setManualOrderData(prev => ({ ...prev, timingType: e.target.value as 'scheduled' }))}
-                  className="mr-2"
-                />
-                <span className="text-sm">Programado</span>
-              </label>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setManualOrderData(prev => ({ ...prev, timingType: 'immediate' }))}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                  manualOrderData.timingType === 'immediate'
+                    ? 'border-orange-500 bg-orange-50 text-orange-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <i className="bi bi-lightning-fill text-lg"></i>
+                <span className="text-xs font-medium">Inmediato</span>
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => {
+                  const { date, time } = getInitialScheduledDateTime()
+                  setManualOrderData(prev => ({ 
+                    ...prev, 
+                    timingType: 'scheduled',
+                    scheduledDate: date,
+                    scheduledTime: time
+                  }))
+                }}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                  manualOrderData.timingType === 'scheduled'
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <i className="bi bi-calendar-event text-lg"></i>
+                <span className="text-xs font-medium">Programado</span>
+              </button>
             </div>
             
             {manualOrderData.timingType === 'scheduled' && (
-              <div className="mt-3 space-y-2">
+              <div className="space-y-2">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">
                     Fecha
@@ -1079,6 +1151,8 @@ export default function ManualOrderSidebar({
                           checked={manualOrderData.selectedLocation?.id === location.id}
                           onChange={() => {
                             setManualOrderData(prev => ({ ...prev, selectedLocation: location }));
+                            setShowLocationModal(false);
+                            calculateTotal(manualOrderData.selectedProducts);
                           }}
                           className="mr-3 mt-1"
                         />
@@ -1105,23 +1179,11 @@ export default function ManualOrderSidebar({
                 <div className="flex space-x-3">
                   <button
                     onClick={() => setShowNewLocationForm(true)}
-                    className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
+                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
                   >
                     <i className="bi bi-plus-lg mr-2"></i>
                     Nueva ubicación
                   </button>
-                  
-                  {manualOrderData.selectedLocation && (
-                    <button
-                      onClick={() => {
-                        setShowLocationModal(false);
-                        calculateTotal(manualOrderData.selectedProducts);
-                      }}
-                      className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition-colors"
-                    >
-                      Confirmar selección
-                    </button>
-                  )}
                 </div>
               </div>
             ) : (
