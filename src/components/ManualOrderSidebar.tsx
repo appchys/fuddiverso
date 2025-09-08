@@ -362,7 +362,7 @@ export default function ManualOrderSidebar({
     const variantName = variant ? variant.name : undefined
     
     const newItem: OrderItem = {
-      name: product.name + (variant ? ` - ${variant.name}` : ''),
+      name: variant ? variant.name : product.name,
       price: price,
       productId: product.id,
       quantity: 1,
@@ -622,10 +622,10 @@ export default function ManualOrderSidebar({
             
             {/* Filtro de categorías */}
             <div className="mb-3">
-              <div className="flex flex-wrap gap-2 text-xs">
+              <div className="flex gap-2 text-xs overflow-x-auto scrollbar-hide whitespace-nowrap pb-2">
                 <button
                   onClick={() => setSelectedCategory('all')}
-                  className={`px-2 py-1 rounded transition-colors ${
+                  className={`px-2 py-1 rounded transition-colors flex-shrink-0 ${
                     selectedCategory === 'all'
                       ? 'text-blue-600 font-medium'
                       : 'text-gray-600 hover:text-gray-800'
@@ -637,7 +637,7 @@ export default function ManualOrderSidebar({
                   <button
                     key={category}
                     onClick={() => setSelectedCategory(category)}
-                    className={`px-2 py-1 rounded transition-colors ${
+                    className={`px-2 py-1 rounded transition-colors flex-shrink-0 ${
                       selectedCategory === category
                         ? 'text-blue-600 font-medium'
                         : 'text-gray-600 hover:text-gray-800'
@@ -653,7 +653,7 @@ export default function ManualOrderSidebar({
               {getFilteredProducts().filter(p => p.isAvailable).map((product) => (
                 <div 
                   key={product.id} 
-                  className="aspect-square p-1 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col items-center justify-center text-center"
+                  className="aspect-square p-1 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col"
                   onClick={() => {
                     if (product.variants && product.variants.length > 0) {
                       setSelectedProductForVariants(product)
@@ -664,7 +664,7 @@ export default function ManualOrderSidebar({
                   }}
                 >
                   {/* Imagen del producto */}
-                  <div className="w-6 h-6 mb-1 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
+                  <div className="w-full h-8 mb-1 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
                     {product.image ? (
                       <img
                         src={product.image}
@@ -678,11 +678,12 @@ export default function ManualOrderSidebar({
                     )}
                   </div>
                   
-                  <div className="flex-1 flex flex-col justify-center">
+                  <div className="flex-1 flex flex-col justify-center text-center">
                     <p className="text-xs font-medium leading-tight mb-1 line-clamp-2">{product.name}</p>
-                    <p className="text-xs text-gray-500">${product.price}</p>
-                    {product.variants && product.variants.length > 0 && (
-                      <p className="text-xs text-blue-600">{product.variants.length} var.</p>
+                    {product.variants && product.variants.length > 0 ? (
+                      <i className="bi bi-chevron-down text-xs text-blue-600"></i>
+                    ) : (
+                      <p className="text-xs text-gray-500">${product.price}</p>
                     )}
                   </div>
                 </div>
@@ -754,7 +755,7 @@ export default function ManualOrderSidebar({
                     : 'border-gray-300 hover:border-gray-400'
                 }`}
               >
-                <i className="bi bi-truck text-lg"></i>
+                <i className="bi bi-scooter text-lg"></i>
                 <span className="text-xs font-medium">Delivery</span>
               </button>
             </div>
