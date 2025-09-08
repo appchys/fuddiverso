@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
 import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation } from '@/lib/database'
+import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 
 interface Client {
   id: string
@@ -105,6 +106,9 @@ export default function ManualOrderSidebar({
     latlong: ''
   })
   const [creatingLocation, setCreatingLocation] = useState(false)
+  
+  // Estados para modal de deliveries
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false)
 
   // Cleanup del timeout al desmontar
   useEffect(() => {
@@ -804,15 +808,45 @@ export default function ManualOrderSidebar({
                 <p className="text-sm text-gray-500">Ingresa un número de teléfono válido para gestionar ubicaciones</p>
               ) : manualOrderData.selectedLocation ? (
                 <div className="p-3 bg-green-50 border border-green-200 rounded-md mb-3 relative">
-                  <p className="text-sm font-medium text-green-800">{manualOrderData.selectedLocation.referencia}</p>
-                  <p className="text-xs text-green-600">Tarifa: ${parseFloat(manualOrderData.selectedLocation.tarifa)}</p>
-                  <button
-                    onClick={() => setShowLocationModal(true)}
-                    className="absolute top-3 right-3 text-green-600 hover:text-green-700 transition-colors"
-                    disabled={!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10}
-                  >
-                    <i className="bi bi-chevron-down"></i>
-                  </button>
+                  <div className="flex items-start space-x-3">
+                    {/* Mapa estático de la ubicación seleccionada */}
+                    {manualOrderData.selectedLocation.latlong && (
+                      <div className="w-16 h-16 flex-shrink-0 bg-gray-200 rounded-md overflow-hidden relative">
+                        <img
+                          src={`https://maps.googleapis.com/maps/api/staticmap?center=${manualOrderData.selectedLocation.latlong}&zoom=15&size=64x64&maptype=roadmap&markers=color:red%7C${manualOrderData.selectedLocation.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
+                          alt="Ubicación en mapa"
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const parent = target.parentElement;
+                            if (parent) {
+                              const fallback = parent.querySelector('.map-fallback') as HTMLElement;
+                              if (fallback) {
+                                fallback.style.display = 'flex';
+                              }
+                            }
+                          }}
+                        />
+                        <div className="map-fallback absolute inset-0 hidden w-full h-full flex items-center justify-center bg-gray-200">
+                          <i className="bi bi-geo-alt text-gray-400 text-lg"></i>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-green-800">{manualOrderData.selectedLocation.referencia}</p>
+                      <p className="text-xs text-green-600">Tarifa: ${parseFloat(manualOrderData.selectedLocation.tarifa)}</p>
+                    </div>
+                    
+                    <button
+                      onClick={() => setShowLocationModal(true)}
+                      className="text-green-600 hover:text-green-700 transition-colors flex-shrink-0"
+                      disabled={!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10}
+                    >
+                      <i className="bi bi-chevron-down"></i>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-gray-500 mb-3">No hay ubicación seleccionada</p>
@@ -836,41 +870,62 @@ export default function ManualOrderSidebar({
             <div className="mb-6">
               <h3 className="text-sm font-medium text-gray-700 mb-3">Asignar delivery</h3>
               
-              {availableDeliveries.length > 0 ? (
-                <div className="space-y-2">
-                  <button
-                    onClick={() => setManualOrderData(prev => ({ ...prev, selectedDelivery: null }))}
-                    className={`w-full p-3 rounded-lg border-2 transition-all flex items-center justify-center space-x-2 ${
-                      !manualOrderData.selectedDelivery
-                        ? 'border-gray-500 bg-gray-50 text-gray-700'
-                        : 'border-gray-300 hover:border-gray-400 text-gray-700'
-                    }`}
-                  >
-                    <i className="bi bi-clock"></i>
-                    <span className="text-sm font-medium">Sin asignar</span>
-                  </button>
-                  
-                  {availableDeliveries.map((delivery) => (
-                    <button
-                      key={delivery.id}
-                      onClick={() => setManualOrderData(prev => ({ ...prev, selectedDelivery: delivery }))}
-                      className={`w-full p-3 rounded-lg border-2 transition-all flex items-center justify-between ${
-                        manualOrderData.selectedDelivery?.id === delivery.id
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-gray-300 hover:border-gray-400'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2">
-                        <i className="bi bi-person-check"></i>
-                        <span className="text-sm font-medium">{delivery.nombre}</span>
+              {manualOrderData.selectedDelivery ? (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-md mb-3 relative">
+                  <div className="flex items-center space-x-3">
+                    {/* Foto del delivery */}
+                    {manualOrderData.selectedDelivery.fotoUrl && (
+                      <div className="w-12 h-12 flex-shrink-0 rounded-full overflow-hidden bg-gray-200">
+                        <img
+                          src={manualOrderData.selectedDelivery.fotoUrl}
+                          alt={manualOrderData.selectedDelivery.nombres}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const parent = target.parentElement;
+                            if (parent) {
+                              const fallback = parent.querySelector('.avatar-fallback') as HTMLElement;
+                              if (fallback) {
+                                fallback.style.display = 'flex';
+                              }
+                            }
+                          }}
+                        />
+                        <div className="avatar-fallback absolute inset-0 hidden w-full h-full flex items-center justify-center bg-gray-200">
+                          <i className="bi bi-person text-gray-400 text-lg"></i>
+                        </div>
                       </div>
-                      <span className="text-xs text-gray-500">{delivery.estado}</span>
+                    )}
+                    
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-blue-800">{manualOrderData.selectedDelivery.nombres}</p>
+                      <p className="text-xs text-blue-600">{manualOrderData.selectedDelivery.celular}</p>
+                    </div>
+                    
+                    <button
+                      onClick={() => setShowDeliveryModal(true)}
+                      className="text-blue-600 hover:text-blue-700 transition-colors flex-shrink-0"
+                    >
+                      <i className="bi bi-chevron-down"></i>
                     </button>
-                  ))}
+                  </div>
                 </div>
               ) : (
-                <p className="text-sm text-gray-500">No hay deliveries disponibles</p>
+                <div className="p-3 bg-gray-50 border border-gray-200 rounded-md mb-3">
+                  <p className="text-sm text-gray-600 text-center">Sin asignar</p>
+                </div>
               )}
+              
+              <button
+                onClick={() => setShowDeliveryModal(true)}
+                className="w-full p-3 rounded-lg border-2 border-gray-300 hover:border-gray-400 transition-all flex items-center justify-center space-x-2 text-gray-700"
+              >
+                <i className="bi bi-person-plus"></i>
+                <span className="text-sm font-medium">
+                  {manualOrderData.selectedDelivery ? 'Cambiar delivery' : 'Asignar delivery'}
+                </span>
+              </button>
             </div>
           )}
 
@@ -1237,18 +1292,25 @@ export default function ManualOrderSidebar({
                         
                         {/* Mapa estático */}
                         {location.latlong && (
-                          <div className="w-16 h-16 mr-3 flex-shrink-0 bg-gray-200 rounded-md overflow-hidden">
+                          <div className="w-16 h-16 mr-3 flex-shrink-0 bg-gray-200 rounded-md overflow-hidden relative">
                             <img
-                              src={`https://maps.googleapis.com/maps/api/staticmap?center=${location.latlong}&zoom=15&size=64x64&maptype=roadmap&markers=color:red%7C${location.latlong}&key=AIzaSyBGne_b90z4EcQJOpKMqTGtmTPHGwrK9VE`}
+                              src={`https://maps.googleapis.com/maps/api/staticmap?center=${location.latlong}&zoom=15&size=64x64&maptype=roadmap&markers=color:red%7C${location.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
                               alt="Ubicación en mapa"
                               className="w-full h-full object-cover"
                               onError={(e) => {
-                                // Si falla la carga del mapa, mostrar un ícono
-                                e.currentTarget.style.display = 'none';
-                                e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                // Si falla la carga del mapa, ocultar la imagen y mostrar el ícono
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                const parent = target.parentElement;
+                                if (parent) {
+                                  const fallback = parent.querySelector('.map-fallback') as HTMLElement;
+                                  if (fallback) {
+                                    fallback.style.display = 'flex';
+                                  }
+                                }
                               }}
                             />
-                            <div className="hidden w-full h-full flex items-center justify-center bg-gray-200">
+                            <div className="map-fallback absolute inset-0 hidden w-full h-full flex items-center justify-center bg-gray-200">
                               <i className="bi bi-geo-alt text-gray-400 text-lg"></i>
                             </div>
                           </div>
@@ -1392,6 +1454,112 @@ export default function ManualOrderSidebar({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de selección de deliveries */}
+      {showDeliveryModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Seleccionar delivery</h3>
+              <button
+                onClick={() => setShowDeliveryModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <i className="bi bi-x-lg"></i>
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {/* Opción "Sin asignar" */}
+              <button
+                onClick={() => {
+                  setManualOrderData(prev => ({ ...prev, selectedDelivery: null }));
+                  setShowDeliveryModal(false);
+                }}
+                className={`w-full p-3 rounded-lg border-2 transition-all flex items-center space-x-3 ${
+                  !manualOrderData.selectedDelivery
+                    ? 'border-gray-500 bg-gray-50'
+                    : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                }`}
+              >
+                <div className="w-12 h-12 flex-shrink-0 rounded-full bg-gray-200 flex items-center justify-center">
+                  <i className="bi bi-clock text-gray-400 text-lg"></i>
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="text-sm font-medium text-gray-700">Sin asignar</p>
+                  <p className="text-xs text-gray-500">El pedido se asignará después</p>
+                </div>
+                {!manualOrderData.selectedDelivery && (
+                  <i className="bi bi-check-circle text-gray-500"></i>
+                )}
+              </button>
+
+              {/* Lista de deliveries activos */}
+              {availableDeliveries.filter(delivery => delivery.estado === 'activo').map((delivery) => (
+                <button
+                  key={delivery.id}
+                  onClick={() => {
+                    setManualOrderData(prev => ({ ...prev, selectedDelivery: delivery }));
+                    setShowDeliveryModal(false);
+                  }}
+                  className={`w-full p-3 rounded-lg border-2 transition-all flex items-center space-x-3 ${
+                    manualOrderData.selectedDelivery?.id === delivery.id
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  {/* Foto del delivery */}
+                  <div className="w-12 h-12 flex-shrink-0 rounded-full overflow-hidden bg-gray-200 relative">
+                    {delivery.fotoUrl ? (
+                      <>
+                        <img
+                          src={delivery.fotoUrl}
+                          alt={delivery.nombres}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const parent = target.parentElement;
+                            if (parent) {
+                              const fallback = parent.querySelector('.avatar-fallback') as HTMLElement;
+                              if (fallback) {
+                                fallback.style.display = 'flex';
+                              }
+                            }
+                          }}
+                        />
+                        <div className="avatar-fallback absolute inset-0 hidden w-full h-full flex items-center justify-center bg-gray-200">
+                          <i className="bi bi-person text-gray-400 text-lg"></i>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                        <i className="bi bi-person text-gray-400 text-lg"></i>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex-1 text-left">
+                    <p className="text-sm font-medium text-gray-900">{delivery.nombres}</p>
+                    <p className="text-xs text-gray-500">{delivery.celular}</p>
+                  </div>
+                  
+                  {manualOrderData.selectedDelivery?.id === delivery.id && (
+                    <i className="bi bi-check-circle text-blue-500"></i>
+                  )}
+                </button>
+              ))}
+
+              {availableDeliveries.filter(delivery => delivery.estado === 'activo').length === 0 && (
+                <div className="text-center py-8">
+                  <i className="bi bi-person-x text-gray-400 text-4xl mb-3"></i>
+                  <p className="text-sm text-gray-500">No hay deliveries activos disponibles</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
