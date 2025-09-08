@@ -51,13 +51,13 @@ Necesito revisar el código de checkout y registro de ordenes manuales, ya que l
 Te comparto como es la estructura de una orden manual para que la uses de referencia:
 
 
-  businessId
+businessId
 "0FeNtdYThoTRMPJ6qaS7"
 (cadena)
 
 
 createdAt
-4 de septiembre de 2025, 3:36:49 p.m. UTC-5
+5 de septiembre de 2025, 1:16:59 p.m. UTC-5
 (marca de tiempo)
 
 
@@ -72,12 +72,12 @@ customer
 
 
 name
-"Pedro Sánchez"
+"Meury Herederos"
 (cadena)
 
 
 phone
-"0990815097"
+"0986454274"
 (cadena)
 
 
@@ -86,28 +86,23 @@ delivery
 (mapa)
 
 
-assignedDelivery
-"SskWkBmgVtI2j9WJdUDZ"
-(cadena)
-
-
 deliveryCost
-1
+0
 (número)
 
 
 latlong
-"-1.865759, -79.977809"
+""
 (cadena)
 
 
 references
-"Daule, Vicente Rocafuerte"
+""
 (cadena)
 
 
 type
-"delivery"
+"pickup"
 (cadena)
 
 
@@ -122,7 +117,7 @@ items
 
 
 name
-"Wantancitos y Tequeños - 15 wantancitos + 9 tequeños "
+"Wantancitos BBQ - 30 wantancitos "
 (cadena)
 
 
@@ -132,7 +127,7 @@ price
 
 
 productId
-"p6xNQZL0gnxbMXxOffhE"
+"RJdtOLmoYvLORpmzJysL"
 (cadena)
 
 
@@ -142,7 +137,37 @@ quantity
 
 
 variant
-"15 wantancitos + 9 tequeños "
+"30 wantancitos "
+(cadena)
+
+
+
+1
+(mapa)
+
+
+name
+"Wantancitos BBQ - 100 wantancitos"
+(cadena)
+
+
+price
+18
+(número)
+
+
+productId
+"RJdtOLmoYvLORpmzJysL"
+(cadena)
+
+
+quantity
+1
+(número)
+
+
+variant
+"100 wantancitos"
 (cadena)
 
 
@@ -152,7 +177,7 @@ payment
 
 
 method
-"cash"
+"transfer"
 (cadena)
 
 
@@ -167,12 +192,12 @@ selectedBank
 
 
 status
-"ready"
+"delivered"
 (cadena)
 
 
 subtotal
-5.5
+23.5
 (número)
 
 
@@ -181,29 +206,38 @@ timing
 (mapa)
 
 
+
 scheduledDate
-"2025-09-04"
-(cadena)
+(mapa)
+
+
+nanoseconds
+0
+(número)
+
+
+seconds
+1757169000
+(número)
 
 
 scheduledTime
-"16:06"
+"09:30"
 (cadena)
 
 
 type
-"immediate"
+"scheduled"
 (cadena)
 
 
 total
-6.5
+23.5
 (número)
 
 
 updatedAt
-4 de septiembre de 2025, 5:47:27 p.m. UTC-5
+6 de septiembre de 2025, 1:21:55 p.m. UTC-5
 (marca de tiempo)
 
 
-Tambien quiero cambiar en la pestaña Pedidos de hoy, dentro hay un título que dice Pedidos de hoy (x), quiero que en su lugar esté la suma de los totales de las órdenes que se muestran en la lista.

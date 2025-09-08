@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct, getBusinessesByOwner, uploadImage, updateBusiness, addBusinessAdministrator, removeBusinessAdministrator, updateAdministratorPermissions, getUserBusinessAccess, getBusinessCategories, addCategoryToBusiness, searchClientByPhone, getClientLocations, createOrder, getDeliveriesByStatus, createClient, updateOrder, deleteOrder, createClientLocation } from '@/lib/database'
+import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct, getBusinessesByOwner, uploadImage, updateBusiness, addBusinessAdministrator, removeBusinessAdministrator, updateAdministratorPermissions, getUserBusinessAccess, getBusinessCategories, addCategoryToBusiness, searchClientByPhone, getClientLocations, createOrder, getDeliveriesByStatus, createClient, updateOrder, deleteOrder } from '@/lib/database'
 import { Business, Product, Order, ProductVariant, ClientLocation } from '@/types'
 import { auth, db } from '@/lib/firebase'
 import { doc, updateDoc, Timestamp } from 'firebase/firestore'
@@ -19,6 +19,7 @@ export default function BusinessDashboard() {
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [orders, setOrders] = useState<Order[]>([])
+  const [availableDeliveries, setAvailableDeliveries] = useState<any[]>([])
   const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'profile' | 'admins'>('orders')
@@ -69,47 +70,6 @@ export default function BusinessDashboard() {
   })
   const [addingAdmin, setAddingAdmin] = useState(false)
 
-  // Estados para orden manual
-  const [manualOrderData, setManualOrderData] = useState({
-    customerPhone: '',
-    customerName: '',
-    selectedProducts: [] as Array<{
-      id: string;
-      name: string;
-      price: number;
-      quantity: number;
-      variant?: string;
-    }>,
-    deliveryType: '' as '' | 'delivery' | 'pickup',
-    selectedLocation: null as ClientLocation | null,
-    customerLocations: [] as ClientLocation[],
-    // Datos de timing
-    timingType: 'immediate' as 'immediate' | 'scheduled',
-    scheduledDate: '',
-    scheduledTime: '',
-    // Datos de pago
-    paymentMethod: 'cash' as 'cash' | 'transfer' | 'mixed',
-    selectedBank: '',
-    paymentStatus: 'pending' as 'pending' | 'validating' | 'paid',
-    // Pago mixto
-    cashAmount: 0,
-    transferAmount: 0,
-    total: 0,
-    // Delivery asignado
-    selectedDelivery: null as any
-  })
-  const [searchingClient, setSearchingClient] = useState(false)
-  const [clientFound, setClientFound] = useState(false)
-  const [loadingClientLocations, setLoadingClientLocations] = useState(false)
-  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
-  const [availableDeliveries, setAvailableDeliveries] = useState<any[]>([])
-  const [showCreateClient, setShowCreateClient] = useState(false)
-  const [creatingClient, setCreatingClient] = useState(false)
-  
-  // Estados para modal de variantes
-  const [selectedProductForVariants, setSelectedProductForVariants] = useState<Product | null>(null)
-  const [isVariantModalOpen, setIsVariantModalOpen] = useState(false)
-
   // Estados para editar órdenes
   const [showEditOrderModal, setShowEditOrderModal] = useState(false)
   const [editingOrder, setEditingOrder] = useState<Order | null>(null)
@@ -154,15 +114,6 @@ export default function BusinessDashboard() {
       router.push('/business/login');
     }
   }, [isAuthenticated, router]);
-
-  // Cleanup del timeout al desmontar
-  useEffect(() => {
-    return () => {
-      if (searchTimeout) {
-        clearTimeout(searchTimeout);
-      }
-    };
-  }, [searchTimeout]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !user || !isAuthenticated) return;
@@ -304,6 +255,10 @@ export default function BusinessDashboard() {
         setOrders(ordersData);
         setPreviousOrdersCount(ordersData.length);
 
+        // Cargar deliveries disponibles
+        const deliveriesData = await getDeliveriesByStatus('activo');
+        setAvailableDeliveries(deliveriesData);
+
         // Inicializar fechas colapsadas para el historial
         const { pastOrders } = categorizeOrdersForData(ordersData);
         const groupedPastOrders = groupOrdersByDate(pastOrders);
@@ -331,20 +286,6 @@ export default function BusinessDashboard() {
       console.error('Error loading orders:', error);
     }
   };
-
-  // Cargar deliveries activos
-  useEffect(() => {
-    const loadDeliveries = async () => {
-      try {
-        const deliveries = await getDeliveriesByStatus('activo')
-        setAvailableDeliveries(deliveries)
-      } catch (error) {
-        // Error loading deliveries
-      }
-    }
-
-    loadDeliveries()
-  }, [])
 
   // Efecto para recargar pedidos periódicamente y detectar nuevos
   useEffect(() => {
@@ -405,30 +346,6 @@ export default function BusinessDashboard() {
 
     return () => clearInterval(interval);
   }, [selectedBusinessId, previousOrdersCount, permission, showNotification])
-
-  // Efecto para calcular automáticamente el total del pedido manual
-  useEffect(() => {
-    const subtotal = manualOrderData.selectedProducts.reduce((sum, item) => 
-      sum + (item.price * item.quantity), 0
-    );
-    const delivery = manualOrderData.deliveryType === 'delivery' && manualOrderData.selectedLocation
-      ? parseFloat(manualOrderData.selectedLocation.tarifa || '0')
-      : 0;
-    const newTotal = subtotal + delivery;
-    
-    // Solo actualizar si el total cambió
-    if (Math.abs(manualOrderData.total - newTotal) > 0.01) {
-      setManualOrderData(prev => ({
-        ...prev,
-        total: newTotal,
-        // Si es pago mixto y algún valor está en 0, distribuir automáticamente
-        ...(prev.paymentMethod === 'mixed' && (prev.cashAmount === 0 && prev.transferAmount === 0) && {
-          cashAmount: newTotal / 2,
-          transferAmount: newTotal / 2
-        })
-      }));
-    }
-  }, [manualOrderData.selectedProducts, manualOrderData.deliveryType, manualOrderData.selectedLocation]);
 
   const handleBusinessChange = (businessId: string) => {
     const selectedBusiness = businesses.find(b => b.id === businessId);
@@ -735,7 +652,7 @@ export default function BusinessDashboard() {
   }
 
   // Función unificada para enviar mensajes de WhatsApp
-  const handleSendWhatsApp = (order: Order) => {
+  const handleSendWhatsApp = async (order: Order) => {
     let phone = ''
     let title = ''
     
@@ -747,14 +664,22 @@ export default function BusinessDashboard() {
         return
       }
 
-      const delivery = availableDeliveries.find(d => d.id === assignedDeliveryId)
-      if (!delivery) {
-        alert('No se encontró la información del delivery')
+      try {
+        // Obtener información del delivery desde la base de datos
+        const deliveries = await getDeliveriesByStatus('activo')
+        const delivery = deliveries.find(d => d.id === assignedDeliveryId)
+        
+        if (!delivery) {
+          alert('No se encontró la información del delivery')
+          return
+        }
+        
+        phone = delivery.celular
+        title = 'Enviar mensaje de WhatsApp al delivery'
+      } catch (error) {
+        alert('Error al obtener información del delivery')
         return
       }
-      
-      phone = delivery.celular
-      title = 'Enviar mensaje de WhatsApp al delivery'
     } else {
       // Para retiro, enviar al número de la tienda
       if (!business?.phone) {
@@ -1918,78 +1843,34 @@ export default function BusinessDashboard() {
     );
   };
 
-  // Funciones para orden manual
-  const handleSearchClient = async (phone?: string) => {
-    const phoneToSearch = phone || normalizePhone(manualOrderData.customerPhone.trim());
-    if (!phoneToSearch) return;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-red-600"></div>
+          <p className="mt-4 text-gray-600">Cargando dashboard...</p>
+        </div>
+      </div>
+    )
+  }
 
-    setSearchingClient(true);
-    setClientFound(false);
-    setShowCreateClient(false);
+  if (!business) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600">No se pudo cargar la información del negocio</p>
+          <button 
+            onClick={() => router.push('/business/login')}
+            className="mt-4 bg-red-600 text-white px-4 py-2 rounded-lg"
+          >
+            Volver al Login
+          </button>
+        </div>
+      </div>
+    )
+  }
 
-    try {
-      const client = await searchClientByPhone(phoneToSearch);
-      
-      if (client) {
-        setManualOrderData(prev => ({
-          ...prev,
-          customerName: client.nombres || ''
-        }));
-        setClientFound(true);
-        
-        // Cargar ubicaciones del cliente
-        setLoadingClientLocations(true);
-        const locations = await getClientLocations(client.id);
-        setManualOrderData(prev => ({
-          ...prev,
-          customerLocations: locations
-        }));
-      } else {
-        setClientFound(false);
-        setShowCreateClient(true); // Mostrar opción para crear cliente
-        setManualOrderData(prev => ({
-          ...prev,
-          customerName: '',
-          customerLocations: []
-        }));
-      }
-    } catch (error) {
-      setClientFound(false);
-      setShowCreateClient(false);
-    } finally {
-      setSearchingClient(false);
-      setLoadingClientLocations(false);
-    }
-  };
-
-  const handleCreateClient = async () => {
-    if (!manualOrderData.customerName.trim() || !manualOrderData.customerPhone.trim()) {
-      alert('Por favor ingresa el nombre del cliente');
-      return;
-    }
-
-    setCreatingClient(true);
-    try {
-      const normalizedPhone = normalizePhone(manualOrderData.customerPhone);
-      const newClient = await createClient({
-        nombres: manualOrderData.customerName.trim(),
-        celular: normalizedPhone
-      });
-
-      if (newClient) {
-        setClientFound(true);
-        setShowCreateClient(false);
-        alert('Cliente creado exitosamente');
-      }
-    } catch (error) {
-      alert('Error al crear el cliente');
-    } finally {
-      setCreatingClient(false);
-    }
-  };
-
-  const handlePhoneChange = (value: string) => {
-    const normalizedPhone = normalizePhone(value);
+  return (
     
     setManualOrderData(prev => ({
       ...prev,
