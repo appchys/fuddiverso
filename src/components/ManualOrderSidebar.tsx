@@ -114,6 +114,13 @@ export default function ManualOrderSidebar({
     }
   }, [searchTimeout])
 
+  // Recalcular total cuando cambie la ubicación seleccionada
+  useEffect(() => {
+    if (manualOrderData.selectedProducts.length > 0) {
+      calculateTotal(manualOrderData.selectedProducts)
+    }
+  }, [manualOrderData.selectedLocation])
+
   // Cargar deliveries activos
   useEffect(() => {
     const loadDeliveries = async () => {
@@ -375,7 +382,12 @@ export default function ManualOrderSidebar({
 
     setManualOrderData(prev => ({
       ...prev,
-      total: total
+      total: total,
+      // Si es pago mixto y algún valor está en 0, distribuir automáticamente
+      ...(prev.paymentMethod === 'mixed' && (prev.cashAmount === 0 && prev.transferAmount === 0) && {
+        cashAmount: total / 2,
+        transferAmount: total / 2
+      })
     }))
   }
 
@@ -390,6 +402,15 @@ export default function ManualOrderSidebar({
     if (manualOrderData.deliveryType === 'delivery' && !manualOrderData.selectedLocation) {
       alert('Por favor selecciona una ubicación para el delivery')
       return
+    }
+
+    // Validar pago mixto
+    if (manualOrderData.paymentMethod === 'mixed') {
+      const totalMixed = (manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0);
+      if (Math.abs(totalMixed - manualOrderData.total) >= 0.01) {
+        alert('La suma de efectivo y transferencia debe ser igual al total del pedido')
+        return
+      }
     }
 
     setCreatingOrder(true)
@@ -410,8 +431,8 @@ export default function ManualOrderSidebar({
         delivery: {
           type: manualOrderData.deliveryType,
           ...(manualOrderData.deliveryType === 'delivery' && {
-            latlong: manualOrderData.selectedLocation?.latlong,
-            references: manualOrderData.selectedLocation?.referencia,
+            latlong: manualOrderData.selectedLocation?.latlong || '',
+            references: manualOrderData.selectedLocation?.referencia || '',
             deliveryCost: parseFloat(manualOrderData.selectedLocation?.tarifa || '0'),
             assignedDelivery: manualOrderData.selectedDelivery?.id || null
           })
@@ -419,19 +440,31 @@ export default function ManualOrderSidebar({
         timing: {
           type: manualOrderData.timingType,
           ...(manualOrderData.timingType === 'scheduled' && {
-            scheduledDate: manualOrderData.scheduledDate,
-            scheduledTime: manualOrderData.scheduledTime
+            scheduledDate: manualOrderData.scheduledDate ? (() => {
+              const [year, month, day] = manualOrderData.scheduledDate.split('-').map(Number);
+              const [hours, minutes] = manualOrderData.scheduledTime ? manualOrderData.scheduledTime.split(':').map(Number) : [0, 0];
+              return { 
+                seconds: Math.floor(new Date(year, month - 1, day, hours, minutes).getTime() / 1000),
+                nanoseconds: 0
+              };
+            })() : null,
+            scheduledTime: manualOrderData.scheduledTime || ''
           })
         },
         payment: {
           method: manualOrderData.paymentMethod,
           paymentStatus: manualOrderData.paymentStatus,
-          selectedBank: manualOrderData.selectedBank
+          selectedBank: manualOrderData.selectedBank,
+          ...(manualOrderData.paymentMethod === 'mixed' && {
+            cashAmount: manualOrderData.cashAmount || 0,
+            transferAmount: manualOrderData.transferAmount || 0
+          })
         },
         subtotal: manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0),
         total: manualOrderData.total,
         status: 'ready' as const,
         createdByAdmin: true,
+        createdAt: new Date(),
         updatedAt: new Date()
       }
 
@@ -516,24 +549,28 @@ export default function ManualOrderSidebar({
               )}
             </div>
 
+            {/* Campo de nombre del cliente */}
+            <div className="mt-3">
+              <input
+                type="text"
+                value={manualOrderData.customerName}
+                onChange={(e) => setManualOrderData(prev => ({ ...prev, customerName: e.target.value }))}
+                placeholder="Nombre del cliente"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
             {/* Resultado de búsqueda */}
             {clientFound ? (
               <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
                 <p className="text-sm text-green-800">
                   <i className="bi bi-check-circle me-2"></i>
-                  Cliente encontrado: {manualOrderData.customerName}
+                  Cliente encontrado
                 </p>
               </div>
-            ) : showCreateClient ? (
+            ) : showCreateClient && manualOrderData.customerPhone.length >= 10 ? (
               <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
                 <p className="text-sm text-yellow-800 mb-2">Cliente no encontrado</p>
-                <input
-                  type="text"
-                  value={manualOrderData.customerName}
-                  onChange={(e) => setManualOrderData(prev => ({ ...prev, customerName: e.target.value }))}
-                  placeholder="Nombre del cliente"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-2"
-                />
                 <button
                   onClick={handleCreateClient}
                   disabled={creatingClient || !manualOrderData.customerName}
@@ -545,172 +582,387 @@ export default function ManualOrderSidebar({
             ) : null}
           </div>
 
-          {/* Selección de productos */}
-          {clientFound && (
-            <>
-              <div className="mb-6">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">Productos</h3>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {products.filter(p => p.isAvailable).map((product) => (
-                    <div key={product.id} className="flex items-center justify-between p-2 border rounded-md">
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">{product.name}</p>
-                        <p className="text-xs text-gray-500">${product.price}</p>
+          {/* Selección de productos - siempre visible */}
+          <div className="mb-6">
+            <h3 className="text-sm font-medium text-gray-700 mb-3">Productos</h3>
+            <div className="space-y-2 max-h-40 overflow-y-auto">
+              {products.filter(p => p.isAvailable).map((product) => (
+                <div 
+                  key={product.id} 
+                  className="flex items-center p-2 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors"
+                  onClick={() => {
+                    if (product.variants && product.variants.length > 0) {
+                      setSelectedProductForVariants(product)
+                      setIsVariantModalOpen(true)
+                    } else {
+                      addProductToOrder(product)
+                    }
+                  }}
+                >
+                  {/* Imagen del producto */}
+                  <div className="w-12 h-12 mr-3 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
+                    {product.image ? (
+                      <img
+                        src={product.image}
+                        alt={product.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <i className="bi bi-image text-gray-400 text-lg"></i>
                       </div>
-                      <button
-                        onClick={() => {
-                          if (product.variants && product.variants.length > 0) {
-                            setSelectedProductForVariants(product)
-                            setIsVariantModalOpen(true)
-                          } else {
-                            addProductToOrder(product)
-                          }
-                        }}
-                        className="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700"
-                      >
-                        Agregar
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Productos seleccionados */}
-              {manualOrderData.selectedProducts.length > 0 && (
-                <div className="mb-6">
-                  <h3 className="text-sm font-medium text-gray-700 mb-3">Productos seleccionados</h3>
-                  <div className="space-y-2">
-                    {manualOrderData.selectedProducts.map((item, index) => (
-                      <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">{item.name}</p>
-                          <p className="text-xs text-gray-500">${item.price} c/u</p>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            onClick={() => updateProductQuantity(index, item.quantity - 1)}
-                            className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center"
-                          >
-                            <i className="bi bi-dash text-xs"></i>
-                          </button>
-                          <span className="text-sm font-medium w-8 text-center">{item.quantity}</span>
-                          <button
-                            onClick={() => updateProductQuantity(index, item.quantity + 1)}
-                            className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center"
-                          >
-                            <i className="bi bi-plus text-xs"></i>
-                          </button>
-                          <button
-                            onClick={() => removeProduct(index)}
-                            className="w-6 h-6 bg-red-100 text-red-600 rounded-full flex items-center justify-center ml-2"
-                          >
-                            <i className="bi bi-trash text-xs"></i>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Tipo de entrega */}
-              <div className="mb-6">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">Tipo de entrega</h3>
-                <div className="space-y-2">
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="deliveryType"
-                      value="pickup"
-                      checked={manualOrderData.deliveryType === 'pickup'}
-                      onChange={(e) => setManualOrderData(prev => ({ ...prev, deliveryType: e.target.value as 'pickup' | 'delivery' }))}
-                      className="mr-2"
-                    />
-                    <span className="text-sm">Recoger en tienda</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="deliveryType"
-                      value="delivery"
-                      checked={manualOrderData.deliveryType === 'delivery'}
-                      onChange={(e) => setManualOrderData(prev => ({ ...prev, deliveryType: e.target.value as 'pickup' | 'delivery' }))}
-                      className="mr-2"
-                    />
-                    <span className="text-sm">Delivery</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* Ubicaciones del cliente */}
-              {manualOrderData.deliveryType === 'delivery' && (
-                <div className="mb-6">
-                  <div className="flex justify-between items-center mb-3">
-                    <h3 className="text-sm font-medium text-gray-700">Ubicación</h3>
-                    <button
-                      onClick={() => setShowLocationModal(true)}
-                      className="text-sm bg-blue-600 text-white px-3 py-1 rounded-md hover:bg-blue-700 transition-colors"
-                      disabled={!clientFound}
-                    >
-                      <i className="bi bi-geo-alt mr-1"></i>
-                      Seleccionar ubicación
-                    </button>
+                    )}
                   </div>
                   
-                  {!clientFound ? (
-                    <p className="text-sm text-gray-500">Primero busca o crea un cliente</p>
-                  ) : manualOrderData.selectedLocation ? (
-                    <div className="p-3 bg-green-50 border border-green-200 rounded-md">
-                      <p className="text-sm font-medium text-green-800">{manualOrderData.selectedLocation.referencia}</p>
-                      <p className="text-xs text-green-600">Tarifa: ${parseFloat(manualOrderData.selectedLocation.tarifa)}</p>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">{product.name}</p>
+                    <p className="text-xs text-gray-500">${product.price}</p>
+                    {product.variants && product.variants.length > 0 && (
+                      <p className="text-xs text-blue-600">{product.variants.length} variantes</p>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center text-blue-600">
+                    <i className="bi bi-plus-circle text-lg"></i>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Productos seleccionados - siempre visible */}
+          {manualOrderData.selectedProducts.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-sm font-medium text-gray-700 mb-3">Productos seleccionados</h3>
+              <div className="space-y-2">
+                {manualOrderData.selectedProducts.map((item, index) => (
+                  <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{item.name}</p>
+                      <p className="text-xs text-gray-500">${item.price} c/u</p>
+                    </div>
+                    <div className="flex items-center space-x-2">
                       <button
-                        onClick={() => setShowLocationModal(true)}
-                        className="text-xs text-blue-600 hover:text-blue-700 mt-1"
+                        onClick={() => updateProductQuantity(index, item.quantity - 1)}
+                        className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center"
                       >
-                        Cambiar ubicación
+                        <i className="bi bi-dash text-xs"></i>
+                      </button>
+                      <span className="text-sm font-medium w-8 text-center">{item.quantity}</span>
+                      <button
+                        onClick={() => updateProductQuantity(index, item.quantity + 1)}
+                        className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center"
+                      >
+                        <i className="bi bi-plus text-xs"></i>
+                      </button>
+                      <button
+                        onClick={() => removeProduct(index)}
+                        className="w-6 h-6 bg-red-100 text-red-600 rounded-full flex items-center justify-center ml-2"
+                      >
+                        <i className="bi bi-trash text-xs"></i>
                       </button>
                     </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">No hay ubicación seleccionada</p>
-                  )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tipo de entrega - siempre visible */}
+          <div className="mb-6">
+            <h3 className="text-sm font-medium text-gray-700 mb-3">Tipo de entrega</h3>
+            <div className="space-y-2">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="deliveryType"
+                  value="pickup"
+                  checked={manualOrderData.deliveryType === 'pickup'}
+                  onChange={(e) => setManualOrderData(prev => ({ ...prev, deliveryType: e.target.value as 'pickup' | 'delivery' }))}
+                  className="mr-2"
+                />
+                <span className="text-sm">Recoger en tienda</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="deliveryType"
+                  value="delivery"
+                  checked={manualOrderData.deliveryType === 'delivery'}
+                  onChange={(e) => setManualOrderData(prev => ({ ...prev, deliveryType: e.target.value as 'pickup' | 'delivery' }))}
+                  className="mr-2"
+                />
+                <span className="text-sm">Delivery</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Ubicaciones del cliente */}
+          {manualOrderData.deliveryType === 'delivery' && (
+            <div className="mb-6">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-sm font-medium text-gray-700">Ubicación</h3>
+                <button
+                  onClick={() => setShowLocationModal(true)}
+                  className="text-sm bg-blue-600 text-white px-3 py-1 rounded-md hover:bg-blue-700 transition-colors"
+                  disabled={!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10}
+                >
+                  <i className="bi bi-geo-alt mr-1"></i>
+                  Seleccionar ubicación
+                </button>
+              </div>
+              
+              {(!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10) ? (
+                <p className="text-sm text-gray-500">Ingresa un número de teléfono válido para gestionar ubicaciones</p>
+              ) : manualOrderData.selectedLocation ? (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-md">
+                  <p className="text-sm font-medium text-green-800">{manualOrderData.selectedLocation.referencia}</p>
+                  <p className="text-xs text-green-600">Tarifa: ${parseFloat(manualOrderData.selectedLocation.tarifa)}</p>
+                  <button
+                    onClick={() => setShowLocationModal(true)}
+                    className="text-xs text-blue-600 hover:text-blue-700 mt-1"
+                  >
+                    Cambiar ubicación
+                  </button>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">No hay ubicación seleccionada</p>
+              )}
+            </div>
+          )}
+
+          {/* Método de pago - siempre visible */}
+          <div className="mb-6">
+            <h3 className="text-sm font-medium text-gray-700 mb-3">Método de pago</h3>
+            <div className="space-y-2">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  value="cash"
+                  checked={manualOrderData.paymentMethod === 'cash'}
+                  onChange={(e) => setManualOrderData(prev => ({ 
+                    ...prev, 
+                    paymentMethod: e.target.value as 'cash',
+                    cashAmount: 0,
+                    transferAmount: 0
+                  }))}
+                  className="mr-2"
+                />
+                <span className="text-sm">
+                  <i className="bi bi-cash me-1"></i>
+                  Efectivo
+                </span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  value="transfer"
+                  checked={manualOrderData.paymentMethod === 'transfer'}
+                  onChange={(e) => setManualOrderData(prev => ({ 
+                    ...prev, 
+                    paymentMethod: e.target.value as 'transfer',
+                    cashAmount: 0,
+                    transferAmount: 0
+                  }))}
+                  className="mr-2"
+                />
+                <span className="text-sm">
+                  <i className="bi bi-bank me-1"></i>
+                  Transferencia
+                </span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  value="mixed"
+                  checked={manualOrderData.paymentMethod === 'mixed'}
+                  onChange={(e) => setManualOrderData(prev => ({ 
+                    ...prev, 
+                    paymentMethod: e.target.value as 'mixed',
+                    cashAmount: prev.total / 2,
+                    transferAmount: prev.total / 2
+                  }))}
+                  className="mr-2"
+                />
+                <span className="text-sm">
+                  <i className="bi bi-cash-coin me-1"></i>
+                  Pago Mixto (Efectivo + Transferencia)
+                </span>
+              </label>
+            </div>
+
+            {/* Configuración de Pago Mixto */}
+            {manualOrderData.paymentMethod === 'mixed' && (
+              <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <h5 className="text-sm font-medium text-yellow-800 mb-3">
+                  <i className="bi bi-calculator me-1"></i>
+                  Distribución del Pago
+                </h5>
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Monto en Efectivo
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={manualOrderData.cashAmount || ''}
+                      onChange={(e) => {
+                        const cash = parseFloat(e.target.value) || 0;
+                        const total = manualOrderData.total;
+                        const transfer = Math.max(0, total - cash);
+                        setManualOrderData(prev => ({
+                          ...prev,
+                          cashAmount: cash,
+                          transferAmount: transfer
+                        }));
+                      }}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Monto por Transferencia
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={manualOrderData.transferAmount || ''}
+                      onChange={(e) => {
+                        const transfer = parseFloat(e.target.value) || 0;
+                        const total = manualOrderData.total;
+                        const cash = Math.max(0, total - transfer);
+                        setManualOrderData(prev => ({
+                          ...prev,
+                          cashAmount: cash,
+                          transferAmount: transfer
+                        }));
+                      }}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+                <div className="mt-3 text-xs text-gray-600 bg-white p-2 rounded border">
+                  <div className="flex justify-between">
+                    <span>Total del pedido:</span>
+                    <span className="font-medium">${manualOrderData.total.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-green-600">
+                    <span>Efectivo:</span>
+                    <span>${(manualOrderData.cashAmount || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-blue-600">
+                    <span>Transferencia:</span>
+                    <span>${(manualOrderData.transferAmount || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-medium border-t pt-1 mt-1">
+                    <span>Suma:</span>
+                    <span className={
+                      Math.abs((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0) - manualOrderData.total) < 0.01
+                        ? 'text-green-600' 
+                        : 'text-red-600'
+                    }>
+                      ${((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0)).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Timing - siempre visible */}
+          <div className="mb-6">
+            <h3 className="text-sm font-medium text-gray-700 mb-3">Programación</h3>
+            <div className="space-y-2">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="timingType"
+                  value="immediate"
+                  checked={manualOrderData.timingType === 'immediate'}
+                  onChange={(e) => setManualOrderData(prev => ({ ...prev, timingType: e.target.value as 'immediate' }))}
+                  className="mr-2"
+                />
+                <span className="text-sm">Inmediato</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="timingType"
+                  value="scheduled"
+                  checked={manualOrderData.timingType === 'scheduled'}
+                  onChange={(e) => setManualOrderData(prev => ({ ...prev, timingType: e.target.value as 'scheduled' }))}
+                  className="mr-2"
+                />
+                <span className="text-sm">Programado</span>
+              </label>
+            </div>
+            
+            {manualOrderData.timingType === 'scheduled' && (
+              <div className="mt-3 space-y-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Fecha
+                  </label>
+                  <input
+                    type="date"
+                    value={manualOrderData.scheduledDate}
+                    onChange={(e) => setManualOrderData(prev => ({ ...prev, scheduledDate: e.target.value }))}
+                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Hora
+                  </label>
+                  <input
+                    type="time"
+                    value={manualOrderData.scheduledTime}
+                    onChange={(e) => setManualOrderData(prev => ({ ...prev, scheduledTime: e.target.value }))}
+                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Resumen - siempre visible */}
+          <div className="mb-6 p-3 bg-gray-50 rounded-md">
+            <h3 className="text-sm font-medium text-gray-700 mb-2">Resumen</h3>
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span>Subtotal:</span>
+                <span>${manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2)}</span>
+              </div>
+              {manualOrderData.deliveryType === 'delivery' && manualOrderData.selectedLocation && (
+                <div className="flex justify-between">
+                  <span>Envío:</span>
+                  <span>${parseFloat(manualOrderData.selectedLocation.tarifa)}</span>
                 </div>
               )}
-
-              {/* Método de pago */}
-              <div className="mb-6">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">Método de pago</h3>
-                <select
-                  value={manualOrderData.paymentMethod}
-                  onChange={(e) => setManualOrderData(prev => ({ ...prev, paymentMethod: e.target.value as 'cash' | 'transfer' | 'mixed' }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="cash">Efectivo</option>
-                  <option value="transfer">Transferencia</option>
-                  <option value="mixed">Mixto</option>
-                </select>
+              <div className="flex justify-between font-medium border-t pt-1">
+                <span>Total:</span>
+                <span>${manualOrderData.total.toFixed(2)}</span>
               </div>
+            </div>
+          </div>
 
-              {/* Resumen */}
-              <div className="mb-6 p-3 bg-gray-50 rounded-md">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">Resumen</h3>
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span>Subtotal:</span>
-                    <span>${manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2)}</span>
-                  </div>
-                  {manualOrderData.deliveryType === 'delivery' && manualOrderData.selectedLocation && (
-                    <div className="flex justify-between">
-                      <span>Envío:</span>
-                      <span>${parseFloat(manualOrderData.selectedLocation.tarifa)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between font-medium border-t pt-1">
-                    <span>Total:</span>
-                    <span>${manualOrderData.total.toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-            </>
+          {/* Mensaje de validación para pago mixto */}
+          {manualOrderData.paymentMethod === 'mixed' && Math.abs((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0) - manualOrderData.total) >= 0.01 && (
+            <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-3">
+              <p className="text-sm text-red-600 flex items-center">
+                <i className="bi bi-exclamation-triangle me-2"></i>
+                La suma de efectivo y transferencia debe ser igual al total del pedido.
+              </p>
+            </div>
           )}
         </div>
 
@@ -725,7 +977,15 @@ export default function ManualOrderSidebar({
             </button>
             <button
               onClick={handleCreateOrder}
-              disabled={!clientFound || manualOrderData.selectedProducts.length === 0 || creatingOrder}
+              disabled={
+                !manualOrderData.customerPhone || 
+                !manualOrderData.customerName || 
+                manualOrderData.selectedProducts.length === 0 || 
+                !manualOrderData.deliveryType ||
+                (manualOrderData.deliveryType === 'delivery' && !manualOrderData.selectedLocation) ||
+                (manualOrderData.paymentMethod === 'mixed' && Math.abs((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0) - manualOrderData.total) >= 0.01) ||
+                creatingOrder
+              }
               className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {creatingOrder ? 'Guardando...' : 'Guardar Pedido'}
