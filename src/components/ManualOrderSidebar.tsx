@@ -169,11 +169,38 @@ export default function ManualOrderSidebar({
     return { date, time }
   }
 
+  // Normalizar número de teléfono ecuatoriano
+  const normalizePhone = (phone: string): string => {
+    // Remover todos los espacios, guiones y paréntesis
+    let cleanPhone = phone.replace(/[\s\-\(\)]/g, '')
+    
+    // Si empieza con +593, convertir a formato nacional
+    if (cleanPhone.startsWith('+593')) {
+      cleanPhone = '0' + cleanPhone.substring(4)
+    } else if (cleanPhone.startsWith('593')) {
+      cleanPhone = '0' + cleanPhone.substring(3)
+    }
+    
+    return cleanPhone
+  }
+
+  // Pegar desde el portapapeles
+  const handlePasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      const normalizedPhone = normalizePhone(text)
+      handlePhoneSearch(normalizedPhone)
+    } catch (error) {
+      console.error('Error al pegar desde el portapapeles:', error)
+    }
+  }
+
   // Búsqueda de cliente por teléfono
   const handlePhoneSearch = async (phone: string) => {
-    setManualOrderData(prev => ({ ...prev, customerPhone: phone }))
+    const normalizedPhone = normalizePhone(phone)
+    setManualOrderData(prev => ({ ...prev, customerPhone: normalizedPhone }))
     
-    if (phone.length < 10) {
+    if (normalizedPhone.length < 10) {
       setClientFound(false)
       setManualOrderData(prev => ({ 
         ...prev, 
@@ -191,7 +218,7 @@ export default function ManualOrderSidebar({
     const timeout = setTimeout(async () => {
       setSearchingClient(true)
       try {
-        const client = await searchClientByPhone(phone)
+        const client = await searchClientByPhone(normalizedPhone)
         if (client) {
           setClientFound(true)
           setManualOrderData(prev => ({ ...prev, customerName: client.nombres }))
@@ -571,11 +598,18 @@ export default function ManualOrderSidebar({
                 type="tel"
                 value={manualOrderData.customerPhone}
                 onChange={(e) => handlePhoneSearch(e.target.value)}
-                placeholder="0987654321"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                placeholder="0987654321 o +593 98 052 4391"
+                className="w-full px-3 py-2 pr-20 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               />
+              <button
+                onClick={handlePasteFromClipboard}
+                className="absolute right-8 top-2 px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
+                type="button"
+              >
+                <i className="bi bi-clipboard"></i>
+              </button>
               {searchingClient && (
-                <div className="absolute right-3 top-3">
+                <div className="absolute right-2 top-3">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
                 </div>
               )}
@@ -793,6 +827,49 @@ export default function ManualOrderSidebar({
                   <i className="bi bi-geo-alt"></i>
                   <span className="text-sm font-medium">Seleccionar ubicación</span>
                 </button>
+              )}
+            </div>
+          )}
+
+          {/* Asignación de delivery - solo visible si es delivery */}
+          {manualOrderData.deliveryType === 'delivery' && (
+            <div className="mb-6">
+              <h3 className="text-sm font-medium text-gray-700 mb-3">Asignar delivery</h3>
+              
+              {availableDeliveries.length > 0 ? (
+                <div className="space-y-2">
+                  <button
+                    onClick={() => setManualOrderData(prev => ({ ...prev, selectedDelivery: null }))}
+                    className={`w-full p-3 rounded-lg border-2 transition-all flex items-center justify-center space-x-2 ${
+                      !manualOrderData.selectedDelivery
+                        ? 'border-gray-500 bg-gray-50 text-gray-700'
+                        : 'border-gray-300 hover:border-gray-400 text-gray-700'
+                    }`}
+                  >
+                    <i className="bi bi-clock"></i>
+                    <span className="text-sm font-medium">Sin asignar</span>
+                  </button>
+                  
+                  {availableDeliveries.map((delivery) => (
+                    <button
+                      key={delivery.id}
+                      onClick={() => setManualOrderData(prev => ({ ...prev, selectedDelivery: delivery }))}
+                      className={`w-full p-3 rounded-lg border-2 transition-all flex items-center justify-between ${
+                        manualOrderData.selectedDelivery?.id === delivery.id
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <i className="bi bi-person-check"></i>
+                        <span className="text-sm font-medium">{delivery.nombre}</span>
+                      </div>
+                      <span className="text-xs text-gray-500">{delivery.estado}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">No hay deliveries disponibles</p>
               )}
             </div>
           )}
@@ -1155,8 +1232,28 @@ export default function ManualOrderSidebar({
                             setShowLocationModal(false);
                             calculateTotal(manualOrderData.selectedProducts);
                           }}
-                          className="mr-3 mt-1"
+                          className="mr-3 mt-1 flex-shrink-0"
                         />
+                        
+                        {/* Mapa estático */}
+                        {location.latlong && (
+                          <div className="w-16 h-16 mr-3 flex-shrink-0 bg-gray-200 rounded-md overflow-hidden">
+                            <img
+                              src={`https://maps.googleapis.com/maps/api/staticmap?center=${location.latlong}&zoom=15&size=64x64&maptype=roadmap&markers=color:red%7C${location.latlong}&key=AIzaSyBGne_b90z4EcQJOpKMqTGtmTPHGwrK9VE`}
+                              alt="Ubicación en mapa"
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                // Si falla la carga del mapa, mostrar un ícono
+                                e.currentTarget.style.display = 'none';
+                                e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                              }}
+                            />
+                            <div className="hidden w-full h-full flex items-center justify-center bg-gray-200">
+                              <i className="bi bi-geo-alt text-gray-400 text-lg"></i>
+                            </div>
+                          </div>
+                        )}
+                        
                         <div className="flex-1">
                           <p className="text-sm font-medium text-gray-900">{location.referencia}</p>
                           <p className="text-xs text-gray-500">Tarifa: ${parseFloat(location.tarifa)}</p>
