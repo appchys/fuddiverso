@@ -649,7 +649,7 @@ export default function ManualOrderSidebar({
               </div>
             </div>
             
-            <div className="grid grid-cols-4 gap-1 max-h-40 overflow-y-auto">
+            <div className="grid grid-cols-4 gap-1 max-h-50 overflow-y-auto">
               {getFilteredProducts().filter(p => p.isAvailable).map((product) => (
                 <div 
                   key={product.id} 
