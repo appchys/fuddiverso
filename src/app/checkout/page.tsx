@@ -432,10 +432,6 @@ function CheckoutContent() {
     setNewLocationData(prev => ({ ...prev, referencia: e.target.value }));
   }, []);
 
-  const handleTarifaChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setNewLocationData(prev => ({ ...prev, tarifa: e.target.value }));
-  }, []);
-
   // Función para guardar nueva ubicación
   const handleSaveNewLocation = async () => {
     if (!clientFound || !newLocationData.latlong || !newLocationData.referencia) {
@@ -1691,42 +1687,6 @@ function CheckoutContent() {
                   </div>
                 </div>
               )}
-
-              {/* Navigation Buttons - Mobile Optimized */}
-              <div className="flex flex-col sm:flex-row justify-between gap-3 sm:gap-0 mt-6 sm:mt-8">
-                <button
-                  onClick={handleBack}
-                  disabled={currentStep === 1}
-                  className={`order-2 sm:order-1 px-4 sm:px-6 py-3 sm:py-2 rounded-lg touch-manipulation text-sm sm:text-base ${
-                    currentStep === 1
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-gray-500 text-white hover:bg-gray-600 active:bg-gray-700'
-                  }`}
-                >
-                  Anterior
-                </button>
-
-                {currentStep < 5 ? (
-                  <button
-                    onClick={handleNext}
-                    className="order-1 sm:order-2 px-4 sm:px-6 py-3 sm:py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 active:bg-red-700 touch-manipulation text-sm sm:text-base font-medium"
-                  >
-                    Siguiente
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleSubmit}
-                    disabled={loading}
-                    className={`order-1 sm:order-2 px-4 sm:px-6 py-3 sm:py-2 rounded-lg touch-manipulation text-sm sm:text-base font-medium ${
-                      loading
-                        ? 'bg-gray-400 cursor-not-allowed'
-                        : 'bg-green-500 hover:bg-green-600 active:bg-green-700'
-                    } text-white`}
-                  >
-                    {loading ? 'Procesando...' : 'Confirmar Pedido'}
-                  </button>
-                )}
-              </div>
             </div>
           </div>
 
@@ -1775,17 +1735,43 @@ function CheckoutContent() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
 
-            {/* Business Info */}
-            {business && (
-              <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
-                <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-3 sm:mb-4">Información del Negocio</h3>
-                <div className="space-y-2">
-                  <p className="text-sm"><strong>Nombre:</strong> {business.name}</p>
-                  <p className="text-sm"><strong>Dirección:</strong> {business.address}</p>
-                  <p className="text-sm"><strong>Teléfono:</strong> {business.phone}</p>
-                </div>
-              </div>
+        {/* Navigation Buttons - Mobile Optimized */}
+        <div className="max-w-4xl mx-auto mt-4 sm:mt-6 px-4">
+          <div className="flex flex-col sm:flex-row justify-between gap-3 sm:gap-0">
+            <button
+              onClick={handleBack}
+              disabled={currentStep === 1}
+              className={`order-2 sm:order-1 px-4 sm:px-6 py-3 sm:py-2 rounded-lg touch-manipulation text-sm sm:text-base ${
+                currentStep === 1
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-gray-500 text-white hover:bg-gray-600 active:bg-gray-700'
+              }`}
+            >
+              Anterior
+            </button>
+
+            {currentStep < 5 ? (
+              <button
+                onClick={handleNext}
+                className="order-1 sm:order-2 px-4 sm:px-6 py-3 sm:py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 active:bg-red-700 touch-manipulation text-sm sm:text-base font-medium"
+              >
+                Siguiente
+              </button>
+            ) : (
+              <button
+                onClick={handleSubmit}
+                disabled={loading}
+                className={`order-1 sm:order-2 px-4 sm:px-6 py-3 sm:py-2 rounded-lg touch-manipulation text-sm sm:text-base font-medium ${
+                  loading
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-green-500 hover:bg-green-600 active:bg-green-700'
+                } text-white`}
+              >
+                {loading ? 'Procesando...' : 'Confirmar Pedido'}
+              </button>
             )}
           </div>
         </div>
@@ -1919,17 +1905,13 @@ function CheckoutContent() {
                       </label>
                       <div className="relative">
                         <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={newLocationData.tarifa}
-                          onChange={handleTarifaChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                          placeholder="0.00"
+                          type="text"
+                          value={`$${newLocationData.tarifa}`}
+                          readOnly
+                          disabled
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-600 cursor-not-allowed"
+                          placeholder="$0.00"
                         />
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                          <span className="text-gray-500 sm:text-sm">$</span>
-                        </div>
                       </div>
                       {newLocationData.latlong && (
                         <p className="text-xs text-gray-500 mt-1">
