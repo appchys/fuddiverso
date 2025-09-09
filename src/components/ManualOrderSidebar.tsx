@@ -205,6 +205,16 @@ export default function ManualOrderSidebar({
     }
   }
 
+  // Pegar desde el portapapeles para Google Maps
+  const handlePasteGoogleMapsFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      handleGoogleMapsLinkChange(text)
+    } catch (error) {
+      console.error('Error al pegar desde el portapapeles:', error)
+    }
+  }
+
   // Búsqueda de cliente por teléfono
   const handlePhoneSearch = async (phone: string) => {
     const normalizedPhone = normalizePhone(phone)
@@ -362,7 +372,7 @@ export default function ManualOrderSidebar({
     setCreatingLocation(true);
     try {
       const clientId = client.id;
-      await createClientLocation({
+      const newLocationResponse = await createClientLocation({
         id_cliente: clientId,
         latlong: newLocationData.latlong.trim(),
         referencia: newLocationData.referencia.trim(),
@@ -373,6 +383,16 @@ export default function ManualOrderSidebar({
       // Recargar ubicaciones del cliente
       const locations = await getClientLocations(clientId);
       setManualOrderData(prev => ({ ...prev, customerLocations: locations }));
+
+      // Seleccionar automáticamente la nueva ubicación creada
+      const newLocation = locations.find(loc => 
+        loc.latlong === newLocationData.latlong.trim() && 
+        loc.referencia === newLocationData.referencia.trim()
+      );
+      if (newLocation) {
+        setManualOrderData(prev => ({ ...prev, selectedLocation: newLocation }));
+        calculateTotal(manualOrderData.selectedProducts);
+      }
 
       // Limpiar formulario y cerrar modal
       setNewLocationData({
@@ -1357,12 +1377,12 @@ export default function ManualOrderSidebar({
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Referencia *
                     </label>
-                    <input
-                      type="text"
+                    <textarea
                       value={newLocationData.referencia}
                       onChange={(e) => setNewLocationData(prev => ({ ...prev, referencia: e.target.value }))}
-                      placeholder="Ej: Casa rosada esquinera..."
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Ej: Casa rosada esquinera, junto al parque central..."
+                      rows={3}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 resize-vertical"
                     />
                   </div>
 
@@ -1371,16 +1391,22 @@ export default function ManualOrderSidebar({
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Enlace de Google Maps
                     </label>
-                    <input
-                      type="url"
-                      value={newLocationData.googleMapsLink}
-                      onChange={(e) => handleGoogleMapsLinkChange(e.target.value)}
-                      placeholder="https://maps.google.com/?q=-1.861343,-79.974945"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Pega un enlace de Google Maps para extraer automáticamente las coordenadas
-                    </p>
+                    <div className="relative">
+                      <input
+                        type="url"
+                        value={newLocationData.googleMapsLink}
+                        onChange={(e) => handleGoogleMapsLinkChange(e.target.value)}
+                        placeholder="https://maps.google.com/?q=-1.861343,-79.974945"
+                        className="w-full px-3 py-2 pr-20 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                      />
+                      <button
+                        onClick={handlePasteGoogleMapsFromClipboard}
+                        className="absolute right-2 top-2 px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
+                        type="button"
+                      >
+                        <i className="bi bi-clipboard"></i>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Coordenadas */}
@@ -1395,10 +1421,31 @@ export default function ManualOrderSidebar({
                       placeholder="-1.861343,-79.974945"
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Formato: latitud,longitud (se llena automáticamente desde el enlace de Google Maps)
-                    </p>
                   </div>
+
+                  {/* Vista previa del mapa estático */}
+                  {newLocationData.latlong && validateCoordinates(newLocationData.latlong) && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Vista previa de ubicación
+                      </label>
+                      <div className="w-full h-48 bg-gray-200 rounded-md overflow-hidden">
+                        <img
+                          src={`https://maps.googleapis.com/maps/api/staticmap?center=${newLocationData.latlong}&zoom=15&size=400x192&maptype=roadmap&markers=color:red%7C${newLocationData.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
+                          alt="Vista previa de ubicación"
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const parent = target.parentElement;
+                            if (parent) {
+                              parent.innerHTML = '<div class="w-full h-full flex items-center justify-center bg-gray-200"><i class="bi bi-geo-alt text-gray-400 text-2xl"></i></div>';
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Tarifa */}
                   <div>
