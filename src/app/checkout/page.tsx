@@ -265,86 +265,111 @@ function TransferReceiptUploader({
 
 export default function CheckoutPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-red-500 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Cargando checkout...</p>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-red-500 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Cargando checkout...</p>
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <CheckoutContent />
     </Suspense>
   )
 }
 
 function CheckoutContent() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const { user, login, isAuthenticated } = useAuth();
+  // Tipos locales para estados
+  type PaymentData = {
+    method: '' | 'cash' | 'transfer' | 'mixed'
+    selectedBank: string
+    paymentStatus: 'pending' | 'validating' | 'paid' | string
+    cashAmount?: number
+    transferAmount?: number
+    receiptImageUrl?: string | null
+  }
 
-  // client-only guard state
-  const [isClient, setIsClient] = useState(false);
+  type TimingData = {
+    type: 'immediate' | 'scheduled'
+    scheduledDate: string
+    scheduledTime: string
+  }
 
-  // Page state hooks
-  const [currentStep, setCurrentStep] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [business, setBusiness] = useState<Business | null>(null);
+  type DeliveryData = {
+    type: '' | 'delivery' | 'pickup'
+    address: string
+    references: string
+    tarifa: string
+  }
 
-  const [customerData, setCustomerData] = useState({
-    name: user?.nombres || '',
-    phone: user?.celular || ''
-  });
-  const [clientSearching, setClientSearching] = useState(false);
-  const [clientFound, setClientFound] = useState<FirestoreClient | null>(user || null);
-  const [showNameField, setShowNameField] = useState(!user);
-  const [clientLocations, setClientLocations] = useState<ClientLocation[]>([]);
-  const [loadingLocations, setLoadingLocations] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState<ClientLocation | null>(null);
-  const [deliveryData, setDeliveryData] = useState({
-    type: '' as '' | 'delivery' | 'pickup',
-    address: '',
-    references: ''
-  });
-  const [timingData, setTimingData] = useState({
-    type: 'immediate' as 'immediate' | 'scheduled',
-    scheduledDate: '',
-    scheduledTime: ''
-  });
-  const [paymentData, setPaymentData] = useState({
-    method: 'cash' as 'cash' | 'transfer',
-    selectedBank: '' as string,
-    receiptImageUrl: '' as string,
-    paymentStatus: 'pending' as 'pending' | 'validating' | 'paid'
-  });
-  const [uploadingReceipt, setUploadingReceipt] = useState(false);
-  const [isProcessingOrder, setIsProcessingOrder] = useState(false); // Nuevo estado
+  type CustomerData = {
+    name: string
+    phone: string
+  }
 
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  type NewLocationData = {
+    latlong: string
+    referencia: string
+    tarifa: string
+  }
+  // Estado y hooks necesarios para el componente
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const { user, login } = useAuth()
 
-  // Estado para manejar el modal
+  const [isClient, setIsClient] = useState(false)
+  const [currentStep, setCurrentStep] = useState<number>(1)
+  const [loading, setLoading] = useState(false)
+  const [isProcessingOrder, setIsProcessingOrder] = useState(false)
+
+  const [business, setBusiness] = useState<Business | null>(null)
+
+  const [clientFound, setClientFound] = useState<any | null>(null)
+  const [clientSearching, setClientSearching] = useState(false)
+  const [showNameField, setShowNameField] = useState(false)
+
+  const [customerData, setCustomerData] = useState<CustomerData>({ name: '', phone: '' })
+
+  const [clientLocations, setClientLocations] = useState<ClientLocation[]>([])
+  const [selectedLocation, setSelectedLocation] = useState<ClientLocation | null>(null)
+
+  const [newLocationData, setNewLocationData] = useState<NewLocationData>({ latlong: '', referencia: '', tarifa: '1' })
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false)
   const [isAddingNewLocation, setIsAddingNewLocation] = useState(false)
-  const [newLocationData, setNewLocationData] = useState({
-    latlong: '',
-    referencia: '',
-    tarifa: '1'
-  })
+  const [loadingLocations, setLoadingLocations] = useState(false)
 
-  // Función para calcular tarifa de envío basada en zonas de cobertura
-  const calculateDeliveryFee = async (location: { lat: number; lng: number }) => {
+  const [uploadingReceipt, setUploadingReceipt] = useState(false)
+  const [paymentData, setPaymentData] = useState<PaymentData>({ method: '', selectedBank: '', paymentStatus: 'pending', cashAmount: 0, transferAmount: 0, receiptImageUrl: '' })
+  const [timingData, setTimingData] = useState<TimingData>({ type: 'immediate', scheduledDate: '', scheduledTime: '' })
+  const [deliveryData, setDeliveryData] = useState<DeliveryData>({ type: '', address: '', references: '', tarifa: '0' })
+
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  // Indicar que estamos en cliente
+  useEffect(() => { setIsClient(true); }, []);
+
+  // Helper para calcular tarifa usando la función compartida en lib/database
+  const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
     try {
-      const fee = await getDeliveryFeeForLocation(location, business?.id)
+      if (!business?.id) return 0
+      const fee = await getDeliveryFeeForLocation({ lat, lng }, business.id)
       return fee
     } catch (error) {
       console.error('Error calculating delivery fee:', error)
-      // Fallback a tarifa fija si no se puede calcular dinámicamente
-      return 1.0
+      return 0
     }
   }
 
-  // Effects (also must be declared consistently)
-  useEffect(() => { setIsClient(true); }, []);
+  // Effect para avance automático de pasos basado en datos completados
+  useEffect(() => {
+    const maxStep = getMaxVisibleStep();
+    if (maxStep > currentStep) {
+      // Solo avanzar automáticamente, nunca retroceder
+      setCurrentStep(maxStep);
+    }
+  }, [customerData, deliveryData, paymentData, showNameField, selectedLocation]);
 
   // Effect para calcular tarifa automáticamente cuando se ingresan nuevas coordenadas
   useEffect(() => {
@@ -799,9 +824,46 @@ function CheckoutContent() {
     return Object.keys(newErrors).length === 0
   }
 
+  // Función para calcular el máximo paso que se puede mostrar basado en los datos completados
+  function getMaxVisibleStep() {
+    let maxStep = 1;
+
+    // Paso 1: Validar datos del cliente
+    if (customerData.phone.trim()) {
+      const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
+      if (validateEcuadorianPhone(normalizedPhone)) {
+        if (!showNameField || customerData.name.trim()) {
+          maxStep = 2;
+        }
+      }
+    }
+
+    // Paso 2: Validar datos de entrega
+    if (maxStep >= 2 && deliveryData.type) {
+      if (deliveryData.type === 'pickup' || (deliveryData.type === 'delivery' && (deliveryData.address.trim() || selectedLocation))) {
+        maxStep = 3;
+      }
+    }
+
+    // Paso 3: Validar timing (siempre válido con valores por defecto)
+    if (maxStep >= 3) {
+      maxStep = 4;
+    }
+
+    // Paso 4: Validar pago (ahora el paso final es 4, se removió el paso de confirmación)
+    if (maxStep >= 4 && paymentData.method) {
+      if (paymentData.method === 'cash' || 
+          (paymentData.method === 'transfer' && paymentData.selectedBank)) {
+        maxStep = 4;
+      }
+    }
+
+    return maxStep;
+  }
+
   const handleNext = () => {
     if (validateStep(currentStep)) {
-      if (currentStep < 5) {
+      if (currentStep < 4) {
         setCurrentStep(currentStep + 1)
       }
     }
@@ -873,10 +935,9 @@ function CheckoutContent() {
         },
         delivery: {
           type: deliveryData.type as 'delivery' | 'pickup',
-          references: deliveryData.type === 'delivery' ? deliveryData.address : undefined,
-          latlong: selectedLocation?.latlong || undefined,
-          deliveryCost: deliveryData.type === 'delivery' ? deliveryCost : 0,
-          assignedDelivery: undefined // Se asignará después en el dashboard
+          references: deliveryData.type === 'delivery' ? (deliveryData.address || '') : '',
+          latlong: selectedLocation?.latlong || '',
+          deliveryCost: deliveryData.type === 'delivery' ? deliveryCost : 0
         },
         timing: {
           type: timingData.type,
@@ -884,16 +945,21 @@ function CheckoutContent() {
           scheduledTime
         },
         payment: {
-          method: paymentData.method,
+          method: paymentData.method as 'cash' | 'transfer' | 'mixed',
           selectedBank: paymentData.method === 'transfer' ? paymentData.selectedBank : '',
-          receiptImageUrl: paymentData.method === 'transfer' ? paymentData.receiptImageUrl : undefined,
           paymentStatus: paymentData.method === 'transfer' ? paymentData.paymentStatus : 'pending'
-        },
+        } as any,
         total,
         subtotal,
-        status: 'pending' as 'pending',
+        status: 'pending' as 'pending' | 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled',
         createdByAdmin: false, // Indicar que viene del checkout
+        createdAt: new Date(),
         updatedAt: new Date()
+      }
+
+      // Asegurar método válido antes de crear la orden
+      if (!orderData.payment.method) {
+        orderData.payment.method = 'cash'
       }
 
       const orderId = await createOrder(orderData)
@@ -993,12 +1059,14 @@ function CheckoutContent() {
                   } ${currentStep >= 2 && currentStep !== 2 ? 'hover:bg-red-600' : ''}`}
                 >
                   {deliveryData.type === 'pickup' ? (
+                    /* Store icon when pickup */
                     <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2H4zm3 6V7h6v3H7z" clipRule="evenodd" />
                     </svg>
                   ) : (
+                    /* Scooter / moto icon by default */
                     <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M8 5a1 1 0 100 2h5.586l-1.293 1.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L13.586 5H8zM12 15a1 1 0 100-2H6.414l1.293-1.293a1 1 0 10-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L6.414 15H12z" />
+                      <path d="M3 10h2l1-2h7l2 4h-3a3 3 0 11-2.83-4H8l-1 2H3v0zM6 15a2 2 0 100-4 2 2 0 000 4zm8 0a2 2 0 100-4 2 2 0 000 4z" />
                     </svg>
                   )}
                 </button>
@@ -1009,7 +1077,7 @@ function CheckoutContent() {
 
               <div className="flex-1 h-px bg-gray-300 mx-2"></div>
 
-              {/* Step 3 - Horario */}
+              {/* Step 3 - Hora (replacing Horario) */}
               <div className="flex flex-col items-center flex-1">
                 <button
                   onClick={() => currentStep >= 3 && setCurrentStep(3)}
@@ -1020,24 +1088,17 @@ function CheckoutContent() {
                     3 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
                   } ${currentStep >= 3 && currentStep !== 3 ? 'hover:bg-red-600' : ''}`}
                 >
-                  {timingData.type === 'immediate' ? (
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
-                    </svg>
-                  )}
+                  {/* Clock icon */}
+                  <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.5-11.5V10l3 1.5-.5 1-3.5-1.75V6.5h1z" clipRule="evenodd" />
+                  </svg>
                 </button>
-                <span className="text-xs sm:text-sm mt-1 text-center font-medium">
-                  {timingData.type === 'immediate' ? 'Inmediato' : 'Programado'}
-                </span>
+                <span className="text-xs sm:text-sm mt-1 text-center font-medium">Hora</span>
               </div>
 
               <div className="flex-1 h-px bg-gray-300 mx-2"></div>
 
-              {/* Step 4 - Pago */}
+              {/* Step 4 - Pago (renamed) */}
               <div className="flex flex-col items-center flex-1">
                 <button
                   onClick={() => currentStep >= 4 && setCurrentStep(4)}
@@ -1048,41 +1109,15 @@ function CheckoutContent() {
                     4 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
                   } ${currentStep >= 4 && currentStep !== 4 ? 'hover:bg-red-600' : ''}`}
                 >
-                  {paymentData.method === 'transfer' ? (
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2H4zm5 3a1 1 0 011-1h1a1 1 0 110 2h-1a1 1 0 01-1-1zm-1 4a1 1 0 100 2h3a1 1 0 100-2H8z" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
-                    </svg>
-                  )}
-                </button>
-                <span className="text-xs sm:text-sm mt-1 text-center font-medium">
-                  {paymentData.method === 'transfer' ? 'Transferencia' : 'Efectivo'}
-                </span>
-              </div>
-
-              <div className="flex-1 h-px bg-gray-300 mx-2"></div>
-
-              {/* Step 5 - Confirmar */}
-              <div className="flex flex-col items-center flex-1">
-                <button
-                  onClick={() => currentStep >= 5 && setCurrentStep(5)}
-                  disabled={currentStep < 5}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${
-                    currentStep >= 5 ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed'
-                  } ${
-                    5 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
-                  } ${currentStep >= 5 && currentStep !== 5 ? 'hover:bg-red-600' : ''}`}
-                >
+                  {/* Payment icon: cash/transfer generic icon */}
                   <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
                   </svg>
                 </button>
-                <span className="text-xs sm:text-sm mt-1 text-center font-medium">Confirmar</span>
+                <span className="text-xs sm:text-sm mt-1 text-center font-medium">Pago</span>
               </div>
+
             </div>
           </div>
         </div>
@@ -1093,7 +1128,7 @@ function CheckoutContent() {
             <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
 
               {/* Step 1: Customer Data */}
-              {currentStep === 1 && (
+              {currentStep >= 1 && (
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900 mb-6">Datos del Cliente</h2>
                   
@@ -1193,40 +1228,38 @@ function CheckoutContent() {
               )}
 
               {/* Step 2: Delivery */}
-              {currentStep === 2 && (
+              {currentStep >= 2 && (
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900 mb-6">¿Cómo deseas recibir tu pedido?</h2>
 
                   <div className="space-y-4 mb-6">
-                    <label className="flex items-center p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
-                      <input
-                        type="radio"
-                        name="deliveryType"
-                        value="delivery"
-                        checked={deliveryData.type === 'delivery'}
-                        onChange={(e) => setDeliveryData({...deliveryData, type: e.target.value as 'delivery'})}
-                        className="mr-3"
-                      />
-                      <div>
-                        <div className="font-medium">Delivery</div>
-                        <div className="text-sm text-gray-600">Te llevamos el pedido a tu ubicación</div>
-                      </div>
-                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryData(prev => ({ ...prev, type: 'pickup' }))}
+                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                          deliveryData.type === 'pickup'
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <i className="bi bi-shop text-lg"></i>
+                        <span className="text-xs font-medium">Recoger en tienda</span>
+                      </button>
 
-                    <label className="flex items-center p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
-                      <input
-                        type="radio"
-                        name="deliveryType"
-                        value="pickup"
-                        checked={deliveryData.type === 'pickup'}
-                        onChange={(e) => setDeliveryData({...deliveryData, type: e.target.value as 'pickup'})}
-                        className="mr-3"
-                      />
-                      <div>
-                        <div className="font-medium">Retiro en Tienda</div>
-                        <div className="text-sm text-gray-600">Recoges tu pedido en el restaurante</div>
-                      </div>
-                    </label>
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryData(prev => ({ ...prev, type: 'delivery' }))}
+                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                          deliveryData.type === 'delivery'
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <i className="bi bi-scooter text-lg"></i>
+                        <span className="text-xs font-medium">Delivery</span>
+                      </button>
+                    </div>
                   </div>
 
                   {errors.deliveryType && (
@@ -1370,50 +1403,47 @@ function CheckoutContent() {
               )}
 
               {/* Step 3: Timing */}
-              {currentStep === 3 && (
+              {currentStep >= 3 && (
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900 mb-6">¿Cuándo deseas recibir tu pedido?</h2>
 
                   <div className="space-y-4 mb-6">
-                    <label className="flex items-center p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
-                      <input
-                        type="radio"
-                        name="timingType"
-                        value="immediate"
-                        checked={timingData.type === 'immediate'}
-                        onChange={(e) => setTimingData({...timingData, type: e.target.value as 'immediate'})}
-                        className="mr-3"
-                      />
-                      <div>
-                        <div className="font-medium">Inmediata</div>
-                        <div className="text-sm text-gray-600">Aproximadamente 30 minutos</div>
-                      </div>
-                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setTimingData(prev => ({ ...prev, type: 'immediate' }))}
+                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                          timingData.type === 'immediate'
+                            ? 'border-orange-500 bg-orange-50 text-orange-700'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <i className="bi bi-lightning-fill text-lg"></i>
+                        <span className="text-xs font-medium">Inmediato</span>
+                      </button>
 
-                    <label className="flex items-center p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
-                      <input
-                        type="radio"
-                        name="timingType"
-                        value="scheduled"
-                        checked={timingData.type === 'scheduled'}
-                        onChange={(e) => {
+                      <button
+                        type="button"
+                        onClick={() => {
                           const now = new Date();
-                          const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000); // Añadir 1 hora
-                          
-                          setTimingData({
-                            ...timingData, 
-                            type: e.target.value as 'scheduled',
-                            scheduledDate: now.toISOString().split('T')[0], // Fecha actual
-                            scheduledTime: oneHourLater.toTimeString().split(' ')[0].substring(0, 5) // Hora actual + 1 hora (formato HH:MM)
-                          });
+                          const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+                          setTimingData(prev => ({
+                            ...prev,
+                            type: 'scheduled',
+                            scheduledDate: now.toISOString().split('T')[0],
+                            scheduledTime: oneHourLater.toTimeString().split(' ')[0].substring(0, 5)
+                          }))
                         }}
-                        className="mr-3"
-                      />
-                      <div>
-                        <div className="font-medium">Programada</div>
-                        <div className="text-sm text-gray-600">Elige fecha y hora específica</div>
-                      </div>
-                    </label>
+                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                          timingData.type === 'scheduled'
+                            ? 'border-orange-500 bg-orange-50 text-orange-700'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <i className="bi bi-calendar2-event text-lg"></i>
+                        <span className="text-xs font-medium">Programado</span>
+                      </button>
+                    </div>
                   </div>
 
                   {timingData.type === 'scheduled' && (
@@ -1447,40 +1477,119 @@ function CheckoutContent() {
               )}
 
               {/* Step 4: Payment */}
-              {currentStep === 4 && (
+              {currentStep >= 4 && (
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900 mb-6">Método de Pago</h2>
 
                   <div className="space-y-4">
-                    <label className="flex items-center p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
-                      <input
-                        type="radio"
-                        name="paymentMethod"
-                        value="cash"
-                        checked={paymentData.method === 'cash'}
-                        onChange={(e) => setPaymentData({...paymentData, method: e.target.value as 'cash'})}
-                        className="mr-3"
-                      />
-                      <div>
-                        <div className="font-medium">Efectivo</div>
-                        <div className="text-sm text-gray-600">Paga cuando recibas tu pedido</div>
-                      </div>
-                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPaymentData(prev => ({ ...prev, method: 'cash', cashAmount: 0, transferAmount: 0 }))}
+                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                          paymentData.method === 'cash'
+                            ? 'border-green-500 bg-green-50 text-green-700'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <i className="bi bi-cash text-lg"></i>
+                        <span className="text-xs font-medium">Efectivo</span>
+                      </button>
 
-                    <label className="flex items-center p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
-                      <input
-                        type="radio"
-                        name="paymentMethod"
-                        value="transfer"
-                        checked={paymentData.method === 'transfer'}
-                        onChange={(e) => setPaymentData({...paymentData, method: e.target.value as 'transfer'})}
-                        className="mr-3"
-                      />
-                      <div>
-                        <div className="font-medium">Transferencia</div>
-                        <div className="text-sm text-gray-600">Transfiere a nuestra cuenta bancaria</div>
+                      <button
+                        type="button"
+                        onClick={() => setPaymentData(prev => ({ ...prev, method: 'transfer', cashAmount: 0, transferAmount: 0 }))}
+                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                          paymentData.method === 'transfer'
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <i className="bi bi-bank text-lg"></i>
+                        <span className="text-xs font-medium">Transferencia</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPaymentData(prev => ({ ...prev, method: 'mixed', cashAmount: total / 2, transferAmount: total / 2 }))}
+                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                          paymentData.method === 'mixed'
+                            ? 'border-purple-500 bg-purple-50 text-purple-700'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <i className="bi bi-cash-coin text-lg"></i>
+                        <span className="text-xs font-medium">Mixto</span>
+                      </button>
+                    </div>
+
+                    {/* Configuración de Pago Mixto */}
+                    {paymentData.method === 'mixed' && (
+                      <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <h5 className="text-sm font-medium text-yellow-800 mb-3">
+                          <i className="bi bi-calculator me-1"></i>
+                          Distribución del Pago
+                        </h5>
+                        <div className="space-y-2">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Monto en Efectivo</label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="0.00"
+                              value={paymentData.cashAmount || ''}
+                              onChange={(e) => {
+                                const cash = parseFloat(e.target.value) || 0;
+                                const transfer = Math.max(0, total - cash);
+                                setPaymentData(prev => ({ ...prev, cashAmount: cash, transferAmount: transfer }));
+                              }}
+                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Monto por Transferencia</label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="0.00"
+                              value={paymentData.transferAmount || ''}
+                              onChange={(e) => {
+                                const transfer = parseFloat(e.target.value) || 0;
+                                const cash = Math.max(0, total - transfer);
+                                setPaymentData(prev => ({ ...prev, cashAmount: cash, transferAmount: transfer }));
+                              }}
+                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-3 text-xs text-gray-600 bg-white p-2 rounded border">
+                          <div className="flex justify-between">
+                            <span>Total del pedido:</span>
+                            <span className="font-medium">${total.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-green-600">
+                            <span>Efectivo:</span>
+                            <span>${(paymentData.cashAmount || 0).toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-blue-600">
+                            <span>Transferencia:</span>
+                            <span>${(paymentData.transferAmount || 0).toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between font-medium border-t pt-1 mt-1">
+                            <span>Suma:</span>
+                            <span className={
+                              Math.abs((paymentData.cashAmount || 0) + (paymentData.transferAmount || 0) - total) < 0.01
+                                ? 'text-green-600' 
+                                : 'text-red-600'
+                            }>
+                              ${( (paymentData.cashAmount || 0) + (paymentData.transferAmount || 0) ).toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    </label>
+                    )}
                   </div>
 
                   {errors.paymentMethod && (
@@ -1619,74 +1728,7 @@ function CheckoutContent() {
                 </div>
               )}
 
-              {/* Step 5: Confirmation */}
-              {currentStep === 5 && (
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6">Confirmar Pedido</h2>
-
-                  <div className="space-y-6">
-                    <div>
-                      <h3 className="font-medium text-lg mb-2">Datos del Cliente</h3>
-                      <div className="bg-gray-50 p-4 rounded-lg">
-                        <p className="text-sm"><strong>Nombre:</strong> {customerData.name}</p>
-                        <p className="text-sm"><strong>Teléfono:</strong> {customerData.phone}</p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h3 className="font-medium text-lg mb-2">Entrega</h3>
-                      <div className="bg-gray-50 p-4 rounded-lg">
-                        <p className="text-sm"><strong>Tipo:</strong> {
-                          deliveryData.type === 'delivery' ? 'Delivery' : 
-                          deliveryData.type === 'pickup' ? 'Retiro en tienda' :
-                          'No seleccionado'
-                        }</p>
-                        {deliveryData.type === 'delivery' && selectedLocation && (
-                          <>
-                            <div className="mt-3 flex items-start gap-3">
-                              <div className="flex-shrink-0">
-                                <LocationMap latlong={selectedLocation.latlong} height="80px" />
-                              </div>
-                              <div className="flex-1">
-                                <p className="text-sm"><strong>Ubicación:</strong> {selectedLocation.sector}</p>
-                                {selectedLocation.referencia && (
-                                  <p className="text-sm mt-1"><strong>Referencias:</strong> {selectedLocation.referencia}</p>
-                                )}
-                              </div>
-                            </div>
-                          </>
-                        )}
-                        {deliveryData.type === 'delivery' && !selectedLocation && deliveryData.address && (
-                          <>
-                            <p className="text-sm"><strong>Ubicación:</strong> {deliveryData.address}</p>
-                            {deliveryData.references && (
-                              <p className="text-sm"><strong>Referencias:</strong> {deliveryData.references}</p>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <h3 className="font-medium text-lg mb-2">Horario</h3>
-                      <div className="bg-gray-50 p-4 rounded-lg">
-                        <p className="text-sm">
-                          <strong>Entrega:</strong> {timingData.type === 'immediate' ? 'Inmediata (30 min aprox.)' : `${timingData.scheduledDate} a las ${timingData.scheduledTime}`}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h3 className="font-medium text-lg mb-2">Pago</h3>
-                      <div className="bg-gray-50 p-4 rounded-lg">
-                        <p className="text-sm">
-                          <strong>Método:</strong> {paymentData.method === 'cash' ? 'Efectivo' : 'Transferencia'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Step 5 removed - Confirmar step was removed per request */}
             </div>
           </div>
 
@@ -1753,7 +1795,7 @@ function CheckoutContent() {
               Anterior
             </button>
 
-            {currentStep < 5 ? (
+            {currentStep < 4 ? (
               <button
                 onClick={handleNext}
                 className="order-1 sm:order-2 px-4 sm:px-6 py-3 sm:py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 active:bg-red-700 touch-manipulation text-sm sm:text-base font-medium"
@@ -1770,7 +1812,7 @@ function CheckoutContent() {
                     : 'bg-green-500 hover:bg-green-600 active:bg-green-700'
                 } text-white`}
               >
-                {loading ? 'Procesando...' : 'Confirmar Pedido'}
+                {loading ? 'Procesando...' : 'Confirmar'}
               </button>
             )}
           </div>
