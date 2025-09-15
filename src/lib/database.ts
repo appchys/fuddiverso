@@ -917,8 +917,10 @@ export async function getClientLocations(clientId: string): Promise<ClientLocati
     console.log(`✅ Found ${locations.length} locations for client:`, locations);
     return locations;
   } catch (error) {
-    console.error('Error getting client locations:', error);
-    throw error;
+    // Si hay un error de permisos u otro, devolver un array vacío para
+    // que el flujo de checkout no se rompa en el cliente.
+    console.error('Error getting client locations (returning empty list):', error);
+    return [];
   }
 }
 
@@ -1681,7 +1683,9 @@ export async function getDeliveriesByStatus(estado: 'activo' | 'inactivo'): Prom
     
     return deliveries
   } catch (error) {
-    console.error('Error getting deliveries by status:', error)
+    // En caso de errores (p. ej. permisos), devolver lista vacía para que la UI
+    // no falle y se pueda mostrar un mensaje o estado vacío.
+    console.error('Error getting deliveries by status (returning empty list):', error)
     return []
   }
 }

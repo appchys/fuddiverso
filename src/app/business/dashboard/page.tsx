@@ -334,12 +334,15 @@ export default function BusinessDashboard() {
 
   // Cargar deliveries activos
   useEffect(() => {
+    // No intentar cargar deliveries hasta que el usuario esté autenticado
+    if (!isAuthenticated) return
+
     const loadDeliveries = async () => {
       try {
         const deliveries = await getDeliveriesByStatus('activo')
         setAvailableDeliveries(deliveries)
       } catch (error) {
-        // Error loading deliveries
+        // Error loading deliveries (getDeliveriesByStatus ya devuelve [] en caso de fallo)
       }
     }
 

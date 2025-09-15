@@ -59,5 +59,30 @@ service cloud.firestore {
       // Borrar no permitido
       allow delete: if false;
     }
+
+    // Colección de ubicaciones (direcciones de clientes)
+    // Se usa en checkout para obtener ubicaciones vinculadas a un cliente
+    match /ubicaciones/{document} {
+      // Permitimos lectura pública para que el frontend (checkout) pueda
+      // obtener las ubicaciones del cliente sin necesidad de auth.
+      allow read: if true;
+      // Escrituras sólo por usuarios autenticados (crear/editar/eliminar)
+      allow write: if request.auth != null;
+    }
+
+    // Colección de deliveries (repartidores)
+    // Acceso restringido a usuarios autenticados (admin/bussiness)
+    match /deliveries/{document} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // Colección de zonas de cobertura
+    match /coverageZones/{document} {
+      // Lectura pública (se usa para calcular tarifas desde la app cliente)
+      allow read: if true;
+      // Escrituras sólo por usuarios autenticados (administración)
+      allow write: if request.auth != null;
+    }
   }
 }
