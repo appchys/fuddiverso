@@ -7,6 +7,36 @@ import { Business } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSearchParams } from 'next/navigation'
 
+function BusinessImage({ src, alt }: { src?: string; alt?: string }) {
+  const [loaded, setLoaded] = useState(false)
+
+  return (
+    <div className="w-full h-40 sm:h-48 bg-gray-100 relative overflow-hidden">
+      {!src && (
+        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-100 to-orange-200">
+          <span className="text-4xl">🍽️</span>
+        </div>
+      )}
+
+      {src && (
+        <img
+          src={src}
+          alt={alt || 'Imagen'}
+          className={`w-full h-full object-cover transition-opacity duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+          loading="lazy"
+          onLoad={() => setLoaded(true)}
+        />
+      )}
+
+      {!loaded && src && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="h-8 w-8 border-b-2 border-orange-500 rounded-full animate-spin"></div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function HomePageContent() {
   const { user } = useAuth()
   const searchParams = useSearchParams()
@@ -25,8 +55,9 @@ function HomePageContent() {
     setSearchTerm(urlSearch)
     setSelectedCategory(urlCategory)
     
-    // Cargar negocios con los parámetros de la URL
-    loadBusinessesWithParams(urlSearch, urlCategory)
+  // Cargar negocios con los parámetros de la URL
+  // No bloqueamos la UI por imágenes: cargamos meta y renderizamos inmediatamente
+  loadBusinessesWithParams(urlSearch, urlCategory)
     
     // Cargar restaurantes seguidos del usuario
     if (user) {
@@ -37,23 +68,26 @@ function HomePageContent() {
   const loadBusinessesWithParams = async (search: string, category: string) => {
     try {
       setLoading(true)
-      const data = search || category !== 'all' 
+
+      // Obtener lista según búsqueda/categoría
+      const data = search || category !== 'all'
         ? await searchBusinesses(search, category)
         : await getAllBusinesses()
-      
+
+      // Establecemos negocios inmediatamente para render rápido (sin esperar imágenes)
       setBusinesses(data)
-      
-      // Extraer categorías únicas de los negocios
-      const allBusinesses = await getAllBusinesses()
-      const uniqueCategories = new Set<string>()
-      allBusinesses.forEach(business => {
-        if (business.categories && business.categories.length > 0) {
-          business.categories.forEach(category => {
-            uniqueCategories.add(category)
-          })
-        }
-      })
-      setCategories(['all', ...Array.from(uniqueCategories).sort()])
+
+      // Obtener categorías en paralelo sin bloquear el primer render
+      getAllBusinesses().then((allBusinesses) => {
+        const uniqueCategories = new Set<string>()
+        allBusinesses.forEach(business => {
+          if (business.categories && business.categories.length > 0) {
+            business.categories.forEach(cat => uniqueCategories.add(cat))
+          }
+        })
+        setCategories(['all', ...Array.from(uniqueCategories).sort()])
+      }).catch((err) => console.error('Error loading categories:', err))
+
     } catch (error) {
       console.error('Error loading businesses:', error)
     } finally {
