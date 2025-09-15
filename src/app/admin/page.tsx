@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getAllOrders, getAllBusinesses } from '@/lib/database'
+import { getAllOrders, getAllBusinesses, getVisitsForBusiness } from '@/lib/database'
 import { Order, Business } from '@/types'
 
 export default function AdminDashboard() {
@@ -14,6 +14,7 @@ export default function AdminDashboard() {
   })
   const [orders, setOrders] = useState<Order[]>([])
   const [businesses, setBusinesses] = useState<Business[]>([])
+  const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [visitData, setVisitData] = useState([
     { hour: '00:00', visits: 12 },
@@ -26,7 +27,27 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     loadData()
+    loadVisitsFromStorage()
   }, [])
+
+  const loadVisitsFromStorage = () => {
+    try {
+      const map: Record<string, number> = {}
+      // Leer todas las keys de localStorage que empiecen con 'visits:'
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (!key) continue
+        if (key.startsWith('visits:')) {
+          const businessId = key.replace('visits:', '')
+          const value = parseInt(localStorage.getItem(key) || '0', 10) || 0
+          map[businessId] = value
+        }
+      }
+      setVisitsMap(map)
+    } catch (e) {
+      console.error('Error loading visits from storage:', e)
+    }
+  }
 
   const loadData = async () => {
     try {
@@ -40,6 +61,33 @@ export default function AdminDashboard() {
       // Filtrar negocios válidos
       const validBusinesses = allBusinesses.filter(business => business && business.id && business.name)
       setBusinesses(validBusinesses)
+
+      // Cargar visitas desde Firestore para cada business (paralelo)
+      try {
+        const visitPromises = validBusinesses.map(b => getVisitsForBusiness(b.id))
+        const visitResults = await Promise.all(visitPromises)
+        const map: Record<string, number> = {}
+        validBusinesses.forEach((b, idx) => {
+          map[b.id] = visitResults[idx] || 0
+        })
+
+        // Combinar con pendingVisits (localStorage) para mostrar conteos locales pendientes
+        try {
+          const pendingRaw = localStorage.getItem('pendingVisits')
+          if (pendingRaw) {
+            const pending = JSON.parse(pendingRaw)
+            for (const [bId, cnt] of Object.entries(pending)) {
+              map[bId] = (map[bId] || 0) + Number(cnt)
+            }
+          }
+        } catch (e) {
+          console.warn('Error reading pendingVisits from localStorage:', e)
+        }
+
+        setVisitsMap(map)
+      } catch (e) {
+        console.error('Error loading visits for businesses:', e)
+      }
 
       console.log('Loading orders...')
       const allOrders = await getAllOrders()
@@ -238,10 +286,17 @@ export default function AdminDashboard() {
                       <p className="text-sm text-gray-600">{businessOrders.length} pedidos</p>
                     </div>
                   </div>
-                  <span className="font-semibold text-gray-900">${businessRevenue.toFixed(2)}</span>
+                  <div className="flex items-center space-x-6">
+                    <div className="text-right">
+                      <div className="text-sm text-muted-foreground">Visitas</div>
+                      <div className="text-lg font-medium">{visitsMap[business.id] ?? 0}</div>
+                    </div>
+                    <span className="font-semibold text-gray-900">${businessRevenue.toFixed(2)}</span>
+                  </div>
                 </div>
               )
             })}
+          
           </div>
         </div>
       </div>

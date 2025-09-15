@@ -12,6 +12,7 @@ import {
   limit,
   orderBy, 
   serverTimestamp,
+  increment as firestoreIncrement,
   Timestamp
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -1210,6 +1211,54 @@ export async function getBusinessesByOwner(ownerId: string): Promise<Business[]>
     throw error;
   }
 }
+
+// --- Visitas (métricas) ---
+
+/**
+ * Incrementa el contador de visitas para un negocio en Firestore.
+ * Crea el documento si no existe con count = 1.
+ */
+export async function incrementVisitFirestore(businessId: string, count: number = 1) {
+  if (!businessId) throw new Error('businessId is required')
+  if (count <= 0) return false
+  try {
+    const visitRef = doc(db, 'visits', businessId)
+
+    // Intentar hacer update con increment; si falla porque no existe, crear el doc
+    try {
+      await updateDoc(visitRef, {
+        count: firestoreIncrement(count),
+        updatedAt: serverTimestamp()
+      })
+      return true
+    } catch (e) {
+      // Si no existe, crear con count = count
+      await setDoc(visitRef, {
+        count: count,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      })
+      return true
+    }
+  } catch (error) {
+    console.error('Error incrementing visit in Firestore:', error)
+    throw error
+  }
+}
+
+export async function getVisitsForBusiness(businessId: string): Promise<number> {
+  try {
+    const visitRef = doc(db, 'visits', businessId)
+    const snap = await getDoc(visitRef)
+    if (!snap.exists()) return 0
+    const data = snap.data()
+    return parseInt(data.count || 0, 10) || 0
+  } catch (error) {
+    console.error('Error getting visits from Firestore:', error)
+    return 0
+  }
+}
+// --- end visitas ---
 
 // Función para verificar si un usuario es administrador de alguna tienda
 export async function getBusinessesByAdministrator(userEmail: string): Promise<Business[]> {

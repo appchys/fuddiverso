@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Permitir lectura pública de negocios y productos
+    match /businesses/{document} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    match /products/{document} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Colección de clientes (permitir lectura/escritura para el flujo actual)
+    match /clients/{document} {
+      // Lectura pública (se usa para búsqueda por teléfono)
+      allow read: if true;
+      // Escribir clientes desde frontend (registro en checkout/manual)
+      allow write: if true;
+    }
+
+    // Los pedidos solo pueden ser creados por usuarios autenticados
+    match /orders/{document} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Colección para contadores de visitas por negocio
+    // Documento ID = businessId
+    // Permitir lecturas públicas y permitir incrementos controlados desde frontend.
+    match /visits/{businessId} {
+      // Lectura pública para mostrar métricas en admin y web
+      allow read: if true;
+
+      // Creación: autenticados pueden crear libremente.
+      // Anónimos sólo pueden crear el documento inicial con count == 1
+      // y opcionalmente incluir timestamps `createdAt`/`updatedAt`.
+      allow create: if request.auth != null || (
+        request.resource.data.keys().hasAll(['count']) &&
+        request.resource.data.count is int &&
+        request.resource.data.count == 1 &&
+        // No permitir campos extras además de count y timestamps
+        (request.resource.data.keys().hasOnly(['count']) ||
+         request.resource.data.keys().hasOnly(['count','createdAt']) ||
+         request.resource.data.keys().hasOnly(['count','updatedAt']) ||
+         request.resource.data.keys().hasOnly(['count','createdAt','updatedAt']))
+      );
+
+      // Update: autenticados pueden actualizar libremente.
+      // Anónimos sólo pueden modificar el contador y el timestamp `updatedAt`.
+      // Permitimos esta operación cuando las únicas claves que se escriben
+      // son `count` y opcionalmente `updatedAt`. Esto permite usar
+      // FieldValue.increment y serverTimestamp desde el cliente.
+      allow update: if request.auth != null || (
+        request.writeFields.size() > 0 &&
+        request.writeFields.hasOnly(['count', 'updatedAt'])
+      );
+
+      // Borrar no permitido
+      allow delete: if false;
+    }
+  }
+}

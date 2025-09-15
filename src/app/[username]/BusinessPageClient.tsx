@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Business, Product } from '@/types'
-import { getBusinessByUsername, getProductsByBusiness } from '@/lib/database'
+import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore } from '@/lib/database'
 
 // Componente para mostrar variantes de producto
 function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, updateQuantity, businessImage }: { 
@@ -192,6 +192,85 @@ export default function BusinessPageClient({ username }: { username: string }) {
     loadBusinessData()
   }, [username])
 
+  // Contador de visitas: incrementar una vez por sesión usando sessionStorage
+  // Helper para incrementar contador de visitas (puede llamarse desde cualquier punto)
+  const incrementVisitCount = async (businessId?: string) => {
+    try {
+      if (!businessId) return
+
+      const sessionKey = `visited:${businessId}`
+      const visitKey = `visits:${businessId}`
+
+      // Si ya se marcó la visita en esta sesión, no hacemos nada
+      if (sessionStorage.getItem(sessionKey)) return
+
+      // Marcar visita en la sesión para evitar duplicados
+      sessionStorage.setItem(sessionKey, '1')
+
+      // Intentar incrementar en Firestore
+      try {
+        await incrementVisitFirestore(businessId)
+        console.log(`Visit counter incremented in Firestore for ${businessId}`)
+      } catch (e) {
+        // Fallback: si falla (offline o reglas), acumular en pendingVisits en localStorage
+        console.warn('Firestore visit increment failed, accumulating pending visit locally:', e)
+        try {
+          const pendingRaw = localStorage.getItem('pendingVisits')
+          const pending = pendingRaw ? JSON.parse(pendingRaw) : {}
+          pending[businessId] = (pending[businessId] || 0) + 1
+          localStorage.setItem('pendingVisits', JSON.stringify(pending))
+          console.log('Pending visits stored locally for', businessId)
+        } catch (err) {
+          console.error('Error storing pending visits locally:', err)
+        }
+      }
+    } catch (e) {
+      console.error('Error updating visit counter:', e)
+    }
+  }
+
+  // Efecto que ejecuta el incremento cuando `business.id` cambia
+  useEffect(() => {
+    // llamar sin await; la función maneja sus errores internamente
+    void incrementVisitCount(business?.id)
+
+    // Intentar enviar pending visits al montarse y cuando volvamos online
+    const flushPendingVisits = async () => {
+      try {
+        const pendingRaw = localStorage.getItem('pendingVisits')
+        if (!pendingRaw) return
+        const pending = JSON.parse(pendingRaw)
+        const entries = Object.entries(pending)
+        if (!entries.length) return
+
+        for (const [bId, cnt] of entries) {
+          try {
+            await incrementVisitFirestore(bId, Number(cnt))
+            // si succeed, eliminar la entrada
+            delete pending[bId]
+          } catch (e) {
+            console.warn('Error flushing pending visit for', bId, e)
+          }
+        }
+
+        // Guardar lo que quede pendiente
+        localStorage.setItem('pendingVisits', JSON.stringify(pending))
+      } catch (e) {
+        console.error('Error flushing pending visits:', e)
+      }
+    }
+
+    // Flush inmediatamente
+    void flushPendingVisits()
+
+    // Flush cuando volvemos online
+    const onOnline = () => {
+      void flushPendingVisits()
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [business?.id])
+
   const loadBusinessData = async () => {
     try {
       setLoading(true)
@@ -209,6 +288,12 @@ export default function BusinessPageClient({ username }: { username: string }) {
 
       console.log('✅ Business found:', businessData);
       setBusiness(businessData)
+      // Asegurar incremento de visitas inmediatamente después de cargar el negocio
+      try {
+        incrementVisitCount(businessData.id)
+      } catch (e) {
+        console.error('Error incrementing visit count after setting business:', e)
+      }
 
       // Cargar productos del negocio
       console.log('🍽️ Loading products for business:', businessData.id);

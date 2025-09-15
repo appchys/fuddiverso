@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Head from 'next/head'
 import { Business, Product } from '@/types'
-import { getBusinessByUsername, getProductsByBusiness } from '@/lib/database'
+import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore } from '@/lib/database'
 
 // Componente para structured data JSON-LD
 function BusinessStructuredData({ business }: { business: Business }) {
@@ -302,6 +302,27 @@ function RestaurantContent() {
         }
 
         setBusiness(businessData)
+        // Asegurar incremento de visitas (Firestore) al cargar la página pública
+        try {
+          // Usar sessionStorage para evitar duplicados por sesión
+          const sessionKey = `visited:${businessData.id}`
+          if (!sessionStorage.getItem(sessionKey)) {
+            sessionStorage.setItem(sessionKey, '1')
+            try {
+              await incrementVisitFirestore(businessData.id)
+              console.log('Visit counter incremented in Firestore for', businessData.id)
+            } catch (e) {
+              // Fallback: acumular en pendingVisits
+              const pendingRaw = localStorage.getItem('pendingVisits')
+              const pending = pendingRaw ? JSON.parse(pendingRaw) : {}
+              pending[businessData.id] = (pending[businessData.id] || 0) + 1
+              localStorage.setItem('pendingVisits', JSON.stringify(pending))
+              console.warn('Failed to increment visit in Firestore, stored pendingVisits locally')
+            }
+          }
+        } catch (e) {
+          console.error('Error handling visit increment:', e)
+        }
         console.log('🖼️ Cover image from business:', businessData.coverImage)
         
         const productsData = await getProductsByBusiness(businessData.id)
@@ -324,6 +345,37 @@ function RestaurantContent() {
       loadRestaurantData()
     }
   }, [username])
+
+  // Flush pending visits stored locally when we mount and when we go online
+  useEffect(() => {
+    const flushPendingVisits = async () => {
+      try {
+        const pendingRaw = localStorage.getItem('pendingVisits')
+        if (!pendingRaw) return
+        const pending = JSON.parse(pendingRaw)
+        const entries = Object.entries(pending)
+        if (!entries.length) return
+
+        for (const [bId, cnt] of entries) {
+          try {
+            await incrementVisitFirestore(bId, Number(cnt))
+            delete pending[bId]
+          } catch (e) {
+            console.warn('Error flushing pending visit for', bId, e)
+          }
+        }
+
+        localStorage.setItem('pendingVisits', JSON.stringify(pending))
+      } catch (e) {
+        console.error('Error flushing pending visits:', e)
+      }
+    }
+
+    void flushPendingVisits()
+    const onOnline = () => void flushPendingVisits()
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [])
 
   // Cargar carrito específico de esta tienda desde localStorage
   useEffect(() => {
