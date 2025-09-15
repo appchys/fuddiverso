@@ -1134,6 +1134,25 @@ export default function BusinessDashboard() {
     setEditedBusiness({ ...editedBusiness, [field]: value });
   };
 
+  // Funciones para editar el horario (schedule)
+  const handleScheduleFieldChange = (day: string, key: 'open' | 'close' | 'isOpen', value: any) => {
+    if (!editedBusiness) return;
+    const schedule = editedBusiness.schedule ? { ...editedBusiness.schedule } : {} as any;
+    const dayObj = schedule[day] ? { ...schedule[day] } : { open: '09:00', close: '18:00', isOpen: true };
+    dayObj[key] = value;
+    schedule[day] = dayObj;
+    setEditedBusiness({ ...editedBusiness, schedule });
+  };
+
+  const toggleDayOpen = (day: string) => {
+    if (!editedBusiness) return;
+    const schedule = editedBusiness.schedule ? { ...editedBusiness.schedule } : {} as any;
+    const dayObj = schedule[day] ? { ...schedule[day] } : { open: '09:00', close: '18:00', isOpen: true };
+    dayObj.isOpen = !dayObj.isOpen;
+    schedule[day] = dayObj;
+    setEditedBusiness({ ...editedBusiness, schedule });
+  };
+
   // Funciones para administradores
   const handleAddAdmin = async () => {
     if (!business || !newAdminData.email.trim()) return;
@@ -3223,6 +3242,36 @@ export default function BusinessDashboard() {
                         placeholder="Ej: Cerca del centro comercial, junto a la farmacia..."
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
                       />
+                    </div>
+                    
+                    {/* Horario de atención */}
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <i className="bi bi-clock-history me-2"></i>Horario de Atención
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map((day) => {
+                          const dayObj = editedBusiness?.schedule?.[day] || { open: '09:00', close: '18:00', isOpen: true };
+                          const label = day.charAt(0).toUpperCase() + day.slice(1);
+                          return (
+                            <div key={day} className="flex items-center gap-2">
+                              <div className="w-28">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm text-gray-700">{label}</span>
+                                  <button type="button" onClick={() => toggleDayOpen(day)} className={`text-xs px-2 py-1 rounded ${dayObj.isOpen ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                    {dayObj.isOpen ? 'Abierto' : 'Cerrado'}
+                                  </button>
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <input type="time" value={dayObj.open} onChange={(e) => handleScheduleFieldChange(day, 'open', e.target.value)} className="w-24 px-2 py-1 border rounded text-sm" />
+                                  <span className="text-xs text-gray-400">-</span>
+                                  <input type="time" value={dayObj.close} onChange={(e) => handleScheduleFieldChange(day, 'close', e.target.value)} className="w-24 px-2 py-1 border rounded text-sm" />
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
                   </div>
                   
