@@ -64,6 +64,15 @@ function cleanObject(obj: any): any {
   return obj
 }
 
+// Helper para formatear fecha a DD/MM/YYYY
+function formatDateDDMMYYYY(d?: Date | string) {
+  const date = d ? new Date(d) : new Date()
+  const dd = String(date.getDate()).padStart(2, '0')
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const yyyy = date.getFullYear()
+  return `${dd}/${mm}/${yyyy}`
+}
+
 // Funciones para Negocios
 export async function createBusiness(businessData: Omit<Business, 'id' | 'createdAt'>) {
   try {
@@ -827,6 +836,7 @@ export interface FirestoreClient {
   fecha_de_registro?: string;
   createdAt?: any;
   updatedAt?: any;
+  pinHash?: string | null;
 }
 
 export interface ClientLocation {
@@ -944,9 +954,10 @@ export async function searchClientByPhone(phone: string): Promise<FirestoreClien
         id: doc.id,
         nombres: clientData.nombres || '',
         celular: clientData.celular || phone,
-        fecha_de_registro: clientData.fecha_de_registro || new Date().toISOString()
+        fecha_de_registro: clientData.fecha_de_registro || new Date().toISOString(),
+        pinHash: clientData.pinHash || null
       };
-      
+
       console.log('✅ Client found:', client);
       return client;
     }
@@ -985,22 +996,50 @@ export async function verifyClientName(phone: string): Promise<string | null> {
   }
 }
 
-export async function createClient(clientData: { celular: string; nombres: string; fecha_de_registro?: string; id?: string }) {
+// Establecer o actualizar el pinHash de un cliente
+export async function setClientPin(clientId: string, pinHash: string) {
+  try {
+    console.log('🔐 Setting PIN for client:', clientId)
+    const clientRef = doc(db, 'clients', clientId)
+    await updateDoc(clientRef, { pinHash, updatedAt: serverTimestamp() })
+    return true
+  } catch (error) {
+    console.error('❌ Error setting client PIN:', error)
+    throw error
+  }
+}
+
+export async function createClient(clientData: { celular: string; nombres: string; fecha_de_registro?: string; id?: string; pinHash?: string }) {
   try {
     console.log('📝 Creating client:', clientData);
 
-    const clientRef = await addDoc(collection(db, 'clients'), {
+    // Formatear fecha_de_registro como DD/MM/YYYY para mantener compatibilidad con la base histórica
+    // Usar el helper superior `formatDateDDMMYYYY` definido en el módulo
+
+    const payload: any = {
       celular: clientData.celular,
       nombres: clientData.nombres,
-      fecha_de_registro: clientData.fecha_de_registro || new Date().toLocaleDateString(),
+      fecha_de_registro: clientData.fecha_de_registro || formatDateDDMMYYYY(),
       id: clientData.id || ''
-    });
+    };
+
+    if (clientData.pinHash) {
+      payload.pinHash = clientData.pinHash
+    }
+
+    const clientRef = await addDoc(collection(db, 'clients'), payload);
+
+    // Ensure the document has the correct id field
+    await updateDoc(doc(db, 'clients', clientRef.id), { id: clientRef.id });
 
     console.log('✅ Client created with ID:', clientRef.id);
     return {
       id: clientRef.id,
-      ...clientData
-    };
+      celular: clientData.celular,
+      nombres: clientData.nombres,
+      fecha_de_registro: payload.fecha_de_registro,
+      pinHash: clientData.pinHash
+    } as any;
   } catch (error) {
     console.error('❌ Error creating client:', error);
     throw error;

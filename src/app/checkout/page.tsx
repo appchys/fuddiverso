@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense, useRef, useCallback, useMemo } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone, validateAndNormalizePhone } from '@/lib/validation'
-import { createOrder, getBusiness, searchClientByPhone, createClient, FirestoreClient, getClientLocations, ClientLocation, getDeliveryFeeForLocation, createClientLocation } from '@/lib/database'
+import { createOrder, getBusiness, searchClientByPhone, createClient, updateClient, setClientPin, FirestoreClient, getClientLocations, ClientLocation, getDeliveryFeeForLocation, createClientLocation } from '@/lib/database'
 import { Business } from '@/types'
 import { GoogleMap } from '@/components/GoogleMap'
 import { useAuth } from '@/contexts/AuthContext'
@@ -163,86 +163,25 @@ function TransferReceiptUploader({
       {!previewImage ? (
         <div
           className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
-            dragActive 
-              ? 'border-red-500 bg-red-50' 
-              : 'border-gray-300 hover:border-gray-400'
+            dragActive ? 'border-red-500 bg-red-50' : 'border-gray-300 hover:border-gray-400'
           }`}
           onDragEnter={handleDrag}
           onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDrop}
         >
-          <div className="space-y-2">
-            <i className="bi bi-cloud-upload text-3xl text-gray-400"></i>
-            <div>
-              <p className="text-sm text-gray-600">
-                Arrastra tu comprobante aquí o{' '}
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="text-red-500 hover:text-red-600 font-medium"
-                  disabled={isUploading}
-                >
-                  selecciona un archivo
-                </button>
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                JPG, PNG o WEBP hasta 5MB
-              </p>
-            </div>
+          <p className="text-sm text-gray-600">Arrastra aquí tu comprobante o haz clic para seleccionar un archivo</p>
+          <div className="mt-4">
+            <button type="button" onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-red-500 text-white rounded-lg">Seleccionar Archivo</button>
           </div>
-          
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/jpg,image/png,image/webp"
-            onChange={handleFileSelect}
-            className="hidden"
-            disabled={isUploading}
-          />
         </div>
       ) : (
-        <div className="relative">
-          <div className="border rounded-lg p-4 bg-gray-50">
-            <div className="flex items-start space-x-4">
-              <div className="flex-shrink-0">
-                <img
-                  src={previewImage}
-                  alt="Comprobante de transferencia"
-                  className="w-20 h-20 object-cover rounded-lg border"
-                />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-900">
-                  Comprobante subido correctamente
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  La imagen se ha guardado y está lista para enviar
-                </p>
-                <button
-                  type="button"
-                  onClick={removeImage}
-                  className="text-red-500 hover:text-red-600 text-xs font-medium mt-2"
-                  disabled={isUploading}
-                >
-                  <i className="bi bi-trash mr-1"></i>
-                  Eliminar y subir otra
-                </button>
-              </div>
-            </div>
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            <p className="text-sm text-gray-700">Comprobante cargado</p>
           </div>
-          
-          {/* Preview expandido */}
-          <div className="mt-3">
-            <button
-              type="button"
-              onClick={() => window.open(previewImage, '_blank')}
-              className="text-xs text-blue-600 hover:text-blue-800 flex items-center"
-            >
-              <i className="bi bi-eye mr-1"></i>
-              Ver imagen completa
-            </button>
-          </div>
+          <button type="button" onClick={() => window.open(previewImage, '_blank')} className="text-xs text-blue-600 hover:text-blue-800 flex items-center">
+            <i className="bi bi-eye mr-1"></i>
+            Ver imagen completa
+          </button>
         </div>
       )}
       
@@ -317,7 +256,7 @@ function CheckoutContent() {
   // Estado y hooks necesarios para el componente
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { user, login } = useAuth()
+  const { user, login, logout } = useAuth()
 
   const [isClient, setIsClient] = useState(false)
   const [currentStep, setCurrentStep] = useState<number>(1)
@@ -329,6 +268,13 @@ function CheckoutContent() {
   const [clientFound, setClientFound] = useState<any | null>(null)
   const [clientSearching, setClientSearching] = useState(false)
   const [showNameField, setShowNameField] = useState(false)
+  const [registerPin, setRegisterPin] = useState('')
+  const [registerPinConfirm, setRegisterPinConfirm] = useState('')
+  const [registerError, setRegisterError] = useState('')
+  const [registerLoading, setRegisterLoading] = useState(false)
+  const [loginPin, setLoginPin] = useState('')
+  const [loginPinError, setLoginPinError] = useState('')
+  const [loginPinLoading, setLoginPinLoading] = useState(false)
 
   const [customerData, setCustomerData] = useState<CustomerData>({ name: '', phone: '' })
 
@@ -349,6 +295,20 @@ function CheckoutContent() {
 
   // Indicar que estamos en cliente
   useEffect(() => { setIsClient(true); }, []);
+
+  // Sincronizar estado del checkout con el usuario global
+  useEffect(() => {
+    if (user) {
+      // Cuando hay sesión, llenar los datos del cliente y ocultar inputs adicionales
+      setCustomerData({ name: user.nombres || '', phone: user.celular || '' })
+      setShowNameField(false)
+      setClientFound(user)
+    } else {
+      // Cuando no hay sesión, limpiar y permitir ingresar datos
+      setShowNameField(true)
+      // No borrar customerData automáticamente para no interferir con typed phone, solo cuando explicitly logged out elsewhere
+    }
+  }, [user])
 
   // Helper para calcular tarifa usando la función compartida en lib/database
   const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
@@ -550,15 +510,13 @@ function CheckoutContent() {
       const client = await searchClientByPhone(normalizedPhone);
       if (client) {
         setClientFound(client);
-        // Auto-login del cliente
-        login(client);
-        // Usar el nombre del cliente del objeto cliente
+        // Si el cliente ya tiene PIN, no pedir nombre; si no, pedir nombre para registrar
         setCustomerData(prev => ({
           ...prev,
-          name: client.nombres || '',
+          name: client.pinHash ? '' : '',
           phone: normalizedPhone // Actualizar con el número normalizado
         }));
-        setShowNameField(false);
+        setShowNameField(!client.pinHash);
         
         // Cargar las ubicaciones del cliente
         setLoadingLocations(true);
@@ -607,12 +565,28 @@ function CheckoutContent() {
     const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
 
     try {
+      if (clientFound && clientFound.id) {
+        // Actualizar cliente existente con el nombre proporcionado
+        try {
+          await updateClient(clientFound.id, { nombres: customerData.name.trim() })
+        } catch (e) {
+          console.warn('No se pudo actualizar el nombre del cliente existente:', e)
+        }
+
+        // Refrescar estado local del cliente encontrado
+  setClientFound((prev: any) => prev ? { ...prev, nombres: customerData.name.trim() } : prev)
+        setShowNameField(false)
+        // Ensure phone is normalized in customerData
+        setCustomerData(prev => ({ ...prev, phone: normalizedPhone }))
+        return
+      }
+
       const newClient = await createClient({
         celular: normalizedPhone,
         nombres: customerData.name,
         fecha_de_registro: new Date().toISOString()
       });
-      
+
       // Actualizar el estado con el cliente recién creado
       setClientFound({
         id: newClient.id,
@@ -620,17 +594,120 @@ function CheckoutContent() {
         celular: normalizedPhone,
         fecha_de_registro: new Date().toISOString()
       });
-      
+
       // Actualizar customerData con el número normalizado
       setCustomerData(prev => ({
         ...prev,
         phone: normalizedPhone
       }));
-      
+
       setShowNameField(false);
     } catch (error) {
-      console.error('Error creating client:', error);
+      console.error('Error creating/updating client:', error);
       // Aquí podrías agregar manejo de errores para mostrar al usuario
+    }
+  }
+
+  // Hash PIN using Web Crypto (shared fallback like Header)
+  async function hashPin(pin: string) {
+    try {
+      if (typeof window !== 'undefined' && window.crypto?.subtle?.digest && typeof window.crypto.subtle.digest === 'function') {
+        const encoder = new TextEncoder()
+        const data = encoder.encode(pin)
+        const hashBuffer = await window.crypto.subtle.digest('SHA-256', data)
+        const hashArray = Array.from(new Uint8Array(hashBuffer))
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+      }
+    } catch (e) {
+      console.warn('Web Crypto not available, using fallback hash:', e)
+    }
+
+    let h = 5381
+    for (let i = 0; i < pin.length; i++) {
+      h = ((h << 5) + h) + pin.charCodeAt(i)
+      h = h & 0xffffffff
+    }
+    const hex = (h >>> 0).toString(16)
+    return hex.padStart(64, '0')
+  }
+
+  // Handle registering or setting PIN from checkout
+  const handleCheckoutRegisterOrSetPin = async () => {
+    setRegisterError('')
+    if (!customerData.name || !customerData.name.trim()) {
+      setRegisterError('Ingresa tu nombre')
+      return
+    }
+    if (!/^[0-9]{4,6}$/.test(registerPin)) {
+      setRegisterError('El PIN debe contener entre 4 y 6 dígitos')
+      return
+    }
+    if (registerPin !== registerPinConfirm) {
+      setRegisterError('Los PIN no coinciden')
+      return
+    }
+
+    setRegisterLoading(true)
+    try {
+      const pinHash = await hashPin(registerPin)
+      const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
+
+      if (clientFound && clientFound.id) {
+        // Update name if provided
+        try {
+          await updateClient(clientFound.id, { nombres: customerData.name.trim() })
+        } catch (e) {
+          console.warn('Could not update client name before setting PIN', e)
+        }
+        // Set PIN
+        await setClientPin(clientFound.id, pinHash)
+        const updated = await searchClientByPhone(normalizedPhone)
+        if (updated) {
+          login(updated as any)
+          setClientFound(updated)
+          setShowNameField(false)
+        }
+      } else {
+        const newClient = await createClient({ celular: normalizedPhone, nombres: customerData.name, pinHash })
+        login(newClient as any)
+        setClientFound(newClient as any)
+        setShowNameField(false)
+      }
+      // clear pins
+      setRegisterPin('')
+      setRegisterPinConfirm('')
+    } catch (error) {
+      console.error('Error registering/setting PIN in checkout:', error)
+      setRegisterError('Error al procesar registro. Intenta nuevamente.')
+    } finally {
+      setRegisterLoading(false)
+    }
+  }
+
+  const handleCheckoutLoginWithPin = async () => {
+    setLoginPinError('')
+    if (!clientFound) return
+    if (!/^[0-9]{4,6}$/.test(loginPin)) {
+      setLoginPinError('PIN inválido')
+      return
+    }
+    setLoginPinLoading(true)
+    try {
+      const pinHash = await hashPin(loginPin)
+      if (pinHash === clientFound.pinHash) {
+        login(clientFound as any)
+        // Ensure checkout form reflects logged-in client
+        setCustomerData(prev => ({ ...prev, name: clientFound.nombres || '', phone: normalizeEcuadorianPhone(prev.phone) }))
+        setShowNameField(false)
+        setLoginPin('')
+      } else {
+        setLoginPinError('PIN incorrecto')
+      }
+    } catch (error) {
+      console.error('Error validating PIN in checkout:', error)
+      setLoginPinError('Error al verificar PIN')
+    } finally {
+      setLoginPinLoading(false)
     }
   }
 
@@ -1137,92 +1214,67 @@ function CheckoutContent() {
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Número de Celular *
                       </label>
-                      <input
-                        type="tel"
-                        required
-                        value={customerData.phone}
-                        onChange={(e) => {
-                          const phone = e.target.value;
-                          setCustomerData({...customerData, phone});
-                          handlePhoneSearch(phone);
-                        }}
-                        onBlur={(e) => {
-                          // Al perder el foco, normalizar el número si es válido
-                          const phone = e.target.value;
-                          const normalizedPhone = normalizeEcuadorianPhone(phone);
-                          if (validateEcuadorianPhone(normalizedPhone)) {
-                            setCustomerData({...customerData, phone: normalizedPhone});
-                          }
-                        }}
-                        className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                          errors.phone ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder="Ej: +593 95 903 6708 o 0959036708"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Lo buscaremos en nuestros datos, lo usaremos para coordinar la entrega
-                      </p>
-                      {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone}</p>}
-                      {clientSearching && (
-                        <p className="text-blue-500 text-sm mt-1">Buscando cliente...</p>
-                      )}
-                      {clientFound && (
-                        <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded-lg">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-3">
-                              <div className="flex-shrink-0">
-                                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                                  <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                                  </svg>
-                                </div>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-green-900 truncate">
-                                  {clientFound.nombres}
-                                </p>
-                                <p className="text-sm text-green-700">
-                                  {customerData.phone}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                </svg>
-                                Verificado
-                              </span>
-                            </div>
+                      {user ? (
+                        <div className="mt-2 p-3 bg-white border border-gray-200 rounded-lg flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{user.nombres}</p>
+                            <p className="text-sm text-gray-600">{user.celular}</p>
                           </div>
-                          {business && (
-                            <p className="mt-2 text-xs text-green-600">
-                              Verificado por {business.name}
-                            </p>
-                          )}
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // cerrar sesión global y limpiar estado de checkout relacionado
+                                logout()
+                                setClientFound(null)
+                                setCustomerData({ name: '', phone: '' })
+                                setShowNameField(true)
+                                setSelectedLocation(null)
+                              }}
+                              className="text-gray-500 hover:text-gray-700 rounded-full p-2"
+                              aria-label="Cerrar sesión"
+                            >
+                              <i className="bi bi-x-lg"></i>
+                            </button>
+                          </div>
                         </div>
+                      ) : (
+                        <>
+                          <input
+                            type="tel"
+                            required
+                            value={customerData.phone}
+                            onChange={(e) => {
+                              const phone = e.target.value;
+                              setCustomerData({...customerData, phone});
+                              handlePhoneSearch(phone);
+                            }}
+                            onBlur={(e) => {
+                              // Al perder el foco, normalizar el número si es válido
+                              const phone = e.target.value;
+                              const normalizedPhone = normalizeEcuadorianPhone(phone);
+                              if (validateEcuadorianPhone(normalizedPhone)) {
+                                setCustomerData({...customerData, phone: normalizedPhone});
+                              }
+                            }}
+                            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                              errors.phone ? 'border-red-500' : 'border-gray-300'
+                            }`}
+                            placeholder="Ej: +593 95 903 6708 o 0959036708"
+                          />
+                          {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone}</p>}
+                          {clientSearching && (
+                            <p className="text-blue-500 text-sm mt-1">Buscando cliente...</p>
+                          )}
+                        </>
                       )}
                     </div>
 
-                    {showNameField && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Nombre Completo *
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={customerData.name}
-                          onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
-                          onBlur={handleCreateClient}
-                          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                            errors.name ? 'border-red-500' : 'border-gray-300'
-                          }`}
-                          placeholder="Juan Pérez"
-                        />
-                        {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-                      </div>
-                    )}
+                    {/* Nombre: oculto por UX simplificada (solo mostrar teléfono cuando no hay sesión) */}
+                    {/* PIN section for checkout: if client has pin -> ask PIN to login; else ask to create PIN */}
+                    {/* PIN login oculto: gestionado desde Header o flujo posterior */}
+
+                    {/* Creación de PIN oculto en checkout (solo teléfono visible si no hay sesión) */}
                   </div>
                 </div>
               )}

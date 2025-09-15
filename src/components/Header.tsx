@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { searchClientByPhone, searchBusinesses, getAllBusinesses } from '@/lib/database'
+import { searchClientByPhone, searchBusinesses, getAllBusinesses, createClient, setClientPin, updateClient } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 
 // Componente para mostrar carritos activos
@@ -115,6 +115,16 @@ export default function Header() {
   const [loginPhone, setLoginPhone] = useState('')
   const [loginError, setLoginError] = useState('')
   const [loginLoading, setLoginLoading] = useState(false)
+  const [registerName, setRegisterName] = useState('')
+  const [registerPin, setRegisterPin] = useState('')
+  const [registerPinConfirm, setRegisterPinConfirm] = useState('')
+  const [registerError, setRegisterError] = useState('')
+  const [registerLoading, setRegisterLoading] = useState(false)
+  const [foundClient, setFoundClient] = useState<any | null>(null)
+  const [phoneCheckTimeout, setPhoneCheckTimeout] = useState<any>(null)
+  const [loginPin, setLoginPin] = useState('')
+  const [loginPinError, setLoginPinError] = useState('')
+  const [loginPinLoading, setLoginPinLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [categories, setCategories] = useState<string[]>(['all'])
   const [selectedCategory, setSelectedCategory] = useState('all')
@@ -129,9 +139,7 @@ export default function Header() {
         const uniqueCategories = new Set<string>()
         businesses.forEach(business => {
           if (business.categories && business.categories.length > 0) {
-            business.categories.forEach(category => {
-              uniqueCategories.add(category)
-            })
+            business.categories.forEach((category: string) => uniqueCategories.add(category))
           }
         })
         setCategories(['all', ...Array.from(uniqueCategories).sort()])
@@ -150,6 +158,128 @@ export default function Header() {
       router.push(`/?${params.toString()}`)
     } else {
       router.push('/')
+    }
+  }
+
+  // Hash PIN using Web Crypto (SHA-256)
+  async function hashPin(pin: string) {
+    // Prefer Web Crypto API when disponible en contexto seguro
+    try {
+      if (typeof window !== 'undefined' && window.crypto?.subtle?.digest && typeof window.crypto.subtle.digest === 'function') {
+        const encoder = new TextEncoder()
+        const data = encoder.encode(pin)
+        const hashBuffer = await window.crypto.subtle.digest('SHA-256', data)
+        const hashArray = Array.from(new Uint8Array(hashBuffer))
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+      }
+    } catch (e) {
+      console.warn('Web Crypto not available, using fallback hash:', e)
+    }
+
+    // Fallback determinista (menos seguro) cuando crypto.subtle no está disponible
+    // Esto garantiza que el hash sea consistente entre registro y login en entornos no seguros
+    let h = 5381
+    for (let i = 0; i < pin.length; i++) {
+      h = ((h << 5) + h) + pin.charCodeAt(i)
+      h = h & 0xffffffff
+    }
+    const hex = (h >>> 0).toString(16)
+    return hex.padStart(64, '0')
+  }
+
+  const handleRegisterSubmit = async () => {
+    setRegisterError('')
+    if (!registerName.trim()) {
+      setRegisterError('Ingresa tu nombre')
+      return
+    }
+    if (!/^[0-9]{4,6}$/.test(registerPin)) {
+      setRegisterError('El PIN debe contener entre 4 y 6 dígitos')
+      return
+    }
+    if (registerPin !== registerPinConfirm) {
+      setRegisterError('Los PIN no coinciden')
+      return
+    }
+
+    setRegisterLoading(true)
+    try {
+        const pinHash = await hashPin(registerPin)
+        const normalizedPhone = normalizeEcuadorianPhone(loginPhone)
+
+        // If we have a foundClient (existing doc without pin), update name if provided and set its pin
+        if (foundClient && foundClient.id) {
+          if (registerName && registerName.trim()) {
+            try {
+              await updateClient(foundClient.id, { nombres: registerName.trim() })
+            } catch (e) {
+              console.warn('Could not update client name, continuing to set PIN', e)
+            }
+          }
+          await setClientPin(foundClient.id, pinHash)
+          // refresh client object
+          const updated = await searchClientByPhone(normalizedPhone)
+          if (updated) login(updated as any)
+        } else {
+          const newClient = await createClient({ celular: normalizedPhone, nombres: registerName, pinHash })
+          login(newClient as any)
+        }
+      // clear form
+      setLoginPhone('')
+      setRegisterName('')
+      setRegisterPin('')
+      setRegisterPinConfirm('')
+    } catch (error) {
+      console.error('Error creating client from header:', error)
+      setRegisterError('Error al crear la cuenta. Intenta nuevamente.')
+    } finally {
+      setRegisterLoading(false)
+    }
+  }
+
+  // Busca cliente por teléfono (con debounce corto)
+  const checkPhone = async (phoneRaw?: string) => {
+    const phoneToCheck = phoneRaw || loginPhone
+    if (!phoneToCheck) return
+    const normalized = normalizeEcuadorianPhone(phoneToCheck)
+    if (!validateEcuadorianPhone(normalized)) return
+
+    try {
+      const client = await searchClientByPhone(normalized)
+      setFoundClient(client)
+      if (client) {
+        // No prellenar el nombre: permitir que el usuario lo escriba incluso si existe
+        setRegisterName('')
+      }
+      // No hacemos auto-login aquí — si existe PIN pediremos al usuario que lo ingrese.
+    } catch (error) {
+      console.error('Error checking phone:', error)
+    }
+  }
+
+  const handleLoginWithPin = async () => {
+    setLoginPinError('')
+    if (!foundClient) return
+    if (!/^[0-9]{4,6}$/.test(loginPin)) {
+      setLoginPinError('PIN inválido')
+      return
+    }
+    setLoginPinLoading(true)
+    try {
+      const pinHash = await hashPin(loginPin)
+      if (pinHash === foundClient.pinHash) {
+        login(foundClient as any)
+        setShowLoginModal(false)
+        setLoginPhone('')
+        setLoginPin('')
+      } else {
+        setLoginPinError('PIN incorrecto')
+      }
+    } catch (error) {
+      console.error('Error validating PIN:', error)
+      setLoginPinError('Error al verificar PIN')
+    } finally {
+      setLoginPinLoading(false)
     }
   }
 
@@ -182,25 +312,9 @@ export default function Header() {
       return
     }
 
-    setLoginLoading(true)
     setLoginError('')
-
-    try {
-      const client = await searchClientByPhone(normalizedPhone)
-      if (client) {
-        login(client)
-        setShowLoginModal(false)
-        setLoginPhone('')
-        alert('¡Bienvenido de vuelta!')
-      } else {
-        setLoginError('No encontramos una cuenta con este número. ¿Quieres registrarte?')
-      }
-    } catch (error) {
-      setLoginError('Error al iniciar sesión. Intenta de nuevo.')
-      console.error('Login error:', error)
-    } finally {
-      setLoginLoading(false)
-    }
+    // Ejecutar la comprobación inmediata (checkPhone maneja el login automático si aplica)
+    await checkPhone(normalizedPhone)
   }
 
   const openLoginModal = () => {
@@ -441,7 +555,15 @@ export default function Header() {
                 <input
                   type="tel"
                   value={loginPhone}
-                  onChange={(e) => setLoginPhone(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setLoginPhone(v)
+                    // debounce check
+                    if (phoneCheckTimeout) clearTimeout(phoneCheckTimeout)
+                    const t = setTimeout(() => checkPhone(v), 500)
+                    setPhoneCheckTimeout(t)
+                  }}
+                  onBlur={() => checkPhone()}
                   placeholder="0998765432"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
@@ -452,28 +574,58 @@ export default function Header() {
               </div>
               
               <div className="flex gap-3">
-                <button
-                  onClick={() => setShowLoginModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleLogin}
-                  disabled={loginLoading}
-                  className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50"
-                >
-                  {loginLoading ? 'Cargando...' : 'Iniciar Sesión'}
-                </button>
+                {/* Removed Cancelar and Iniciar Sesión buttons as requested */}
               </div>
               
-              <div className="text-center text-sm text-gray-500">
-                ¿No tienes cuenta? Regístrate en el checkout al hacer tu primer pedido.
+              {/* Inline registration area: si no se encontró cliente, mostrar formulario de nombre+pin; si existe sin pin, pedir crear pin */}
+              <div className="mt-2">
+                {/* Removed informational messages as requested */}
+                {foundClient && foundClient.pinHash && (
+                  <div className="text-center text-sm text-gray-700">Hola {foundClient.nombres}</div>
+                )}
+
+                {/* Si el cliente existe y tiene pinHash, mostrar entrada de PIN para autenticarse */}
+                {foundClient && foundClient.pinHash && (
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Ingresa tu PIN</label>
+                      <input type="password" value={loginPin} onChange={(e) => setLoginPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-lg" />
+                      {loginPinError && <p className="text-red-500 text-sm mt-1">{loginPinError}</p>}
+                    </div>
+                    <div className="flex gap-3">
+                      {/* Removed Cancelar and Ingresar buttons for PIN entry */}
+                    </div>
+                  </div>
+                )}
+
+                {/* Formulario de nombre y PIN (visible si no hay client o si existe sin pin) */}
+                {( !foundClient || (foundClient && !foundClient.pinHash) ) && (
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nombres</label>
+                      <input type="text" value={registerName} onChange={(e) => setRegisterName(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">PIN (4-6 dígitos)</label>
+                      <input type="password" value={registerPin} onChange={(e) => setRegisterPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-lg" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar PIN</label>
+                      <input type="password" value={registerPinConfirm} onChange={(e) => setRegisterPinConfirm(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-lg" />
+                    </div>
+                    {registerError && <p className="text-red-500 text-sm">{registerError}</p>}
+                    <div className="flex gap-3">
+                      {/* Only show the main action button renamed to Registrarse */}
+                      <button onClick={handleRegisterSubmit} disabled={registerLoading} className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg">{registerLoading ? 'Procesando...' : 'Registrarse'}</button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         </div>
       )}
+      {/* removed separate register modal; inline flow in login modal */}
     </>
   )
 }
