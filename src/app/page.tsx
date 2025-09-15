@@ -160,29 +160,44 @@ function HomePageContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Quick Categories - Rappi Style */}
-      <section className="py-8 bg-white">
+      {/* Quick Categories - carrusel horizontal para móvil */}
+      <section className="py-6 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">¿Qué estás buscando?</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            {categories.slice(1).map((category, index) => ( // Excluir 'all' del display
-              <button
-                key={category}
-                onClick={() => handleCategoryChange(category)}
-                className={`p-4 rounded-xl hover:scale-105 transition-transform cursor-pointer text-center text-gray-800 font-medium ${selectedCategory === category ? 'ring-2 ring-orange-500' : ''}`}
-                style={{ backgroundColor: getCategoryColor(index) }}
-              >
-                <div className="text-3xl mb-2">🍽️</div>
-                <div className="text-sm font-medium">{category}</div>
-              </button>
-            ))}
-            <button
-              onClick={() => handleCategoryChange('all')}
-              className={`bg-gray-100 text-gray-800 p-4 rounded-xl hover:scale-105 transition-transform cursor-pointer text-center hover:bg-gray-200 ${selectedCategory === 'all' ? 'ring-2 ring-orange-500' : ''}`}
-            >
-              <div className="text-3xl mb-2">🍽️</div>
-              <div className="text-sm font-medium">Ver Todo</div>
-            </button>
+          <h2 className="text-2xl font-bold text-gray-900 mb-4 text-center">¿Qué estás buscando?</h2>
+
+          {/* Contenedor deslizable */}
+          <div className="relative">
+            <div className="overflow-x-auto no-scrollbar -mx-4 px-4">
+              <div className="flex gap-4 items-start snap-x snap-mandatory">
+                {categories.slice(1).map((category, index) => (
+                  <button
+                    key={category}
+                    onClick={() => handleCategoryChange(category)}
+                    className={`flex-shrink-0 w-[28%] sm:w-40 p-3 rounded-2xl transition-transform transform-gpu snap-start text-center text-gray-800 font-medium ${selectedCategory === category ? 'ring-2 ring-orange-500' : ''}`}
+                    style={{ backgroundColor: getCategoryColor(index) }}
+                    aria-label={`Categoría ${category}`}
+                  >
+                    <div className="text-2xl mb-1">🍽️</div>
+                    <div className="text-sm font-medium truncate">{category}</div>
+                  </button>
+                ))}
+
+                <button
+                  onClick={() => handleCategoryChange('all')}
+                  className={`flex-shrink-0 w-[28%] sm:w-40 p-3 rounded-2xl bg-gray-100 text-gray-800 transition-transform transform-gpu snap-start text-center ${selectedCategory === 'all' ? 'ring-2 ring-orange-500' : ''}`}
+                  aria-label="Ver todo"
+                >
+                  <div className="text-2xl mb-1">🍽️</div>
+                  <div className="text-sm font-medium">Ver Todo</div>
+                </button>
+              </div>
+            </div>
+            {/* Indicador visual opcional: pequeña flecha a la derecha en pantallas más grandes */}
+            <div className="hidden sm:block absolute right-2 top-1/2 -translate-y-1/2 bg-white rounded-full p-1 shadow">
+              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </div>
           </div>
         </div>
       </section>
@@ -218,7 +233,7 @@ function HomePageContent() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-6">
               {businesses.map((business) => {
                 const restaurantUrl = business.username ? `/${business.username}` : `/restaurant/${business.id}`;
                 
