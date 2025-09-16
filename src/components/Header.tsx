@@ -593,7 +593,8 @@ export default function Header() {
                       {loginPinError && <p className="text-red-500 text-sm mt-1">{loginPinError}</p>}
                     </div>
                     <div className="flex gap-3">
-                      {/* Removed Cancelar and Ingresar buttons for PIN entry */}
+                      <button onClick={() => setShowLoginModal(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg">Cancelar</button>
+                      <button onClick={handleLoginWithPin} disabled={loginPinLoading} className="px-4 py-2 bg-orange-500 text-white rounded-lg">{loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}</button>
                     </div>
                   </div>
                 )}

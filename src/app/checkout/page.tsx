@@ -231,7 +231,7 @@ function CheckoutContent() {
   }
 
   type TimingData = {
-    type: 'immediate' | 'scheduled'
+    type: '' | 'immediate' | 'scheduled'
     scheduledDate: string
     scheduledTime: string
   }
@@ -288,7 +288,7 @@ function CheckoutContent() {
 
   const [uploadingReceipt, setUploadingReceipt] = useState(false)
   const [paymentData, setPaymentData] = useState<PaymentData>({ method: '', selectedBank: '', paymentStatus: 'pending', cashAmount: 0, transferAmount: 0, receiptImageUrl: '' })
-  const [timingData, setTimingData] = useState<TimingData>({ type: 'immediate', scheduledDate: '', scheduledTime: '' })
+  const [timingData, setTimingData] = useState<TimingData>({ type: '', scheduledDate: '', scheduledTime: '' })
   const [deliveryData, setDeliveryData] = useState<DeliveryData>({ type: '', address: '', references: '', tarifa: '0' })
 
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -510,10 +510,12 @@ function CheckoutContent() {
       const client = await searchClientByPhone(normalizedPhone);
       if (client) {
         setClientFound(client);
-        // Si el cliente ya tiene PIN, no pedir nombre; si no, pedir nombre para registrar
+        // Prefill nombre si existe; mostrar casillero de nombre solo cuando el cliente NO tiene nombres y NO tiene PIN
+        // If client has no PIN, force the name input to be empty so user types a new name;
+        // if client has PIN, we can prefill the name for greeting purposes.
         setCustomerData(prev => ({
           ...prev,
-          name: client.pinHash ? '' : '',
+          name: client.pinHash ? (client.nombres || '') : '',
           phone: normalizedPhone // Actualizar con el número normalizado
         }));
         setShowNameField(!client.pinHash);
@@ -525,7 +527,8 @@ function CheckoutContent() {
           setClientLocations(locations);
           // Seleccionar automáticamente la primera ubicación si existe
           if (locations.length > 0) {
-            handleLocationSelect(locations[0]);
+        // No seleccionar automáticamente la primera ubicación para que el usuario elija explícitamente
+        // handleLocationSelect(locations[0]);
           }
         } catch (error) {
           console.error('Error loading client locations:', error);
@@ -634,7 +637,9 @@ function CheckoutContent() {
   // Handle registering or setting PIN from checkout
   const handleCheckoutRegisterOrSetPin = async () => {
     setRegisterError('')
-    if (!customerData.name || !customerData.name.trim()) {
+    // Requerir nombre cuando el cliente no existe o existe pero no tiene PIN (queremos que escriba su nombre)
+    const requireName = !clientFound || (clientFound && !clientFound.pinHash)
+    if (requireName && (!customerData.name || !customerData.name.trim())) {
       setRegisterError('Ingresa tu nombre')
       return
     }
@@ -653,9 +658,11 @@ function CheckoutContent() {
       const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
 
       if (clientFound && clientFound.id) {
-        // Update name if provided
+        // Update name only if user provided one (to avoid wiping existing nombres)
         try {
-          await updateClient(clientFound.id, { nombres: customerData.name.trim() })
+          if (customerData.name && customerData.name.trim()) {
+            await updateClient(clientFound.id, { nombres: customerData.name.trim() })
+          }
         } catch (e) {
           console.warn('Could not update client name before setting PIN', e)
         }
@@ -922,9 +929,13 @@ function CheckoutContent() {
       }
     }
 
-    // Paso 3: Validar timing (siempre válido con valores por defecto)
-    if (maxStep >= 3) {
-      maxStep = 4;
+    // Paso 3: Validar timing (requiere selección explícita)
+    if (maxStep >= 3 && timingData.type) {
+      if (timingData.type === 'immediate') {
+        maxStep = 4;
+      } else if (timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime) {
+        maxStep = 4;
+      }
     }
 
     // Paso 4: Validar pago (ahora el paso final es 4, se removió el paso de confirmación)
@@ -937,6 +948,72 @@ function CheckoutContent() {
 
     return maxStep;
   }
+
+  // Step completion flags (puros, sin efectos secundarios)
+  const step1Complete = (() => {
+    const phone = customerData.phone?.trim();
+    if (!phone) return false;
+    const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
+    if (!validateEcuadorianPhone(normalizedPhone)) return false;
+    if (showNameField && !customerData.name.trim()) return false;
+    return true;
+  })();
+
+  const step2Complete = (() => {
+    if (!deliveryData.type) return false;
+    if (deliveryData.type === 'pickup') return true;
+    if (deliveryData.type === 'delivery') {
+      return Boolean(selectedLocation || deliveryData.address.trim());
+    }
+    return false;
+  })();
+
+  const step3Complete = (() => {
+    if (!timingData.type) return false;
+    if (timingData.type === 'immediate') return true;
+    if (timingData.type === 'scheduled') {
+      return Boolean(timingData.scheduledDate && timingData.scheduledTime);
+    }
+    return false;
+  })();
+
+  const step4Complete = (() => {
+    if (!paymentData.method) return false;
+    if (paymentData.method === 'cash') return true;
+    if (paymentData.method === 'transfer') return Boolean(paymentData.selectedBank);
+    if (paymentData.method === 'mixed') return true;
+    return false;
+  })();
+
+  // Computed readiness for final confirmation (pure check — no side effects)
+  const readyToConfirm = (() => {
+    // Paso 1: cliente
+    const phone = customerData.phone?.trim();
+    if (!phone) return false;
+    const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
+    if (!validateEcuadorianPhone(normalizedPhone)) return false;
+    if (showNameField && !customerData.name.trim()) return false;
+
+    // Paso 2: entrega
+    if (!deliveryData.type) return false;
+    if (deliveryData.type === 'delivery') {
+      if (!deliveryData.address.trim() && !selectedLocation) return false;
+    }
+
+    // Paso 3: timing
+    if (!timingData.type) return false; // requiere seleccionar inmediato o programado
+    if (timingData.type === 'scheduled') {
+      if (!timingData.scheduledDate || !timingData.scheduledTime) return false;
+    }
+
+    // Paso 4: pago
+    if (!paymentData.method) return false;
+    if (paymentData.method === 'transfer') {
+      if (!paymentData.selectedBank) return false;
+    }
+
+    return true;
+  })()
 
   const handleNext = () => {
     if (validateStep(currentStep)) {
@@ -1017,7 +1094,7 @@ function CheckoutContent() {
           deliveryCost: deliveryData.type === 'delivery' ? deliveryCost : 0
         },
         timing: {
-          type: timingData.type,
+          type: (timingData.type || 'immediate') as 'immediate' | 'scheduled',
           scheduledDate,
           scheduledTime
         },
@@ -1112,8 +1189,8 @@ function CheckoutContent() {
                 <button
                   onClick={() => setCurrentStep(1)}
                   className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all hover:scale-110 ${
-                    1 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600 hover:bg-gray-400'
-                  }`}
+                      step1Complete ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600 hover:bg-gray-400'
+                    }`}
                 >
                   <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
@@ -1130,10 +1207,8 @@ function CheckoutContent() {
                   onClick={() => currentStep >= 2 && setCurrentStep(2)}
                   disabled={currentStep < 2}
                   className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${
-                    currentStep >= 2 ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed'
-                  } ${
-                    2 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
-                  } ${currentStep >= 2 && currentStep !== 2 ? 'hover:bg-red-600' : ''}`}
+                    step2Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                  }`}
                 >
                   {deliveryData.type === 'pickup' ? (
                     /* Store icon when pickup */
@@ -1160,17 +1235,23 @@ function CheckoutContent() {
                   onClick={() => currentStep >= 3 && setCurrentStep(3)}
                   disabled={currentStep < 3}
                   className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${
-                    currentStep >= 3 ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed'
-                  } ${
-                    3 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
-                  } ${currentStep >= 3 && currentStep !== 3 ? 'hover:bg-red-600' : ''}`}
+                    step3Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                  }`}
                 >
-                  {/* Clock icon */}
-                  <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.5-11.5V10l3 1.5-.5 1-3.5-1.75V6.5h1z" clipRule="evenodd" />
-                  </svg>
+                  {/* Clock icon: lightning for immediate, clock for scheduled */}
+                  {timingData.type === 'immediate' ? (
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M13 2L3 14h7l-1 6 10-12h-7l1-6z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.5-11.5V10l3 1.5-.5 1-3.5-1.75V6.5h1z" clipRule="evenodd" />
+                    </svg>
+                  )}
                 </button>
-                <span className="text-xs sm:text-sm mt-1 text-center font-medium">Hora</span>
+                <span className="text-xs sm:text-sm mt-1 text-center font-medium">
+                  {timingData.type === 'immediate' ? 'Inmediato' : timingData.type === 'scheduled' ? 'Programado' : 'Hora'}
+                </span>
               </div>
 
               <div className="flex-1 h-px bg-gray-300 mx-2"></div>
@@ -1181,18 +1262,27 @@ function CheckoutContent() {
                   onClick={() => currentStep >= 4 && setCurrentStep(4)}
                   disabled={currentStep < 4}
                   className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${
-                    currentStep >= 4 ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed'
-                  } ${
-                    4 <= currentStep ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'
-                  } ${currentStep >= 4 && currentStep !== 4 ? 'hover:bg-red-600' : ''}`}
+                    step4Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                  }`}
                 >
-                  {/* Payment icon: cash/transfer generic icon */}
-                  <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
-                  </svg>
+                  {/* Payment icon: cash, transfer, or mixed */}
+                  {paymentData.method === 'transfer' ? (
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M3 10h14v2H3v-2zM5 6h10v2H5V6z" />
+                    </svg>
+                  ) : paymentData.method === 'cash' ? (
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M2 6h16v8H2zM6 10a2 2 0 104 0 2 2 0 00-4 0z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M4 4h12v12H4z" />
+                    </svg>
+                  )}
                 </button>
-                <span className="text-xs sm:text-sm mt-1 text-center font-medium">Pago</span>
+                <span className="text-xs sm:text-sm mt-1 text-center font-medium">
+                  {paymentData.method === 'cash' ? 'Efectivo' : paymentData.method === 'transfer' ? 'Transferencia' : paymentData.method === 'mixed' ? 'Mixto' : 'Pago'}
+                </span>
               </div>
 
             </div>
@@ -1281,13 +1371,12 @@ function CheckoutContent() {
 
                     {customerData.phone.trim() && !user && (
                       <div>
-                        {clientSearching && (
-                          <p className="text-blue-500 text-sm mt-1">Buscando cliente...</p>
-                        )}
+                        {/* clientSearching ya se muestra junto al input; evitemos duplicarlo */}
 
                         {!clientSearching && clientFound && clientFound.pinHash && (
-                          // Cliente existente con PIN -> pedir PIN para iniciar sesión
+                          // Cliente existente con PIN -> mostrar saludo y pedir PIN para iniciar sesión
                           <div className="mt-4">
+                            <p className="text-sm text-gray-700 mb-2">Hola <strong>{clientFound.nombres || clientFound.celular}</strong></p>
                             <label className="block text-sm font-medium text-gray-700 mb-2">Ingresa tu PIN</label>
                             <input type="password" value={loginPin} onChange={(e) => setLoginPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-md" />
                             {loginPinError && <p className="text-red-500 text-sm mt-1">{loginPinError}</p>}
@@ -1300,25 +1389,19 @@ function CheckoutContent() {
                         {!clientSearching && clientFound && !clientFound.pinHash && (
                           // Cliente existente sin PIN -> formulario de registro
                           <div className="mt-4">
-                            {clientFound.nombres ? (
-                              <div className="mb-3">
-                                <p className="text-sm text-gray-700">Nombre: <strong>{clientFound.nombres}</strong></p>
-                                <p className="text-sm text-gray-500">Hemos encontrado tu cuenta; crea un PIN para iniciar sesión más rápido.</p>
-                              </div>
-                            ) : (
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
-                                <input
-                                  type="text"
-                                  required
-                                  value={customerData.name}
-                                  onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
-                                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
-                                  placeholder="Juan Pérez"
-                                />
-                                {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-                              </div>
-                            )}
+                            {/* Mostrar siempre input Nombre (prellenado si clientFound.nombres existe) para permitir actualizar el nombre y luego crear PIN */}
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
+                              <input
+                                type="text"
+                                required
+                                value={customerData.name}
+                                onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
+                                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
+                                placeholder="Juan Pérez"
+                              />
+                              {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
+                            </div>
 
                             <div className="mt-3">
                               <label className="block text-sm font-medium text-gray-700 mb-2">Crea un PIN (4-6 dígitos)</label>
@@ -1368,174 +1451,105 @@ function CheckoutContent() {
               {/* Step 2: Delivery */}
               {currentStep >= 2 && (
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6">¿Cómo deseas recibir tu pedido?</h2>
+                  {/* Mostrar selección solo si hay sesión iniciada */}
+                  {user && (
+                    <>
+                      <h2 className="text-2xl font-bold text-gray-900 mb-6">¿Cómo deseas recibir tu pedido?</h2>
+                      <div className="space-y-4 mb-6">
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setDeliveryData(prev => ({ ...prev, type: 'pickup' }))}
+                            className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                              deliveryData.type === 'pickup'
+                                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                : 'border-gray-300 hover:border-gray-400'
+                            }`}
+                          >
+                            <i className="bi bi-shop text-lg"></i>
+                            <span className="text-xs font-medium">Recoger en tienda</span>
+                          </button>
 
-                  <div className="space-y-4 mb-6">
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setDeliveryData(prev => ({ ...prev, type: 'pickup' }))}
-                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                          deliveryData.type === 'pickup'
-                            ? 'border-blue-500 bg-blue-50 text-blue-700'
-                            : 'border-gray-300 hover:border-gray-400'
-                        }`}
-                      >
-                        <i className="bi bi-shop text-lg"></i>
-                        <span className="text-xs font-medium">Recoger en tienda</span>
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeliveryData(prev => ({ ...prev, type: 'delivery' }))}
+                            className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
+                              deliveryData.type === 'delivery'
+                                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                : 'border-gray-300 hover:border-gray-400'
+                            }`}
+                          >
+                            <i className="bi bi-scooter text-lg"></i>
+                            <span className="text-xs font-medium">Delivery</span>
+                          </button>
+                        </div>
+                      </div>
 
-                      <button
-                        type="button"
-                        onClick={() => setDeliveryData(prev => ({ ...prev, type: 'delivery' }))}
-                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                          deliveryData.type === 'delivery'
-                            ? 'border-blue-500 bg-blue-50 text-blue-700'
-                            : 'border-gray-300 hover:border-gray-400'
-                        }`}
-                      >
-                        <i className="bi bi-scooter text-lg"></i>
-                        <span className="text-xs font-medium">Delivery</span>
-                      </button>
-                    </div>
-                  </div>
+                      {errors.deliveryType && (
+                        <p className="text-red-500 text-sm mb-4">{errors.deliveryType}</p>
+                      )}
 
-                  {errors.deliveryType && (
-                    <p className="text-red-500 text-sm mb-4">{errors.deliveryType}</p>
-                  )}
-
-                  {deliveryData.type === 'delivery' && (
-                    <div className="space-y-4">
-                      {/* Mostrar ubicación seleccionada y botón para abrir modal */}
-                      {clientFound && clientLocations.length > 0 && (
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Ubicación Seleccionada
-                          </label>
-                          {loadingLocations ? (
-                            <div className="text-sm text-gray-500">Cargando ubicaciones...</div>
-                          ) : (
-                            <div className="mb-4">
-                              {selectedLocation ? (
-                                <div className="border border-gray-300 rounded-lg bg-gray-50 p-3">
-                                  {/* Layout horizontal: Mapa a la izquierda, información a la derecha */}
-                                  <div className="flex gap-3 items-center">
-                                    {/* Mapa de la ubicación - Cuadrado a la izquierda */}
-                                    <div className="flex-shrink-0 w-20">
-                                      <LocationMap latlong={selectedLocation.latlong} height="80px" />
-                                    </div>
-                                    
-                                    {/* Información de la ubicación - A la derecha */}
-                                    <div className="flex-1 min-w-0">
-                                      <div className="font-medium text-sm mb-1">
-                                        {selectedLocation.referencia}
-                                      </div>
-                                      <div className="text-xs text-gray-500">
-                                        � Tarifa: ${selectedLocation.tarifa}
-                                      </div>
-                                    </div>
-                                    
-                                    {/* Botón para cambiar ubicación */}
-                                    <button
-                                      type="button"
-                                      onClick={openLocationModal}
-                                      className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center flex-shrink-0"
-                                    >
-                                      <svg
-                                        className="w-4 h-4"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                      >
-                                        <path
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          strokeWidth={2}
-                                          d="M19 9l-7 7-7-7"
-                                        />
-                                      </svg>
-                                    </button>
-                                  </div>
-                                </div>
+                      {deliveryData.type === 'delivery' && (
+                        <div className="space-y-4">
+                          {/* Mostrar ubicación seleccionada y botón para abrir modal */}
+                          {clientFound && clientLocations.length > 0 ? (
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">Ubicación Seleccionada</label>
+                              {loadingLocations ? (
+                                <div className="text-sm text-gray-500">Cargando ubicaciones...</div>
                               ) : (
-                                <div className="flex items-center space-x-2">
-                                  <div className="flex-1 p-3 border border-gray-300 rounded-lg bg-gray-50">
-                                    <div className="font-medium text-sm mb-1">
-                                      Ninguna ubicación seleccionada
+                                <div className="mb-4">
+                                  {selectedLocation ? (
+                                    <div className="border border-gray-300 rounded-lg bg-gray-50 p-3">
+                                      <div className="flex gap-3 items-center">
+                                        <div className="flex-shrink-0 w-20">
+                                          <LocationMap latlong={selectedLocation.latlong} height="80px" />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="font-medium text-sm mb-1">{selectedLocation.referencia}</div>
+                                          <div className="text-xs text-gray-500">Tarifa: ${selectedLocation.tarifa}</div>
+                                        </div>
+                                        <button type="button" onClick={openLocationModal} className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center flex-shrink-0">
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                          </svg>
+                                        </button>
+                                      </div>
                                     </div>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={openLocationModal}
-                                    className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center"
-                                  >
-                                    <svg
-                                      className="w-4 h-4"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      viewBox="0 0 24 24"
-                                    >
-                                      <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M19 9l-7 7-7-7"
-                                      />
-                                    </svg>
-                                  </button>
+                                  ) : (
+                                    <div className="flex items-center space-x-2">
+                                      <div className="flex-1 p-3 border border-gray-300 rounded-lg bg-gray-50">
+                                        <div className="font-medium text-sm mb-1">Ninguna ubicación seleccionada</div>
+                                      </div>
+                                      <button type="button" onClick={openLocationModal} className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center">
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
+                          ) : (
+                            // Usuario loggeado pero sin ubicaciones: mostrar CTA para agregar nueva ubicación
+                            <div className="p-3 border border-dashed rounded-lg bg-gray-50">
+                              <p className="text-sm text-gray-700 mb-3">No tienes ubicaciones guardadas.</p>
+                              <button type="button" onClick={() => { setIsAddingNewLocation(true); getCurrentLocation(); openLocationModal(); }} className="px-4 py-2 bg-red-500 text-white rounded-lg">Agregar nueva ubicación</button>
+                            </div>
                           )}
-                        </div>
-                      )}
-                      
-                      {/* Solo mostrar el formulario manual si no hay ubicación seleccionada */}
-                      {!selectedLocation && (
-                        <div className="space-y-4">
-                          <div className="text-sm text-gray-600 mb-3">
-                            O ingresa una nueva dirección:
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Dirección de Entrega *
-                            </label>
-                            <input
-                              type="text"
-                              required
-                              value={deliveryData.address}
-                              onChange={(e) => {
-                                setDeliveryData({...deliveryData, address: e.target.value});
-                              }}
-                              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                                errors.address ? 'border-red-500' : 'border-gray-300'
-                              }`}
-                              placeholder="Av. Principal #123, Sector Centro"
-                            />
-                            {errors.address && <p className="text-red-500 text-sm mt-1">{errors.address}</p>}
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Referencias de Ubicación
-                            </label>
-                            <input
-                              type="text"
-                              value={deliveryData.references}
-                              onChange={(e) => setDeliveryData({...deliveryData, references: e.target.value})}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                              placeholder="Casa blanca, portón negro, frente al supermercado..."
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
 
-                  {deliveryData.type === 'pickup' && (
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <h3 className="font-medium mb-2">Información del Negocio</h3>
-                      <p className="text-sm text-gray-600 mb-2"><strong>Dirección:</strong> {business?.address}</p>
-                    </div>
+                          {/* Removed manual address form - not needed */}
+                        </div>
+                      )}
+
+                      {deliveryData.type === 'pickup' && (
+                        <div className="bg-gray-50 p-4 rounded-lg">
+                          <h3 className="font-medium mb-2">Información del Negocio</h3>
+                          <p className="text-sm text-gray-600 mb-2"><strong>Dirección:</strong> {business?.address}</p>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -1943,14 +1957,14 @@ function CheckoutContent() {
             ) : (
               <button
                 onClick={handleSubmit}
-                disabled={loading}
+                disabled={!readyToConfirm || loading}
                 className={`order-1 sm:order-2 px-4 sm:px-6 py-3 sm:py-2 rounded-lg touch-manipulation text-sm sm:text-base font-medium ${
-                  loading
+                  !readyToConfirm || loading
                     ? 'bg-gray-400 cursor-not-allowed'
                     : 'bg-green-500 hover:bg-green-600 active:bg-green-700'
                 } text-white`}
               >
-                {loading ? 'Procesando...' : 'Confirmar'}
+                {loading ? 'Procesando...' : readyToConfirm ? 'Confirmar' : 'Completa los pasos'}
               </button>
             )}
           </div>
