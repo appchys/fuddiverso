@@ -1270,11 +1270,97 @@ function CheckoutContent() {
                       )}
                     </div>
 
-                    {/* Nombre: oculto por UX simplificada (solo mostrar teléfono cuando no hay sesión) */}
-                    {/* PIN section for checkout: if client has pin -> ask PIN to login; else ask to create PIN */}
-                    {/* PIN login oculto: gestionado desde Header o flujo posterior */}
+                    {/* Lógica solicitada:
+                        - Si el número está vacío: no mostrar nada más.
+                        - Si hay sesión (`user`): ya se muestra la tarjeta de usuario arriba.
+                        - Si no hay sesión y se ingresó teléfono: según `clientFound` mostrar:
+                          * cliente con pinHash -> pedir PIN para iniciar sesión
+                          * cliente sin pinHash -> formulario de registro (pero si existe `nombres` no pedir nombre, solo crear PIN)
+                          * cliente no encontrado -> formulario de registro (pedir nombre + crear PIN)
+                    */}
 
-                    {/* Creación de PIN oculto en checkout (solo teléfono visible si no hay sesión) */}
+                    {customerData.phone.trim() && !user && (
+                      <div>
+                        {clientSearching && (
+                          <p className="text-blue-500 text-sm mt-1">Buscando cliente...</p>
+                        )}
+
+                        {!clientSearching && clientFound && clientFound.pinHash && (
+                          // Cliente existente con PIN -> pedir PIN para iniciar sesión
+                          <div className="mt-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Ingresa tu PIN</label>
+                            <input type="password" value={loginPin} onChange={(e) => setLoginPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-md" />
+                            {loginPinError && <p className="text-red-500 text-sm mt-1">{loginPinError}</p>}
+                            <div className="mt-3">
+                              <button onClick={handleCheckoutLoginWithPin} disabled={loginPinLoading} className="w-full px-4 py-2 bg-red-500 text-white rounded-lg">{loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}</button>
+                            </div>
+                          </div>
+                        )}
+
+                        {!clientSearching && clientFound && !clientFound.pinHash && (
+                          // Cliente existente sin PIN -> formulario de registro
+                          <div className="mt-4">
+                            {clientFound.nombres ? (
+                              <div className="mb-3">
+                                <p className="text-sm text-gray-700">Nombre: <strong>{clientFound.nombres}</strong></p>
+                                <p className="text-sm text-gray-500">Hemos encontrado tu cuenta; crea un PIN para iniciar sesión más rápido.</p>
+                              </div>
+                            ) : (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={customerData.name}
+                                  onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
+                                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
+                                  placeholder="Juan Pérez"
+                                />
+                                {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
+                              </div>
+                            )}
+
+                            <div className="mt-3">
+                              <label className="block text-sm font-medium text-gray-700 mb-2">Crea un PIN (4-6 dígitos)</label>
+                              <input type="password" value={registerPin} onChange={(e) => setRegisterPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-md" />
+                              <label className="block text-sm font-medium text-gray-700 mb-2 mt-2">Confirmar PIN</label>
+                              <input type="password" value={registerPinConfirm} onChange={(e) => setRegisterPinConfirm(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-md" />
+                              {registerError && <p className="text-red-500 text-sm mt-1">{registerError}</p>}
+                              <div className="mt-3">
+                                <button onClick={handleCheckoutRegisterOrSetPin} disabled={registerLoading} className="w-full px-4 py-2 bg-red-500 text-white rounded-lg">{registerLoading ? 'Procesando...' : 'Registrarse'}</button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {!clientSearching && !clientFound && (
+                          // Teléfono no encontrado -> formulario de registro (pedir nombre + crear PIN)
+                          <div className="mt-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
+                            <input
+                              type="text"
+                              required
+                              value={customerData.name}
+                              onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
+                              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
+                              placeholder="Juan Pérez"
+                            />
+                            {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
+
+                            <div className="mt-3">
+                              <label className="block text-sm font-medium text-gray-700 mb-2">Crea un PIN (4-6 dígitos)</label>
+                              <input type="password" value={registerPin} onChange={(e) => setRegisterPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-md" />
+                              <label className="block text-sm font-medium text-gray-700 mb-2 mt-2">Confirmar PIN</label>
+                              <input type="password" value={registerPinConfirm} onChange={(e) => setRegisterPinConfirm(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-md" />
+                              {registerError && <p className="text-red-500 text-sm mt-1">{registerError}</p>}
+                              <div className="mt-3">
+                                <button onClick={handleCheckoutRegisterOrSetPin} disabled={registerLoading} className="w-full px-4 py-2 bg-red-500 text-white rounded-lg">{registerLoading ? 'Procesando...' : 'Registrarse'}</button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
