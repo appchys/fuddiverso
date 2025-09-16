@@ -83,8 +83,10 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
   updateQuantity: (id: string, quantity: number) => void,
   businessImage?: string
 }) {
+  const handleCardClick = () => onAddToCart(product)
+
   return (
-    <div className="bg-white rounded-lg shadow-md overflow-hidden">
+    <div onClick={handleCardClick} className="bg-white rounded-lg shadow-md overflow-hidden cursor-pointer hover:shadow-lg transition">
       <div className="w-full h-32 sm:h-40">
         <img
           src={product.image || businessImage}
@@ -114,7 +116,7 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
           
           {/* Botón agregar */}
           <button
-            onClick={() => onAddToCart(product)}
+            onClick={(e) => { e.stopPropagation(); onAddToCart(product) }}
             disabled={!product.isAvailable}
             className={`text-xs sm:text-sm font-medium px-3 py-2 rounded-lg ${
               product.isAvailable 
@@ -131,126 +133,79 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
 }
 
 // Modal para seleccionar variantes
-function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage }: {
+function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, getCartItemQuantity, updateQuantity }: {
   product: any;
   isOpen: boolean;
   onClose: () => void;
   onAddToCart: (item: any) => void;
   businessImage?: string;
+  getCartItemQuantity: (id: string) => number;
+  updateQuantity: (id: string, quantity: number) => void;
 }) {
-  const [selectedVariant, setSelectedVariant] = useState<any>(null);
+  const [selectedVariant, setSelectedVariant] = useState<any>(null)
 
-  if (!isOpen) return null;
+  if (!isOpen || !product) return null
+
+  const makeUid = (variant: any) => `${product.id}-${variant.id}`
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
         <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={onClose} />
-        
+
         <div className="inline-block w-full max-w-md p-6 my-8 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-lg">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium text-gray-900">Selecciona una opción</h3>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-500"
-            >
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
 
-          {/* Imagen del producto */}
           <div className="w-full h-48 mb-4">
-            <img
-              src={product?.image || businessImage}
-              alt={product?.name}
-              className="w-full h-full object-cover rounded-lg"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                if (target.src !== businessImage && businessImage) {
-                  target.src = businessImage;
-                }
-              }}
-            />
+            <img src={product?.image || businessImage} alt={product?.name} className="w-full h-full object-cover rounded-lg" onError={(e) => { const target = e.target as HTMLImageElement; if (target.src !== businessImage && businessImage) target.src = businessImage }} />
           </div>
 
-          <div className="mb-4">
-            <h4 className="font-semibold text-gray-900">{product.name}</h4>
-            <p className="text-sm text-gray-600 mt-1">{product.description}</p>
-          </div>
+          <h4 className="text-lg font-semibold text-gray-900 mb-2">{product?.name}</h4>
+          <p className="text-gray-600 text-sm mb-4">{product?.description}</p>
 
-          <div className="space-y-3 mb-6">
-            {product.variants?.map((variant: any) => (
-              <div
-                key={variant.id}
-                className={`border rounded-lg p-3 cursor-pointer transition-all ${
-                  variant.isAvailable
-                    ? selectedVariant?.id === variant.id
-                      ? 'border-red-500 bg-red-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                    : 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-60'
-                }`}
-                onClick={() => variant.isAvailable && setSelectedVariant(variant)}
-              >
-                <div className="flex justify-between items-center">
+          <div className="space-y-2 mb-6">
+            {product?.variants?.filter((v: any) => v.isAvailable).map((variant: any, i: number) => {
+              const uid = makeUid(variant)
+              const qty = getCartItemQuantity(uid)
+
+              return (
+                <div key={i} onClick={() => setSelectedVariant(variant)} className={`w-full p-3 rounded-lg border-2 flex items-center justify-between transition-colors ${selectedVariant === variant ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-gray-300 cursor-pointer'}`}>
                   <div>
                     <h5 className="font-medium text-gray-900">{variant.name}</h5>
-                    {variant.description && (
-                      <p className="text-sm text-gray-600">{variant.description}</p>
-                    )}
+                    {variant.description && <p className="text-sm text-gray-600">{variant.description}</p>}
+                    <div className="text-red-500 font-bold mt-2">${variant.price.toFixed(2)}</div>
                   </div>
-                  <div className="text-right">
-                    <span className="text-red-600 font-bold">${variant.price.toFixed(2)}</span>
-                    {!variant.isAvailable && (
-                      <p className="text-xs text-gray-500">No disponible</p>
+
+                  <div className="flex items-center gap-2">
+                    {qty > 0 ? (
+                      <div className="flex items-center border rounded-lg overflow-hidden">
+                        <button onClick={(e) => { e.stopPropagation(); updateQuantity(uid, qty - 1) }} className="px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700">-</button>
+                        <div className="px-3 py-1">{qty}</div>
+                        <button onClick={(e) => { e.stopPropagation(); updateQuantity(uid, qty + 1) }} className="px-3 py-1 bg-red-500 text-white hover:bg-red-600">+</button>
+                      </div>
+                    ) : (
+                      <button onClick={(e) => { e.stopPropagation(); onAddToCart({ id: uid, name: `${product.name} - ${variant.name}`, variantName: variant.name, productName: product.name, price: variant.price, image: product.image, description: variant.description || product.description, businessId: product.businessId, productId: product.id, variantId: variant.id }); }} className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">Agregar</button>
                     )}
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
           <div className="flex space-x-3">
-            <button
-              onClick={onClose}
-              className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={() => {
-                if (selectedVariant) {
-                  onAddToCart({
-                    id: `${product.id}-${selectedVariant.id}`,
-                    name: `${product.name} - ${selectedVariant.name}`,
-                    variantName: selectedVariant.name,
-                    productName: product.name,
-                    price: selectedVariant.price,
-                    image: product.image,
-                    description: selectedVariant.description || product.description,
-                    businessId: product.businessId,
-                    productId: product.id,
-                    variantId: selectedVariant.id
-                  });
-                  onClose();
-                  setSelectedVariant(null);
-                }
-              }}
-              disabled={!selectedVariant}
-              className={`flex-1 px-4 py-2 text-sm font-medium rounded-md ${
-                selectedVariant
-                  ? 'text-white bg-red-600 hover:bg-red-700'
-                  : 'text-gray-400 bg-gray-200 cursor-not-allowed'
-              }`}
-            >
-              Agregar al carrito
-            </button>
+            <button onClick={onClose} className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200">Cancelar</button>
           </div>
         </div>
       </div>
     </div>
-  );
+  )
 }
 
 export default function RestaurantPage() {
@@ -883,6 +838,8 @@ function RestaurantContent() {
         }}
         onAddToCart={addVariantToCart}
         businessImage={business?.image}
+        getCartItemQuantity={getCartItemQuantity}
+        updateQuantity={updateQuantity}
       />
 
       {/* Notificación temporal */}
