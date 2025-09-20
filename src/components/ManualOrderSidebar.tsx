@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
-import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation } from '@/lib/database'
+import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation } from '@/lib/database'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 
 interface Client {
@@ -106,6 +106,7 @@ export default function ManualOrderSidebar({
     latlong: ''
   })
   const [creatingLocation, setCreatingLocation] = useState(false)
+  const [editingLocationId, setEditingLocationId] = useState<string | null>(null)
   
   // Estados para modal de deliveries
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
@@ -333,9 +334,16 @@ export default function ManualOrderSidebar({
   };
 
   // Función para validar coordenadas
+  const normalizeLatLong = (coords: string): string => {
+    // Eliminar espacios alrededor de la coma y extra espacios
+    return coords.trim().replace(/\s*,\s*/, ',');
+  }
+
   const validateCoordinates = (coords: string): boolean => {
+    if (!coords) return false
+    const normalized = normalizeLatLong(coords)
     const coordPattern = /^-?\d+\.?\d*,-?\d+\.?\d*$/;
-    return coordPattern.test(coords.trim());
+    return coordPattern.test(normalized);
   };
 
   // Función para manejar cambio en enlace de Google Maps
@@ -345,7 +353,8 @@ export default function ManualOrderSidebar({
     if (link.trim()) {
       const coordinates = extractCoordinatesFromGoogleMaps(link);
       if (coordinates) {
-        setNewLocationData(prev => ({ ...prev, latlong: coordinates }));
+        // Normalizar antes de setear
+        setNewLocationData(prev => ({ ...prev, latlong: normalizeLatLong(coordinates) }));
       }
     }
   };
@@ -357,9 +366,15 @@ export default function ManualOrderSidebar({
       return;
     }
 
-    if (!newLocationData.latlong.trim() || !validateCoordinates(newLocationData.latlong)) {
-      alert('Por favor ingresa coordenadas válidas (formato: lat,lng)');
-      return;
+    // LatLong ahora es opcional. Si se proporciona, debe ser válido.
+    if (newLocationData.latlong.trim()) {
+      const normalized = normalizeLatLong(newLocationData.latlong)
+      if (!validateCoordinates(normalized)) {
+        alert('Por favor ingresa coordenadas válidas (formato: lat,lng)');
+        return;
+      }
+      // Guardar normalizadas
+      setNewLocationData(prev => ({ ...prev, latlong: normalized }))
     }
 
     // Buscar el cliente para obtener su ID
@@ -412,6 +427,96 @@ export default function ManualOrderSidebar({
       setCreatingLocation(false);
     }
   };
+
+  // Editar ubicación - abrir formulario con datos
+  const handleEditLocation = (location: ClientLocation) => {
+    setEditingLocationId(location.id)
+    setNewLocationData({
+      referencia: location.referencia || '',
+      tarifa: location.tarifa || '1',
+      googleMapsLink: '',
+      latlong: location.latlong || ''
+    })
+    setShowNewLocationForm(true)
+  }
+
+  // Guardar cambios de edición
+  const handleSaveEditedLocation = async () => {
+    if (!editingLocationId) return
+    if (!newLocationData.referencia.trim()) {
+      alert('Por favor ingresa una referencia para la ubicación');
+      return;
+    }
+
+    if (newLocationData.latlong.trim()) {
+      const normalized = normalizeLatLong(newLocationData.latlong)
+      if (!validateCoordinates(normalized)) {
+        alert('Por favor ingresa coordenadas válidas (formato: lat,lng)');
+        return;
+      }
+      setNewLocationData(prev => ({ ...prev, latlong: normalized }))
+    }
+
+    setCreatingLocation(true)
+    try {
+      const updatePayload: any = {
+        referencia: newLocationData.referencia.trim(),
+        tarifa: newLocationData.tarifa,
+        updatedAt: new Date()
+      }
+
+      // Incluir latlong sólo si viene
+      if (newLocationData.latlong.trim()) {
+        updatePayload.latlong = normalizeLatLong(newLocationData.latlong.trim())
+      } else {
+        // Si se deja en blanco, mantener como cadena vacía
+        updatePayload.latlong = ''
+      }
+
+      await updateLocation(editingLocationId, updatePayload)
+
+      // Recargar ubicaciones
+      const client = await searchClientByPhone(manualOrderData.customerPhone)
+      if (client) {
+        const locations = await getClientLocations(client.id)
+        setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
+      }
+
+      setEditingLocationId(null)
+      setShowNewLocationForm(false)
+      setNewLocationData({ referencia: '', tarifa: '1', googleMapsLink: '', latlong: '' })
+      alert('Ubicación actualizada correctamente')
+    } catch (error) {
+      console.error('Error actualizando ubicación:', error)
+      alert('Error al actualizar la ubicación')
+    } finally {
+      setCreatingLocation(false)
+    }
+  }
+
+  // Eliminar ubicación
+  const handleDeleteLocation = async (locationId: string) => {
+    if (!window.confirm('¿Eliminar esta ubicación? Esta acción no se puede deshacer.')) return
+    try {
+      await deleteLocation(locationId)
+
+      // Si la ubicación eliminada estaba seleccionada, quitar selección
+      if (manualOrderData.selectedLocation?.id === locationId) {
+        setManualOrderData(prev => ({ ...prev, selectedLocation: null }))
+      }
+
+      const client = await searchClientByPhone(manualOrderData.customerPhone)
+      if (client) {
+        const locations = await getClientLocations(client.id)
+        setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
+      }
+
+      alert('Ubicación eliminada')
+    } catch (error) {
+      console.error('Error eliminando ubicación:', error)
+      alert('Error al eliminar la ubicación')
+    }
+  }
 
   // Agregar producto a la orden
   const addProductToOrder = (product: Product, variant?: ProductVariant) => {
@@ -482,18 +587,13 @@ export default function ManualOrderSidebar({
 
   // Crear orden
   const handleCreateOrder = async () => {
-    if (!business?.id || !manualOrderData.customerPhone || !manualOrderData.customerName || 
-        manualOrderData.selectedProducts.length === 0 || !manualOrderData.deliveryType) {
-      alert('Por favor completa todos los campos requeridos')
+    if (!business?.id) {
+      alert('No hay negocio seleccionado')
       return
     }
 
-    if (manualOrderData.deliveryType === 'delivery' && !manualOrderData.selectedLocation) {
-      alert('Por favor selecciona una ubicación para el delivery')
-      return
-    }
-
-    // Validar pago mixto
+    // Nota: permitimos crear la orden aún si faltan datos (cliente, productos, tipo de entrega, programación).
+    // Solo validamos el pago mixto si el usuario lo ha seleccionado para evitar inconsistencias.
     if (manualOrderData.paymentMethod === 'mixed') {
       const totalMixed = (manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0);
       if (Math.abs(totalMixed - manualOrderData.total) >= 0.01) {
@@ -538,6 +638,16 @@ export default function ManualOrderSidebar({
               };
             })() : null,
             scheduledTime: manualOrderData.scheduledTime || ''
+          }),
+          ...(manualOrderData.timingType === 'immediate' && {
+            // Registrar scheduledTime como ahora + 30 minutos (formato HH:MM)
+            scheduledTime: (() => {
+              const now = new Date();
+              const plus30 = new Date(now.getTime() + 30 * 60 * 1000);
+              const hh = String(plus30.getHours()).padStart(2, '0');
+              const mm = String(plus30.getMinutes()).padStart(2, '0');
+              return `${hh}:${mm}`;
+            })()
           })
         },
         payment: {
@@ -551,7 +661,7 @@ export default function ManualOrderSidebar({
         },
         subtotal: manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0),
         total: manualOrderData.total,
-        status: 'ready' as const,
+  status: 'confirmed' as const,
         createdByAdmin: true,
         createdAt: new Date(),
         updatedAt: new Date()
@@ -597,6 +707,8 @@ export default function ManualOrderSidebar({
     handleReset()
     onClose()
   }
+
+  // ...existing code... (forced create removed)
 
   if (!isOpen) return null
 
@@ -1200,6 +1312,7 @@ export default function ManualOrderSidebar({
             >
               Cancelar
             </button>
+            {/* single save button kept below */}
             <button
               onClick={handleCreateOrder}
               disabled={
@@ -1345,6 +1458,28 @@ export default function ManualOrderSidebar({
                             </p>
                           )}
                         </div>
+                        <div className="ml-3 flex flex-col items-end gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditLocation(location as ClientLocation);
+                            }}
+                            className="text-sm text-blue-600 hover:text-blue-700 p-1"
+                            type="button"
+                          >
+                            <i className="bi bi-pencil"></i>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteLocation(location.id);
+                            }}
+                            className="text-sm text-red-600 hover:text-red-700 p-1"
+                            type="button"
+                          >
+                            <i className="bi bi-trash"></i>
+                          </button>
+                        </div>
                       </label>
                     ))}
                   </div>
@@ -1412,7 +1547,7 @@ export default function ManualOrderSidebar({
                   {/* Coordenadas */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Coordenadas (LatLong) *
+                      Coordenadas (LatLong)
                     </label>
                     <input
                       type="text"
@@ -1482,8 +1617,8 @@ export default function ManualOrderSidebar({
                   </button>
                   
                   <button
-                    onClick={handleCreateLocation}
-                    disabled={creatingLocation || !newLocationData.referencia.trim() || !newLocationData.latlong.trim()}
+                    onClick={() => editingLocationId ? handleSaveEditedLocation() : handleCreateLocation()}
+                    disabled={creatingLocation || !newLocationData.referencia.trim()}
                     className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
                   >
                     {creatingLocation ? (
@@ -1494,7 +1629,7 @@ export default function ManualOrderSidebar({
                     ) : (
                       <>
                         <i className="bi bi-save mr-2"></i>
-                        Guardar ubicación
+                        {editingLocationId ? 'Actualizar ubicación' : 'Guardar ubicación'}
                       </>
                     )}
                   </button>
