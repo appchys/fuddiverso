@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       }
     }
 
-    const title = `${business.name} - fuddi.shop`
+    const title = `${business.name} - Catálogo`
     const description = business.description || `Ordena deliciosa comida de ${business.name} a través de fuddi.shop. ${business.address ? `Ubicado en ${business.address}.` : ''}`
     // Usar imagen del negocio o una imagen por defecto
     const imageUrl = business.image || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1200&h=630&fit=crop&crop=center'

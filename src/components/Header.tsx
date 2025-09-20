@@ -52,6 +52,26 @@ function CartIndicator() {
     total + cart.reduce((sum, item) => sum + item.quantity, 0), 0
   )
 
+  const handleDeleteCart = (businessId: string) => {
+    try {
+      const cartsData = localStorage.getItem('carts')
+      if (!cartsData) return
+      const allCarts = JSON.parse(cartsData)
+      if (allCarts[businessId]) {
+        delete allCarts[businessId]
+        localStorage.setItem('carts', JSON.stringify(allCarts))
+        // Update local state immediately
+        setActiveCarts(prev => {
+          const copy = { ...prev }
+          delete copy[businessId]
+          return copy
+        })
+      }
+    } catch (e) {
+      console.error('Error deleting cart for business:', businessId, e)
+    }
+  }
+
   if (activeCartsCount === 0) return null
 
   return (
@@ -80,12 +100,26 @@ function CartIndicator() {
               const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
               const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
               const businessName = cart[0]?.businessName || 'Tienda'
+              const logo = cart[0]?.businessImage || '/default-restaurant-og.svg'
               
               return (
                 <div key={businessId} className="p-3 hover:bg-gray-50">
                   <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium text-gray-900 text-sm">{businessName}</h4>
-                    <span className="text-sm font-semibold text-red-600">${cartTotal.toFixed(2)}</span>
+                    <div className="flex items-center min-w-0">
+                      <img src={logo} alt={businessName} className="w-6 h-6 rounded object-cover mr-2" />
+                      <h4 className="font-medium text-gray-900 text-sm truncate">{businessName}</h4>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-red-600">${cartTotal.toFixed(2)}</span>
+                      <button
+                        aria-label="Eliminar carrito"
+                        onClick={() => handleDeleteCart(businessId)}
+                        className="p-1 text-gray-400 hover:text-red-600 rounded"
+                        title="Eliminar"
+                      >
+                        <i className="bi bi-trash text-base"></i>
+                      </button>
+                    </div>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-500">{cartItemsCount} productos</span>
@@ -340,7 +374,7 @@ export default function Header() {
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <Link href="/" className="flex items-center flex-shrink-0">
-              <h1 className="text-xl sm:text-2xl font-bold text-orange-600">fuddi.shop</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-orange-600">Fuddi</h1>
             </Link>
 
             {/* Barra de búsqueda - Desktop */}

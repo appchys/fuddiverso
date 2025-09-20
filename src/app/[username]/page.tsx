@@ -372,7 +372,8 @@ function RestaurantContent() {
       image: product.image,
       description: product.description,
       businessId: business.id,
-      businessName: business.name
+      businessName: business.name,
+      businessImage: business.image
     }
 
     const existingItem = cart.find(item => item.id === cartItem.id)
@@ -415,7 +416,8 @@ function RestaurantContent() {
         ...product, 
         quantity: 1, 
         businessId: business.id,
-        businessName: business.name
+        businessName: business.name,
+        businessImage: business.image
       }]
       showNotification(`${product.name} agregado al carrito`)
     }

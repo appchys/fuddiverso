@@ -86,10 +86,10 @@ function HomePageContent() {
           }
         })
         setCategories(['all', ...Array.from(uniqueCategories).sort()])
-      }).catch((err) => console.error('Error loading categories:', err))
+      }).catch(() => { /* silent */ })
 
     } catch (error) {
-      console.error('Error loading businesses:', error)
+      // silent
     } finally {
       setLoading(false)
     }
@@ -142,7 +142,7 @@ function HomePageContent() {
       const data = await searchBusinesses(searchTerm, selectedCategory)
       setBusinesses(data)
     } catch (error) {
-      console.error('Error searching businesses:', error)
+      // silent
     } finally {
       setLoading(false)
     }
@@ -330,7 +330,7 @@ function HomePageContent() {
               ¿Eres dueño de un restaurante?
             </h2>
             <p className="text-lg sm:text-xl mb-6 sm:mb-8 opacity-90">
-              Únete a miles de restaurantes que ya están creciendo con fuddi.shop. 
+              Únete a miles de restaurantes que ya están creciendo con Fuddi. 
               Llega a más clientes y aumenta tus ventas.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -357,7 +357,7 @@ function HomePageContent() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="md:col-span-2">
               <Link href="/" className="text-2xl font-bold text-orange-500 mb-4 block">
-                fuddi.shop
+                Fuddi
               </Link>
               <p className="text-gray-400 mb-4">
                 La plataforma de delivery #1 en Ecuador. Conectamos restaurantes con clientes hambrientos en todo el país.
@@ -393,7 +393,7 @@ function HomePageContent() {
             </div>
           </div>
           <div className="border-t border-gray-800 mt-8 pt-8 text-center">
-            <p className="text-gray-400">© 2024 fuddi.shop. Todos los derechos reservados.</p>
+            <p className="text-gray-400">© 2024 Fuddi. Todos los derechos reservados.</p>
             {/* Acceso discreto al admin */}
             <div className="mt-2">
               <Link href="/admin" className="text-xs text-gray-600 hover:text-gray-400">
