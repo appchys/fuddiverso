@@ -563,32 +563,47 @@ function RestaurantContent() {
       
       {/* Hero Section */}
       <div className="bg-white shadow-sm">
-        {/* Cover Image */}
-        {business.coverImage && (
-          <div className="w-full h-48 sm:h-64 bg-gray-200 relative overflow-hidden">
+        {/* Portada con logo superpuesto */}
+        <div className="relative w-full h-48 sm:h-64 bg-gray-200">
+          {business.coverImage ? (
             <img
               src={business.coverImage}
               alt={`Portada de ${business.name}`}
               className="w-full h-full object-cover"
             />
-            <div className="absolute inset-0 bg-black bg-opacity-20"></div>
-          </div>
-        )}
-        
-        <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
-          <div className="flex flex-col sm:flex-row items-center sm:items-start space-y-4 sm:space-y-0 sm:space-x-6">
-            {business.image && (
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-orange-100 to-orange-200" />
+          )}
+          {/* Botón copiar enlace como ícono (mejor para móviles) */}
+          <button
+            onClick={copyStoreLink}
+            aria-label="Copiar enlace de la tienda"
+            className="absolute right-3 top-3 z-10 p-2 bg-white/90 hover:bg-white rounded-full shadow text-gray-700"
+          >
+            <i className="bi bi-share"></i>
+          </button>
+          {business.image && (
+            <div className="absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 z-10">
               <img
                 src={business.image}
                 alt={business.name}
-                className="w-20 h-20 sm:w-24 sm:h-24 rounded-lg object-cover shadow-lg"
+                className="w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-white shadow-lg object-cover"
               />
-            )}
+            </div>
+          )}
+        </div>
+        
+        {/* Contenido debajo de la portada (se deja igual por ahora) */}
+        <div className="max-w-7xl mx-auto px-4 pt-16 sm:pt-20 pb-6 sm:pb-8">
+          <div className="flex flex-col sm:flex-row items-center sm:items-start space-y-4 sm:space-y-0 sm:space-x-6">
+            {/* Logo removido de aquí, ahora se muestra superpuesto arriba */}
             <div className="flex-1 text-center sm:text-left">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{business.name}</h1>
-                  <div className="flex items-center justify-center sm:justify-start mt-2 space-x-2">
+                  {/* Descripción directamente debajo del nombre */}
+                  <p className="text-gray-600 mt-2">{business.description}</p>
+                  <div className="flex items-center justify-center sm:justify-start mt-3 space-x-2">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                       isStoreOpen() 
                         ? 'bg-green-100 text-green-800' 
@@ -599,15 +614,7 @@ function RestaurantContent() {
                     </span>
                   </div>
                 </div>
-                <button
-                  onClick={copyStoreLink}
-                  className="mt-4 sm:mt-0 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition-colors duration-200 flex items-center space-x-2"
-                >
-                  <i className="bi bi-share"></i>
-                  <span className="text-sm font-medium">Copiar enlace</span>
-                </button>
               </div>
-              <p className="text-gray-600 mt-2">{business.description}</p>
               <div className="flex flex-col sm:flex-row items-center sm:items-start sm:space-x-4 mt-4 text-sm text-gray-500 space-y-1 sm:space-y-0">
                 <span className="flex items-center">
                   <i className="bi bi-geo-alt mr-1"></i>
