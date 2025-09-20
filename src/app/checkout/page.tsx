@@ -292,6 +292,7 @@ function CheckoutContent() {
   const [deliveryData, setDeliveryData] = useState<DeliveryData>({ type: '', address: '', references: '', tarifa: '0' })
 
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [calculatingTariff, setCalculatingTariff] = useState(false)
 
   // Indicar que estamos en cliente
   useEffect(() => { setIsClient(true); }, []);
@@ -350,6 +351,33 @@ function CheckoutContent() {
     const timeoutId = setTimeout(calculateTariffForNewLocation, 1000) // Debounce por 1 segundo
     return () => clearTimeout(timeoutId)
   }, [newLocationData.latlong, business?.id])
+
+  // NUEVO: Calcular tarifa al activar delivery si ya hay una ubicación seleccionada pero sin tarifa válida (escenario de primera carga)
+  useEffect(() => {
+    const ensureTariffForSelected = async () => {
+      if (deliveryData.type !== 'delivery') return
+      if (!selectedLocation?.latlong) return
+      const currentTariff = selectedLocation.tarifa
+      const needsCalculation = currentTariff == null || Number(currentTariff) <= 0
+      if (!needsCalculation || calculatingTariff || !business?.id) return
+
+      try {
+        setCalculatingTariff(true)
+        const [lat, lng] = selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
+        if (isNaN(lat) || isNaN(lng)) return
+        const fee = await calculateDeliveryFee({ lat, lng })
+        const updated = { ...selectedLocation, tarifa: fee.toString() }
+        setSelectedLocation(updated)
+        setDeliveryData(prev => ({ ...prev, tarifa: fee.toString() }))
+      } catch (e) {
+        console.error('Error ensuring tariff for selected location:', e)
+      } finally {
+        setCalculatingTariff(false)
+      }
+    }
+
+    void ensureTariffForSelected()
+  }, [deliveryData.type, selectedLocation?.id, selectedLocation?.latlong, business?.id, calculatingTariff])
 
   // Función para abrir el modal
   const openLocationModal = () => {
@@ -720,6 +748,10 @@ function CheckoutContent() {
 
   // Función unificada para seleccionar una ubicación del cliente
   const handleLocationSelect = async (location: ClientLocation) => {
+    // Marcar cálculo antes de setear la selección para evitar render con tarifa vacía
+    if (location.latlong) {
+      setCalculatingTariff(true)
+    }
     setSelectedLocation(location)
     
     // Si la ubicación tiene coordenadas, calcular tarifa automáticamente
@@ -746,6 +778,8 @@ function CheckoutContent() {
         }
       } catch (error) {
         console.error('Error calculating automatic delivery fee:', error)
+      } finally {
+        setCalculatingTariff(false)
       }
     }
     
@@ -999,7 +1033,7 @@ function CheckoutContent() {
     if (deliveryData.type === 'delivery') {
       if (!deliveryData.address.trim() && !selectedLocation) return false;
       // Si la ubicación seleccionada está fuera de cobertura, no permitir confirmar
-      if (selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0)) return false;
+      if (!calculatingTariff && selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0)) return false;
     }
 
     // Paso 3: timing
@@ -1176,7 +1210,7 @@ function CheckoutContent() {
       );
     }
   // Determinar si la ubicación seleccionada está fuera de cobertura (tarifa nula o 0)
-  const selectedLocationOutsideCoverage = !!selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0);
+  const selectedLocationOutsideCoverage = !!selectedLocation && !calculatingTariff && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1512,7 +1546,7 @@ function CheckoutContent() {
                                         <div className="flex-1 min-w-0">
                                                 <div className="font-medium text-sm mb-1">{selectedLocation.referencia}</div>
                                                 <div className="text-xs text-gray-500">Tarifa: ${selectedLocation.tarifa}</div>
-                                                {selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0) && (
+                                                {selectedLocationOutsideCoverage && (
                                                   <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
                                                     <i className="bi bi-exclamation-triangle mr-2"></i>
                                                     Esta ubicación está fuera de las zonas de cobertura y no será posible realizar delivery a esta dirección.
@@ -1884,17 +1918,18 @@ function CheckoutContent() {
             <div className="w-full sm:w-auto">
               <div className="w-full sm:w-auto">
                 <button
+                  type="button"
                   onClick={handleSubmit}
-                  disabled={!readyToConfirm || loading || (deliveryData.type === 'delivery' && !!selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0))}
+                  disabled={!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage)}
                   className={`w-full sm:w-auto px-6 py-3 rounded-lg text-white font-medium ${
-                    !readyToConfirm || loading || (deliveryData.type === 'delivery' && !!selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0))
+                    !readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage)
                       ? 'bg-gray-400 cursor-not-allowed'
                       : 'bg-green-500 hover:bg-green-600'
                   }`}
                 >
                   {loading ? 'Procesando...' : (readyToConfirm ? 'Confirmar pedido' : 'Completa los pasos')}
                 </button>
-                {deliveryData.type === 'delivery' && selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0) && (
+                {deliveryData.type === 'delivery' && selectedLocationOutsideCoverage && (
                   <p className="text-sm text-yellow-800 mt-2">No es posible confirmar el pedido porque la ubicación seleccionada está fuera de la zona de cobertura.</p>
                 )}
               </div>
