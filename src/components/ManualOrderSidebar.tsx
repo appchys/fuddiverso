@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
-import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation } from '@/lib/database'
+import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder } from '@/lib/database'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 
 interface Client {
@@ -54,6 +54,10 @@ interface ManualOrderSidebarProps {
   business: Business | null
   products: Product[]
   onOrderCreated: () => void
+  // Edit mode support
+  mode?: 'create' | 'edit'
+  editOrder?: any
+  onOrderUpdated?: () => void
 }
 
 export default function ManualOrderSidebar({
@@ -61,7 +65,10 @@ export default function ManualOrderSidebar({
   onClose,
   business,
   products,
-  onOrderCreated
+  onOrderCreated,
+  mode = 'create',
+  editOrder,
+  onOrderUpdated
 }: ManualOrderSidebarProps) {
   const [manualOrderData, setManualOrderData] = useState<ManualOrderData>({
     customerPhone: '',
@@ -148,6 +155,108 @@ export default function ManualOrderSidebar({
       loadDeliveries()
     }
   }, [isOpen, business?.id])
+
+  // Prefill data when editing
+  useEffect(() => {
+    if (!isOpen || mode !== 'edit' || !editOrder) return
+    try {
+      const eo = editOrder
+      const selectedDeliveryFromId = (deliveriesList: any[], id?: string) =>
+        deliveriesList?.find(d => d.id === id) || null
+
+      const deliveryType = eo.delivery?.type || ''
+      const selectedLocation = deliveryType === 'delivery' ? {
+        id: 'from-order',
+        id_cliente: '',
+        latlong: eo.delivery?.latlong || eo.delivery?.mapLocation ? `${eo.delivery.mapLocation.lat},${eo.delivery.mapLocation.lng}` : '',
+        referencia: eo.delivery?.references || (eo.delivery as any)?.reference || '',
+        sector: 'Sin especificar',
+        tarifa: String(eo.delivery?.deliveryCost || 0)
+      } as any : null
+
+      const timingType = eo.timing?.type || 'immediate'
+      let scheduledDate = ''
+      let scheduledTime = eo.timing?.scheduledTime || ''
+      if (timingType === 'scheduled') {
+        const sd = eo.timing?.scheduledDate
+        let date: Date | null = null
+        if (sd) {
+          if (typeof sd === 'object' && 'seconds' in sd) {
+            date = new Date(sd.seconds * 1000)
+          } else if (typeof (sd as any)?.toDate === 'function') {
+            date = (sd as any).toDate()
+          } else if (sd instanceof Date) {
+            date = sd
+          } else {
+            const d = new Date(sd)
+            date = isNaN(d.getTime()) ? null : d
+          }
+        }
+        if (date) {
+          const yyyy = date.getFullYear()
+          const mm = String(date.getMonth() + 1).padStart(2, '0')
+          const dd = String(date.getDate()).padStart(2, '0')
+          scheduledDate = `${yyyy}-${mm}-${dd}`
+          if (!scheduledTime) {
+            const hh = String(date.getHours()).padStart(2, '0')
+            const mi = String(date.getMinutes()).padStart(2, '0')
+            scheduledTime = `${hh}:${mi}`
+          }
+        }
+      }
+
+      const selectedProducts = (eo.items || []).map((it: any) => ({
+        name: it.variant || it.name || it.product?.name || 'Producto',
+        price: it.price || it.product?.price || 0,
+        productId: it.productId || it.product?.id || it.id || '',
+        quantity: it.quantity || 1,
+        variant: it.variant
+      }))
+
+      setManualOrderData(prev => ({
+        ...prev,
+        customerPhone: eo.customer?.phone || '',
+        customerName: eo.customer?.name || '',
+        selectedProducts,
+        deliveryType: deliveryType,
+        selectedLocation: selectedLocation,
+        customerLocations: selectedLocation ? [selectedLocation] : [],
+        timingType,
+        scheduledDate,
+        scheduledTime,
+        paymentMethod: eo.payment?.method || 'cash',
+        selectedBank: eo.payment?.selectedBank || '',
+        paymentStatus: eo.payment?.paymentStatus || 'pending',
+        cashAmount: (eo.payment as any)?.cashAmount || 0,
+        transferAmount: (eo.payment as any)?.transferAmount || 0,
+        total: eo.total || 0,
+        selectedDelivery: selectedDeliveryFromId(availableDeliveries, eo.delivery?.assignedDelivery)
+      }))
+
+      // Mostrar inmediatamente tarjeta de cliente encontrado y cargar ubicaciones
+      setClientFound(true)
+      setShowCreateClient(false)
+      const phoneToLoad = eo.customer?.phone || ''
+      if (phoneToLoad) {
+        setLoadingClientLocations(true)
+        ;(async () => {
+          try {
+            const client = await searchClientByPhone(phoneToLoad)
+            if (client) {
+              const locations = await getClientLocations(client.id)
+              setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
+            }
+          } catch (e) {
+            console.error('Error loading client locations for edit:', e)
+          } finally {
+            setLoadingClientLocations(false)
+          }
+        })()
+      }
+    } catch (e) {
+      console.error('Error pre-filling edit order:', e)
+    }
+  }, [isOpen, mode, editOrder, availableDeliveries])
 
   // Obtener categorías únicas de los productos
   const getUniqueCategories = () => {
@@ -585,8 +694,8 @@ export default function ManualOrderSidebar({
     }))
   }
 
-  // Crear orden
-  const handleCreateOrder = async () => {
+  // Crear o actualizar orden
+  const handleSubmitOrder = async () => {
     if (!business?.id) {
       alert('No hay negocio seleccionado')
       return
@@ -661,19 +770,34 @@ export default function ManualOrderSidebar({
         },
         subtotal: manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0),
         total: manualOrderData.total,
-  status: 'confirmed' as const,
+        status: 'confirmed' as const,
         createdByAdmin: true,
         createdAt: new Date(),
         updatedAt: new Date()
       }
 
-      await createOrder(orderData as any)
-      onOrderCreated()
+      if (mode === 'edit' && editOrder?.id) {
+        // For update, adapt payload to match updateOrder expectations
+        const updatePayload: any = {
+          items: orderData.items,
+          customer: orderData.customer,
+          delivery: orderData.delivery,
+          timing: orderData.timing,
+          payment: orderData.payment,
+          total: orderData.total,
+          updatedAt: new Date()
+        }
+        await updateOrder(editOrder.id, updatePayload)
+        onOrderUpdated && onOrderUpdated()
+      } else {
+        await createOrder(orderData as any)
+        onOrderCreated()
+      }
       handleReset()
       onClose()
     } catch (error) {
-      console.error('Error creating order:', error)
-      alert('Error al crear la orden')
+      console.error('Error creating/updating order:', error)
+      alert(mode === 'edit' ? 'Error al actualizar la orden' : 'Error al crear la orden')
     } finally {
       setCreatingOrder(false)
     }
@@ -719,7 +843,7 @@ export default function ManualOrderSidebar({
       <div className="absolute right-0 top-0 h-full w-full max-w-lg bg-white shadow-xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">Nuevo pedido</h2>
+          <h2 className="text-lg font-semibold">{mode === 'edit' ? 'Editar pedido' : 'Nuevo pedido'}</h2>
           <button
             onClick={handleCancel}
             className="p-2 hover:bg-gray-100 rounded-full"
@@ -790,10 +914,7 @@ export default function ManualOrderSidebar({
                 </button>
               </div>
             ) : null}
-          </div>
 
-          {/* Selección de productos - siempre visible */}
-          <div className="mb-6">
             <h3 className="text-sm font-medium text-gray-700 mb-3">Productos</h3>
             
             {/* Filtro de categorías */}
@@ -867,7 +988,8 @@ export default function ManualOrderSidebar({
             </div>
           </div>
 
-          {/* Productos seleccionados - siempre visible */}
+          {/* Productos seleccionados - siempre visible */
+          }
           {manualOrderData.selectedProducts.length > 0 && (
             <div className="mb-6">
               <h3 className="text-sm font-medium text-gray-700 mb-3">Productos seleccionados</h3>
@@ -1314,7 +1436,7 @@ export default function ManualOrderSidebar({
             </button>
             {/* single save button kept below */}
             <button
-              onClick={handleCreateOrder}
+              onClick={handleSubmitOrder}
               disabled={
                 !manualOrderData.customerPhone || 
                 !manualOrderData.customerName || 
@@ -1328,11 +1450,13 @@ export default function ManualOrderSidebar({
             >
               {creatingOrder ? 'Guardando...' : 'Guardar Pedido'}
             </button>
+
           </div>
         </div>
 
         {/* Modal de variantes */}
         {isVariantModalOpen && selectedProductForVariants && (
+/* ... */
           <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
             <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4">
               <h3 className="text-lg font-semibold mb-4">Seleccionar variante</h3>

@@ -22,11 +22,14 @@ export default function BusinessDashboard() {
   const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'profile' | 'admins'>('orders')
-  const [showManualOrderModal, setShowManualOrderModal] = useState(false)
+  const [showManualOrderModal, setShowManualOrderModal] = useState(false) // Cerrado por defecto
   const [sidebarOpen, setSidebarOpen] = useState(false) // Cerrado por defecto
   const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today') // Nueva pestaña para pedidos
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(businessId)
   const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null) // Nuevo estado
+  // Sidebar manual order: modo y orden en edición
+  const [manualSidebarMode, setManualSidebarMode] = useState<'create' | 'edit'>('create')
+  const [editingOrderForSidebar, setEditingOrderForSidebar] = useState<Order | null>(null)
   const [showBusinessDropdown, setShowBusinessDropdown] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [editedBusiness, setEditedBusiness] = useState<Business | null>(null)
@@ -110,26 +113,7 @@ export default function BusinessDashboard() {
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<Product | null>(null)
   const [isVariantModalOpen, setIsVariantModalOpen] = useState(false)
 
-  // Estados para editar órdenes
-  const [showEditOrderModal, setShowEditOrderModal] = useState(false)
-  const [editingOrder, setEditingOrder] = useState<Order | null>(null)
-  const [editOrderData, setEditOrderData] = useState({
-    customerName: '',
-    customerPhone: '',
-    deliveryType: '' as '' | 'delivery' | 'pickup',
-    references: '',
-    timingType: 'immediate' as 'immediate' | 'scheduled',
-    scheduledDate: '',
-    scheduledTime: '',
-    paymentMethod: 'cash' as 'cash' | 'transfer' | 'mixed',
-    selectedBank: '',
-    paymentStatus: 'pending' as 'pending' | 'validating' | 'paid',
-    cashAmount: 0,
-    transferAmount: 0,
-    total: 0,
-    status: 'pending' as Order['status']
-  })
-  const [updatingOrder, setUpdatingOrder] = useState(false)
+  // (Eliminado) Estados para modal de edición de órdenes: ahora reemplazado por ManualOrderSidebar
 
   // Estados para modal de detalles del pedido
   const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(false)
@@ -492,128 +476,10 @@ export default function BusinessDashboard() {
 
   // Funciones para editar órdenes
   const handleEditOrder = (order: Order) => {
-    setEditingOrder(order)
-    setEditOrderData({
-      customerName: order.customer.name,
-      customerPhone: order.customer.phone,
-      deliveryType: order.delivery.type,
-      references: order.delivery.references || '',
-      timingType: order.timing.type,
-      scheduledDate: order.timing.scheduledDate ? (() => {
-        try {
-          let date: Date;
-          
-          if (order.timing.scheduledDate instanceof Date) {
-            if (isNaN(order.timing.scheduledDate.getTime())) {
-              return '';
-            }
-            date = order.timing.scheduledDate;
-          } else if (order.timing.scheduledDate && typeof order.timing.scheduledDate === 'object') {
-            const timestampObj = order.timing.scheduledDate as any;
-            if (typeof timestampObj.seconds === 'number' && typeof timestampObj.nanoseconds === 'number') {
-              // Firebase Timestamp con seconds y nanoseconds
-              const milliseconds = timestampObj.seconds * 1000 + Math.floor(timestampObj.nanoseconds / 1000000);
-              date = new Date(milliseconds);
-            } else if ('toDate' in timestampObj && typeof timestampObj.toDate === 'function') {
-              // Firebase Timestamp con método toDate
-              date = timestampObj.toDate();
-            } else {
-              date = new Date(timestampObj);
-            }
-          } else {
-            date = new Date(order.timing.scheduledDate as any);
-          }
-          
-          if (isNaN(date.getTime())) {
-            return '';
-          }
-          
-          // Formatear fecha para input type="date" (YYYY-MM-DD)
-          return formatDateForInput(date);
-        } catch (error) {
-          console.error('Error parsing scheduledDate:', error, order.timing.scheduledDate);
-          return '';
-        }
-      })() : '',
-      scheduledTime: order.timing.scheduledTime || '',
-      paymentMethod: order.payment.method,
-      selectedBank: order.payment.selectedBank || '',
-      paymentStatus: order.payment.paymentStatus || 'pending',
-      cashAmount: (order.payment as any)?.cashAmount || 0,
-      transferAmount: (order.payment as any)?.transferAmount || 0,
-      total: order.total,
-      status: order.status
-    })
-    setShowEditOrderModal(true)
-  }
-
-  const handleUpdateOrder = async () => {
-    if (!editingOrder || !editOrderData.deliveryType) return
-    
-    setUpdatingOrder(true)
-    try {
-      const updatedOrderData = {
-        customer: {
-          name: editOrderData.customerName,
-          phone: editOrderData.customerPhone
-        },
-        delivery: {
-          type: editOrderData.deliveryType as 'delivery' | 'pickup',
-          references: editOrderData.references,
-          mapLocation: editingOrder.delivery.mapLocation,
-          assignedDelivery: editingOrder.delivery.assignedDelivery
-        },
-        timing: {
-          type: editOrderData.timingType,
-          scheduledDate: editOrderData.timingType === 'immediate' 
-            ? Timestamp.fromDate(new Date(Date.now() + 30 * 60 * 1000))
-            : (() => {
-                if (editOrderData.scheduledDate && editOrderData.scheduledTime) {
-                  // Crear fecha en zona horaria local (Ecuador)
-                  const [year, month, day] = editOrderData.scheduledDate.split('-').map(Number);
-                  const [hours, minutes] = editOrderData.scheduledTime.split(':').map(Number);
-                  const programmedDate = new Date(year, month - 1, day, hours, minutes);
-                  
-                  if (isNaN(programmedDate.getTime())) {
-                    throw new Error('Fecha programada inválida');
-                  }
-                  
-                  return Timestamp.fromDate(programmedDate);
-                }
-                return undefined;
-              })(),
-          scheduledTime: editOrderData.timingType === 'immediate'
-            ? new Date(Date.now() + 30 * 60 * 1000).toTimeString().slice(0, 5)
-            : editOrderData.scheduledTime
-        },
-        payment: {
-          method: editOrderData.paymentMethod,
-          selectedBank: editOrderData.selectedBank,
-          paymentStatus: editOrderData.paymentStatus,
-          bankAccount: editingOrder.payment.bankAccount,
-          ...(editOrderData.paymentMethod === 'mixed' && {
-            cashAmount: editOrderData.cashAmount || 0,
-            transferAmount: editOrderData.transferAmount || 0
-          })
-        },
-        total: editOrderData.total,
-        status: editOrderData.status
-      }
-
-      await updateOrder(editingOrder.id, updatedOrderData)
-      
-      // Actualizar estado local
-      setOrders(orders.map(order => 
-        order.id === editingOrder.id ? { ...order, ...updatedOrderData } as Order : order
-      ))
-      
-      setShowEditOrderModal(false)
-      setEditingOrder(null)
-    } catch (error) {
-      alert('Error al actualizar la orden')
-    } finally {
-      setUpdatingOrder(false)
-    }
+    // Abrir el sidebar en modo edición
+    setManualSidebarMode('edit')
+    setEditingOrderForSidebar(order)
+    setShowManualOrderModal(true)
   }
 
   const handleDeleteOrder = async (orderId: string) => {
@@ -1920,7 +1786,10 @@ export default function BusinessDashboard() {
             <button
               onClick={(e) => {
                 e.stopPropagation()
-                handleEditOrder(order)
+                // Editar usando el sidebar manual
+                setManualSidebarMode('edit')
+                setEditingOrderForSidebar(order)
+                setShowManualOrderModal(true)
               }}
               className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50"
               title="Editar orden"
@@ -3122,9 +2991,39 @@ export default function BusinessDashboard() {
                       </label>
                       <p className="text-gray-900 text-sm sm:text-base">{business.references || 'Sin referencias'}</p>
                     </div>
+                    
+                    {/* Horario de atención */}
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <i className="bi bi-clock-history me-2"></i>Horario de Atención
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map((day) => {
+                          const dayObj = editedBusiness?.schedule?.[day] || { open: '09:00', close: '18:00', isOpen: true };
+                          const label = day.charAt(0).toUpperCase() + day.slice(1);
+                          return (
+                            <div key={day} className="flex items-center gap-2">
+                              <div className="w-28">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm text-gray-700">{label}</span>
+                                  <button type="button" onClick={() => toggleDayOpen(day)} className={`text-xs px-2 py-1 rounded ${dayObj.isOpen ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                    {dayObj.isOpen ? 'Abierto' : 'Cerrado'}
+                                  </button>
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <input type="time" value={dayObj.open} onChange={(e) => handleScheduleFieldChange(day, 'open', e.target.value)} className="w-24 px-2 py-1 border rounded text-sm" />
+                                  <span className="text-xs text-gray-400">-</span>
+                                  <input type="time" value={dayObj.close} onChange={(e) => handleScheduleFieldChange(day, 'close', e.target.value)} className="w-24 px-2 py-1 border rounded text-sm" />
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
                   </div>
                   
-                  <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-gray-200">
+                  <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-gray-200 flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
                     <button 
                       onClick={handleEditProfile}
                       className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base"
@@ -3424,8 +3323,8 @@ export default function BusinessDashboard() {
 
             {/* Modal para agregar administrador */}
             {showAddAdminModal && (
-              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                <div className="bg-white rounded-lg shadow-lg max-w-md w-full max-h-screen overflow-y-auto">
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-lg max-w-md w-full max-h-screen overflow-y-auto">
                   <div className="px-6 py-4 border-b border-gray-200">
                     <h3 className="text-lg font-medium text-gray-900">
                       Agregar Administrador
@@ -3499,7 +3398,7 @@ export default function BusinessDashboard() {
                     <button
                       onClick={handleAddAdmin}
                       disabled={addingAdmin || !newAdminData.email.trim()}
-                      className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
                     >
                       {addingAdmin ? (
                         <>
@@ -3530,6 +3429,376 @@ export default function BusinessDashboard() {
       </div>
 
 
+
+      {/* Modal de Detalles del Pedido */}
+      {showOrderDetailsModal && selectedOrderDetails && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">
+                  Detalles del Pedido
+                </h2>
+                <button
+                  onClick={() => setShowOrderDetailsModal(false)}
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Información del Cliente */}
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  <i className="bi bi-person-fill me-2"></i>
+                  Información del Cliente
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Nombre:</span>
+                    <p className="text-gray-900">{selectedOrderDetails.customer?.name || 'Sin nombre'}</p>
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Teléfono:</span>
+                    <p className="text-gray-900">{selectedOrderDetails.customer?.phone || 'Sin teléfono'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Información de Entrega */}
+              <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  <i className="bi bi-truck me-2"></i>
+                  Información de Entrega
+                </h3>
+                <div className="space-y-2">
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Tipo:</span>
+                    <span className={`ml-2 px-2 py-1 rounded text-sm ${
+                      selectedOrderDetails.delivery?.type === 'delivery' 
+                        ? 'bg-blue-100 text-blue-800' 
+                        : 'bg-green-100 text-green-800'
+                    }`}>
+                      {selectedOrderDetails.delivery?.type === 'delivery' ? 'Domicilio' : 'Retiro en tienda'}
+                    </span>
+                  </div>
+                  {selectedOrderDetails.delivery?.type === 'delivery' && (
+                    <div>
+                      <span className="text-sm font-medium text-gray-500">Dirección:</span>
+                      <p className="text-gray-900 mt-1">
+                        {selectedOrderDetails.delivery?.references || (selectedOrderDetails.delivery as any)?.reference || 'Sin referencia'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Productos */}
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  <i className="bi bi-bag-fill me-2"></i>
+                  Productos ({selectedOrderDetails.items?.length || 0})
+                </h3>
+                <div className="space-y-3">
+                  {selectedOrderDetails.items?.map((item: any, index) => (
+                    <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <div>
+                        <p className="font-medium text-gray-900">
+                          {item.name || item.product?.name || 'Producto'}
+                        </p>
+                        {item.variant && (
+                          <p className="text-sm text-gray-500">Variante: {item.variant}</p>
+                        )}
+                        <p className="text-sm text-gray-500">Cantidad: {item.quantity}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-gray-900">
+                          ${((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          ${(item.price || 0).toFixed(2)} c/u
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Información de Pago */}
+              <div className="mb-6 p-4 bg-green-50 rounded-lg">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  <i className="bi bi-credit-card-fill me-2"></i>
+                  Información de Pago
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Método:</span>
+                    <p className="text-gray-900">
+                      {selectedOrderDetails.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Estado:</span>
+                    <span className={`ml-1 px-2 py-1 rounded text-sm ${
+                      selectedOrderDetails.payment?.paymentStatus === 'paid' 
+                        ? 'bg-green-100 text-green-800'
+                        : selectedOrderDetails.payment?.paymentStatus === 'validating'
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {selectedOrderDetails.payment?.paymentStatus === 'paid' ? 'Pagado' : 
+                       selectedOrderDetails.payment?.paymentStatus === 'validating' ? 'Validando' : 'Pendiente'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Total:</span>
+                    <p className="text-xl font-bold text-green-600">
+                      ${(selectedOrderDetails.total || 0).toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Estado y Fechas */}
+              <div className="mb-6 p-4 bg-purple-50 rounded-lg">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  <i className="bi bi-info-circle-fill me-2"></i>
+                  Estado del Pedido
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Estado actual:</span>
+                    <span className={`ml-2 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(selectedOrderDetails.status)}`}>
+                      {selectedOrderDetails.status === 'pending' && '🕐 Pendiente'}
+                      {selectedOrderDetails.status === 'confirmed' && '✅ Confirmado'}
+                      {selectedOrderDetails.status === 'preparing' && '👨‍🍳 Preparando'}
+                      {selectedOrderDetails.status === 'ready' && '🔔 Listo'}
+                      {selectedOrderDetails.status === 'delivered' && '📦 Entregado'}
+                      {selectedOrderDetails.status === 'cancelled' && '❌ Cancelado'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-500">Fecha del pedido:</span>
+                    <p className="text-gray-900">
+                      {formatDate(getOrderDateTime(selectedOrderDetails))} {formatTime(getOrderDateTime(selectedOrderDetails))}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Acciones rápidas */}
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    setShowOrderDetailsModal(false)
+                    // Abrir sidebar en modo edición desde detalles
+                    setManualSidebarMode('edit')
+                    setEditingOrderForSidebar(selectedOrderDetails)
+                    setShowManualOrderModal(true)
+                  }}
+                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <i className="bi bi-pencil me-2"></i>
+                  Editar Pedido
+                </button>
+                <button
+                  onClick={() => setShowOrderDetailsModal(false)}
+                  className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Edición de Método de Pago */}
+      {showEditPaymentModal && paymentEditingOrder && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-gray-900">
+                  <i className="bi bi-credit-card me-2"></i>
+                  Editar Método de Pago
+                </h2>
+                <button
+                  onClick={() => setShowEditPaymentModal(false)}
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Información del pedido */}
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600">Pedido de:</p>
+                <p className="text-lg font-semibold text-gray-900">
+                  {paymentEditingOrder.customer?.name || 'Cliente sin nombre'}
+                </p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Total: <span className="font-bold text-emerald-600">
+                    ${(paymentEditingOrder.total || 0).toFixed(2)}
+                  </span>
+                </p>
+              </div>
+
+              {/* Selección de método de pago */}
+              <div className="space-y-4 mb-6">
+                <label className="block text-sm font-medium text-gray-700">
+                  Método de Pago
+                </label>
+                
+                <div className="space-y-3">
+                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="cash"
+                      checked={editPaymentData.method === 'cash'}
+                      onChange={(e) => setEditPaymentData({
+                        ...editPaymentData,
+                        method: e.target.value as 'cash',
+                        cashAmount: 0,
+                        transferAmount: 0
+                      })}
+                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                    />
+                    <span className="ml-3 text-gray-700">
+                      <i className="bi bi-cash me-2 text-green-600"></i>
+                      Efectivo
+                    </span>
+                  </label>
+
+                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="transfer"
+                      checked={editPaymentData.method === 'transfer'}
+                      onChange={(e) => setEditPaymentData({
+                        ...editPaymentData,
+                        method: e.target.value as 'transfer',
+                        cashAmount: 0,
+                        transferAmount: 0
+                      })}
+                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                    />
+                    <span className="ml-3 text-gray-700">
+                      <i className="bi bi-credit-card me-2 text-blue-600"></i>
+                      Transferencia
+                    </span>
+                  </label>
+
+                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="mixed"
+                      checked={editPaymentData.method === 'mixed'}
+                      onChange={(e) => setEditPaymentData({
+                        ...editPaymentData,
+                        method: e.target.value as 'mixed',
+                        cashAmount: 0,
+                        transferAmount: 0
+                      })}
+                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                    />
+                    <span className="ml-3 text-gray-700">
+                      <i className="bi bi-cash-coin me-2 text-yellow-600"></i>
+                      Mixto (Efectivo + Transferencia)
+                    </span>
+                  </label>
+                </div>
+
+                {/* Montos para pago mixto */}
+                {editPaymentData.method === 'mixed' && (
+                  <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                    <h4 className="text-sm font-medium text-gray-900 mb-3">
+                      <i className="bi bi-calculator me-1"></i>
+                      Distribución del Pago
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Efectivo
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          max={paymentEditingOrder.total || 0}
+                          step="0.01"
+                          value={editPaymentData.cashAmount}
+                          onChange={(e) => {
+                            const cashAmount = parseFloat(e.target.value) || 0
+                            const transferAmount = (paymentEditingOrder.total || 0) - cashAmount
+                            setEditPaymentData({
+                              ...editPaymentData,
+                              cashAmount,
+                              transferAmount: Math.max(0, transferAmount)
+                            })
+                          }}
+                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Transferencia
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          max={paymentEditingOrder.total || 0}
+                          step="0.01"
+                          value={editPaymentData.transferAmount}
+                          onChange={(e) => {
+                            const transferAmount = parseFloat(e.target.value) || 0
+                            const cashAmount = (paymentEditingOrder.total || 0) - transferAmount
+                            setEditPaymentData({
+                              ...editPaymentData,
+                              transferAmount,
+                              cashAmount: Math.max(0, cashAmount)
+                            })
+                          }}
+                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                          placeholder="0.00"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-2 text-sm text-gray-600">
+                      Total: ${((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)).toFixed(2)} / ${(paymentEditingOrder.total || 0).toFixed(2)}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Botones de acción */}
+              <div className="flex space-x-3">
+                <button
+                  onClick={handleSavePaymentEdit}
+                  disabled={editPaymentData.method === 'mixed' && 
+                    ((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)) !== (paymentEditingOrder.total || 0)
+                  }
+                  className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                >
+                  <i className="bi bi-check-lg me-2"></i>
+                  Guardar Cambios
+                </button>
+                <button
+                  onClick={() => setShowEditPaymentModal(false)}
+                  className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Edición de Producto */}
       {showEditModal && (
@@ -3774,7 +4043,7 @@ export default function BusinessDashboard() {
                       <h4 className="font-medium text-gray-900 mb-3">Variantes agregadas:</h4>
                       <div className="space-y-2">
                         {editVariants.map((variant) => (
-                          <div key={variant.id} className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-3">
+                          <div key={variant.id} className="flex justify-between items-center bg-white border border-gray-200 rounded-lg p-3">
                             <div className="flex-1">
                               <div className="flex items-center gap-4">
                                 <span className="font-medium text-gray-900">{variant.name}</span>
@@ -3852,762 +4121,13 @@ export default function BusinessDashboard() {
         </div>
       )}
 
-      {/* Modal de Detalles del Pedido */}
-      {showOrderDetailsModal && selectedOrderDetails && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">
-                  Detalles del Pedido
-                </h2>
-                <button
-                  onClick={() => setShowOrderDetailsModal(false)}
-                  className="text-gray-500 hover:text-gray-700 text-2xl"
-                >
-                  ×
-                </button>
-              </div>
-
-              {/* Información del Cliente */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                  <i className="bi bi-person-fill me-2"></i>
-                  Información del Cliente
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Nombre:</span>
-                    <p className="text-gray-900">{selectedOrderDetails.customer?.name || 'Sin nombre'}</p>
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Teléfono:</span>
-                    <p className="text-gray-900">{selectedOrderDetails.customer?.phone || 'Sin teléfono'}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Información de Entrega */}
-              <div className="mb-6 p-4 bg-blue-50 rounded-lg">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                  <i className="bi bi-truck me-2"></i>
-                  Información de Entrega
-                </h3>
-                <div className="space-y-2">
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Tipo:</span>
-                    <span className={`ml-2 px-2 py-1 rounded text-sm ${
-                      selectedOrderDetails.delivery?.type === 'delivery' 
-                        ? 'bg-blue-100 text-blue-800' 
-                        : 'bg-green-100 text-green-800'
-                    }`}>
-                      {selectedOrderDetails.delivery?.type === 'delivery' ? 'Domicilio' : 'Retiro en tienda'}
-                    </span>
-                  </div>
-                  {selectedOrderDetails.delivery?.type === 'delivery' && (
-                    <div>
-                      <span className="text-sm font-medium text-gray-500">Dirección:</span>
-                      <p className="text-gray-900 mt-1">
-                        {selectedOrderDetails.delivery?.references || (selectedOrderDetails.delivery as any)?.reference || 'Sin referencia'}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Productos */}
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                  <i className="bi bi-bag-fill me-2"></i>
-                  Productos ({selectedOrderDetails.items?.length || 0})
-                </h3>
-                <div className="space-y-3">
-                  {selectedOrderDetails.items?.map((item: any, index) => (
-                    <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900">
-                          {item.name || item.product?.name || 'Producto'}
-                        </p>
-                        {item.variant && (
-                          <p className="text-sm text-gray-500">Variante: {item.variant}</p>
-                        )}
-                        <p className="text-sm text-gray-500">Cantidad: {item.quantity}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-gray-900">
-                          ${((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          ${(item.price || 0).toFixed(2)} c/u
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Información de Pago */}
-              <div className="mb-6 p-4 bg-green-50 rounded-lg">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                  <i className="bi bi-credit-card-fill me-2"></i>
-                  Información de Pago
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Método:</span>
-                    <p className="text-gray-900">
-                      {selectedOrderDetails.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Estado:</span>
-                    <span className={`ml-1 px-2 py-1 rounded text-sm ${
-                      selectedOrderDetails.payment?.paymentStatus === 'paid' 
-                        ? 'bg-green-100 text-green-800'
-                        : selectedOrderDetails.payment?.paymentStatus === 'validating'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {selectedOrderDetails.payment?.paymentStatus === 'paid' ? 'Pagado' : 
-                       selectedOrderDetails.payment?.paymentStatus === 'validating' ? 'Validando' : 'Pendiente'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Total:</span>
-                    <p className="text-xl font-bold text-green-600">
-                      ${(selectedOrderDetails.total || 0).toFixed(2)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Estado y Fechas */}
-              <div className="mb-6 p-4 bg-purple-50 rounded-lg">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                  <i className="bi bi-info-circle-fill me-2"></i>
-                  Estado del Pedido
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Estado actual:</span>
-                    <span className={`ml-2 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(selectedOrderDetails.status)}`}>
-                      {selectedOrderDetails.status === 'pending' && '🕐 Pendiente'}
-                      {selectedOrderDetails.status === 'confirmed' && '✅ Confirmado'}
-                      {selectedOrderDetails.status === 'preparing' && '👨‍🍳 Preparando'}
-                      {selectedOrderDetails.status === 'ready' && '🔔 Listo'}
-                      {selectedOrderDetails.status === 'delivered' && '📦 Entregado'}
-                      {selectedOrderDetails.status === 'cancelled' && '❌ Cancelado'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Fecha del pedido:</span>
-                    <p className="text-gray-900">
-                      {formatDate(getOrderDateTime(selectedOrderDetails))} {formatTime(getOrderDateTime(selectedOrderDetails))}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Acciones rápidas */}
-              <div className="flex space-x-3">
-                <button
-                  onClick={() => {
-                    setShowOrderDetailsModal(false)
-                    handleEditOrder(selectedOrderDetails)
-                  }}
-                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <i className="bi bi-pencil me-2"></i>
-                  Editar Pedido
-                </button>
-                <button
-                  onClick={() => setShowOrderDetailsModal(false)}
-                  className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Cerrar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de Edición de Método de Pago */}
-      {showEditPaymentModal && paymentEditingOrder && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-md w-full">
-            <div className="p-6">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-900">
-                  <i className="bi bi-credit-card me-2"></i>
-                  Editar Método de Pago
-                </h2>
-                <button
-                  onClick={() => setShowEditPaymentModal(false)}
-                  className="text-gray-500 hover:text-gray-700 text-2xl"
-                >
-                  ×
-                </button>
-              </div>
-
-              {/* Información del pedido */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-600">Pedido de:</p>
-                <p className="text-lg font-semibold text-gray-900">
-                  {paymentEditingOrder.customer?.name || 'Cliente sin nombre'}
-                </p>
-                <p className="text-sm text-gray-600 mt-1">
-                  Total: <span className="font-bold text-emerald-600">
-                    ${(paymentEditingOrder.total || 0).toFixed(2)}
-                  </span>
-                </p>
-              </div>
-
-              {/* Selección de método de pago */}
-              <div className="space-y-4 mb-6">
-                <label className="block text-sm font-medium text-gray-700">
-                  Método de Pago
-                </label>
-                
-                <div className="space-y-3">
-                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      value="cash"
-                      checked={editPaymentData.method === 'cash'}
-                      onChange={(e) => setEditPaymentData({
-                        ...editPaymentData,
-                        method: e.target.value as 'cash',
-                        cashAmount: 0,
-                        transferAmount: 0
-                      })}
-                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
-                    />
-                    <span className="ml-3 text-gray-700">
-                      <i className="bi bi-cash me-2 text-green-600"></i>
-                      Efectivo
-                    </span>
-                  </label>
-
-                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      value="transfer"
-                      checked={editPaymentData.method === 'transfer'}
-                      onChange={(e) => setEditPaymentData({
-                        ...editPaymentData,
-                        method: e.target.value as 'transfer',
-                        cashAmount: 0,
-                        transferAmount: 0
-                      })}
-                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
-                    />
-                    <span className="ml-3 text-gray-700">
-                      <i className="bi bi-credit-card me-2 text-blue-600"></i>
-                      Transferencia
-                    </span>
-                  </label>
-
-                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      value="mixed"
-                      checked={editPaymentData.method === 'mixed'}
-                      onChange={(e) => setEditPaymentData({
-                        ...editPaymentData,
-                        method: e.target.value as 'mixed',
-                        cashAmount: 0,
-                        transferAmount: 0
-                      })}
-                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
-                    />
-                    <span className="ml-3 text-gray-700">
-                      <i className="bi bi-cash-coin me-2 text-yellow-600"></i>
-                      Mixto (Efectivo + Transferencia)
-                    </span>
-                  </label>
-                </div>
-
-                {/* Montos para pago mixto */}
-                {editPaymentData.method === 'mixed' && (
-                  <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                    <h4 className="text-sm font-medium text-gray-900 mb-3">
-                      Distribución del Pago
-                    </h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Efectivo
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          max={paymentEditingOrder.total || 0}
-                          step="0.01"
-                          value={editPaymentData.cashAmount}
-                          onChange={(e) => {
-                            const cashAmount = parseFloat(e.target.value) || 0
-                            const transferAmount = (paymentEditingOrder.total || 0) - cashAmount
-                            setEditPaymentData({
-                              ...editPaymentData,
-                              cashAmount,
-                              transferAmount: Math.max(0, transferAmount)
-                            })
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-red-500 focus:border-red-500"
-                          placeholder="0.00"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Transferencia
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          max={paymentEditingOrder.total || 0}
-                          step="0.01"
-                          value={editPaymentData.transferAmount}
-                          onChange={(e) => {
-                            const transferAmount = parseFloat(e.target.value) || 0
-                            const cashAmount = (paymentEditingOrder.total || 0) - transferAmount
-                            setEditPaymentData({
-                              ...editPaymentData,
-                              transferAmount,
-                              cashAmount: Math.max(0, cashAmount)
-                            })
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-red-500 focus:border-red-500"
-                          placeholder="0.00"
-                        />
-                      </div>
-                    </div>
-                    <div className="mt-2 text-sm text-gray-600">
-                      Total: ${((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)).toFixed(2)} / ${(paymentEditingOrder.total || 0).toFixed(2)}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Botones de acción */}
-              <div className="flex space-x-3">
-                <button
-                  onClick={handleSavePaymentEdit}
-                  disabled={editPaymentData.method === 'mixed' && 
-                    ((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)) !== (paymentEditingOrder.total || 0)
-                  }
-                  className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-                >
-                  <i className="bi bi-check-lg me-2"></i>
-                  Guardar Cambios
-                </button>
-                <button
-                  onClick={() => setShowEditPaymentModal(false)}
-                  className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de Edición de Orden */}
-      {showEditOrderModal && editingOrder && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-semibold text-gray-900">
-                  <i className="bi bi-pencil me-2"></i>Editar Orden
-                </h3>
-                <button
-                  onClick={() => setShowEditOrderModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <i className="bi bi-x-lg"></i>
-                </button>
-              </div>
-
-              <form onSubmit={(e) => { e.preventDefault(); handleUpdateOrder(); }} className="space-y-6">
-                {/* Información del Cliente */}
-                <div className="space-y-4">
-                  <h4 className="text-lg font-medium text-gray-900">Información del Cliente</h4>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Nombre del Cliente
-                      </label>
-                      <input
-                        type="text"
-                        value={editOrderData.customerName}
-                        onChange={(e) => setEditOrderData({...editOrderData, customerName: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                        required
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Teléfono del Cliente
-                      </label>
-                      <input
-                        type="tel"
-                        value={editOrderData.customerPhone}
-                        onChange={(e) => setEditOrderData({...editOrderData, customerPhone: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                        required
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Información de Entrega */}
-                <div className="space-y-4">
-                  <h4 className="text-lg font-medium text-gray-900">Información de Entrega</h4>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Tipo de Entrega
-                      </label>
-                      <select
-                        value={editOrderData.deliveryType}
-                        onChange={(e) => setEditOrderData({...editOrderData, deliveryType: e.target.value as 'delivery' | 'pickup'})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                        required
-                      >
-                        <option value="">Seleccionar tipo</option>
-                        <option value="delivery">Delivery</option>
-                        <option value="pickup">Retiro</option>
-                      </select>
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Referencias
-                      </label>
-                      <input
-                        type="text"
-                        value={editOrderData.references}
-                        onChange={(e) => setEditOrderData({...editOrderData, references: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                        placeholder="Direcciones o referencias"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Información de Timing */}
-                <div className="space-y-4">
-                  <h4 className="text-lg font-medium text-gray-900">Programación</h4>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Tipo de Entrega
-                      </label>
-                      <select
-                        value={editOrderData.timingType}
-                        onChange={(e) => setEditOrderData({...editOrderData, timingType: e.target.value as 'immediate' | 'scheduled'})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                      >
-                        <option value="immediate">Inmediato</option>
-                        <option value="scheduled">Programado</option>
-                      </select>
-                    </div>
-                    
-                    {editOrderData.timingType === 'scheduled' && (
-                      <>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Fecha
-                          </label>
-                          <input
-                            type="date"
-                            value={editOrderData.scheduledDate}
-                            onChange={(e) => setEditOrderData({...editOrderData, scheduledDate: e.target.value})}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                            min={formatDateForInput()}
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Hora
-                          </label>
-                          <input
-                            type="time"
-                            value={editOrderData.scheduledTime}
-                            onChange={(e) => setEditOrderData({...editOrderData, scheduledTime: e.target.value})}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                          />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Información de Pago */}
-                <div className="space-y-4">
-                  <h4 className="text-lg font-medium text-gray-900">Información de Pago</h4>
-                  
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Método de Pago
-                      </label>
-                      <div className="space-y-2">
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            name="editPaymentMethod"
-                            value="cash"
-                            checked={editOrderData.paymentMethod === 'cash'}
-                            onChange={(e) => setEditOrderData({
-                              ...editOrderData, 
-                              paymentMethod: e.target.value as 'cash',
-                              cashAmount: 0,
-                              transferAmount: 0
-                            })}
-                            className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
-                          />
-                          <span className="ml-2 text-sm text-gray-700">
-                            <i className="bi bi-cash me-1"></i>
-                            Efectivo
-                          </span>
-                        </label>
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            name="editPaymentMethod"
-                            value="transfer"
-                            checked={editOrderData.paymentMethod === 'transfer'}
-                            onChange={(e) => setEditOrderData({
-                              ...editOrderData, 
-                              paymentMethod: e.target.value as 'transfer',
-                              cashAmount: 0,
-                              transferAmount: 0
-                            })}
-                            className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
-                          />
-                          <span className="ml-2 text-sm text-gray-700">
-                            <i className="bi bi-bank me-1"></i>
-                            Transferencia
-                          </span>
-                        </label>
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            name="editPaymentMethod"
-                            value="mixed"
-                            checked={editOrderData.paymentMethod === 'mixed'}
-                            onChange={(e) => setEditOrderData({
-                              ...editOrderData, 
-                              paymentMethod: e.target.value as 'mixed',
-                              cashAmount: editOrderData.total / 2,
-                              transferAmount: editOrderData.total / 2
-                            })}
-                            className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
-                          />
-                          <span className="ml-2 text-sm text-gray-700">
-                            <i className="bi bi-cash-coin me-1"></i>
-                            Pago Mixto (Efectivo + Transferencia)
-                          </span>
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* Configuración de Pago Mixto */}
-                    {editOrderData.paymentMethod === 'mixed' && (
-                      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                        <h5 className="text-sm font-medium text-yellow-800 mb-3">
-                          <i className="bi bi-calculator me-1"></i>
-                          Distribución del Pago
-                        </h5>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">
-                              Monto en Efectivo
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              placeholder="0.00"
-                              value={editOrderData.cashAmount || ''}
-                              onChange={(e) => {
-                                const cash = parseFloat(e.target.value) || 0;
-                                const total = editOrderData.total;
-                                const transfer = Math.max(0, total - cash);
-                                setEditOrderData({
-                                  ...editOrderData,
-                                  cashAmount: cash,
-                                  transferAmount: transfer
-                                });
-                              }}
-                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">
-                              Monto por Transferencia
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              placeholder="0.00"
-                              value={editOrderData.transferAmount || ''}
-                              onChange={(e) => {
-                                const transfer = parseFloat(e.target.value) || 0;
-                                const total = editOrderData.total;
-                                const cash = Math.max(0, total - transfer);
-                                setEditOrderData({
-                                  ...editOrderData,
-                                  cashAmount: cash,
-                                  transferAmount: transfer
-                                });
-                              }}
-                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
-                            />
-                          </div>
-                        </div>
-                        <div className="mt-3 text-xs text-gray-600 bg-white p-2 rounded border">
-                          <div className="flex justify-between">
-                            <span>Total del pedido:</span>
-                            <span className="font-medium">${editOrderData.total.toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between text-green-600">
-                            <span>Efectivo:</span>
-                            <span>${(editOrderData.cashAmount || 0).toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between text-blue-600">
-                            <span>Transferencia:</span>
-                            <span>${(editOrderData.transferAmount || 0).toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between font-medium border-t pt-1 mt-1">
-                            <span>Suma:</span>
-                            <span className={
-                              Math.abs((editOrderData.cashAmount || 0) + (editOrderData.transferAmount || 0) - editOrderData.total) < 0.01
-                                ? 'text-green-600' 
-                                : 'text-red-600'
-                            }>
-                              ${((editOrderData.cashAmount || 0) + (editOrderData.transferAmount || 0)).toFixed(2)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Estado de Pago
-                        </label>
-                        <select
-                          value={editOrderData.paymentStatus}
-                          onChange={(e) => setEditOrderData({...editOrderData, paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                        >
-                          <option value="pending">Pendiente</option>
-                          <option value="validating">Validando</option>
-                          <option value="paid">Pagado</option>
-                        </select>
-                      </div>
-                      
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Total ($)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={editOrderData.total}
-                          onChange={(e) => setEditOrderData({...editOrderData, total: parseFloat(e.target.value) || 0})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                          required
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Estado de la Orden */}
-                <div className="space-y-4">
-                  <h4 className="text-lg font-medium text-gray-900">Estado de la Orden</h4>
-                  
-                  <div>
-                    <select
-                      value={editOrderData.status}
-                      onChange={(e) => setEditOrderData({...editOrderData, status: e.target.value as Order['status']})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                    >
-                      <option value="pending">🕐 Pendiente</option>
-                      <option value="confirmed">✅ Confirmado</option>
-                      <option value="preparing">👨‍🍳 Preparando</option>
-                      <option value="ready">🔔 Listo</option>
-                      <option value="delivered">📦 Entregado</option>
-                      <option value="cancelled">❌ Cancelado</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Mensaje de validación para pago mixto */}
-                {editOrderData.paymentMethod === 'mixed' && Math.abs((editOrderData.cashAmount || 0) + (editOrderData.transferAmount || 0) - editOrderData.total) >= 0.01 && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                    <p className="text-sm text-red-600 flex items-center">
-                      <i className="bi bi-exclamation-triangle me-2"></i>
-                      La suma de efectivo y transferencia debe ser igual al total del pedido.
-                    </p>
-                  </div>
-                )}
-
-                {/* Botones */}
-                <div className="flex space-x-4">
-                  <button
-                    type="submit"
-                    disabled={updatingOrder || (editOrderData.paymentMethod === 'mixed' && Math.abs((editOrderData.cashAmount || 0) + (editOrderData.transferAmount || 0) - editOrderData.total) >= 0.01)}
-                    className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                  >
-                    {updatingOrder ? (
-                      <>
-                        <i className="bi bi-arrow-repeat spin me-2"></i>
-                        Actualizando...
-                      </>
-                    ) : (
-                      <>
-                        <i className="bi bi-check-lg me-2"></i>
-                        Guardar Cambios
-                      </>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowEditOrderModal(false)}
-                    disabled={updatingOrder}
-                    className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Botón flotante para crear pedido */}
       <button
-        onClick={() => setShowManualOrderModal(true)}
+        onClick={() => {
+          setManualSidebarMode('create')
+          setEditingOrderForSidebar(null)
+          setShowManualOrderModal(true)
+        }}
         className="fixed bottom-4 right-4 lg:bottom-6 lg:right-6 bg-red-600 hover:bg-red-700 text-white rounded-full w-12 h-12 lg:w-16 lg:h-16 shadow-lg transition-colors z-50 flex items-center justify-center"
         title="Crear Pedido"
       >
@@ -4621,6 +4141,9 @@ export default function BusinessDashboard() {
         business={business}
         products={products}
         onOrderCreated={loadOrders}
+        mode={manualSidebarMode}
+        editOrder={editingOrderForSidebar || undefined}
+        onOrderUpdated={loadOrders}
       />
       </div>
     </div>
