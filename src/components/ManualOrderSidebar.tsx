@@ -168,7 +168,17 @@ export default function ManualOrderSidebar({
       const selectedLocation = deliveryType === 'delivery' ? {
         id: 'from-order',
         id_cliente: '',
-        latlong: eo.delivery?.latlong || eo.delivery?.mapLocation ? `${eo.delivery.mapLocation.lat},${eo.delivery.mapLocation.lng}` : '',
+        latlong: (() => {
+          const ll = (eo.delivery as any)?.latlong as string | undefined
+          if (ll && typeof ll === 'string' && ll.trim()) {
+            return ll.replace(/\s*,\s*/, ',')
+          }
+          const ml = (eo.delivery as any)?.mapLocation as { lat: number; lng: number } | undefined
+          if (ml && typeof ml.lat === 'number' && typeof ml.lng === 'number') {
+            return `${ml.lat},${ml.lng}`
+          }
+          return ''
+        })(),
         referencia: eo.delivery?.references || (eo.delivery as any)?.reference || '',
         sector: 'Sin especificar',
         tarifa: String(eo.delivery?.deliveryCost || 0)
