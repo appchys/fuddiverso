@@ -1755,7 +1755,10 @@ export default function BusinessDashboard() {
               {order.delivery?.type === 'delivery' ? (
                 <>
                   <i className="bi bi-geo-alt me-1"></i>
-                  <span className="max-w-xs truncate">
+                  <span
+                    className="inline-block max-w-[160px] sm:max-w-[200px] md:max-w-[260px] truncate align-bottom"
+                    title={order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
+                  >
                     {order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
                   </span>
                 </>
