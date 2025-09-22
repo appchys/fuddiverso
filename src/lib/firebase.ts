@@ -22,11 +22,14 @@ const db = getFirestore(app);
 
 // Initialize Firebase Authentication
 const auth = getAuth(app);
-// Ensure auth persists across reloads so session remains active without re-verification delays
-// We intentionally ignore the returned promise; Firebase will apply the persistence ASAP.
-setPersistence(auth, browserLocalPersistence).catch(() => {
-  // Non-fatal: fall back to default persistence if this fails
-});
+// Ensure auth persists across reloads so session remains active without re-verification delays.
+// Guard for browser-only environment to avoid Vercel/SSR build errors where browserLocalPersistence isn't available.
+if (typeof window !== 'undefined') {
+  // We intentionally ignore the returned promise; Firebase will apply the persistence ASAP.
+  setPersistence(auth, browserLocalPersistence).catch(() => {
+    // Non-fatal: fall back to default persistence if this fails
+  });
+}
 
 // Initialize Firebase Storage
 const storage = getStorage(app);
