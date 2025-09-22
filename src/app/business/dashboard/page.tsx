@@ -257,13 +257,13 @@ export default function BusinessDashboard() {
           }
           
           // Determinar el rol del usuario en esta tienda
-          const isOwner = businessAccess.ownedBusinesses.some(b => b.id === businessToSelect.id);
+          const isOwner = businessAccess.ownedBusinesses.some((b: any) => b.id === businessToSelect.id);
           if (isOwner) {
             setUserRole('owner');
           } else {
             // Buscar el rol como administrador
             const adminRole = businessToSelect.administrators?.find(
-              admin => admin.email === user.email
+              (admin: any) => admin?.email === user?.email
             );
             setUserRole(adminRole?.role || 'admin');
           }
