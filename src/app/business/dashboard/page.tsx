@@ -123,7 +123,8 @@ export default function BusinessDashboard() {
   const [editPaymentData, setEditPaymentData] = useState({
     method: 'cash' as 'cash' | 'transfer' | 'mixed',
     cashAmount: 0,
-    transferAmount: 0
+    transferAmount: 0,
+    paymentStatus: 'pending' as 'pending' | 'validating' | 'paid'
   })
 
   // Perf: mark mount (dev-safe, avoids console.time duplicate warnings in StrictMode)
@@ -554,6 +555,21 @@ export default function BusinessDashboard() {
     }
   }
 
+  // Avanzar estado al siguiente en la cadena lógica
+  const getNextStatus = (status: Order['status']): Order['status'] | null => {
+    const flow: Order['status'][] = ['pending', 'confirmed', 'preparing', 'ready', 'delivered']
+    const idx = flow.indexOf(status)
+    if (idx === -1) return null
+    if (idx >= flow.length - 1) return null
+    return flow[idx + 1]
+  }
+
+  const handleAdvanceStatus = async (order: Order) => {
+    const next = getNextStatus(order.status)
+    if (!next) return
+    await handleStatusChange(order.id, next)
+  }
+
   const handleDeliveryAssignment = async (orderId: string, deliveryId: string) => {
     try {
       // Actualizar la orden con el delivery asignado
@@ -613,7 +629,8 @@ export default function BusinessDashboard() {
     setEditPaymentData({
       method: order.payment?.method || 'cash',
       cashAmount: (order.payment as any)?.cashAmount || 0,
-      transferAmount: (order.payment as any)?.transferAmount || 0
+      transferAmount: (order.payment as any)?.transferAmount || 0,
+      paymentStatus: order.payment?.paymentStatus || (order.payment?.method === 'transfer' ? 'paid' : 'pending')
     })
     setShowEditPaymentModal(true)
   }
@@ -624,7 +641,7 @@ export default function BusinessDashboard() {
     try {
       let paymentUpdate: any = {
         method: editPaymentData.method,
-        paymentStatus: 'pending'
+        paymentStatus: editPaymentData.paymentStatus || 'pending'
       }
 
       if (editPaymentData.method === 'mixed') {
@@ -1591,12 +1608,12 @@ export default function BusinessDashboard() {
                   <React.Fragment key={`group-${status}`}>
                     {/* Título del estado - ahora clickeable */}
                     <tr key={`title-${status}`} className="bg-gray-50">
-                      <td colSpan={9} className="px-4 py-3 border-b border-gray-200">
+                      <td colSpan={9} className="px-3 py-2 sm:px-4 sm:py-3 border-b border-gray-200">
                         <button
                           onClick={() => toggleCategoryCollapse(status)}
                           className="w-full text-left hover:bg-gray-100 rounded px-2 py-1 transition-colors"
                         >
-                          <h3 className="text-md font-semibold text-gray-900 flex items-center">
+                          <h3 className="text-sm sm:text-base font-semibold text-gray-900 flex items-center">
                             <span className="mr-2">
                               {status === 'pending' && '🕐'}
                               {status === 'confirmed' && '✅'}
@@ -1606,7 +1623,7 @@ export default function BusinessDashboard() {
                               {status === 'cancelled' && '❌'}
                             </span>
                             {getStatusDisplayName(status)}
-                            <span className="ml-2 bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
+                            <span className="ml-2 bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded-full text-xs sm:text-sm">
                               {statusOrders.length}
                             </span>
                             <span className="ml-auto">
@@ -1663,14 +1680,55 @@ export default function BusinessDashboard() {
       ? "border-b-4 border-gray-300" 
       : "border-b border-gray-200";
 
+    // Gestos táctiles para avanzar estado al arrastrar a la derecha
+    const touchStartX = React.useRef<number | null>(null)
+    const [dragOffset, setDragOffset] = useState(0)
+    const swipedRef = React.useRef(false)
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+      touchStartX.current = e.touches[0].clientX
+      swipedRef.current = false
+      setDragOffset(0)
+    }
+
+    const handleTouchMove = (e: React.TouchEvent) => {
+      if (touchStartX.current === null) return
+      const dx = e.touches[0].clientX - touchStartX.current
+      // Solo considerar arrastre a la derecha
+      if (dx > 0) {
+        setDragOffset(Math.min(dx, 90))
+      }
+    }
+
+    const handleTouchEnd = () => {
+      const threshold = 60
+      if (dragOffset > threshold && !swipedRef.current) {
+        swipedRef.current = true
+        // Avanzar estado si corresponde
+        const nextStatus = getNextStatus(order.status)
+        if (isToday && nextStatus) {
+          handleAdvanceStatus(order)
+        }
+      }
+      // Reset visual
+      setDragOffset(0)
+      touchStartX.current = null
+    }
+
     return (
-      <tr className={`hover:bg-gray-50 transition-colors ${borderClass}`}>
+      <tr
+        className={`hover:bg-gray-50 transition-colors ${borderClass}`}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{ transform: dragOffset > 0 ? `translateX(${dragOffset}px)` : undefined }}
+      >
         <td 
-          className="px-3 py-2 whitespace-nowrap text-sm cursor-pointer"
+          className="px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer"
           onClick={() => handleShowOrderDetails(order)}
         >
           {isToday ? (
-            <span className={`font-medium ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
+            <span className={`font-medium text-xs sm:text-sm ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
               <i className="bi bi-clock me-1"></i>
               {formatTime(getOrderDateTime(order))}
             </span>
@@ -1681,20 +1739,23 @@ export default function BusinessDashboard() {
           )}
         </td>
         {/* Nueva columna de acciones principales */}
-        <td className="px-3 py-2 whitespace-nowrap">
+        <td className="px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap">
           <div className="flex space-x-1">
-            {isToday && order.status !== 'delivered' && (
+            {(() => {
+              const nextStatus = getNextStatus(order.status)
+              return isToday && !!nextStatus ? (
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  handleMarkAsDelivered(order.id)
+                  handleAdvanceStatus(order)
                 }}
-                className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"
-                title="Marcar como entregado"
+                className="text-green-600 hover:text-green-800 p-1 sm:p-1.5 rounded hover:bg-green-50"
+                title={`Avanzar a ${getStatusText(nextStatus!)}`}
               >
-                <i className="bi bi-check-lg text-lg"></i>
+                <i className="bi bi-check-lg text-base sm:text-lg"></i>
               </button>
-            )}
+              ) : null
+            })()}
             {isToday && (
               (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
               (order.delivery?.type === 'pickup' && business?.phone)
@@ -1704,23 +1765,41 @@ export default function BusinessDashboard() {
                   e.stopPropagation()
                   handleSendWhatsApp(order)
                 }}
-                className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"
+                className="text-green-600 hover:text-green-800 p-1 sm:p-1.5 rounded hover:bg-green-50"
                 title={order.delivery?.type === 'delivery' ? 'Enviar mensaje de WhatsApp al delivery' : 'Enviar mensaje de WhatsApp a la tienda'}
               >
-                <i className="bi bi-whatsapp text-lg"></i>
+                <i className="bi bi-whatsapp text-base sm:text-lg"></i>
+              </button>
+            )}
+            {/* Botón: Editar Método de pago con color por estado e ícono por método (ahora después de WhatsApp) */}
+            {isToday && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleEditPayment(order)
+                }}
+                className={`${(() => {
+                  const status = order.payment?.paymentStatus
+                  if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
+                  if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
+                  return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+                })()} p-1 sm:p-1.5 rounded`}
+                title="Editar método/estado de pago"
+              >
+                <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-base sm:text-lg`}></i>
               </button>
             )}
           </div>
         </td>
         <td 
-          className="px-3 py-2 whitespace-nowrap cursor-pointer"
+          className="px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap cursor-pointer"
           onClick={() => handleShowOrderDetails(order)}
         >
           <div>
-            <div className="text-sm font-medium text-gray-900">
+            <div className="text-xs sm:text-sm font-medium text-gray-900">
               {order.customer?.name || 'Cliente sin nombre'}
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-[11px] sm:text-xs text-gray-500">
               {order.delivery?.type === 'delivery' ? (
                 <>
                   <i className="bi bi-geo-alt me-1"></i>
@@ -1781,58 +1860,6 @@ export default function BusinessDashboard() {
         </td>
         <td className="px-3 py-2 whitespace-nowrap">
           <div className="flex items-center space-x-2">
-            {isToday ? (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleEditPayment(order)
-                }}
-                className={`text-xs px-2 py-1 rounded hover:opacity-80 transition-opacity ${
-                  order.payment?.method === 'cash' 
-                    ? 'text-green-700 bg-green-100 hover:bg-green-200' 
-                    : order.payment?.method === 'mixed'
-                      ? 'text-yellow-700 bg-yellow-100 hover:bg-yellow-200'
-                      : 'text-blue-700 bg-blue-100 hover:bg-blue-200'
-                }`}
-                title="Editar método de pago"
-              >
-                <i className={`bi ${
-                  order.payment?.method === 'cash' 
-                    ? 'bi-cash' 
-                    : order.payment?.method === 'mixed'
-                      ? 'bi-cash-coin'
-                      : 'bi-credit-card'
-                } me-1`}></i>
-                {order.payment?.method === 'cash' 
-                  ? 'Efectivo' 
-                  : order.payment?.method === 'mixed'
-                    ? 'Mixto'
-                    : 'Transferencia'
-                }
-              </button>
-            ) : (
-              <span className={`text-xs px-2 py-1 rounded ${
-                order.payment?.method === 'cash' 
-                  ? 'text-green-700 bg-green-100' 
-                  : order.payment?.method === 'mixed'
-                    ? 'text-yellow-700 bg-yellow-100'
-                    : 'text-blue-700 bg-blue-100'
-              }`}>
-                <i className={`bi ${
-                  order.payment?.method === 'cash' 
-                    ? 'bi-cash' 
-                    : order.payment?.method === 'mixed'
-                      ? 'bi-cash-coin'
-                      : 'bi-credit-card'
-                } me-1`}></i>
-                {order.payment?.method === 'cash' 
-                  ? 'Efectivo' 
-                  : order.payment?.method === 'mixed'
-                    ? 'Mixto'
-                    : 'Transferencia'
-                }
-              </span>
-            )}
             {isToday && order.payment?.method === 'transfer' && order.payment?.paymentStatus !== 'paid' && (
               <button
                 onClick={(e) => {
@@ -3766,7 +3793,8 @@ export default function BusinessDashboard() {
                         ...editPaymentData,
                         method: e.target.value as 'cash',
                         cashAmount: 0,
-                        transferAmount: 0
+                        transferAmount: 0,
+                        paymentStatus: 'pending'
                       })}
                       className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
                     />
@@ -3786,7 +3814,8 @@ export default function BusinessDashboard() {
                         ...editPaymentData,
                         method: e.target.value as 'transfer',
                         cashAmount: 0,
-                        transferAmount: 0
+                        transferAmount: 0,
+                        paymentStatus: 'paid'
                       })}
                       className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
                     />
@@ -3806,7 +3835,8 @@ export default function BusinessDashboard() {
                         ...editPaymentData,
                         method: e.target.value as 'mixed',
                         cashAmount: 0,
-                        transferAmount: 0
+                        transferAmount: 0,
+                        paymentStatus: 'pending'
                       })}
                       className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
                     />
@@ -3815,6 +3845,25 @@ export default function BusinessDashboard() {
                       Mixto (Efectivo + Transferencia)
                     </span>
                   </label>
+                </div>
+
+                {/* Selector de estado de pago (debajo de Método de Pago) */}
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Estado del Pago
+                  </label>
+                  <select
+                    value={editPaymentData.paymentStatus}
+                    onChange={(e) => setEditPaymentData({
+                      ...editPaymentData,
+                      paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
+                    })}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm bg-white"
+                  >
+                    <option value="pending">Pendiente</option>
+                    <option value="validating">Validando</option>
+                    <option value="paid">Pagado</option>
+                  </select>
                 </div>
 
                 {/* Montos para pago mixto */}
