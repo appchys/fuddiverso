@@ -1684,11 +1684,25 @@ export default function BusinessDashboard() {
     const touchStartX = React.useRef<number | null>(null)
     const [dragOffset, setDragOffset] = useState(0)
     const swipedRef = React.useRef(false)
+    const [blockHorizontalPan, setBlockHorizontalPan] = useState(false)
 
     const handleTouchStart = (e: React.TouchEvent) => {
       touchStartX.current = e.touches[0].clientX
       swipedRef.current = false
       setDragOffset(0)
+      // Evaluar si el contenedor scrollable está en el inicio para bloquear el pan horizontal a la derecha
+      const scrollable = getScrollableParent(e.currentTarget as unknown as HTMLElement)
+      setBlockHorizontalPan(!!scrollable && scrollable.scrollLeft <= 0)
+    }
+
+    const getScrollableParent = (el: HTMLElement | null): HTMLElement | null => {
+      let node: HTMLElement | null = el?.parentElement || null
+      while (node) {
+        const style = window.getComputedStyle(node)
+        if (style.overflowX === 'auto' || style.overflowX === 'scroll') return node
+        node = node.parentElement
+      }
+      return null
     }
 
     const handleTouchMove = (e: React.TouchEvent) => {
@@ -1697,6 +1711,7 @@ export default function BusinessDashboard() {
       // Solo considerar arrastre a la derecha
       if (dx > 0) {
         setDragOffset(Math.min(dx, 90))
+        // Ya no invocamos preventDefault en listeners pasivos; usamos touch-action dinámica en el <tr>
       }
     }
 
@@ -1715,18 +1730,31 @@ export default function BusinessDashboard() {
       touchStartX.current = null
     }
 
+    const swipeProgress = dragOffset > 0 ? Math.min(dragOffset / 90, 1) : 0
+
     return (
       <tr
         className={`hover:bg-gray-50 transition-colors ${borderClass}`}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        style={{ transform: dragOffset > 0 ? `translateX(${dragOffset}px)` : undefined }}
+        style={{ 
+          transform: dragOffset > 0 ? `translateX(${dragOffset}px)` : undefined,
+          backgroundColor: swipeProgress > 0 ? `rgba(16,185,129,${0.08 * swipeProgress})` : undefined, // verde-500 con baja opacidad
+          touchAction: blockHorizontalPan ? 'pan-y' as any : undefined
+        }}
       >
         <td 
-          className="px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer"
+          className="relative pl-6 px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer"
           onClick={() => handleShowOrderDetails(order)}
         >
+          {/* Indicador de swipe con icono check */}
+          <div 
+            className="absolute left-1 top-1/2 -translate-y-1/2 pointer-events-none"
+            style={{ opacity: swipeProgress }}
+          >
+            <i className="bi bi-check-circle-fill text-green-500"></i>
+          </div>
           {isToday ? (
             <span className={`font-medium text-xs sm:text-sm ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
               <i className="bi bi-clock me-1"></i>
