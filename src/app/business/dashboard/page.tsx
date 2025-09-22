@@ -13,7 +13,7 @@ import ManualOrderSidebar from '@/components/ManualOrderSidebar'
 
 export default function BusinessDashboard() {
   const router = useRouter()
-  const { user, businessId, ownerId, isAuthenticated, logout, setBusinessId } = useBusinessAuth()
+  const { user, businessId, ownerId, isAuthenticated, authLoading, logout, setBusinessId } = useBusinessAuth()
   const { permission, requestPermission, showNotification, isSupported, isIOS, needsUserAction } = usePushNotifications()
   const [business, setBusiness] = useState<Business | null>(null)
   const [businesses, setBusinesses] = useState<Business[]>([])
@@ -126,18 +126,38 @@ export default function BusinessDashboard() {
     transferAmount: 0
   })
 
+  // Perf: mark mount (dev-safe, avoids console.time duplicate warnings in StrictMode)
+  useEffect(() => {
+    const t0 = performance.now()
+    console.debug('[Dashboard] initial state', {
+      authLoading,
+      isAuthenticated,
+      hasUser: !!user,
+      businessId,
+    })
+    return () => {
+      const dt = performance.now() - t0
+      console.debug('[Dashboard] mount->ready', dt.toFixed(2), 'ms')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Estados para historial agrupado por fecha
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set())
 
   // Estados para categorías colapsadas en pedidos de hoy
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set(['delivered']))
 
-  // Protección de ruta - redirigir si no está autenticado
+  // Protección de ruta - esperar a que termine la carga de auth y redirigir si no está autenticado
   useEffect(() => {
+    const t0 = performance.now()
+    if (authLoading) return;
     if (!isAuthenticated) {
-      router.push('/business/login');
+      router.replace('/business/login');
     }
-  }, [isAuthenticated, router]);
+    const dt = performance.now() - t0
+    console.debug('[Dashboard] authGuard', dt.toFixed(2), 'ms')
+  }, [authLoading, isAuthenticated, router]);
 
   // Cleanup del timeout al desmontar
   useEffect(() => {
@@ -152,12 +172,45 @@ export default function BusinessDashboard() {
     if (typeof window === 'undefined' || !user || !isAuthenticated) return;
     
     const loadBusinesses = async () => {
+      const t0 = performance.now()
       try {
-        // Obtener acceso completo del usuario (propietario o administrador)
-        const businessAccess = await getUserBusinessAccess(
-          user.email || '', 
-          user.uid
-        );
+        // Intentar usar caché local para acceso del usuario
+        const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+        const cacheKey = `businessAccess:${user.uid}`;
+        const cachedRaw = localStorage.getItem(cacheKey);
+        let businessAccess: any | null = null;
+        let usedCache = false;
+
+        if (cachedRaw) {
+          try {
+            const cached = JSON.parse(cachedRaw);
+            if (cached && cached.timestamp && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+              businessAccess = cached.data;
+              usedCache = true;
+              console.debug('[Dashboard] using cached businessAccess');
+            }
+          } catch {}
+        }
+
+        // Si no hay caché válido, o queremos refrescar, hacer fetch
+        if (!businessAccess) {
+          businessAccess = await getUserBusinessAccess(
+            user.email || '',
+            user.uid
+          );
+          // Guardar en caché
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: businessAccess }));
+          } catch {}
+        } else {
+          // Refresco en segundo plano sin bloquear la UI
+          (async () => {
+            try {
+              const fresh = await getUserBusinessAccess(user.email || '', user.uid);
+              localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: fresh }));
+            } catch {}
+          })();
+        }
         
         if (!businessAccess.hasAccess) {
           logout();
@@ -219,6 +272,8 @@ export default function BusinessDashboard() {
       } catch (error) {
         router.push('/business/login');
       } finally {
+        const dt = performance.now() - t0
+        console.debug('[Dashboard] loadBusinesses', dt.toFixed(2), 'ms')
         setLoading(false);
       }
     };
@@ -231,17 +286,54 @@ export default function BusinessDashboard() {
     if (!selectedBusinessId) return;
 
     const loadBusinessData = async () => {
+      const t0 = performance.now()
       try {
-        // Cargar productos
-        const productsData = await getProductsByBusiness(selectedBusinessId);
-        setProducts(productsData);
+        // 1) Leer desde caché para respuesta inmediata (SWR style)
+        const CACHE_TTL_MS = 60 * 1000; // 60s
+        const pKey = `products:${selectedBusinessId}`
+        const cKey = `categories:${selectedBusinessId}`
+        const oKey = `orders:${selectedBusinessId}`
 
-        // Cargar categorías del negocio
-        const categoriesData = await getBusinessCategories(selectedBusinessId);
-        setBusinessCategories(categoriesData);
+        const readCache = (key: string) => {
+          const raw = localStorage.getItem(key)
+          if (!raw) return null
+          try {
+            const { timestamp, data } = JSON.parse(raw)
+            if (Date.now() - timestamp < CACHE_TTL_MS) return data
+          } catch {}
+          return null
+        }
 
-        // Cargar órdenes
-        const ordersData = await getOrdersByBusiness(selectedBusinessId);
+        const cachedProducts = readCache(pKey)
+        const cachedCategories = readCache(cKey)
+        const cachedOrders = readCache(oKey)
+
+        if (cachedProducts) setProducts(cachedProducts)
+        if (cachedCategories) setBusinessCategories(cachedCategories)
+        if (cachedOrders) {
+          setOrders(cachedOrders)
+          setPreviousOrdersCount(cachedOrders.length)
+          const { pastOrders } = categorizeOrdersForData(cachedOrders)
+          const groupedPastOrders = groupOrdersByDate(pastOrders)
+          const allDates = groupedPastOrders.map(({ date }) => date)
+          setCollapsedDates(new Set(allDates))
+        }
+
+        // 2) Fetch en paralelo y refrescar estado + cache
+        const p0 = performance.now()
+        const [productsData, categoriesData, ordersData] = await Promise.all([
+          getProductsByBusiness(selectedBusinessId),
+          getBusinessCategories(selectedBusinessId),
+          getOrdersByBusiness(selectedBusinessId)
+        ])
+        const pdt = performance.now() - p0
+        console.debug('[Dashboard] fetch products/categories/orders (parallel):', pdt.toFixed(2), 'ms')
+        setProducts(productsData)
+        setBusinessCategories(categoriesData)
+        try {
+          localStorage.setItem(pKey, JSON.stringify({ timestamp: Date.now(), data: productsData }))
+          localStorage.setItem(cKey, JSON.stringify({ timestamp: Date.now(), data: categoriesData }))
+        } catch {}
         
         // Detectar nuevos pedidos para notificaciones
         if (previousOrdersCount > 0 && ordersData.length > previousOrdersCount) {
@@ -251,6 +343,7 @@ export default function BusinessDashboard() {
           newOrders.forEach((order: Order) => {
             if (permission === 'granted') {
               // Construir título y descripción personalizados
+              
               const businessName = business?.name || 'Tu Tienda';
               const orderType = order.timing?.type === 'immediate' ? 'Pedido Inmediato' : 'Pedido Programado';
               const title = `${businessName} - ${orderType}`;
@@ -287,6 +380,9 @@ export default function BusinessDashboard() {
         
         setOrders(ordersData);
         setPreviousOrdersCount(ordersData.length);
+        try {
+          localStorage.setItem(oKey, JSON.stringify({ timestamp: Date.now(), data: ordersData }))
+        } catch {}
 
         // Inicializar fechas colapsadas para el historial
         const { pastOrders } = categorizeOrdersForData(ordersData);
@@ -298,6 +394,9 @@ export default function BusinessDashboard() {
         localStorage.setItem('businessId', selectedBusinessId);
       } catch (error) {
         // Error loading business data
+      } finally {
+        const dt = performance.now() - t0
+        console.debug('[Dashboard] loadBusinessData', dt.toFixed(2), 'ms')
       }
     };
 
@@ -322,11 +421,15 @@ export default function BusinessDashboard() {
     if (!isAuthenticated) return
 
     const loadDeliveries = async () => {
+      const t0 = performance.now()
       try {
         const deliveries = await getDeliveriesByStatus('activo')
         setAvailableDeliveries(deliveries)
       } catch (error) {
         // Error loading deliveries (getDeliveriesByStatus ya devuelve [] en caso de fallo)
+      } finally {
+        const dt = performance.now() - t0
+        console.debug('[Dashboard] loadDeliveries', dt.toFixed(2), 'ms')
       }
     }
 

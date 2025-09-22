@@ -9,31 +9,36 @@ import { useBusinessAuth } from "@/contexts/BusinessAuthContext";
 import Link from "next/link";
 
 export default function BusinessLogin() {
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [checkingRedirect, setCheckingRedirect] = useState(true);
   const router = useRouter();
-  const { login, isAuthenticated } = useBusinessAuth();
+  const { login, isAuthenticated, authLoading } = useBusinessAuth();
 
   // Redirigir si ya está autenticado
   useEffect(() => {
+    console.time('[Login] authRedirectCheck')
     if (isAuthenticated) {
       router.replace("/business/dashboard");
     }
+    console.timeEnd('[Login] authRedirectCheck')
   }, [isAuthenticated, router]);
 
   // Manejo de resultado de Google redirect
   useEffect(() => {
     let isMounted = true;
     (async () => {
+      console.time('[Login] handleGoogleRedirectResult')
       setCheckingRedirect(true);
       try {
         const redirectResult = await handleGoogleRedirectResult();
         if (!isMounted) return;
         if (redirectResult?.user) {
           if (redirectResult.hasAccess) {
+
             // Usuario tiene acceso (propietario o administrador)
             if (redirectResult.businessId) {
               login({
@@ -52,6 +57,7 @@ export default function BusinessLogin() {
         // No hacer nada
       } finally {
         if (isMounted) setCheckingRedirect(false);
+        console.timeEnd('[Login] handleGoogleRedirectResult')
       }
     })();
     return () => {
@@ -65,15 +71,16 @@ export default function BusinessLogin() {
     setLoading(true);
     setError("");
     try {
+      console.time('[Login] emailPasswordFlow')
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      
+
       // Verificar acceso del usuario (propietario o administrador)
       const { getUserBusinessAccess } = await import("@/lib/database");
       const businessAccess = await getUserBusinessAccess(
-        userCredential.user.email || '', 
+        userCredential.user.email || '',
         userCredential.user.uid
       );
-      
+
       if (businessAccess.hasAccess) {
         // Usuario tiene acceso, configurar localStorage y redirigir
         let businessId = null;
@@ -82,7 +89,7 @@ export default function BusinessLogin() {
         } else if (businessAccess.adminBusinesses.length > 0) {
           businessId = businessAccess.adminBusinesses[0].id;
         }
-        
+
         if (businessId) {
           login({
             uid: userCredential.user.uid,
@@ -113,6 +120,7 @@ export default function BusinessLogin() {
       setError(errorMessage);
     } finally {
       setLoading(false);
+      console.timeEnd('[Login] emailPasswordFlow')
     }
   };
 
@@ -121,15 +129,17 @@ export default function BusinessLogin() {
     setLoading(true);
     setError("");
     try {
+      console.time('[Login] googleFlow')
       const result = await signInWithGoogle();
       if (result && result.user) {
+
         // Verificar acceso completo del usuario (propietario o administrador)
         const { getUserBusinessAccess } = await import("@/lib/database");
         const businessAccess = await getUserBusinessAccess(
-          result.user.email || '', 
+          result.user.email || '',
           result.user.uid
         );
-        
+
         if (businessAccess.hasAccess) {
           // Usuario tiene acceso (propietario o administrador)
           let businessId = null;
@@ -138,7 +148,7 @@ export default function BusinessLogin() {
           } else if (businessAccess.adminBusinesses.length > 0) {
             businessId = businessAccess.adminBusinesses[0].id;
           }
-          
+
           if (businessId) {
             login({
               uid: result.user.uid,
@@ -158,10 +168,12 @@ export default function BusinessLogin() {
       setError(error.message || "Error al iniciar sesión con Google");
     } finally {
       setLoading(false);
+      console.timeEnd('[Login] googleFlow')
     }
   };
 
-  if (checkingRedirect) {
+  // Evitar parpadeo de la pantalla de login cuando aún no sabemos el estado de auth
+  if (checkingRedirect || authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
         <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">

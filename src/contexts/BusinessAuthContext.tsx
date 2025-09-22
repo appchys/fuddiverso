@@ -16,6 +16,7 @@ interface BusinessAuthContextType {
   businessId: string | null
   ownerId: string | null
   isAuthenticated: boolean
+  authLoading: boolean
   login: (user: BusinessUser, businessId: string, ownerId: string) => void
   logout: () => void
   setBusinessId: (businessId: string) => void
@@ -27,8 +28,10 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<BusinessUser | null>(null)
   const [businessId, setBusinessIdState] = useState<string | null>(null)
   const [ownerId, setOwnerIdState] = useState<string | null>(null)
+  const [authLoading, setAuthLoading] = useState<boolean>(true)
 
   useEffect(() => {
+    console.time('[Auth] init');
     // Cargar datos desde localStorage al iniciar
     const savedBusinessId = localStorage.getItem('businessId')
     const savedOwnerId = localStorage.getItem('ownerId')
@@ -38,12 +41,16 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
 
     // Escuchar cambios en el estado de autenticación de Firebase
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      console.timeEnd('[Auth] init');
+      console.time('[Auth] onAuthStateChanged handler');
       if (firebaseUser && savedBusinessId && savedOwnerId) {
         setUser({
           uid: firebaseUser.uid,
           email: firebaseUser.email,
           displayName: firebaseUser.displayName
         })
+        setAuthLoading(false)
+        console.debug('[Auth] Firebase user present, localStorage complete');
       } else if (!firebaseUser) {
         // Si el usuario no está autenticado en Firebase, limpiar todo
         setUser(null)
@@ -52,7 +59,19 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('businessId')
         localStorage.removeItem('ownerId')
         localStorage.removeItem('currentBusinessId')
+        setAuthLoading(false)
+        console.debug('[Auth] No Firebase user, cleared localStorage');
+      } else {
+        // Tenemos firebaseUser pero faltan datos en localStorage
+        setUser({
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          displayName: firebaseUser.displayName
+        })
+        setAuthLoading(false)
+        console.warn('[Auth] Firebase user present but missing localStorage business/owner');
       }
+      console.timeEnd('[Auth] onAuthStateChanged handler');
     })
 
     return () => unsubscribe()
@@ -95,6 +114,7 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
       businessId,
       ownerId,
       isAuthenticated: !!user && !!businessId && !!ownerId,
+      authLoading,
       login,
       logout,
       setBusinessId
