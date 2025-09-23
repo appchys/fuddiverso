@@ -1886,19 +1886,7 @@ export default function BusinessDashboard() {
         </td>
         <td className="px-3 py-2 whitespace-nowrap">
           <div className="flex items-center space-x-2">
-            {isToday && order.payment?.method === 'transfer' && order.payment?.paymentStatus !== 'paid' && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleMarkAsPaid(order.id)
-                }}
-                className="text-xs bg-green-600 text-white px-3 py-1 rounded-full hover:bg-green-700 transition-colors font-medium"
-                title="Marcar como pagado"
-              >
-                <i className="bi bi-check-circle me-1"></i>
-                Pagado
-              </button>
-            )}
+            {/* Botón "Pagado" removido */}
           </div>
         </td>
         {isToday && order.delivery?.type === 'delivery' && (

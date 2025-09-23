@@ -1220,6 +1220,7 @@ export default function ManualOrderSidebar({
                 onClick={() => setManualOrderData(prev => ({ 
                   ...prev, 
                   paymentMethod: 'transfer',
+                  paymentStatus: mode === 'create' ? 'paid' : prev.paymentStatus,
                   cashAmount: 0,
                   transferAmount: 0
                 }))}
