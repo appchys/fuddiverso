@@ -169,7 +169,7 @@ export default function BusinessDashboard() {
     };
   }, [searchTimeout]);
 
-  // Cargar lista de deliveries activos cuando haya negocio seleccionado
+  // Cargar deliveries activos cuando haya negocio seleccionado
   useEffect(() => {
     if (!business?.id) return;
     (async () => {
@@ -177,7 +177,7 @@ export default function BusinessDashboard() {
         const deliveries = await getDeliveriesByStatus('activo')
         setAvailableDeliveries(deliveries)
       } catch (e) {
-        // noop, fallback: lista vacía
+        // Ignorar errores, quedará lista vacía
       }
     })()
   }, [business?.id]);
@@ -1698,9 +1698,6 @@ export default function BusinessDashboard() {
     const [dragOffset, setDragOffset] = useState(0)
     const swipedRef = React.useRef(false)
     const [blockHorizontalPan, setBlockHorizontalPan] = useState(false)
-    const MAX_SWIPE = 90
-    const ACTIVATE_THRESHOLD = MAX_SWIPE * 0.95 // solo activa al deslizar casi completo
-    const [isSnappingBack, setIsSnappingBack] = useState(false)
 
     const handleTouchStart = (e: React.TouchEvent) => {
       touchStartX.current = e.touches[0].clientX
@@ -1726,29 +1723,27 @@ export default function BusinessDashboard() {
       const dx = e.touches[0].clientX - touchStartX.current
       // Solo considerar arrastre a la derecha
       if (dx > 0) {
-        setDragOffset(Math.min(dx, MAX_SWIPE))
+        setDragOffset(Math.min(dx, 90))
         // Ya no invocamos preventDefault en listeners pasivos; usamos touch-action dinámica en el <tr>
       }
     }
 
     const handleTouchEnd = () => {
-      if (dragOffset >= ACTIVATE_THRESHOLD && !swipedRef.current) {
+      const threshold = 60
+      if (dragOffset > threshold && !swipedRef.current) {
         swipedRef.current = true
         // Avanzar estado si corresponde
         const nextStatus = getNextStatus(order.status)
         if (isToday && nextStatus) {
           handleAdvanceStatus(order)
         }
-      } else {
-        // Snap back suave si no alcanza el umbral completo
-        setIsSnappingBack(true)
-        setDragOffset(0)
-        setTimeout(() => setIsSnappingBack(false), 150)
       }
+      // Reset visual
+      setDragOffset(0)
       touchStartX.current = null
     }
 
-    const swipeProgress = dragOffset > 0 ? Math.min(dragOffset / MAX_SWIPE, 1) : 0
+    const swipeProgress = dragOffset > 0 ? Math.min(dragOffset / 90, 1) : 0
 
     return (
       <tr
@@ -1759,8 +1754,7 @@ export default function BusinessDashboard() {
         style={{ 
           transform: dragOffset > 0 ? `translateX(${dragOffset}px)` : undefined,
           backgroundColor: swipeProgress > 0 ? `rgba(16,185,129,${0.08 * swipeProgress})` : undefined, // verde-500 con baja opacidad
-          touchAction: blockHorizontalPan ? 'pan-y' as any : undefined,
-          transition: isSnappingBack ? 'transform 150ms ease-out, background-color 150ms ease-out' : undefined
+          touchAction: blockHorizontalPan ? 'pan-y' as any : undefined
         }}
       >
         <td 
@@ -1776,7 +1770,6 @@ export default function BusinessDashboard() {
           </div>
           {isToday ? (
             <span className={`font-medium text-xs sm:text-sm ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
-              <i className="bi bi-clock me-1"></i>
               {formatTime(getOrderDateTime(order))}
             </span>
           ) : (
@@ -1788,7 +1781,21 @@ export default function BusinessDashboard() {
         {/* Nueva columna de acciones principales */}
         <td className="px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap">
           <div className="flex space-x-1">
-            {/* Botón de avance por swipe: botón eliminado a favor del gesto táctil */}
+            {(() => {
+              const nextStatus = getNextStatus(order.status)
+              return isToday && !!nextStatus ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleAdvanceStatus(order)
+                }}
+                className="text-green-600 hover:text-green-800 p-1 sm:p-1.5 rounded hover:bg-green-50"
+                title={`Avanzar a ${getStatusText(nextStatus!)}`}
+              >
+                <i className="bi bi-check-lg text-base sm:text-lg"></i>
+              </button>
+              ) : null
+            })()}
             {isToday && (
               (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
               (order.delivery?.type === 'pickup' && business?.phone)
@@ -1877,7 +1884,6 @@ export default function BusinessDashboard() {
             ${(order.total || (order as any).totalAmount || 0).toFixed(2)}
           </span>
         </td>
-        
         <td className="px-3 py-2 whitespace-nowrap">
           <div className="flex items-center space-x-2">
             {isToday && order.payment?.method === 'transfer' && order.payment?.paymentStatus !== 'paid' && (
