@@ -1693,6 +1693,9 @@ export default function BusinessDashboard() {
       ? "border-b-4 border-gray-300" 
       : "border-b border-gray-200";
 
+    // Estado para controlar la expansión de detalles en móvil
+    const [isExpanded, setIsExpanded] = useState(false);
+
     // Gestos táctiles para avanzar estado al arrastrar a la derecha
     const touchStartX = React.useRef<number | null>(null)
     const [dragOffset, setDragOffset] = useState(0)
@@ -1753,15 +1756,194 @@ export default function BusinessDashboard() {
         onTouchEnd={handleTouchEnd}
         style={{ 
           transform: dragOffset > 0 ? `translateX(${dragOffset}px)` : undefined,
-          backgroundColor: swipeProgress > 0 ? `rgba(16,185,129,${0.08 * swipeProgress})` : undefined, // verde-500 con baja opacidad
+          backgroundColor: swipeProgress > 0 ? `rgba(16,185,129,${0.08 * swipeProgress})` : undefined,
           touchAction: blockHorizontalPan ? 'pan-y' as any : undefined
         }}
       >
-        <td 
-          className="relative pl-6 px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer"
-          onClick={() => handleShowOrderDetails(order)}
-        >
-          {/* Indicador de swipe con icono check */}
+        {/* Vista móvil */}
+        <td className="md:hidden w-full">
+          <div className="p-3">
+            {/* Contenido principal siempre visible */}
+            <div className="flex items-start justify-between mb-2">
+              {/* Primera columna: Hora */}
+              <div className="flex items-center space-x-2">
+                <span className={`text-xs font-medium whitespace-nowrap tabular-nums ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
+                  {isToday ? formatTime(getOrderDateTime(order)) : formatDate(getOrderDateTime(order))}
+                </span>
+
+                {/* Botones de WhatsApp y forma de pago */}
+                {isToday && (
+                  (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
+                  (order.delivery?.type === 'pickup' && business?.phone)
+                ) && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleSendWhatsApp(order)
+                    }}
+                    className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"
+                  >
+                    <i className="bi bi-whatsapp text-base"></i>
+                  </button>
+                )}
+                {isToday && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleEditPayment(order)
+                    }}
+                    className={`${(() => {
+                      const status = order.payment?.paymentStatus
+                      if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
+                      if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
+                      return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+                    })()} p-1 rounded`}
+                  >
+                    <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-base`}></i>
+                  </button>
+                )}
+              </div>
+
+              {/* Segunda columna: Info del cliente */}
+              <div className="flex-1 ml-2">
+                <div className="text-sm font-medium text-gray-900">
+                  {order.customer?.name || 'Cliente sin nombre'}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {order.delivery?.type === 'delivery' ? (
+                    <>
+                      <i className="bi bi-geo-alt me-1"></i>
+                      <span className="inline-block truncate align-bottom">
+                        {order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-shop me-1"></i>
+                      <span className="font-medium text-blue-600">Retiro en tienda</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Botón para expandir */}
+              <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="p-1 text-gray-500 hover:text-gray-700 ml-2"
+              >
+                <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-lg`}></i>
+              </button>
+            </div>
+
+            {/* Contenido expandible */}
+            {isExpanded && (
+              <div className="space-y-3 pt-2 border-t border-gray-100">
+                {/* Detalles del pedido */}
+                <div>
+                  <div className="text-xs font-medium text-gray-500 mb-1">Detalle del pedido:</div>
+                  <div className="space-y-1">
+                    {order.items?.map((item: any, index) => (
+                      <div key={index} className="text-sm text-gray-900">
+                        {item.quantity}x {item.variant || item.name || item.product?.name || 'Producto'}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Total */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500">Total:</span>
+                  <span className="text-base font-bold text-emerald-600">
+                    ${(order.total || (order as any).totalAmount || 0).toFixed(2)}
+                  </span>
+                </div>
+
+                {/* Delivery (si aplica) */}
+                {isToday && order.delivery?.type === 'delivery' && (
+                  <div>
+                    <div className="text-xs font-medium text-gray-500 mb-1">Delivery:</div>
+                    <select
+                      value={order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery || ''}
+                      onChange={(e) => handleDeliveryAssignment(order.id, e.target.value)}
+                      className="w-full text-sm px-2 py-1 rounded border border-gray-200"
+                    >
+                      <option value="">Sin asignar</option>
+                      {availableDeliveries?.map((delivery) => (
+                        <option key={delivery.id} value={delivery.id}>
+                          {delivery.nombres}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Botones de acción */}
+                <div className="flex items-center justify-end space-x-2 pt-2">
+                  {(() => {
+                    const nextStatus = getNextStatus(order.status)
+                    return isToday && !!nextStatus ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleAdvanceStatus(order)
+                        }}
+                        className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
+                        title={`Avanzar a ${getStatusText(nextStatus!)}`}
+                      >
+                        <i className="bi bi-check-lg text-lg"></i>
+                      </button>
+                    ) : null
+                  })()}
+                  
+                  {isToday && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleEditPayment(order)
+                      }}
+                      className={`${(() => {
+                        const status = order.payment?.paymentStatus
+                        if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
+                        if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
+                        return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+                      })()} p-1.5 rounded`}
+                    >
+                      <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-lg`}></i>
+                    </button>
+                  )}
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      // Editar usando el sidebar manual
+                      setManualSidebarMode('edit')
+                      setEditingOrderForSidebar(order)
+                      setShowManualOrderModal(true)
+                    }}
+                    className="text-blue-600 hover:text-blue-800 p-1.5 rounded hover:bg-blue-50"
+                    title="Editar orden"
+                  >
+                    <i className="bi bi-pencil text-lg"></i>
+                  </button>
+                  
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDeleteOrder(order.id)
+                    }}
+                    className="text-red-600 hover:text-red-800 p-1.5 rounded hover:bg-red-50"
+                    title="Eliminar orden"
+                  >
+                    <i className="bi bi-trash text-lg"></i>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </td>
+
+        {/* Vista desktop */}
+        <td className="hidden md:table-cell relative pl-6 px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer shrink-0 w-0">
           <div 
             className="absolute left-1 top-1/2 -translate-y-1/2 pointer-events-none"
             style={{ opacity: swipeProgress }}
@@ -1769,7 +1951,7 @@ export default function BusinessDashboard() {
             <i className="bi bi-check-circle-fill text-green-500"></i>
           </div>
           {isToday ? (
-            <span className={`font-medium text-xs sm:text-sm ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
+            <span className={`font-medium text-xs sm:text-sm whitespace-nowrap tabular-nums ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
               {formatTime(getOrderDateTime(order))}
             </span>
           ) : (
@@ -1778,24 +1960,24 @@ export default function BusinessDashboard() {
             </span>
           )}
         </td>
-        {/* Nueva columna de acciones principales */}
-        <td className="px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap">
+        <td className="hidden md:table-cell px-1 py-1.5 sm:px-2 sm:py-2 whitespace-nowrap shrink-0 w-16">
           <div className="flex space-x-1">
             {(() => {
               const nextStatus = getNextStatus(order.status)
               return isToday && !!nextStatus ? (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleAdvanceStatus(order)
-                }}
-                className="text-green-600 hover:text-green-800 p-1 sm:p-1.5 rounded hover:bg-green-50"
-                title={`Avanzar a ${getStatusText(nextStatus!)}`}
-              >
-                <i className="bi bi-check-lg text-base sm:text-lg"></i>
-              </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleAdvanceStatus(order)
+                  }}
+                  className="text-green-600 hover:text-green-800 p-1 sm:p-1.5 rounded hover:bg-green-50"
+                  title={`Avanzar a ${getStatusText(nextStatus!)}`}
+                >
+                  <i className="bi bi-check-lg text-base sm:text-lg"></i>
+                </button>
               ) : null
             })()}
+
             {isToday && (
               (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
               (order.delivery?.type === 'pickup' && business?.phone)
@@ -1811,7 +1993,7 @@ export default function BusinessDashboard() {
                 <i className="bi bi-whatsapp text-base sm:text-lg"></i>
               </button>
             )}
-            {/* Botón: Editar Método de pago con color por estado e ícono por método (ahora después de WhatsApp) */}
+
             {isToday && (
               <button
                 onClick={(e) => {
@@ -1831,10 +2013,7 @@ export default function BusinessDashboard() {
             )}
           </div>
         </td>
-        <td 
-          className="px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap cursor-pointer"
-          onClick={() => handleShowOrderDetails(order)}
-        >
+        <td className="hidden md:table-cell px-2 py-1.5 sm:px-3 sm:py-2 min-w-0 flex-1 cursor-pointer max-w-0">
           <div>
             <div className="text-xs sm:text-sm font-medium text-gray-900">
               {order.customer?.name || 'Cliente sin nombre'}
@@ -1844,7 +2023,7 @@ export default function BusinessDashboard() {
                 <>
                   <i className="bi bi-geo-alt me-1"></i>
                   <span
-                    className="inline-block max-w-[160px] sm:max-w-[200px] md:max-w-[260px] truncate align-bottom"
+                    className="inline-block truncate align-bottom"
                     title={order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
                   >
                     {order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
@@ -1859,10 +2038,7 @@ export default function BusinessDashboard() {
             </div>
           </div>
         </td>
-        <td 
-          className="px-3 py-2 cursor-pointer"
-          onClick={() => handleShowOrderDetails(order)}
-        >
+        <td className="hidden md:table-cell px-1 py-2 cursor-pointer shrink-0 w-24">
           <div className="text-sm text-gray-900">
             {order.items?.slice(0, 2).map((item: any, index) => (
               <div key={index} className="truncate">
@@ -1876,21 +2052,13 @@ export default function BusinessDashboard() {
             )}
           </div>
         </td>
-        <td 
-          className="px-3 py-2 whitespace-nowrap cursor-pointer"
-          onClick={() => handleShowOrderDetails(order)}
-        >
+        <td className="hidden md:table-cell px-1 py-2 whitespace-nowrap cursor-pointer shrink-0 w-20">
           <span className="text-lg font-bold text-emerald-600">
             ${(order.total || (order as any).totalAmount || 0).toFixed(2)}
           </span>
         </td>
-        <td className="px-3 py-2 whitespace-nowrap">
-          <div className="flex items-center space-x-2">
-            {/* Botón "Pagado" removido */}
-          </div>
-        </td>
         {isToday && order.delivery?.type === 'delivery' && (
-          <td className="px-3 py-2 whitespace-nowrap">
+          <td className="hidden md:table-cell px-1 py-2 whitespace-nowrap shrink-0 w-24">
             {(() => {
               const currentDeliveryId = order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery;
               const currentDelivery = availableDeliveries?.find(d => d.id === currentDeliveryId);
@@ -1918,40 +2086,7 @@ export default function BusinessDashboard() {
             })()}
           </td>
         )}
-        {isToday && order.delivery?.type === 'pickup' && (
-          <td className="px-3 py-2 whitespace-nowrap">
-            <span className="text-xs text-gray-400 italic">
-              N/A
-            </span>
-          </td>
-        )}
-        <td className="px-3 py-2 whitespace-nowrap">
-          <div className="flex space-x-1">
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                // Editar usando el sidebar manual
-                setManualSidebarMode('edit')
-                setEditingOrderForSidebar(order)
-                setShowManualOrderModal(true)
-              }}
-              className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50"
-              title="Editar orden"
-            >
-              <i className="bi bi-pencil text-sm"></i>
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                handleDeleteOrder(order.id)
-              }}
-              className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50"
-              title="Eliminar orden"
-            >
-              <i className="bi bi-trash text-sm"></i>
-            </button>
-          </div>
-        </td>
+        
       </tr>
     );
   };
@@ -2589,7 +2724,7 @@ export default function BusinessDashboard() {
 
         {/* Main Content */}
         <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+          <div className="mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
 
         {/* Orders Tab */}
         {activeTab === 'orders' && (
