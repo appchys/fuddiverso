@@ -1805,15 +1805,15 @@ export default function BusinessDashboard() {
               }}
             >
               {/* 1. Hora - Ancho fijo */}
-              <div className="flex-shrink-0 pr-1 min-w-max">
-                <span className={`text-xs font-medium whitespace-nowrap tabular-nums ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'} mr-1`}>
+              <div className="flex-shrink-0 min-w-max">
+                <span className={`text-xs font-medium whitespace-nowrap tabular-nums ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
                   {isToday ? formatTime(getOrderDateTime(order)) : formatDate(getOrderDateTime(order))}
                 </span>
               </div>
 
               {/* 2. Botones de acción - Ancho fijo */}
-              <div className="w-16 flex-shrink-0 flex justify-center pl-0.5">
-                <div className="flex items-center space-x-2">
+              <div className="w-16 flex-shrink-0 flex justify-center">
+                <div className="flex items-center space-x-1">
                   {isToday && (
                     (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
                     (order.delivery?.type === 'pickup' && business?.phone)
@@ -1914,6 +1914,16 @@ export default function BusinessDashboard() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                )}
+
+                {/* Dirección completa (mostrar sin truncar al expandir) */}
+                {order.delivery?.type === 'delivery' && (
+                  <div>
+                    <div className="text-xs font-medium text-gray-500 mb-1">Dirección:</div>
+                    <div className="text-sm text-gray-900 break-words whitespace-normal">
+                      {order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
+                    </div>
                   </div>
                 )}
 
