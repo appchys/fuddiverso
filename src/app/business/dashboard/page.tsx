@@ -1872,10 +1872,7 @@ export default function BusinessDashboard() {
                 </div>
               </div>
 
-              {/* 4. Icono expandir - Ancho fijo */}
-              <div className="w-8 flex-shrink-0 flex justify-center">
-                <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-sm text-gray-500`}></i>
-              </div>
+              {/* 4. Icono expandir eliminado: la fila completa es clickeable */}
             </div>
 
             {/* Contenido expandible */}
