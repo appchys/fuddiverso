@@ -149,6 +149,9 @@ export default function BusinessDashboard() {
   // Estados para categorías colapsadas en pedidos de hoy
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set(['delivered']))
 
+  // Mantener filas desplegadas (no autocerrar tras refresh)
+  const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set())
+
   // Protección de ruta - esperar a que termine la carga de auth y redirigir si no está autenticado
   useEffect(() => {
     const t0 = performance.now()
@@ -1694,16 +1697,20 @@ export default function BusinessDashboard() {
       : "border-b border-gray-200";
 
     // Estado para controlar la expansión de detalles en móvil
-    const [isExpanded, setIsExpanded] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(() => expandedOrderIds.has(order.id));
 
     // Gestos táctiles para avanzar estado al arrastrar a la derecha
     const touchStartX = React.useRef<number | null>(null)
+    const touchStartY = React.useRef<number | null>(null)
+    const gestureDirection = React.useRef<'none' | 'horizontal' | 'vertical'>('none')
     const [dragOffset, setDragOffset] = useState(0)
     const swipedRef = React.useRef(false)
     const [blockHorizontalPan, setBlockHorizontalPan] = useState(false)
 
     const handleTouchStart = (e: React.TouchEvent) => {
       touchStartX.current = e.touches[0].clientX
+      touchStartY.current = e.touches[0].clientY
+      gestureDirection.current = 'none'
       swipedRef.current = false
       setDragOffset(0)
       // Evaluar si el contenedor scrollable está en el inicio para bloquear el pan horizontal a la derecha
@@ -1722,12 +1729,30 @@ export default function BusinessDashboard() {
     }
 
     const handleTouchMove = (e: React.TouchEvent) => {
-      if (touchStartX.current === null) return
-      const dx = e.touches[0].clientX - touchStartX.current
-      // Solo considerar arrastre a la derecha
+      if (touchStartX.current === null || touchStartY.current === null) return
+      const currX = e.touches[0].clientX
+      const currY = e.touches[0].clientY
+      const dx = currX - touchStartX.current
+      const dy = currY - touchStartY.current
+
+      // Determinar dirección del gesto con umbral para evitar diagonales
+      if (gestureDirection.current === 'none') {
+        const absDx = Math.abs(dx)
+        const absDy = Math.abs(dy)
+        const activationThreshold = 8 // píxeles
+        const horizontalBias = 1.3 // dx debe ser 1.3x mayor que dy
+        if (absDx < activationThreshold && absDy < activationThreshold) return
+        gestureDirection.current = absDx > absDy * horizontalBias && dx > 0 ? 'horizontal' : 'vertical'
+      }
+
+      if (gestureDirection.current === 'vertical') {
+        // No manejar swipe si el gesto es vertical (permitir scroll)
+        return
+      }
+
+      // Solo considerar arrastre a la derecha cuando el gesto es horizontal
       if (dx > 0) {
         setDragOffset(Math.min(dx, 90))
-        // Ya no invocamos preventDefault en listeners pasivos; usamos touch-action dinámica en el <tr>
       }
     }
 
@@ -1744,19 +1769,22 @@ export default function BusinessDashboard() {
       // Reset visual
       setDragOffset(0)
       touchStartX.current = null
+      touchStartY.current = null
+      gestureDirection.current = 'none'
     }
 
     const swipeProgress = dragOffset > 0 ? Math.min(dragOffset / 90, 1) : 0
 
     return (
       <tr
-        className={`hover:bg-gray-50 transition-colors ${borderClass}`}
+        className={`hover:bg-gray-50 ${borderClass}`}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         style={{ 
           transform: dragOffset > 0 ? `translateX(${dragOffset}px)` : undefined,
-          backgroundColor: swipeProgress > 0 ? `rgba(16,185,129,${0.08 * swipeProgress})` : undefined,
+          // Reducir vibración: no aplicar cambios de fondo mientras se arrastra ligeramente
+          backgroundColor: swipeProgress >= 0.3 ? `rgba(16,185,129,${0.08 * swipeProgress})` : undefined,
           touchAction: blockHorizontalPan ? 'pan-y' as any : undefined
         }}
       >
@@ -1766,18 +1794,26 @@ export default function BusinessDashboard() {
             {/* Layout horizontal fijo: Hora | Botones | Cliente/Dirección | Expandir */}
             <div 
               className="flex items-center w-full min-w-0 cursor-pointer hover:bg-gray-50 rounded transition-colors"
-              onClick={() => setIsExpanded(!isExpanded)}
+              onClick={() => {
+                const next = !isExpanded
+                setIsExpanded(next)
+                setExpandedOrderIds(prev => {
+                  const copy = new Set(prev)
+                  if (next) copy.add(order.id); else copy.delete(order.id)
+                  return copy
+                })
+              }}
             >
               {/* 1. Hora - Ancho fijo */}
-              <div className="w-12 flex-shrink-0">
-                <span className={`text-xs font-medium whitespace-nowrap tabular-nums ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
+              <div className="flex-shrink-0 pr-1 min-w-max">
+                <span className={`text-xs font-medium whitespace-nowrap tabular-nums ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'} mr-1`}>
                   {isToday ? formatTime(getOrderDateTime(order)) : formatDate(getOrderDateTime(order))}
                 </span>
               </div>
 
               {/* 2. Botones de acción - Ancho fijo */}
-              <div className="w-16 flex-shrink-0 flex justify-center">
-                <div className="flex space-x-1">
+              <div className="w-16 flex-shrink-0 flex justify-center pl-0.5">
+                <div className="flex items-center space-x-2">
                   {isToday && (
                     (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
                     (order.delivery?.type === 'pickup' && business?.phone)
@@ -1787,9 +1823,9 @@ export default function BusinessDashboard() {
                         e.stopPropagation()
                         handleSendWhatsApp(order)
                       }}
-                      className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"
+                      className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
                     >
-                      <i className="bi bi-whatsapp text-xs"></i>
+                      <i className="bi bi-whatsapp text-sm"></i>
                     </button>
                   )}
                   {isToday && (
@@ -1803,9 +1839,9 @@ export default function BusinessDashboard() {
                         if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
                         if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
                         return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-                      })()} p-1 rounded`}
+                      })()} p-1.5 rounded`}
                     >
-                      <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-xs`}></i>
+                      <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-sm`}></i>
                     </button>
                   )}
                 </div>
@@ -1885,7 +1921,7 @@ export default function BusinessDashboard() {
                 )}
 
                 {/* Botones de acción */}
-                <div className="flex items-center justify-end space-x-1 pt-2">
+                <div className="flex items-center justify-end space-x-1.5 pt-2">
                   {(() => {
                     const nextStatus = getNextStatus(order.status)
                     return isToday && !!nextStatus ? (
@@ -1894,10 +1930,10 @@ export default function BusinessDashboard() {
                           e.stopPropagation()
                           handleAdvanceStatus(order)
                         }}
-                        className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"
+                        className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
                         title={`Avanzar a ${getStatusText(nextStatus!)}`}
                       >
-                        <i className="bi bi-check-lg text-xs"></i>
+                        <i className="bi bi-check-lg text-sm"></i>
                       </button>
                     ) : null
                   })()}
@@ -1911,10 +1947,10 @@ export default function BusinessDashboard() {
                         e.stopPropagation()
                         handleSendWhatsApp(order)
                       }}
-                      className="text-green-600 hover:text-green-800 p-1 rounded hover:bg-green-50"
+                      className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
                       title="Enviar WhatsApp"
                     >
-                      <i className="bi bi-whatsapp text-xs"></i>
+                      <i className="bi bi-whatsapp text-sm"></i>
                     </button>
                   )}
 
@@ -1929,10 +1965,10 @@ export default function BusinessDashboard() {
                         if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
                         if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
                         return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-                      })()} p-1 rounded`}
+                      })()} p-1.5 rounded`}
                       title="Editar método/estado de pago"
                     >
-                      <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-xs`}></i>
+                      <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-sm`}></i>
                     </button>
                   )}
 
@@ -1944,10 +1980,10 @@ export default function BusinessDashboard() {
                       setEditingOrderForSidebar(order)
                       setShowManualOrderModal(true)
                     }}
-                    className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50"
+                    className="text-blue-600 hover:text-blue-800 p-1.5 rounded hover:bg-blue-50"
                     title="Editar orden"
                   >
-                    <i className="bi bi-pencil text-xs"></i>
+                    <i className="bi bi-pencil text-sm"></i>
                   </button>
                   
                   <button
@@ -1955,10 +1991,10 @@ export default function BusinessDashboard() {
                       e.stopPropagation()
                       handleDeleteOrder(order.id)
                     }}
-                    className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50"
+                    className="text-red-600 hover:text-red-800 p-1.5 rounded hover:bg-red-50"
                     title="Eliminar orden"
                   >
-                    <i className="bi bi-trash text-xs"></i>
+                    <i className="bi bi-trash text-sm"></i>
                   </button>
                 </div>
               </div>
