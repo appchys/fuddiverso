@@ -28,7 +28,8 @@ import {
   Business, 
   Product, 
   Order, 
-  CoverageZone 
+  CoverageZone,
+  Delivery
 } from '../types'
 
 // Helper function para convertir timestamps de Firebase a Date de manera segura
@@ -1546,15 +1547,7 @@ export async function getDeliveryFeeForLocation(location: { lat: number; lng: nu
 // DELIVERIES FUNCTIONS
 // =============================================================================
 
-export interface Delivery {
-  id?: string
-  nombres: string
-  celular: string
-  email: string
-  fotoUrl?: string
-  estado: 'activo' | 'inactivo'
-  fechaRegistro: string
-}
+// Interfaz Delivery movida a src/types/index.ts para evitar duplicación
 
 /**
  * Crear un nuevo delivery
@@ -1599,7 +1592,8 @@ export async function getAllDeliveries(): Promise<Delivery[]> {
         email: data.email || '',
         fotoUrl: data.fotoUrl,
         estado: data.estado || 'activo',
-        fechaRegistro: data.fechaRegistro || new Date().toISOString()
+        fechaRegistro: data.fechaRegistro || new Date().toISOString(),
+        uid: data.uid
       })
     })
     
@@ -1627,7 +1621,8 @@ export async function getDeliveryById(deliveryId: string): Promise<Delivery | nu
         email: data.email || '',
         fotoUrl: data.fotoUrl,
         estado: data.estado || 'activo',
-        fechaRegistro: data.fechaRegistro || new Date().toISOString()
+        fechaRegistro: data.fechaRegistro || new Date().toISOString(),
+        uid: data.uid
       }
     }
     
@@ -1716,7 +1711,8 @@ export async function getDeliveriesByStatus(estado: 'activo' | 'inactivo'): Prom
         email: data.email || '',
         fotoUrl: data.fotoUrl,
         estado: data.estado || 'activo',
-        fechaRegistro: data.fechaRegistro || new Date().toISOString()
+        fechaRegistro: data.fechaRegistro || new Date().toISOString(),
+        uid: data.uid
       })
     })
     
@@ -1726,5 +1722,131 @@ export async function getDeliveriesByStatus(estado: 'activo' | 'inactivo'): Prom
     // no falle y se pueda mostrar un mensaje o estado vacío.
     console.error('Error getting deliveries by status (returning empty list):', error)
     return []
+  }
+}
+
+/**
+ * Obtener delivery por email
+ */
+export async function getDeliveryByEmail(email: string): Promise<Delivery | null> {
+  try {
+    const q = query(
+      collection(db, 'deliveries'),
+      where('email', '==', email),
+      limit(1)
+    )
+    
+    const querySnapshot = await getDocs(q)
+    
+    if (querySnapshot.empty) {
+      return null
+    }
+    
+    const doc = querySnapshot.docs[0]
+    const data = doc.data()
+    
+    return {
+      id: doc.id,
+      nombres: data.nombres || '',
+      celular: data.celular || '',
+      email: data.email || '',
+      fotoUrl: data.fotoUrl,
+      estado: data.estado || 'activo',
+      fechaRegistro: data.fechaRegistro || new Date().toISOString(),
+      uid: data.uid
+    }
+  } catch (error) {
+    console.error('Error getting delivery by email:', error)
+    return null
+  }
+}
+
+/**
+ * Obtener pedidos asignados a un delivery específico
+ */
+export async function getOrdersByDelivery(deliveryId: string): Promise<Order[]> {
+  try {
+    console.log('[getOrdersByDelivery] Buscando pedidos para deliveryId:', deliveryId)
+    
+    // Primero intentar con orderBy (requiere índice compuesto)
+    let q = query(
+      collection(db, 'orders'),
+      where('delivery.assignedDelivery', '==', deliveryId),
+      orderBy('createdAt', 'desc')
+    )
+    
+    let querySnapshot
+    try {
+      querySnapshot = await getDocs(q)
+    } catch (indexError: any) {
+      // Si falla por falta de índice, hacer consulta sin orderBy y ordenar en memoria
+      console.warn('Índice compuesto no encontrado, ordenando en memoria:', indexError.message)
+      q = query(
+        collection(db, 'orders'),
+        where('delivery.assignedDelivery', '==', deliveryId)
+      )
+      querySnapshot = await getDocs(q)
+    }
+    
+    console.log('[getOrdersByDelivery] Documentos encontrados:', querySnapshot.size)
+    
+    const orders: Order[] = []
+    
+    querySnapshot.forEach((doc) => {
+      const data = doc.data()
+      
+      // Función helper para convertir fechas de manera segura
+      const toDate = (field: any): Date => {
+        if (!field) return new Date()
+        if (field.toDate && typeof field.toDate === 'function') {
+          return field.toDate()
+        }
+        if (field instanceof Date) return field
+        if (typeof field === 'string') return new Date(field)
+        if (typeof field === 'number') return new Date(field)
+        return new Date()
+      }
+      
+      orders.push({
+        id: doc.id,
+        businessId: data.businessId,
+        customer: data.customer,
+        items: data.items || [],
+        delivery: data.delivery,
+        timing: data.timing,
+        payment: data.payment,
+        total: data.total,
+        subtotal: data.subtotal,
+        status: data.status,
+        createdAt: toDate(data.createdAt),
+        updatedAt: toDate(data.updatedAt),
+        createdByAdmin: data.createdByAdmin
+      })
+    })
+    
+    // Ordenar en memoria si no se pudo hacer en la consulta
+    orders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    
+    return orders
+  } catch (error) {
+    console.error('Error getting orders by delivery:', error)
+    return []
+  }
+}
+
+/**
+ * Vincular un delivery con su UID de Firebase Auth
+ */
+export async function linkDeliveryWithAuth(deliveryId: string, uid: string): Promise<void> {
+  try {
+    const docRef = doc(db, 'deliveries', deliveryId)
+    await updateDoc(docRef, {
+      uid: uid,
+      updatedAt: serverTimestamp()
+    })
+    console.log('Delivery linked with auth UID:', uid)
+  } catch (error) {
+    console.error('Error linking delivery with auth:', error)
+    throw error
   }
 }

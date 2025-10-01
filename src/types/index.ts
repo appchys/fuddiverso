@@ -158,3 +158,14 @@ export interface Order {
   updatedAt: Date
   createdByAdmin?: boolean
 }
+
+export interface Delivery {
+  id: string
+  nombres: string
+  celular: string
+  email: string
+  fotoUrl?: string
+  estado: 'activo' | 'inactivo'
+  fechaRegistro: string
+  uid?: string // UID de Firebase Auth para autenticación
+}
