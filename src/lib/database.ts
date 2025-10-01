@@ -1850,3 +1850,301 @@ export async function linkDeliveryWithAuth(deliveryId: string, uid: string): Pro
     throw error
   }
 }
+
+// ==================== BIBLIOTECA DE INGREDIENTES ====================
+
+export interface IngredientLibraryItem {
+  id: string
+  name: string
+  unitCost: number
+  lastUsed: Date
+  usageCount: number
+}
+
+/**
+ * Obtener la biblioteca de ingredientes de un negocio
+ */
+export async function getIngredientLibrary(businessId: string): Promise<IngredientLibraryItem[]> {
+  try {
+    const libraryRef = collection(db, 'businesses', businessId, 'ingredientLibrary')
+    const q = query(libraryRef, orderBy('name', 'asc'))
+    const snapshot = await getDocs(q)
+    
+    const ingredients: IngredientLibraryItem[] = []
+    snapshot.forEach((doc) => {
+      const data = doc.data()
+      ingredients.push({
+        id: doc.id,
+        name: data.name,
+        unitCost: data.unitCost,
+        lastUsed: toSafeDate(data.lastUsed),
+        usageCount: data.usageCount || 0
+      })
+    })
+    
+    return ingredients
+  } catch (error) {
+    console.error('Error getting ingredient library:', error)
+    return []
+  }
+}
+
+/**
+ * Agregar o actualizar un ingrediente en la biblioteca
+ */
+export async function addOrUpdateIngredientInLibrary(
+  businessId: string, 
+  name: string, 
+  unitCost: number
+): Promise<void> {
+  try {
+    const libraryRef = collection(db, 'businesses', businessId, 'ingredientLibrary')
+    
+    // Buscar si ya existe un ingrediente con ese nombre (case-insensitive)
+    const q = query(libraryRef, where('name', '==', name.trim()))
+    const snapshot = await getDocs(q)
+    
+    if (snapshot.empty) {
+      // Crear nuevo ingrediente
+      await addDoc(libraryRef, {
+        name: name.trim(),
+        unitCost: unitCost,
+        lastUsed: serverTimestamp(),
+        usageCount: 1,
+        createdAt: serverTimestamp()
+      })
+    } else {
+      // Actualizar existente
+      const docRef = doc(db, 'businesses', businessId, 'ingredientLibrary', snapshot.docs[0].id)
+      await updateDoc(docRef, {
+        unitCost: unitCost,
+        lastUsed: serverTimestamp(),
+        usageCount: firestoreIncrement(1)
+      })
+    }
+  } catch (error) {
+    console.error('Error adding/updating ingredient in library:', error)
+    throw error
+  }
+}
+
+/**
+ * Eliminar un ingrediente de la biblioteca
+ */
+export async function deleteIngredientFromLibrary(businessId: string, ingredientId: string): Promise<void> {
+  try {
+    const docRef = doc(db, 'businesses', businessId, 'ingredientLibrary', ingredientId)
+    await deleteDoc(docRef)
+  } catch (error) {
+    console.error('Error deleting ingredient from library:', error)
+    throw error
+  }
+}
+
+/**
+ * Actualizar el costo de un ingrediente en la biblioteca
+ */
+export async function updateIngredientCostInLibrary(
+  businessId: string, 
+  ingredientId: string, 
+  newCost: number
+): Promise<void> {
+  try {
+    const docRef = doc(db, 'businesses', businessId, 'ingredientLibrary', ingredientId)
+    await updateDoc(docRef, {
+      unitCost: newCost,
+      updatedAt: serverTimestamp()
+    })
+  } catch (error) {
+    console.error('Error updating ingredient cost:', error)
+    throw error
+  }
+}
+
+// ==================== ANÁLISIS DE COSTOS Y REPORTES ====================
+
+export interface IngredientConsumption {
+  ingredientName: string
+  totalQuantity: number
+  unitCost: number
+  totalCost: number
+  usedInProducts: Array<{
+    productName: string
+    variantName?: string
+    quantitySold: number
+    ingredientQuantityUsed: number
+  }>
+}
+
+export interface CostReport {
+  startDate: Date
+  endDate: Date
+  totalRevenue: number
+  totalIngredientCost: number
+  totalOrders: number
+  profitMargin: number
+  profitAmount: number
+  ingredientConsumption: IngredientConsumption[]
+  topSellingProducts: Array<{
+    productName: string
+    variantName?: string
+    quantitySold: number
+    revenue: number
+    cost: number
+    profit: number
+  }>
+}
+
+/**
+ * Calcular el consumo de ingredientes y costos basado en las órdenes
+ */
+export async function calculateCostReport(
+  businessId: string,
+  startDate: Date,
+  endDate: Date
+): Promise<CostReport> {
+  try {
+    // Obtener todas las órdenes en el rango de fechas
+    const ordersRef = collection(db, 'orders')
+    const q = query(
+      ordersRef,
+      where('businessId', '==', businessId),
+      where('createdAt', '>=', Timestamp.fromDate(startDate)),
+      where('createdAt', '<=', Timestamp.fromDate(endDate)),
+      where('status', 'in', ['delivered', 'completed'])
+    )
+    
+    const ordersSnapshot = await getDocs(q)
+    
+    // Obtener todos los productos del negocio
+    const productsSnapshot = await getDocs(
+      query(collection(db, 'products'), where('businessId', '==', businessId))
+    )
+    
+    const productsMap = new Map<string, any>()
+    productsSnapshot.forEach(doc => {
+      productsMap.set(doc.id, { id: doc.id, ...doc.data() })
+    })
+    
+    // Estructuras para acumular datos
+    const ingredientConsumptionMap = new Map<string, IngredientConsumption>()
+    const productSalesMap = new Map<string, any>()
+    let totalRevenue = 0
+    let totalOrders = 0
+    
+    // Procesar cada orden
+    ordersSnapshot.forEach(orderDoc => {
+      const order = orderDoc.data()
+      totalOrders++
+      totalRevenue += order.total || 0
+      
+      // Procesar cada item de la orden
+      order.items?.forEach((item: any) => {
+        const product = productsMap.get(item.productId)
+        if (!product) return
+        
+        const quantity = item.quantity || 1
+        const variantName = item.variant || item.name
+        const productKey = `${product.name}${variantName ? ` - ${variantName}` : ''}`
+        
+        // Acumular ventas por producto
+        if (!productSalesMap.has(productKey)) {
+          productSalesMap.set(productKey, {
+            productName: product.name,
+            variantName: variantName !== product.name ? variantName : undefined,
+            quantitySold: 0,
+            revenue: 0,
+            cost: 0,
+            profit: 0
+          })
+        }
+        
+        const productSale = productSalesMap.get(productKey)
+        productSale.quantitySold += quantity
+        productSale.revenue += (item.price || 0) * quantity
+        
+        // Determinar qué ingredientes usar (variante o producto base)
+        let ingredientsToUse: any[] = []
+        
+        if (item.variant && product.variants) {
+          // Buscar la variante específica
+          const variant = product.variants.find((v: any) => 
+            v.name === item.variant || v.name === variantName
+          )
+          if (variant?.ingredients) {
+            ingredientsToUse = variant.ingredients
+          }
+        }
+        
+        // Si no hay ingredientes de variante, usar los del producto base
+        if (ingredientsToUse.length === 0 && product.ingredients) {
+          ingredientsToUse = product.ingredients
+        }
+        
+        // Procesar ingredientes
+        ingredientsToUse.forEach((ingredient: any) => {
+          const ingredientName = ingredient.name
+          const quantityUsed = ingredient.quantity * quantity
+          const unitCost = ingredient.unitCost || 0
+          const totalCost = quantityUsed * unitCost
+          
+          // Acumular consumo de ingredientes
+          if (!ingredientConsumptionMap.has(ingredientName)) {
+            ingredientConsumptionMap.set(ingredientName, {
+              ingredientName,
+              totalQuantity: 0,
+              unitCost,
+              totalCost: 0,
+              usedInProducts: []
+            })
+          }
+          
+          const consumption = ingredientConsumptionMap.get(ingredientName)!
+          consumption.totalQuantity += quantityUsed
+          consumption.totalCost += totalCost
+          consumption.usedInProducts.push({
+            productName: product.name,
+            variantName: variantName !== product.name ? variantName : undefined,
+            quantitySold: quantity,
+            ingredientQuantityUsed: quantityUsed
+          })
+          
+          // Acumular costo en el producto
+          productSale.cost += totalCost
+        })
+        
+        // Calcular profit del producto
+        productSale.profit = productSale.revenue - productSale.cost
+      })
+    })
+    
+    // Convertir maps a arrays y ordenar
+    const ingredientConsumption = Array.from(ingredientConsumptionMap.values())
+      .sort((a, b) => b.totalCost - a.totalCost)
+    
+    const topSellingProducts = Array.from(productSalesMap.values())
+      .sort((a, b) => b.quantitySold - a.quantitySold)
+    
+    const totalIngredientCost = ingredientConsumption.reduce(
+      (sum, ing) => sum + ing.totalCost, 0
+    )
+    
+    const profitAmount = totalRevenue - totalIngredientCost
+    const profitMargin = totalRevenue > 0 ? (profitAmount / totalRevenue) * 100 : 0
+    
+    return {
+      startDate,
+      endDate,
+      totalRevenue,
+      totalIngredientCost,
+      totalOrders,
+      profitMargin,
+      profitAmount,
+      ingredientConsumption,
+      topSellingProducts
+    }
+  } catch (error) {
+    console.error('Error calculating cost report:', error)
+    throw error
+  }
+}

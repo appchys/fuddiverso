@@ -3,61 +3,65 @@
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { getBusiness, getProductsByBusiness, getOrdersByBusiness, updateOrderStatus, updateProduct, deleteProduct, getBusinessesByOwner, uploadImage, updateBusiness, addBusinessAdministrator, removeBusinessAdministrator, updateAdministratorPermissions, getUserBusinessAccess, getBusinessCategories, addCategoryToBusiness, searchClientByPhone, getClientLocations, createOrder, getDeliveriesByStatus, createClient, updateOrder, deleteOrder, createClientLocation } from '@/lib/database'
 import { Business, Product, Order, ProductVariant, ClientLocation } from '@/types'
 import { auth, db } from '@/lib/firebase'
 import { doc, updateDoc, Timestamp } from 'firebase/firestore'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import ManualOrderSidebar from '@/components/ManualOrderSidebar'
+import ProductManagement from '@/components/ProductManagement'
+import CostReports from '@/components/CostReports'
+import {
+  getBusiness,
+  getProductsByBusiness,
+  getOrdersByBusiness,
+  updateOrderStatus,
+  updateProduct,
+  deleteProduct,
+  getBusinessesByOwner,
+  uploadImage,
+  updateBusiness,
+  addBusinessAdministrator,
+  removeBusinessAdministrator,
+  updateAdministratorPermissions,
+  getUserBusinessAccess,
+  getBusinessCategories,
+  addCategoryToBusiness,
+  searchClientByPhone,
+  getClientLocations,
+  createOrder,
+  getDeliveriesByStatus,
+  createClient,
+  updateOrder,
+  deleteOrder,
+  createClientLocation
+} from '@/lib/database'
 
 export default function BusinessDashboard() {
   const router = useRouter()
   const { user, businessId, ownerId, isAuthenticated, authLoading, logout, setBusinessId } = useBusinessAuth()
   const { permission, requestPermission, showNotification, isSupported, isIOS, needsUserAction } = usePushNotifications()
+  const [showCostReports, setShowCostReports] = useState(false)
   const [business, setBusiness] = useState<Business | null>(null)
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'profile' | 'admins'>('orders')
+  const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'profile' | 'admins' | 'reports'>('orders')
   const [showManualOrderModal, setShowManualOrderModal] = useState(false) // Cerrado por defecto
   const [sidebarOpen, setSidebarOpen] = useState(false) // Cerrado por defecto
   const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today') // Nueva pestaña para pedidos
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(businessId)
   const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null) // Nuevo estado
-  // Sidebar manual order: modo y orden en edición
   const [manualSidebarMode, setManualSidebarMode] = useState<'create' | 'edit'>('create')
   const [editingOrderForSidebar, setEditingOrderForSidebar] = useState<Order | null>(null)
   const [showBusinessDropdown, setShowBusinessDropdown] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [editedBusiness, setEditedBusiness] = useState<Business | null>(null)
   const [uploadingCover, setUploadingCover] = useState(false)
-  
-  // Estados para el modal de edición de productos
-  const [showEditModal, setShowEditModal] = useState(false)
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
-  const [editFormData, setEditFormData] = useState({
-    name: '',
-    description: '',
-    price: '',
-    category: '',
-    isAvailable: true,
-    image: null as File | null
-  })
-  const [editVariants, setEditVariants] = useState<ProductVariant[]>([])
-  const [editCurrentVariant, setEditCurrentVariant] = useState({
-    name: '',
-    description: '',
-    price: ''
-  })
-  const [businessCategories, setBusinessCategories] = useState<string[]>([])
-  const [newCategory, setNewCategory] = useState('')
-  const [showNewCategoryForm, setShowNewCategoryForm] = useState(false)
-  const [editErrors, setEditErrors] = useState<Record<string, string>>({})
-  const [uploading, setUploading] = useState(false)
   const [uploadingProfile, setUploadingProfile] = useState(false)
+  const [businessCategories, setBusinessCategories] = useState<string[]>([])
   const [showAddAdminModal, setShowAddAdminModal] = useState(false)
   const [newAdminData, setNewAdminData] = useState({
     email: '',
@@ -854,187 +858,7 @@ export default function BusinessDashboard() {
     window.open(whatsappUrl, '_blank')
   }
 
-  const handleToggleAvailability = async (productId: string, currentAvailability: boolean) => {
-    try {
-      await updateProduct(productId, { isAvailable: !currentAvailability })
-      setProducts(prev => prev.map(product => 
-        product.id === productId ? { ...product, isAvailable: !currentAvailability } : product
-      ))
-    } catch (error) {
-      // Error updating product availability
-    }
-  }
-
-  const handleDeleteProduct = async (productId: string) => {
-    if (window.confirm('¿Estás seguro de que quieres eliminar este producto?')) {
-      try {
-        await deleteProduct(productId)
-        setProducts(prev => prev.filter(product => product.id !== productId))
-      } catch (error) {
-        // Error deleting product
-      }
-    }
-  }
-
-  // Funciones para editar productos
-  const handleEditProduct = (product: Product) => {
-    setEditingProduct(product)
-    setEditFormData({
-      name: product.name,
-      description: product.description,
-      price: product.price.toString(),
-      category: product.category,
-      isAvailable: product.isAvailable,
-      image: null
-    })
-    setEditVariants(product.variants || [])
-    setShowEditModal(true)
-  }
-
-  const handleUpdateProduct = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!editingProduct || !selectedBusinessId) return
-
-    // Validar formulario
-    const newErrors: Record<string, string> = {}
-    if (!editFormData.name.trim()) newErrors.name = 'El nombre es requerido'
-    if (!editFormData.description.trim()) newErrors.description = 'La descripción es requerida'
-    if (!editFormData.price || isNaN(Number(editFormData.price)) || Number(editFormData.price) <= 0) {
-      newErrors.price = 'El precio debe ser un número válido mayor a 0'
-    }
-    if (!editFormData.category) newErrors.category = 'La categoría es requerida'
-
-    if (Object.keys(newErrors).length > 0) {
-      setEditErrors(newErrors)
-      return
-    }
-
-    setUploading(true)
-    try {
-      let imageUrl = editingProduct.image // Mantener imagen actual por defecto
-
-      // Subir nueva imagen si se seleccionó una
-      if (editFormData.image) {
-        const timestamp = Date.now()
-        const path = `products/${timestamp}_${editFormData.image.name}`
-        imageUrl = await uploadImage(editFormData.image, path)
-      }
-
-      const updatedData = {
-        name: editFormData.name,
-        description: editFormData.description,
-        price: Number(editFormData.price),
-        category: editFormData.category,
-        image: imageUrl,
-        variants: editVariants.length > 0 ? editVariants : undefined,
-        isAvailable: editFormData.isAvailable,
-        updatedAt: new Date()
-      }
-
-      await updateProduct(editingProduct.id, updatedData)
-      
-      setProducts(prev => prev.map(product => 
-        product.id === editingProduct.id 
-          ? { ...product, ...updatedData }
-          : product
-      ))
-
-      handleCloseEditModal()
-      alert('Producto actualizado exitosamente')
-    } catch (error) {
-      setEditErrors({ submit: 'Error al actualizar el producto' })
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  const handleCloseEditModal = () => {
-    setShowEditModal(false)
-    setEditingProduct(null)
-    setEditFormData({
-      name: '',
-      description: '',
-      price: '',
-      category: '',
-      isAvailable: true,
-      image: null
-    })
-    setEditVariants([])
-    setEditCurrentVariant({ name: '', description: '', price: '' })
-    setEditErrors({})
-    setShowNewCategoryForm(false)
-    setNewCategory('')
-  }
-
-  // Funciones para manejar input del formulario de edición
-  const handleEditInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target
-    setEditFormData(prev => ({ ...prev, [name]: value }))
-    // Limpiar errores al escribir
-    if (editErrors[name]) {
-      setEditErrors(prev => ({ ...prev, [name]: '' }))
-    }
-  }
-
-  const handleEditImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      setEditFormData(prev => ({ ...prev, image: file }))
-    }
-  }
-
-  // Funciones para manejar variantes en edición
-  const handleEditVariantChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target
-    setEditCurrentVariant(prev => ({ ...prev, [name]: value }))
-  }
-
-  const addEditVariant = () => {
-    if (!editCurrentVariant.name.trim()) {
-      alert('El nombre de la variante es requerido')
-      return
-    }
-
-    const price = editCurrentVariant.price ? Number(editCurrentVariant.price) : Number(editFormData.price)
-    
-    if (isNaN(price) || price <= 0) {
-      alert('El precio debe ser un número válido mayor a 0')
-      return
-    }
-
-    const newVariant: ProductVariant = {
-      id: Date.now().toString(),
-      name: editCurrentVariant.name,
-      description: editCurrentVariant.description || '',
-      price: price,
-      isAvailable: true
-    }
-
-    setEditVariants(prev => [...prev, newVariant])
-    setEditCurrentVariant({ name: '', description: '', price: '' })
-  }
-
-  const removeEditVariant = (variantId: string) => {
-    setEditVariants(prev => prev.filter(v => v.id !== variantId))
-  }
-
-  // Función para agregar nueva categoría en edición
-  const addNewEditCategory = async () => {
-    if (!newCategory.trim() || !selectedBusinessId) {
-      alert('El nombre de la categoría es requerido')
-      return
-    }
-
-    try {
-      await addCategoryToBusiness(selectedBusinessId, newCategory.trim())
-      setBusinessCategories(prev => [...prev, newCategory.trim()])
-      setEditFormData(prev => ({ ...prev, category: newCategory.trim() }))
-      setShowNewCategoryForm(false)
-      setNewCategory('')
-    } catch (error) {
-      alert('Error al agregar la categoría')
-    }
-  }
+  
 
   // Función para subir imagen de portada
   const handleCoverImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -2774,6 +2598,23 @@ export default function BusinessDashboard() {
                 <i className="bi bi-people me-3 text-lg"></i>
                 <span className="font-medium">Administradores</span>
               </button>
+
+
+
+              <button
+                onClick={() => {
+                  setActiveTab('reports')
+                  setSidebarOpen(false)
+                }}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
+                  activeTab === 'reports'
+                    ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <i className="bi bi-graph-up me-3 text-lg"></i>
+                <span className="font-medium">Reportes de Costos</span>
+              </button>
               
               {/* Botón de Notificaciones - solo si no es iOS y necesita acción */}
               {!isIOS && needsUserAction && (
@@ -3027,124 +2868,15 @@ export default function BusinessDashboard() {
           </div>
         )}
 
-        {/* Products Tab */}
-        {activeTab === 'products' && (
-          <div>
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">
-                <i className="bi bi-box-seam me-2"></i>Mis Productos
-              </h2>
-              <Link
-                href="/business/products/add"
-                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
-              >
-                <i className="bi bi-plus-lg me-2"></i>Agregar Producto
-              </Link>
-            </div>
-
-            {products.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
-                  <i className="bi bi-box-seam text-gray-400 text-2xl"></i>
-                </div>
-                <p className="text-gray-600 mb-4 text-lg">Aún no tienes productos registrados</p>
-                <Link
-                  href="/business/products/add"
-                  className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition-colors"
-                >
-                  <i className="bi bi-plus-lg me-2"></i>Agregar Primer Producto
-                </Link>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {products.map((product) => (
-                  <div key={product.id} className="bg-white rounded-lg shadow-md overflow-hidden">
-                    {/* Imagen o espacio gris */}
-                    <div className="w-full h-48 bg-gray-200 flex items-center justify-center">
-                      {product.image ? (
-                        <img
-                          src={product.image}
-                          alt={product.name}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <i className="bi bi-image text-gray-400 text-4xl"></i>
-                      )}
-                    </div>
-                    
-                    <div className="p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <h3 className="font-semibold text-lg text-gray-900 flex-1">
-                          {product.name}
-                        </h3>
-                        <div className="flex space-x-1 ml-2">
-                          {/* Botón Editar */}
-                          <button
-                            onClick={() => handleEditProduct(product)}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                            title="Editar producto"
-                          >
-                            <i className="bi bi-pencil text-sm"></i>
-                          </button>
-                          
-                          {/* Botón Ocultar/Mostrar */}
-                          <button
-                            onClick={() => handleToggleAvailability(product.id, product.isAvailable)}
-                            className={`p-1.5 rounded transition-colors ${
-                              product.isAvailable
-                                ? 'text-orange-600 hover:bg-orange-50'
-                                : 'text-green-600 hover:bg-green-50'
-                            }`}
-                            title={product.isAvailable ? 'Ocultar producto' : 'Mostrar producto'}
-                          >
-                            <i className={`bi ${product.isAvailable ? 'bi-eye-slash' : 'bi-eye'} text-sm`}></i>
-                          </button>
-                          
-                          {/* Botón Eliminar */}
-                          <button
-                            onClick={() => handleDeleteProduct(product.id)}
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                            title="Eliminar producto"
-                          >
-                            <i className="bi bi-trash text-sm"></i>
-                          </button>
-                        </div>
-                      </div>
-                      
-                      <p className="text-gray-600 text-sm mb-3 line-clamp-2">{product.description}</p>
-                      
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-red-600 font-bold text-xl">
-                          ${product.price.toFixed(2)}
-                        </span>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          product.isAvailable
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          <i className={`bi ${product.isAvailable ? 'bi-check-circle' : 'bi-x-circle'} me-1`}></i>
-                          {product.isAvailable ? 'Disponible' : 'No disponible'}
-                        </span>
-                      </div>
-                      
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                          <i className="bi bi-tag me-1"></i>{product.category}
-                        </span>
-                        
-                        {/* Mostrar número de variantes si existen */}
-                        {product.variants && product.variants.length > 0 && (
-                          <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
-                            <i className="bi bi-collection me-1"></i>{product.variants.length} variantes
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                {/* Products Tab */}
+                {activeTab === 'products' && (
+          <ProductManagement
+            business={business}
+            products={products}
+            onProductsChange={setProducts}
+            businessCategories={businessCategories}
+            onCategoriesChange={setBusinessCategories}
+          />
         )}
 
         {/* Profile Tab */}
@@ -3771,6 +3503,12 @@ export default function BusinessDashboard() {
             )}
           </div>
         )}
+
+        {/* Reports Tab */}
+        {activeTab === 'reports' && (
+          <CostReports business={business} />
+        )}
+
         </div>
       </div>
 
@@ -4168,326 +3906,7 @@ export default function BusinessDashboard() {
         </div>
       )}
 
-      {/* Modal de Edición de Producto */}
-      {showEditModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-semibold text-gray-900">
-                  <i className="bi bi-pencil me-2"></i>Editar Producto
-                </h3>
-                <button
-                  onClick={handleCloseEditModal}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <i className="bi bi-x-lg"></i>
-                </button>
-              </div>
-
-              <form onSubmit={handleUpdateProduct} className="space-y-6">
-                {/* Categoría */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Categoría *
-                  </label>
-                  
-                  {!showNewCategoryForm ? (
-                    <div className="space-y-2">
-                      <select
-                        name="category"
-                        value={editFormData.category}
-                        onChange={handleEditInputChange}
-                        className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                          editErrors.category ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        required
-                      >
-                        <option value="">Selecciona una categoría</option>
-                        {businessCategories.map((cat) => (
-                          <option key={cat} value={cat}>{cat}</option>
-                        ))}
-                      </select>
-                      
-                      <button
-                        type="button"
-                        onClick={() => setShowNewCategoryForm(true)}
-                        className="text-sm text-red-600 hover:text-red-700"
-                      >
-                        + Agregar nueva categoría
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-3 p-4 border border-gray-200 rounded-md bg-gray-50">
-                      <h4 className="font-medium text-gray-900">Nueva Categoría</h4>
-                      <input
-                        type="text"
-                        value={newCategory}
-                        onChange={(e) => setNewCategory(e.target.value)}
-                        placeholder="Nombre de la categoría"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                      />
-                      <div className="flex space-x-2">
-                        <button
-                          type="button"
-                          onClick={addNewEditCategory}
-                          className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-                        >
-                          Agregar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowNewCategoryForm(false)
-                            setNewCategory('')
-                          }}
-                          className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {editErrors.category && <p className="text-red-500 text-sm mt-1">{editErrors.category}</p>}
-                </div>
-
-                {/* Nombre del producto */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Nombre del Producto *
-                  </label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={editFormData.name}
-                    onChange={handleEditInputChange}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                      editErrors.name ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    placeholder="Ej: Hamburguesa Clásica"
-                    required
-                  />
-                  {editErrors.name && <p className="text-red-500 text-sm mt-1">{editErrors.name}</p>}
-                </div>
-
-                {/* Descripción */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Descripción *
-                  </label>
-                  <textarea
-                    name="description"
-                    rows={3}
-                    value={editFormData.description}
-                    onChange={handleEditInputChange}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                      editErrors.description ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    placeholder="Describe tu producto..."
-                    required
-                  />
-                  {editErrors.description && <p className="text-red-500 text-sm mt-1">{editErrors.description}</p>}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Precio */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Precio Base *
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2 text-gray-500">$</span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        name="price"
-                        value={editFormData.price}
-                        onChange={handleEditInputChange}
-                        className={`w-full pl-8 pr-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                          editErrors.price ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder="0.00"
-                        required
-                      />
-                    </div>
-                    {editErrors.price && <p className="text-red-500 text-sm mt-1">{editErrors.price}</p>}
-                  </div>
-
-                  {/* Imagen */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Imagen del Producto
-                    </label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleEditImageChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                    />
-                    {editingProduct?.image && (
-                      <div className="mt-2">
-                        <img 
-                          src={editingProduct.image} 
-                          alt="Imagen actual" 
-                          className="w-16 h-16 object-cover rounded-md"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">Imagen actual</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Variantes */}
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-medium text-gray-900">Variantes del Producto</h3>
-                    <span className="text-sm text-gray-500">Opcional</span>
-                  </div>
-                  
-                  <div className="bg-gray-50 p-4 rounded-md mb-4">
-                    <h4 className="font-medium text-gray-900 mb-3">Agregar Nueva Variante</h4>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Nombre de la variante *
-                        </label>
-                        <input
-                          type="text"
-                          name="name"
-                          value={editCurrentVariant.name}
-                          onChange={handleEditVariantChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                          placeholder="Ej: Tamaño grande, Con queso extra"
-                        />
-                      </div>
-                      
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Precio ($ - opcional)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          name="price"
-                          value={editCurrentVariant.price}
-                          onChange={handleEditVariantChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                          placeholder="Dejalo vacío para usar precio base"
-                        />
-                      </div>
-                      
-                      <div className="flex items-end">
-                        <button
-                          type="button"
-                          onClick={addEditVariant}
-                          className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
-                        >
-                          Agregar Variante
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <div className="mt-3">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Descripción (opcional)
-                      </label>
-                      <input
-                        type="text"
-                        name="description"
-                        value={editCurrentVariant.description}
-                        onChange={handleEditVariantChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                        placeholder="Ej: Con salsa especial"
-                      />
-                    </div>
-                  </div>
-                  
-                  {/* Lista de variantes */}
-                  {editVariants.length > 0 && (
-                    <div className="mb-4">
-                      <h4 className="font-medium text-gray-900 mb-3">Variantes agregadas:</h4>
-                      <div className="space-y-2">
-                        {editVariants.map((variant) => (
-                          <div key={variant.id} className="flex justify-between items-center bg-white border border-gray-200 rounded-lg p-3">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-4">
-                                <span className="font-medium text-gray-900">{variant.name}</span>
-                                <span className="text-green-600 font-medium">${variant.price.toFixed(2)}</span>
-                                {variant.description && (
-                                  <span className="text-gray-500 text-sm">- {variant.description}</span>
-                                )}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => removeEditVariant(variant.id)}
-                              className="text-red-600 hover:text-red-700 p-1"
-                            >
-                              <i className="bi bi-trash"></i>
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Disponibilidad */}
-                <div>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={editFormData.isAvailable}
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, isAvailable: e.target.checked }))}
-                      className="rounded border-gray-300 text-red-600 focus:ring-red-500"
-                    />
-                    <span className="ml-2 text-sm text-gray-700">Producto disponible</span>
-                  </label>
-                </div>
-
-                {/* Errores */}
-                {editErrors.submit && (
-                  <div className="bg-red-50 border border-red-200 rounded-md p-3">
-                    <p className="text-red-600 text-sm">{editErrors.submit}</p>
-                  </div>
-                )}
-
-                {/* Botones */}
-                <div className="flex space-x-3 pt-4">
-                  <button
-                    type="submit"
-                    disabled={uploading}
-                    className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
-                  >
-                    {uploading ? (
-                      <>
-                        <i className="bi bi-arrow-clockwise animate-spin me-2"></i>
-                        Guardando...
-                      </>
-                    ) : (
-                      <>
-                        <i className="bi bi-check-lg me-2"></i>
-                        Guardar Cambios
-                      </>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCloseEditModal}
-                    disabled={uploading}
-                    className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
+    
 
       {/* Botón flotante para crear pedido */}
       <button
