@@ -238,47 +238,21 @@ export default function DeliveryDashboard() {
                 {/* Header del pedido */}
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(order.status)}`}>
                         {getStatusText(order.status)}
                       </span>
-                      {order.timing?.type === 'scheduled' && (
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 border border-orange-200">
-                          Programado
-                        </span>
-                      )}
-                      {/* Badge de método de pago */}
-                      {order.payment?.method === 'cash' && (
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
-                          💵 Efectivo
-                        </span>
-                      )}
-                      {order.payment?.method === 'transfer' && (
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
-                          💳 Transferencia
-                        </span>
-                      )}
-                      {order.payment?.method === 'mixed' && (
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 border border-purple-200">
-                          💰 Mixto
-                        </span>
-                      )}
                     </div>
-                    {/* Mostrar hora destacada siempre */}
-                    <div className="mt-1">
-                      <p className="text-xs text-gray-500">
-                        {order.timing?.type === 'scheduled' ? 'Hora programada:' : 'Hora de pedido:'}
-                      </p>
-                      <p className={`text-base font-semibold ${order.timing?.type === 'scheduled' ? 'text-orange-600' : 'text-blue-600'}`}>
-                        🕐 {order.timing?.type === 'scheduled' && order.timing.scheduledTime 
-                          ? order.timing.scheduledTime 
-                          : new Date(order.createdAt).toLocaleString('es-EC', {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })
-                        }
-                      </p>
-                    </div>
+                    {/* Mostrar hora destacada siempre en azul */}
+                    <p className="text-lg font-semibold text-blue-600">
+                      🕐 {order.timing?.type === 'scheduled' && order.timing.scheduledTime 
+                        ? order.timing.scheduledTime 
+                        : new Date(order.createdAt).toLocaleString('es-EC', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })
+                      }
+                    </p>
                   </div>
                   <div className="text-right">
                     {/* Solo mostrar total si NO es transferencia */}
@@ -292,14 +266,14 @@ export default function DeliveryDashboard() {
                 </div>
 
                 {/* Cliente */}
-                <div className="mb-3 pb-3 border-b border-gray-100">
-                  <div className="flex items-center gap-2 text-sm">
+                <div className="mb-2 pb-2 border-b border-gray-100">
+                  <div className="flex items-center gap-2 text-sm mb-1">
                     <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
                     <span className="font-medium text-gray-900">{order.customer.name}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-sm mt-1">
+                  <div className="flex items-center gap-2 text-sm">
                     <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                     </svg>
@@ -325,7 +299,7 @@ export default function DeliveryDashboard() {
 
                 {/* Dirección */}
                 {order.delivery.type === 'delivery' && (
-                  <div className="mb-3">
+                  <div className="mb-2">
                     <div className="flex items-start gap-2 text-sm">
                       <svg className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -354,7 +328,7 @@ export default function DeliveryDashboard() {
                 )}
 
                 {/* Productos */}
-                <div className="text-sm text-gray-600 mb-3">
+                <div className="text-sm text-gray-600 mb-2">
                   <p className="font-medium text-gray-700 mb-1">Productos:</p>
                   <ul className="space-y-0.5">
                     {order.items.slice(0, 2).map((item, idx) => (
@@ -370,19 +344,19 @@ export default function DeliveryDashboard() {
                   </ul>
                 </div>
 
-                {/* Botón de marcar como entregado */}
+                {/* Botón de marcar como entregado - solo ícono */}
                 {order.status !== 'delivered' && order.status !== 'cancelled' && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
                       handleStatusChange(order.id, 'delivered')
                     }}
-                    className="w-full py-1.5 px-3 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition-colors flex items-center justify-center gap-1.5"
+                    className="w-full py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center"
+                    title="Marcar como Entregado"
                   >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
-                    Marcar como Entregado
                   </button>
                 )}
               </div>

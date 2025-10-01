@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { uploadImage, createDelivery, getAllDeliveries, toggleDeliveryStatus, updateDelivery, deleteDelivery, type Delivery } from '@/lib/database'
+import { uploadImage, createDelivery, getAllDeliveries, toggleDeliveryStatus, updateDelivery, deleteDelivery } from '@/lib/database'
+import { Delivery } from '@/types'
 
 // Función para normalizar números de teléfono
 const normalizePhone = (phone: string): string => {
