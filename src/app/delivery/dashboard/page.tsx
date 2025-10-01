@@ -238,7 +238,7 @@ export default function DeliveryDashboard() {
                 {/* Header del pedido */}
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(order.status)}`}>
                         {getStatusText(order.status)}
                       </span>
@@ -247,18 +247,47 @@ export default function DeliveryDashboard() {
                           Programado
                         </span>
                       )}
+                      {/* Badge de método de pago */}
+                      {order.payment?.method === 'cash' && (
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
+                          💵 Efectivo
+                        </span>
+                      )}
+                      {order.payment?.method === 'transfer' && (
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
+                          💳 Transferencia
+                        </span>
+                      )}
+                      {order.payment?.method === 'mixed' && (
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 border border-purple-200">
+                          💰 Mixto
+                        </span>
+                      )}
                     </div>
-                    <p className="text-sm text-gray-500">
-                      {new Date(order.createdAt).toLocaleString('es-EC', {
-                        day: '2-digit',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </p>
+                    {/* Mostrar hora destacada siempre */}
+                    <div className="mt-1">
+                      <p className="text-xs text-gray-500">
+                        {order.timing?.type === 'scheduled' ? 'Hora programada:' : 'Hora de pedido:'}
+                      </p>
+                      <p className={`text-base font-semibold ${order.timing?.type === 'scheduled' ? 'text-orange-600' : 'text-blue-600'}`}>
+                        🕐 {order.timing?.type === 'scheduled' && order.timing.scheduledTime 
+                          ? order.timing.scheduledTime 
+                          : new Date(order.createdAt).toLocaleString('es-EC', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })
+                        }
+                      </p>
+                    </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-lg font-bold text-gray-900">${order.total.toFixed(2)}</p>
+                    {/* Solo mostrar total si NO es transferencia */}
+                    {order.payment?.method !== 'transfer' && (
+                      <p className="text-lg font-bold text-gray-900">${order.total.toFixed(2)}</p>
+                    )}
+                    {order.payment?.method === 'transfer' && (
+                      <p className="text-sm text-gray-500">Pagado</p>
+                    )}
                   </div>
                 </div>
 
@@ -274,8 +303,22 @@ export default function DeliveryDashboard() {
                     <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                     </svg>
-                    <a href={`tel:${order.customer.phone}`} className="text-blue-600 hover:underline">
+                    <a 
+                      href={`https://wa.me/593${order.customer.phone.slice(1)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-blue-600 hover:underline"
+                    >
                       {order.customer.phone}
+                    </a>
+                    <a
+                      href={`tel:${order.customer.phone}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="ml-1 p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
+                      title="Llamar"
+                    >
+                      <i className="bi bi-telephone-fill text-sm"></i>
                     </a>
                   </div>
                 </div>
@@ -311,7 +354,7 @@ export default function DeliveryDashboard() {
                 )}
 
                 {/* Productos */}
-                <div className="text-sm text-gray-600">
+                <div className="text-sm text-gray-600 mb-3">
                   <p className="font-medium text-gray-700 mb-1">Productos:</p>
                   <ul className="space-y-0.5">
                     {order.items.slice(0, 2).map((item, idx) => (
@@ -326,6 +369,22 @@ export default function DeliveryDashboard() {
                     )}
                   </ul>
                 </div>
+
+                {/* Botón de marcar como entregado */}
+                {order.status !== 'delivered' && order.status !== 'cancelled' && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleStatusChange(order.id, 'delivered')
+                    }}
+                    className="w-full py-1.5 px-3 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Marcar como Entregado
+                  </button>
+                )}
               </div>
             ))}
           </div>
