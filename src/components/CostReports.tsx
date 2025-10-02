@@ -1,11 +1,25 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { Business } from '@/types'
-import { calculateCostReport, CostReport } from '@/lib/database'
+import { Business, Order, Delivery } from '@/types'
+import { calculateCostReport, CostReport, getOrdersByBusiness, getDeliveriesByStatus } from '@/lib/database'
 
 interface CostReportsProps {
   business: Business | null
+}
+
+type ReportType = 'costs' | 'deliveries' | 'general'
+
+interface DeliveryReport {
+  deliveryId: string
+  deliveryName: string
+  totalOrders: number
+  cashCollected: number
+  transferCollected: number
+  totalCollected: number
+  deliveryEarnings: number
+  averageDeliveryTime: number
+  orders: Order[]
 }
 
 export default function CostReports({ business }: CostReportsProps) {
@@ -15,6 +29,11 @@ export default function CostReports({ business }: CostReportsProps) {
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [expandedIngredient, setExpandedIngredient] = useState<string | null>(null)
+  const [reportType, setReportType] = useState<ReportType>('general')
+  const [deliveries, setDeliveries] = useState<Delivery[]>([])
+  const [selectedDelivery, setSelectedDelivery] = useState<string>('all')
+  const [deliveryReports, setDeliveryReports] = useState<DeliveryReport[]>([])
+  const [orders, setOrders] = useState<Order[]>([])
 
   const getDateRange = () => {
     const now = new Date()
@@ -47,8 +66,30 @@ export default function CostReports({ business }: CostReportsProps) {
     setLoading(true)
     try {
       const { start, end } = getDateRange()
-      const reportData = await calculateCostReport(business.id, start, end)
-      setReport(reportData)
+      
+      // Cargar datos según el tipo de reporte
+      if (reportType === 'costs') {
+        const reportData = await calculateCostReport(business.id, start, end)
+        setReport(reportData)
+      } else if (reportType === 'deliveries' || reportType === 'general') {
+        // Cargar órdenes y deliveries
+        const [ordersData, deliveriesData] = await Promise.all([
+          getOrdersByBusiness(business.id),
+          getDeliveriesByStatus('activo')
+        ])
+        
+        // Filtrar órdenes por rango de fechas
+        const filteredOrders = ordersData.filter(order => {
+          const orderDate = order.createdAt instanceof Date ? order.createdAt : new Date(order.createdAt)
+          return orderDate >= start && orderDate <= end
+        })
+        
+        setOrders(filteredOrders)
+        setDeliveries(deliveriesData)
+        
+        // Calcular reportes por delivery
+        calculateDeliveryReports(filteredOrders, deliveriesData)
+      }
     } catch (error) {
       console.error('Error loading report:', error)
       alert('Error al cargar el reporte')
@@ -57,9 +98,69 @@ export default function CostReports({ business }: CostReportsProps) {
     }
   }
 
+  const calculateDeliveryReports = (ordersData: Order[], deliveriesData: Delivery[]) => {
+    const reports: DeliveryReport[] = []
+    
+    // Reporte para cada delivery
+    deliveriesData.forEach(delivery => {
+      const deliveryOrders = ordersData.filter(order => 
+        order.delivery?.assignedDelivery === delivery.id && 
+        order.status === 'delivered'
+      )
+      
+      if (deliveryOrders.length === 0) return
+      
+      let cashCollected = 0
+      let transferCollected = 0
+      let totalDeliveryFees = 0
+      let totalDeliveryTime = 0
+      let ordersWithTime = 0
+      
+      deliveryOrders.forEach(order => {
+        // Calcular efectivo y transferencias
+        if (order.payment?.method === 'cash') {
+          cashCollected += order.total
+        } else if (order.payment?.method === 'transfer') {
+          transferCollected += order.total
+        } else if (order.payment?.method === 'mixed') {
+          cashCollected += order.payment?.cashAmount || 0
+          transferCollected += order.payment?.transferAmount || 0
+        }
+        
+        // Calcular ganancia del delivery (costo de envío)
+        if (order.delivery?.type === 'delivery') {
+          totalDeliveryFees += order.delivery?.deliveryCost || 0
+        }
+        
+        // Calcular tiempo de entrega (diferencia entre createdAt y updatedAt cuando status es delivered)
+        if (order.status === 'delivered') {
+          const createdAt = order.createdAt instanceof Date ? order.createdAt : new Date(order.createdAt)
+          const updatedAt = order.updatedAt instanceof Date ? order.updatedAt : new Date(order.updatedAt)
+          const deliveryTimeMinutes = (updatedAt.getTime() - createdAt.getTime()) / (1000 * 60)
+          totalDeliveryTime += deliveryTimeMinutes
+          ordersWithTime++
+        }
+      })
+      
+      reports.push({
+        deliveryId: delivery.id,
+        deliveryName: delivery.nombres,
+        totalOrders: deliveryOrders.length,
+        cashCollected,
+        transferCollected,
+        totalCollected: cashCollected + transferCollected,
+        deliveryEarnings: totalDeliveryFees,
+        averageDeliveryTime: ordersWithTime > 0 ? totalDeliveryTime / ordersWithTime : 0,
+        orders: deliveryOrders
+      })
+    })
+    
+    setDeliveryReports(reports)
+  }
+
   useEffect(() => {
     loadReport()
-  }, [business?.id, dateRange])
+  }, [business?.id, dateRange, reportType])
 
   if (!business) {
     return (
@@ -76,56 +177,94 @@ export default function CostReports({ business }: CostReportsProps) {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h2 className="text-2xl font-bold text-gray-900">
-              <i className="bi bi-graph-up me-2"></i>
-              Reporte de Costos
+              <i className="bi bi-bar-chart-line me-2"></i>
+              Panel de Reportes
             </h2>
             <p className="text-sm text-gray-500 mt-1">
-              Análisis de costos e ingredientes consumidos
+              Análisis completo de ventas, costos y entregas
             </p>
           </div>
+        </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setDateRange('today')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                dateRange === 'today'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Hoy
-            </button>
-            <button
-              onClick={() => setDateRange('week')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                dateRange === 'week'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              7 días
-            </button>
-            <button
-              onClick={() => setDateRange('month')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                dateRange === 'month'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              30 días
-            </button>
-            <button
-              onClick={() => setDateRange('custom')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                dateRange === 'custom'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Personalizado
-            </button>
-          </div>
+        {/* Selector de tipo de reporte */}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            onClick={() => setReportType('general')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              reportType === 'general'
+                ? 'bg-red-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            <i className="bi bi-graph-up me-2"></i>
+            General
+          </button>
+          <button
+            onClick={() => setReportType('deliveries')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              reportType === 'deliveries'
+                ? 'bg-red-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            <i className="bi bi-truck me-2"></i>
+            Por Delivery
+          </button>
+          <button
+            onClick={() => setReportType('costs')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              reportType === 'costs'
+                ? 'bg-red-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            <i className="bi bi-basket me-2"></i>
+            Costos e Ingredientes
+          </button>
+        </div>
+
+        {/* Filtros de fecha */}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            onClick={() => setDateRange('today')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              dateRange === 'today'
+                ? 'bg-red-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Hoy
+          </button>
+          <button
+            onClick={() => setDateRange('week')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              dateRange === 'week'
+                ? 'bg-red-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            7 días
+          </button>
+          <button
+            onClick={() => setDateRange('month')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              dateRange === 'month'
+                ? 'bg-red-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            30 días
+          </button>
+          <button
+            onClick={() => setDateRange('custom')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              dateRange === 'custom'
+                ? 'bg-red-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Personalizado
+          </button>
         </div>
 
         {dateRange === 'custom' && (
@@ -160,11 +299,38 @@ export default function CostReports({ business }: CostReportsProps) {
         )}
       </div>
 
+      {/* Filtro por delivery (solo visible en reporte de deliveries) */}
+      {reportType === 'deliveries' && deliveries.length > 0 && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Filtrar por Delivery
+          </label>
+          <select
+            value={selectedDelivery}
+            onChange={(e) => setSelectedDelivery(e.target.value)}
+            className="w-full md:w-64 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+          >
+            <option value="all">Todos los deliveries</option>
+            {deliveries.map(delivery => (
+              <option key={delivery.id} value={delivery.id}>
+                {delivery.nombres}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Generando reporte...</p>
         </div>
+      ) : reportType === 'general' ? (
+        <GeneralReport orders={orders} />
+      ) : reportType === 'deliveries' ? (
+        <DeliveryReportsView 
+          reports={deliveryReports.filter(r => selectedDelivery === 'all' || r.deliveryId === selectedDelivery)}
+        />
       ) : report ? (
         <>
           {/* Resumen General */}
@@ -398,6 +564,390 @@ export default function CostReports({ business }: CostReportsProps) {
           No hay datos para el período seleccionado
         </div>
       )}
+    </div>
+  )
+}
+
+// Componente para reporte general
+function GeneralReport({ orders }: { orders: Order[] }) {
+  const deliveredOrders = orders.filter(o => o.status === 'delivered')
+  
+  const totalRevenue = deliveredOrders.reduce((sum, order) => sum + order.total, 0)
+  const cashRevenue = deliveredOrders.reduce((sum, order) => {
+    if (order.payment?.method === 'cash') return sum + order.total
+    if (order.payment?.method === 'mixed') return sum + (order.payment?.cashAmount || 0)
+    return sum
+  }, 0)
+  const transferRevenue = deliveredOrders.reduce((sum, order) => {
+    if (order.payment?.method === 'transfer') return sum + order.total
+    if (order.payment?.method === 'mixed') return sum + (order.payment?.transferAmount || 0)
+    return sum
+  }, 0)
+  const deliveryOrders = deliveredOrders.filter(o => o.delivery?.type === 'delivery')
+  const pickupOrders = deliveredOrders.filter(o => o.delivery?.type === 'pickup')
+  const totalDeliveryFees = deliveryOrders.reduce((sum, order) => sum + (order.delivery?.deliveryCost || 0), 0)
+  
+  return (
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Ingresos Totales</p>
+              <p className="text-2xl font-bold text-emerald-600">
+                ${totalRevenue.toFixed(2)}
+              </p>
+            </div>
+            <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center">
+              <i className="bi bi-cash-stack text-emerald-600 text-xl"></i>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            {deliveredOrders.length} pedidos entregados
+          </p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Efectivo</p>
+              <p className="text-2xl font-bold text-green-600">
+                ${cashRevenue.toFixed(2)}
+              </p>
+            </div>
+            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+              <i className="bi bi-cash text-green-600 text-xl"></i>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Transferencias</p>
+              <p className="text-2xl font-bold text-blue-600">
+                ${transferRevenue.toFixed(2)}
+              </p>
+            </div>
+            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+              <i className="bi bi-bank text-blue-600 text-xl"></i>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Ganancias Delivery</p>
+              <p className="text-2xl font-bold text-purple-600">
+                ${totalDeliveryFees.toFixed(2)}
+              </p>
+            </div>
+            <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+              <i className="bi bi-truck text-purple-600 text-xl"></i>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            {deliveryOrders.length} entregas
+          </p>
+        </div>
+      </div>
+
+      {/* Desglose por tipo de entrega */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            <i className="bi bi-truck me-2"></i>
+            Entregas a Domicilio
+          </h3>
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <span className="text-gray-600">Pedidos:</span>
+              <span className="font-semibold">{deliveryOrders.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Ingresos:</span>
+              <span className="font-semibold text-emerald-600">
+                ${deliveryOrders.reduce((sum, o) => sum + o.total, 0).toFixed(2)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Costo de envíos:</span>
+              <span className="font-semibold text-purple-600">
+                ${totalDeliveryFees.toFixed(2)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            <i className="bi bi-shop me-2"></i>
+            Retiro en Tienda
+          </h3>
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <span className="text-gray-600">Pedidos:</span>
+              <span className="font-semibold">{pickupOrders.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Ingresos:</span>
+              <span className="font-semibold text-emerald-600">
+                ${pickupOrders.reduce((sum, o) => sum + o.total, 0).toFixed(2)}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Métodos de pago */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          <i className="bi bi-credit-card me-2"></i>
+          Métodos de Pago
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="text-center p-4 bg-green-50 rounded-lg">
+            <i className="bi bi-cash text-3xl text-green-600 mb-2"></i>
+            <p className="text-sm text-gray-600">Efectivo</p>
+            <p className="text-xl font-bold text-green-600">${cashRevenue.toFixed(2)}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {deliveredOrders.filter(o => o.payment?.method === 'cash' || o.payment?.method === 'mixed').length} pedidos
+            </p>
+          </div>
+          <div className="text-center p-4 bg-blue-50 rounded-lg">
+            <i className="bi bi-bank text-3xl text-blue-600 mb-2"></i>
+            <p className="text-sm text-gray-600">Transferencia</p>
+            <p className="text-xl font-bold text-blue-600">${transferRevenue.toFixed(2)}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {deliveredOrders.filter(o => o.payment?.method === 'transfer' || o.payment?.method === 'mixed').length} pedidos
+            </p>
+          </div>
+          <div className="text-center p-4 bg-purple-50 rounded-lg">
+            <i className="bi bi-wallet2 text-3xl text-purple-600 mb-2"></i>
+            <p className="text-sm text-gray-600">Pago Mixto</p>
+            <p className="text-xl font-bold text-purple-600">
+              {deliveredOrders.filter(o => o.payment?.method === 'mixed').length}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">pedidos</p>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// Componente para reportes de delivery
+function DeliveryReportsView({ reports }: { reports: DeliveryReport[] }) {
+  const [expandedDelivery, setExpandedDelivery] = useState<string | null>(null)
+  
+  if (reports.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-500">
+        No hay datos de entregas para el período seleccionado
+      </div>
+    )
+  }
+  
+  return (
+    <div className="space-y-4">
+      {/* Resumen total */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Total Entregas</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {reports.reduce((sum, r) => sum + r.totalOrders, 0)}
+              </p>
+            </div>
+            <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center">
+              <i className="bi bi-box-seam text-gray-600 text-xl"></i>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Efectivo Total</p>
+              <p className="text-2xl font-bold text-green-600">
+                ${reports.reduce((sum, r) => sum + r.cashCollected, 0).toFixed(2)}
+              </p>
+            </div>
+            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+              <i className="bi bi-cash text-green-600 text-xl"></i>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Transferencias</p>
+              <p className="text-2xl font-bold text-blue-600">
+                ${reports.reduce((sum, r) => sum + r.transferCollected, 0).toFixed(2)}
+              </p>
+            </div>
+            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+              <i className="bi bi-bank text-blue-600 text-xl"></i>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Ganancias Delivery</p>
+              <p className="text-2xl font-bold text-purple-600">
+                ${reports.reduce((sum, r) => sum + r.deliveryEarnings, 0).toFixed(2)}
+              </p>
+            </div>
+            <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+              <i className="bi bi-truck text-purple-600 text-xl"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabla de deliveries */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900">
+            <i className="bi bi-people me-2"></i>
+            Reporte por Delivery
+          </h3>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Delivery
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Entregas
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Efectivo
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Transferencia
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Total Cobrado
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Ganancia
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Tiempo Promedio
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Detalles
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {reports.map((report) => (
+                <React.Fragment key={report.deliveryId}>
+                  <tr className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="font-medium text-gray-900">{report.deliveryName}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="font-semibold text-gray-900">{report.totalOrders}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-green-600 font-medium">
+                      ${report.cashCollected.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-blue-600 font-medium">
+                      ${report.transferCollected.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-emerald-600 font-semibold">
+                      ${report.totalCollected.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-purple-600 font-semibold">
+                      ${report.deliveryEarnings.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
+                      {report.averageDeliveryTime > 0 ? (
+                        <span>{Math.round(report.averageDeliveryTime)} min</span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <button
+                        onClick={() => setExpandedDelivery(
+                          expandedDelivery === report.deliveryId ? null : report.deliveryId
+                        )}
+                        className="text-blue-600 hover:text-blue-800 text-sm"
+                      >
+                        <i className={`bi ${expandedDelivery === report.deliveryId ? 'bi-chevron-up' : 'bi-chevron-down'} me-1`}></i>
+                        {expandedDelivery === report.deliveryId ? 'Ocultar' : 'Ver'}
+                      </button>
+                    </td>
+                  </tr>
+                  {expandedDelivery === report.deliveryId && (
+                    <tr>
+                      <td colSpan={8} className="px-6 py-4 bg-gray-50">
+                        <div className="space-y-3">
+                          <h4 className="font-semibold text-gray-900 mb-3">Pedidos entregados:</h4>
+                          {report.orders.map((order, idx) => {
+                            const orderDate = order.createdAt instanceof Date ? order.createdAt : new Date(order.createdAt)
+                            const deliveredDate = order.updatedAt instanceof Date ? order.updatedAt : new Date(order.updatedAt)
+                            const deliveryTime = Math.round((deliveredDate.getTime() - orderDate.getTime()) / (1000 * 60))
+                            
+                            return (
+                              <div key={idx} className="bg-white p-4 rounded-lg border border-gray-200">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                                  <div>
+                                    <span className="text-gray-500">Cliente:</span>
+                                    <p className="font-medium text-gray-900">{order.customer?.name}</p>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-500">Total:</span>
+                                    <p className="font-semibold text-emerald-600">${order.total.toFixed(2)}</p>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-500">Método de pago:</span>
+                                    <p className="font-medium">
+                                      {order.payment?.method === 'cash' ? '💵 Efectivo' :
+                                       order.payment?.method === 'transfer' ? '🏦 Transferencia' :
+                                       order.payment?.method === 'mixed' ? '💳 Mixto' : 'Sin especificar'}
+                                    </p>
+                                    {order.payment?.method === 'mixed' && (
+                                      <p className="text-xs text-gray-600 mt-1">
+                                        Efectivo: ${order.payment?.cashAmount?.toFixed(2)} | 
+                                        Transferencia: ${order.payment?.transferAmount?.toFixed(2)}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-500">Tiempo de entrega:</span>
+                                    <p className="font-medium text-gray-900">{deliveryTime} min</p>
+                                  </div>
+                                </div>
+                                <div className="mt-2 pt-2 border-t border-gray-100">
+                                  <span className="text-xs text-gray-500">
+                                    Pedido: {orderDate.toLocaleDateString()} {orderDate.toLocaleTimeString()}
+                                  </span>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   )
 }
