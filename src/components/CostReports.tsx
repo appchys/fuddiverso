@@ -132,13 +132,18 @@ export default function CostReports({ business }: CostReportsProps) {
           totalDeliveryFees += order.delivery?.deliveryCost || 0
         }
         
-        // Calcular tiempo de entrega (diferencia entre createdAt y updatedAt cuando status es delivered)
+        // Calcular tiempo de entrega usando deliveredAt (o statusHistory.deliveredAt), con fallback a updatedAt
         if (order.status === 'delivered') {
           const createdAt = order.createdAt instanceof Date ? order.createdAt : new Date(order.createdAt)
-          const updatedAt = order.updatedAt instanceof Date ? order.updatedAt : new Date(order.updatedAt)
-          const deliveryTimeMinutes = (updatedAt.getTime() - createdAt.getTime()) / (1000 * 60)
-          totalDeliveryTime += deliveryTimeMinutes
-          ordersWithTime++
+          const deliveredAtSource: any = (order as any).deliveredAt || (order as any)?.statusHistory?.deliveredAt || order.updatedAt
+          const deliveredAtDate = deliveredAtSource instanceof Date
+            ? deliveredAtSource
+            : (deliveredAtSource?.toDate ? deliveredAtSource.toDate() : new Date(deliveredAtSource))
+          const deliveryTimeMinutes = (deliveredAtDate.getTime() - createdAt.getTime()) / (1000 * 60)
+          if (isFinite(deliveryTimeMinutes) && deliveryTimeMinutes >= 0) {
+            totalDeliveryTime += deliveryTimeMinutes
+            ordersWithTime++
+          }
         }
       })
       

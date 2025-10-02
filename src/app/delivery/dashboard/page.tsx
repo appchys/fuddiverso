@@ -16,6 +16,63 @@ export default function DeliveryDashboard() {
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('active')
 
+  // Resúmenes para el delivery logueado (ingresos por método y ganancia por envíos)
+  // Filtro de fecha para el resumen (por defecto: hoy)
+  const [summaryRange, setSummaryRange] = useState<'today' | 'yesterday' | '7d' | 'all' | 'custom'>('today')
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
+
+  const getRange = () => {
+    const now = new Date()
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)
+    if (summaryRange === 'today') return { start: todayStart, end: todayEnd }
+    if (summaryRange === 'yesterday') {
+      const yStart = new Date(todayStart)
+      yStart.setDate(todayStart.getDate() - 1)
+      const yEnd = new Date(todayStart)
+      return { start: yStart, end: yEnd }
+    }
+    if (summaryRange === '7d') {
+      const start = new Date(todayStart)
+      start.setDate(todayStart.getDate() - 7)
+      return { start, end: now }
+    }
+    if (summaryRange === 'custom') {
+      const start = customStartDate ? new Date(customStartDate) : todayStart
+      const end = customEndDate ? new Date(new Date(customEndDate).getTime() + 24*60*60*1000) : now
+      return { start, end }
+    }
+    return { start: new Date(0), end: now }
+  }
+
+  const { start: rangeStart, end: rangeEnd } = getRange()
+
+  const deliveredByMe = orders.filter(o => {
+    if (!(o.status === 'delivered' && o.delivery?.assignedDelivery === deliveryId)) return false
+    // Usar deliveredAt (o statusHistory.deliveredAt) para el rango
+    const deliveredAtSource: any = (o as any).deliveredAt || (o as any)?.statusHistory?.deliveredAt || o.updatedAt
+    const deliveredAtDate = deliveredAtSource instanceof Date
+      ? deliveredAtSource
+      : (deliveredAtSource?.toDate ? deliveredAtSource.toDate() : new Date(deliveredAtSource))
+    return deliveredAtDate >= rangeStart && deliveredAtDate <= rangeEnd
+  })
+
+  const summaryCash = deliveredByMe.reduce((sum, o) => {
+    if (o.payment?.method === 'cash') return sum + o.total
+    if (o.payment?.method === 'mixed') return sum + ((o.payment as any)?.cashAmount || 0)
+    return sum
+  }, 0)
+  const summaryTransfer = deliveredByMe.reduce((sum, o) => {
+    if (o.payment?.method === 'transfer') return sum + o.total
+    if (o.payment?.method === 'mixed') return sum + ((o.payment as any)?.transferAmount || 0)
+    return sum
+  }, 0)
+  const summaryEarnings = deliveredByMe.reduce((sum, o) => {
+    if (o.delivery?.type === 'delivery') return sum + (o.delivery?.deliveryCost || 0)
+    return sum
+  }, 0)
+
   // Protección de ruta
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -178,6 +235,41 @@ export default function DeliveryDashboard() {
           </div>
         </div>
       </header>
+
+      {/* Resumen del Delivery (cobros y ganancias) */}
+      <div className="bg-white border-b">
+        <div className="px-4 py-3 space-y-3">
+          {/* Filtros de rango */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => setSummaryRange('today')} className={`px-3 py-1.5 rounded text-sm ${summaryRange==='today'?'bg-blue-600 text-white':'bg-gray-100 text-gray-700'}`}>Hoy</button>
+            <button onClick={() => setSummaryRange('yesterday')} className={`px-3 py-1.5 rounded text-sm ${summaryRange==='yesterday'?'bg-blue-600 text-white':'bg-gray-100 text-gray-700'}`}>Ayer</button>
+            <button onClick={() => setSummaryRange('7d')} className={`px-3 py-1.5 rounded text-sm ${summaryRange==='7d'?'bg-blue-600 text-white':'bg-gray-100 text-gray-700'}`}>7 días</button>
+            <button onClick={() => setSummaryRange('all')} className={`px-3 py-1.5 rounded text-sm ${summaryRange==='all'?'bg-blue-600 text-white':'bg-gray-100 text-gray-700'}`}>Todo</button>
+            <button onClick={() => setSummaryRange('custom')} className={`px-3 py-1.5 rounded text-sm ${summaryRange==='custom'?'bg-blue-600 text-white':'bg-gray-100 text-gray-700'}`}>Personalizado</button>
+            {summaryRange === 'custom' && (
+              <div className="flex items-center gap-2">
+                <input type="date" value={customStartDate} onChange={e=>setCustomStartDate(e.target.value)} className="px-2 py-1 border rounded" />
+                <span className="text-gray-500 text-sm">a</span>
+                <input type="date" value={customEndDate} onChange={e=>setCustomEndDate(e.target.value)} className="px-2 py-1 border rounded" />
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-3 rounded-lg border bg-green-50">
+              <p className="text-xs text-gray-600">Cobrado en efectivo</p>
+              <p className="text-lg font-bold text-green-700">${summaryCash.toFixed(2)}</p>
+            </div>
+            <div className="p-3 rounded-lg border bg-blue-50">
+              <p className="text-xs text-gray-600">Cobrado por transferencia</p>
+              <p className="text-lg font-bold text-blue-700">${summaryTransfer.toFixed(2)}</p>
+            </div>
+            <div className="p-3 rounded-lg border bg-purple-50">
+              <p className="text-xs text-gray-600">Ganancia por delivery</p>
+              <p className="text-lg font-bold text-purple-700">${summaryEarnings.toFixed(2)}</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Filtros */}
       <div className="bg-white border-b sticky top-[60px] sm:top-[68px] z-10">
