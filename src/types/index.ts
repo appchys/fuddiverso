@@ -156,6 +156,7 @@ export interface Order {
   status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
   createdAt: Date
   updatedAt: Date
+  deliveredAt?: Date | Timestamp // Fecha y hora cuando se marcó como entregado
   createdByAdmin?: boolean
 }
 

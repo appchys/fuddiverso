@@ -436,7 +436,9 @@ export default function CostReports({ business }: CostReportsProps) {
                           <span className="font-medium text-gray-900">{ingredient.ingredientName}</span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-gray-700">
-                          {ingredient.totalQuantity.toFixed(2)}
+                          {Number.isInteger(ingredient.totalQuantity) 
+                            ? ingredient.totalQuantity 
+                            : ingredient.totalQuantity.toFixed(2)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-gray-700">
                           ${ingredient.unitCost.toFixed(2)}
