@@ -437,8 +437,14 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
     // Filtrar valores undefined antes de enviar a Firestore
     const cleanOrderData = cleanObject(orderData)
     
+    const initialStatusHistory =
+      (cleanOrderData as any)?.status === 'pending'
+        ? { statusHistory: { pendingAt: serverTimestamp() } }
+        : {}
+
     const docRef = await addDoc(collection(db, 'orders'), {
       ...cleanOrderData,
+      ...initialStatusHistory,
       createdAt: serverTimestamp()
     })
     return docRef.id
@@ -538,10 +544,28 @@ export async function getAllOrders(): Promise<Order[]> {
 export async function updateOrderStatus(orderId: string, status: Order['status']) {
   try {
     const docRef = doc(db, 'orders', orderId)
-    await updateDoc(docRef, { 
+    // Mapear el campo de historial correspondiente al estado
+    const historyFieldMap: Record<Order['status'], string> = {
+      pending: 'statusHistory.pendingAt',
+      confirmed: 'statusHistory.confirmedAt',
+      preparing: 'statusHistory.preparingAt',
+      ready: 'statusHistory.readyAt',
+      delivered: 'statusHistory.deliveredAt',
+      cancelled: 'statusHistory.cancelledAt'
+    }
+
+    const updatePayload: any = {
       status,
-      updatedAt: serverTimestamp()
-    })
+      updatedAt: serverTimestamp(),
+      [historyFieldMap[status]]: serverTimestamp()
+    }
+
+    // Además, mantener un alias plano deliveredAt para consultas/UX cuando aplica
+    if (status === 'delivered') {
+      updatePayload.deliveredAt = serverTimestamp()
+    }
+
+    await updateDoc(docRef, updatePayload)
   } catch (error) {
     console.error('Error updating order status:', error)
     throw error

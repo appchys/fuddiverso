@@ -158,6 +158,15 @@ export interface Order {
   updatedAt: Date
   deliveredAt?: Date | Timestamp // Fecha y hora cuando se marcó como entregado
   createdByAdmin?: boolean
+  // Timestamps para cada cambio de estado
+  statusHistory?: {
+    pendingAt?: Date | Timestamp
+    confirmedAt?: Date | Timestamp
+    preparingAt?: Date | Timestamp
+    readyAt?: Date | Timestamp
+    deliveredAt?: Date | Timestamp
+    cancelledAt?: Date | Timestamp
+  }
 }
 
 export interface Delivery {
