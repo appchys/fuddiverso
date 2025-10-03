@@ -337,8 +337,8 @@ export default function DeliveryDashboard() {
                     </div>
                     {/* Mostrar hora destacada siempre en azul */}
                     <p className="text-lg font-semibold text-blue-600">
-                      🕐 {order.timing?.type === 'scheduled' && order.timing.scheduledTime 
-                        ? order.timing.scheduledTime 
+                      🕐 {order.timing?.scheduledTime
+                        ? order.timing.scheduledTime
                         : new Date(order.createdAt).toLocaleString('es-EC', {
                             hour: '2-digit',
                             minute: '2-digit'
