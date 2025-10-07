@@ -1152,9 +1152,9 @@ export default function ManualOrderSidebar({
                   <div className="flex items-start space-x-3">
                     {/* Mapa estático de la ubicación seleccionada */}
                     {manualOrderData.selectedLocation.latlong && (
-                      <div className="w-16 h-16 flex-shrink-0 bg-gray-200 rounded-md overflow-hidden relative">
+                      <div className="w-64 h-[76px] flex-shrink-0 bg-gray-200 rounded-md overflow-hidden relative">
                         <img
-                          src={`https://maps.googleapis.com/maps/api/staticmap?center=${manualOrderData.selectedLocation.latlong}&zoom=15&size=64x64&maptype=roadmap&markers=color:red%7C${manualOrderData.selectedLocation.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
+                          src={`https://maps.googleapis.com/maps/api/staticmap?center=${manualOrderData.selectedLocation.latlong}&zoom=14&size=256x76&maptype=roadmap&markers=color:red%7C${manualOrderData.selectedLocation.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
                           alt="Ubicación en mapa"
                           className="w-full h-full object-cover"
                           onError={(e) => {
