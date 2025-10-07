@@ -1149,41 +1149,41 @@ export default function ManualOrderSidebar({
                   className="p-3 bg-green-50 border border-green-200 rounded-md mb-3 relative cursor-pointer hover:bg-green-100 transition-colors"
                   onClick={() => setShowLocationModal(true)}
                 >
-                  <div className="flex items-start space-x-3">
-                    {/* Mapa estático de la ubicación seleccionada */}
-                    {manualOrderData.selectedLocation.latlong && (
-                      <div className="w-64 h-[76px] flex-shrink-0 bg-gray-200 rounded-md overflow-hidden relative">
-                        <img
-                          src={`https://maps.googleapis.com/maps/api/staticmap?center=${manualOrderData.selectedLocation.latlong}&zoom=14&size=256x76&maptype=roadmap&markers=color:red%7C${manualOrderData.selectedLocation.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
-                          alt="Ubicación en mapa"
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                            const parent = target.parentElement;
-                            if (parent) {
-                              const fallback = parent.querySelector('.map-fallback') as HTMLElement;
-                              if (fallback) {
-                                fallback.style.display = 'flex';
-                              }
-                            }
-                          }}
-                        />
-                        <div className="map-fallback absolute inset-0 hidden w-full h-full flex items-center justify-center bg-gray-200">
-                          <i className="bi bi-geo-alt text-gray-400 text-lg"></i>
-                        </div>
-                      </div>
-                    )}
-                    
-                    <div className="flex-1">
+                  {/* Información de la ubicación */}
+                  <div className="flex justify-between items-center mb-2">
+                    <div>
                       <p className="text-sm font-medium text-green-800">{manualOrderData.selectedLocation.referencia}</p>
                       <p className="text-xs text-green-600">Tarifa: ${parseFloat(manualOrderData.selectedLocation.tarifa)}</p>
                     </div>
-                    
-                    <div className="text-green-600 flex-shrink-0">
+                    <div className="text-green-600">
                       <i className="bi bi-chevron-down"></i>
                     </div>
                   </div>
+                  
+                  {/* Mapa estático de la ubicación seleccionada */}
+                  {manualOrderData.selectedLocation.latlong && (
+                    <div className="w-full h-[76px] bg-gray-200 rounded-md overflow-hidden relative">
+                      <img
+                        src={`https://maps.googleapis.com/maps/api/staticmap?center=${manualOrderData.selectedLocation.latlong}&zoom=14&size=512x152&scale=2&maptype=roadmap&markers=color:red%7C${manualOrderData.selectedLocation.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
+                        alt="Ubicación en mapa"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          const parent = target.parentElement;
+                          if (parent) {
+                            const fallback = parent.querySelector('.map-fallback') as HTMLElement;
+                            if (fallback) {
+                              fallback.style.display = 'flex';
+                            }
+                          }
+                        }}
+                      />
+                      <div className="map-fallback absolute inset-0 hidden w-full h-full items-center justify-center bg-gray-200">
+                        <i className="bi bi-geo-alt text-gray-400 text-lg"></i>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="text-sm text-gray-500 mb-3">No hay ubicación seleccionada</p>
