@@ -1386,7 +1386,6 @@ export default function ManualOrderSidebar({
                     value={manualOrderData.scheduledDate}
                     onChange={(e) => setManualOrderData(prev => ({ ...prev, scheduledDate: e.target.value }))}
                     className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                    min={new Date().toISOString().split('T')[0]}
                   />
                 </div>
                 <div>
