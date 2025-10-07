@@ -415,13 +415,11 @@ export default function ManualOrderSidebar({
   // Actualizar datos del cliente
   const handleUpdateClient = async () => {
     if (!editingClient || !editingClient.nombres?.trim() || !editingClient.celular?.trim()) {
-      alert('Por favor complete todos los campos requeridos')
       return
     }
 
     const celular = normalizePhone(editingClient.celular.trim())
     if (celular.length < 10) {
-      alert('El número de teléfono debe tener al menos 10 dígitos')
       return
     }
 
@@ -433,7 +431,6 @@ export default function ManualOrderSidebar({
       if (celular !== manualOrderData.customerPhone) {
         const existingClient = await searchClientByPhone(celular)
         if (existingClient && existingClient.id !== editingClient.id) {
-          alert('Este número de teléfono ya está registrado para otro cliente')
           return
         }
       }
@@ -455,10 +452,8 @@ export default function ManualOrderSidebar({
       setEditingClient(prev => prev ? { ...prev, nombres } : null)
       
       setShowEditClient(false)
-      alert('Cliente actualizado correctamente')
     } catch (error) {
       console.error('Error actualizando cliente:', error)
-      alert('Error al actualizar el cliente')
     } finally {
       setUpdatingClient(false)
     }
@@ -699,11 +694,8 @@ export default function ManualOrderSidebar({
         const locations = await getClientLocations(client.id)
         setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
       }
-
-      alert('Ubicación eliminada')
     } catch (error) {
       console.error('Error eliminando ubicación:', error)
-      alert('Error al eliminar la ubicación')
     }
   }
 
@@ -1153,7 +1145,10 @@ export default function ManualOrderSidebar({
               {(!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10) ? (
                 <p className="text-sm text-gray-500">Ingresa un número de teléfono válido para gestionar ubicaciones</p>
               ) : manualOrderData.selectedLocation ? (
-                <div className="p-3 bg-green-50 border border-green-200 rounded-md mb-3 relative">
+                <div 
+                  className="p-3 bg-green-50 border border-green-200 rounded-md mb-3 relative cursor-pointer hover:bg-green-100 transition-colors"
+                  onClick={() => setShowLocationModal(true)}
+                >
                   <div className="flex items-start space-x-3">
                     {/* Mapa estático de la ubicación seleccionada */}
                     {manualOrderData.selectedLocation.latlong && (
@@ -1185,13 +1180,9 @@ export default function ManualOrderSidebar({
                       <p className="text-xs text-green-600">Tarifa: ${parseFloat(manualOrderData.selectedLocation.tarifa)}</p>
                     </div>
                     
-                    <button
-                      onClick={() => setShowLocationModal(true)}
-                      className="text-green-600 hover:text-green-700 transition-colors flex-shrink-0"
-                      disabled={!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10}
-                    >
+                    <div className="text-green-600 flex-shrink-0">
                       <i className="bi bi-chevron-down"></i>
-                    </button>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -1217,11 +1208,14 @@ export default function ManualOrderSidebar({
               <h3 className="text-sm font-medium text-gray-700 mb-3">Asignar delivery</h3>
               
               {manualOrderData.selectedDelivery ? (
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-md mb-3 relative">
+                <div 
+                  className="p-3 bg-blue-50 border border-blue-200 rounded-md mb-3 relative cursor-pointer hover:bg-blue-100 transition-colors"
+                  onClick={() => setShowDeliveryModal(true)}
+                >
                   <div className="flex items-center space-x-3">
                     {/* Foto del delivery */}
                     {manualOrderData.selectedDelivery.fotoUrl && (
-                      <div className="w-12 h-12 flex-shrink-0 rounded-full overflow-hidden bg-gray-200">
+                      <div className="w-12 h-12 flex-shrink-0 rounded-full overflow-hidden bg-gray-200 relative">
                         <img
                           src={manualOrderData.selectedDelivery.fotoUrl}
                           alt={manualOrderData.selectedDelivery.nombres}
@@ -1238,7 +1232,7 @@ export default function ManualOrderSidebar({
                             }
                           }}
                         />
-                        <div className="avatar-fallback absolute inset-0 hidden w-full h-full flex items-center justify-center bg-gray-200">
+                        <div className="avatar-fallback absolute inset-0 hidden w-full h-full items-center justify-center bg-gray-200">
                           <i className="bi bi-person text-gray-400 text-lg"></i>
                         </div>
                       </div>
@@ -1249,12 +1243,9 @@ export default function ManualOrderSidebar({
                       <p className="text-xs text-blue-600">{manualOrderData.selectedDelivery.celular}</p>
                     </div>
                     
-                    <button
-                      onClick={() => setShowDeliveryModal(true)}
-                      className="text-blue-600 hover:text-blue-700 transition-colors flex-shrink-0"
-                    >
+                    <div className="text-blue-600 flex-shrink-0">
                       <i className="bi bi-chevron-down"></i>
-                    </button>
+                    </div>
                   </div>
                 </div>
               ) : (
