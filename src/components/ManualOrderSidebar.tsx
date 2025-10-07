@@ -2,14 +2,15 @@
 
 import { useState, useEffect } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
-import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder } from '@/lib/database'
+import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient } from '@/lib/database'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 
 interface Client {
   id: string
   celular: string
   nombres: string
-  fecha_de_registro: any
+  fecha_de_registro?: string
+  [key: string]: any
 }
 
 interface ClientLocation {
@@ -96,7 +97,10 @@ export default function ManualOrderSidebar({
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
   const [availableDeliveries, setAvailableDeliveries] = useState<any[]>([])
   const [showCreateClient, setShowCreateClient] = useState(false)
+  const [showEditClient, setShowEditClient] = useState(false)
+  const [editingClient, setEditingClient] = useState<Client | null>(null)
   const [creatingClient, setCreatingClient] = useState(false)
+  const [updatingClient, setUpdatingClient] = useState(false)
   const [creatingOrder, setCreatingOrder] = useState(false)
   
   // Estados para modal de variantes
@@ -392,6 +396,72 @@ export default function ManualOrderSidebar({
     }, 1000)
 
     setSearchTimeout(timeout)
+  }
+
+  // Abrir modal para editar cliente
+  const handleEditClient = async () => {
+    try {
+      const client = await searchClientByPhone(manualOrderData.customerPhone)
+      if (client) {
+        setEditingClient(client)
+        setShowEditClient(true)
+      }
+    } catch (error) {
+      console.error('Error al cargar datos del cliente:', error)
+      alert('Error al cargar los datos del cliente')
+    }
+  }
+
+  // Actualizar datos del cliente
+  const handleUpdateClient = async () => {
+    if (!editingClient || !editingClient.nombres?.trim() || !editingClient.celular?.trim()) {
+      alert('Por favor complete todos los campos requeridos')
+      return
+    }
+
+    const celular = normalizePhone(editingClient.celular.trim())
+    if (celular.length < 10) {
+      alert('El número de teléfono debe tener al menos 10 dígitos')
+      return
+    }
+
+    setUpdatingClient(true)
+    try {
+      const nombres = editingClient.nombres.trim()
+      
+      // Verificar si el teléfono ya existe para otro cliente
+      if (celular !== manualOrderData.customerPhone) {
+        const existingClient = await searchClientByPhone(celular)
+        if (existingClient && existingClient.id !== editingClient.id) {
+          alert('Este número de teléfono ya está registrado para otro cliente')
+          return
+        }
+      }
+      
+      // Actualizar el cliente en la base de datos
+      await updateClient(editingClient.id, { 
+        nombres,
+        celular 
+      })
+      
+      // Actualizar los datos en el estado
+      setManualOrderData(prev => ({
+        ...prev,
+        customerName: nombres,
+        customerPhone: celular
+      }))
+      
+      // Actualizar también el estado del cliente editado
+      setEditingClient(prev => prev ? { ...prev, nombres } : null)
+      
+      setShowEditClient(false)
+      alert('Cliente actualizado correctamente')
+    } catch (error) {
+      console.error('Error actualizando cliente:', error)
+      alert('Error al actualizar el cliente')
+    } finally {
+      setUpdatingClient(false)
+    }
   }
 
   // Crear nuevo cliente
@@ -906,11 +976,17 @@ export default function ManualOrderSidebar({
 
             {/* Resultado de búsqueda */}
             {clientFound ? (
-              <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
-                <p className="text-sm text-green-800">
-                  <i className="bi bi-check-circle me-2"></i>
-                  Cliente encontrado: <span className="font-medium">{manualOrderData.customerName}</span>
-                </p>
+              <div 
+                className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md hover:bg-green-100 cursor-pointer transition-colors"
+                onClick={handleEditClient}
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-green-800">
+                    <i className="bi bi-check-circle me-2"></i>
+                    Cliente encontrado: <span className="font-medium">{manualOrderData.customerName}</span>
+                  </p>
+                  <i className="bi bi-pencil-square text-green-600 hover:text-green-800"></i>
+                </div>
               </div>
             ) : showCreateClient && manualOrderData.customerPhone.length >= 10 ? (
               <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
@@ -1875,6 +1951,75 @@ export default function ManualOrderSidebar({
                   <p className="text-sm text-gray-500">No hay deliveries activos disponibles</p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de edición de cliente */}
+      {showEditClient && editingClient && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Editar cliente</h3>
+              <button
+                onClick={() => setShowEditClient(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <i className="bi bi-x-lg"></i>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Teléfono <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="tel"
+                  value={editingClient.celular || ''}
+                  onChange={(e) => setEditingClient(prev => prev ? { ...prev, celular: e.target.value } : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Ej: 0987654321"
+                />
+                <p className="mt-1 text-xs text-gray-500">Formato: 0987654321 o 027654321</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Nombre completo <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editingClient.nombres || ''}
+                  onChange={(e) => setEditingClient(prev => prev ? { ...prev, nombres: e.target.value } : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Nombre completo del cliente"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  onClick={() => setShowEditClient(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleUpdateClient}
+                  disabled={!editingClient.nombres.trim() || updatingClient}
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {updatingClient ? (
+                    <>
+                      <i className="bi bi-arrow-repeat animate-spin mr-2"></i>
+                      Guardando...
+                    </>
+                  ) : (
+                    'Guardar cambios'
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
