@@ -932,25 +932,30 @@ export default function ManualOrderSidebar({
               Búsqueda por celular
             </label>
             <div className="relative">
-              <input
-                type="tel"
-                value={manualOrderData.customerPhone}
-                onChange={(e) => handlePhoneSearch(e.target.value)}
-                placeholder="0987654321 o +593 98 052 4391"
-                className="w-full px-3 py-2 pr-20 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-              />
-              <button
-                onClick={handlePasteFromClipboard}
-                className="absolute right-8 top-2 px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
-                type="button"
-              >
-                <i className="bi bi-clipboard"></i>
-              </button>
-              {searchingClient && (
-                <div className="absolute right-2 top-3">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              <div className="relative">
+                <input
+                  type="tel"
+                  value={manualOrderData.customerPhone}
+                  onChange={(e) => handlePhoneSearch(e.target.value)}
+                  placeholder="0987654321 o +593 98 052 4391"
+                  className="w-full px-3 py-2 pr-16 sm:pr-20 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                />
+                <div className="absolute right-0 top-0 h-full flex items-center space-x-1 pr-2">
+                  <button
+                    onClick={handlePasteFromClipboard}
+                    className="p-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors flex-shrink-0"
+                    type="button"
+                    title="Pegar desde portapapeles"
+                  >
+                    <i className="bi bi-clipboard"></i>
+                  </button>
+                  {searchingClient && (
+                    <div className="flex items-center justify-center w-6 h-6">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Campo de nombre del cliente - solo visible cuando no se encuentra */}
