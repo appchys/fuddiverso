@@ -2796,7 +2796,7 @@ export default function BusinessDashboard() {
                                     className="w-full px-4 py-3 bg-gray-50 border-b border-gray-200 text-left hover:bg-gray-100 transition-colors"
                                   >
                                     <div className="flex items-center justify-between">
-                                      <h3 className="text-lg font-semibold text-gray-900 capitalize">
+                                      <h3 className="text-base font-semibold text-gray-900 capitalize">
                                         {date}
                                         <span className="ml-2 bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
                                           {orders.length}
