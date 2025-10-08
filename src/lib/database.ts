@@ -458,7 +458,8 @@ export async function getOrdersByBusiness(businessId: string): Promise<Order[]> 
   try {
     const q = query(
       collection(db, 'orders'), 
-      where('businessId', '==', businessId)
+      where('businessId', '==', businessId),
+      where('status', '!=', 'cancelled')
       // Temporalmente comentado hasta crear el índice
       // orderBy('createdAt', 'desc')
     )
@@ -1796,6 +1797,7 @@ export async function getOrdersByDelivery(deliveryId: string): Promise<Order[]> 
     let q = query(
       collection(db, 'orders'),
       where('delivery.assignedDelivery', '==', deliveryId),
+      where('status', '!=', 'cancelled'),
       orderBy('createdAt', 'desc')
     )
     
@@ -1807,7 +1809,8 @@ export async function getOrdersByDelivery(deliveryId: string): Promise<Order[]> 
       console.warn('Índice compuesto no encontrado, ordenando en memoria:', indexError.message)
       q = query(
         collection(db, 'orders'),
-        where('delivery.assignedDelivery', '==', deliveryId)
+        where('delivery.assignedDelivery', '==', deliveryId),
+        where('status', '!=', 'cancelled')
       )
       querySnapshot = await getDocs(q)
     }
@@ -2035,7 +2038,7 @@ export async function calculateCostReport(
       where('businessId', '==', businessId),
       where('createdAt', '>=', Timestamp.fromDate(startDate)),
       where('createdAt', '<=', Timestamp.fromDate(endDate)),
-      where('status', 'in', ['delivered', 'completed'])
+      where('status', '!=', 'cancelled')
     )
     
     const ordersSnapshot = await getDocs(q)

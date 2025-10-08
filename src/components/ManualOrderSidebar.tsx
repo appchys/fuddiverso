@@ -1658,11 +1658,6 @@ export default function ManualOrderSidebar({
                         <div className="flex-1">
                           <p className="text-sm font-medium text-gray-900">{location.referencia}</p>
                           <p className="text-xs text-gray-500">Tarifa: ${parseFloat(location.tarifa)}</p>
-                          {location.latlong && (
-                            <p className="text-xs text-gray-400 mt-1">
-                              Coordenadas: {location.latlong}
-                            </p>
-                          )}
                         </div>
                         <div className="ml-3 flex flex-col items-end gap-2">
                           <button

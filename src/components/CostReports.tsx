@@ -103,9 +103,10 @@ export default function CostReports({ business }: CostReportsProps) {
     
     // Reporte para cada delivery
     deliveriesData.forEach(delivery => {
+      // Include all non-cancelled orders for this delivery
       const deliveryOrders = ordersData.filter(order => 
         order.delivery?.assignedDelivery === delivery.id && 
-        order.status === 'delivered'
+        order.status !== 'cancelled'
       )
       
       if (deliveryOrders.length === 0) return
@@ -133,6 +134,7 @@ export default function CostReports({ business }: CostReportsProps) {
         }
         
         // Calcular tiempo de entrega usando deliveredAt (o statusHistory.deliveredAt), con fallback a updatedAt
+        // Solo para órdenes entregadas
         if (order.status === 'delivered') {
           const createdAt = order.createdAt instanceof Date ? order.createdAt : new Date(order.createdAt)
           const deliveredAtSource: any = (order as any).deliveredAt || (order as any)?.statusHistory?.deliveredAt || order.updatedAt
@@ -577,21 +579,23 @@ export default function CostReports({ business }: CostReportsProps) {
 
 // Componente para reporte general
 function GeneralReport({ orders }: { orders: Order[] }) {
-  const deliveredOrders = orders.filter(o => o.status === 'delivered')
+  // Show all orders except cancelled ones
+  const validOrders = orders.filter(o => o.status !== 'cancelled')
+  const deliveredOrders = validOrders.filter(o => o.status === 'delivered')
   
-  const totalRevenue = deliveredOrders.reduce((sum, order) => sum + order.total, 0)
-  const cashRevenue = deliveredOrders.reduce((sum, order) => {
+  const totalRevenue = validOrders.reduce((sum, order) => sum + order.total, 0)
+  const cashRevenue = validOrders.reduce((sum, order) => {
     if (order.payment?.method === 'cash') return sum + order.total
     if (order.payment?.method === 'mixed') return sum + (order.payment?.cashAmount || 0)
     return sum
   }, 0)
-  const transferRevenue = deliveredOrders.reduce((sum, order) => {
+  const transferRevenue = validOrders.reduce((sum, order) => {
     if (order.payment?.method === 'transfer') return sum + order.total
     if (order.payment?.method === 'mixed') return sum + (order.payment?.transferAmount || 0)
     return sum
   }, 0)
-  const deliveryOrders = deliveredOrders.filter(o => o.delivery?.type === 'delivery')
-  const pickupOrders = deliveredOrders.filter(o => o.delivery?.type === 'pickup')
+  const deliveryOrders = validOrders.filter(o => o.delivery?.type === 'delivery')
+  const pickupOrders = validOrders.filter(o => o.delivery?.type === 'pickup')
   const totalDeliveryFees = deliveryOrders.reduce((sum, order) => sum + (order.delivery?.deliveryCost || 0), 0)
   
   return (
@@ -669,7 +673,11 @@ function GeneralReport({ orders }: { orders: Order[] }) {
           </h3>
           <div className="space-y-2">
             <div className="flex justify-between">
-              <span className="text-gray-600">Pedidos:</span>
+              <span className="text-gray-600">Total Pedidos:</span>
+              <span className="font-semibold">{validOrders.filter(o => o.delivery?.type === 'delivery').length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Entregados:</span>
               <span className="font-semibold">{deliveryOrders.length}</span>
             </div>
             <div className="flex justify-between">
@@ -694,7 +702,11 @@ function GeneralReport({ orders }: { orders: Order[] }) {
           </h3>
           <div className="space-y-2">
             <div className="flex justify-between">
-              <span className="text-gray-600">Pedidos:</span>
+              <span className="text-gray-600">Total Pedidos:</span>
+              <span className="font-semibold">{validOrders.filter(o => o.delivery?.type === 'pickup').length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Entregados:</span>
               <span className="font-semibold">{pickupOrders.length}</span>
             </div>
             <div className="flex justify-between">
