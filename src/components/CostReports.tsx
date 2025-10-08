@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { Business, Order, Delivery } from '@/types'
 import { calculateCostReport, CostReport, getOrdersByBusiness, getDeliveriesByStatus } from '@/lib/database'
 
@@ -9,6 +9,12 @@ interface CostReportsProps {
 }
 
 type ReportType = 'costs' | 'deliveries' | 'general'
+
+interface DeliveryEarnings {
+  name: string;
+  amount: number;
+  id: string;
+}
 
 interface DeliveryReport {
   deliveryId: string
@@ -582,6 +588,20 @@ function GeneralReport({ orders }: { orders: Order[] }) {
   // Show all orders except cancelled ones
   const validOrders = orders.filter(o => o.status !== 'cancelled')
   const deliveredOrders = validOrders.filter(o => o.status === 'delivered')
+  const [deliveries, setDeliveries] = useState<Delivery[]>([])
+  
+  // Cargar la lista de repartidores
+  useEffect(() => {
+    const loadDeliveries = async () => {
+      try {
+        const activeDeliveries = await getDeliveriesByStatus('activo')
+        setDeliveries(activeDeliveries)
+      } catch (error) {
+        console.error('Error cargando repartidores:', error)
+      }
+    }
+    loadDeliveries()
+  }, [])
   
   const totalRevenue = validOrders.reduce((sum, order) => sum + order.total, 0)
   const cashRevenue = validOrders.reduce((sum, order) => {
@@ -597,6 +617,32 @@ function GeneralReport({ orders }: { orders: Order[] }) {
   const deliveryOrders = validOrders.filter(o => o.delivery?.type === 'delivery')
   const pickupOrders = validOrders.filter(o => o.delivery?.type === 'pickup')
   const totalDeliveryFees = deliveryOrders.reduce((sum, order) => sum + (order.delivery?.deliveryCost || 0), 0)
+  
+  // Calcular ganancias por repartidor
+  const deliveryEarningsByDriver = useMemo(() => {
+    const earnings: { [key: string]: DeliveryEarnings } = {}
+    
+    deliveryOrders.forEach(order => {
+      const driverId = order.delivery?.assignedDelivery
+      if (!driverId) return
+      
+      const driver = deliveries.find(d => d.id === driverId)
+      const driverName = driver?.nombres || `Repartidor ${driverId}`
+      const deliveryCost = order.delivery?.deliveryCost || 0
+      
+      if (!earnings[driverId]) {
+        earnings[driverId] = {
+          id: driverId,
+          name: driverName,
+          amount: 0
+        }
+      }
+      
+      earnings[driverId].amount += deliveryCost
+    })
+    
+    return earnings
+  }, [deliveryOrders, deliveries])
   
   return (
     <>
@@ -646,8 +692,27 @@ function GeneralReport({ orders }: { orders: Order[] }) {
               <i className="bi bi-truck text-purple-600 text-xl"></i>
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-2">
-            {deliveryOrders.length} entregas
+          
+          {/* Desglose por repartidor */}
+          <div className="mt-4 space-y-2 max-h-48 overflow-y-auto pr-2">
+            {Object.entries(deliveryEarningsByDriver)
+              .sort(([, a], [, b]) => b.amount - a.amount)
+              .map(([driverId, { name, amount }]) => (
+                <div key={driverId} className="flex justify-between items-center text-sm py-1">
+                  <div className="flex items-center">
+                    <i className="bi bi-person text-purple-500 mr-2"></i>
+                    <span className="text-gray-600 truncate max-w-[140px]">{name}</span>
+                  </div>
+                  <span className="font-medium text-purple-600">
+                    ${amount.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+          </div>
+          
+          <p className="text-xs text-gray-500 mt-3">
+            {deliveryOrders.length} {deliveryOrders.length === 1 ? 'entrega' : 'entregas'} • 
+            {Object.keys(deliveryEarningsByDriver).length} {Object.keys(deliveryEarningsByDriver).length === 1 ? 'repartidor' : 'repartidores'}
           </p>
         </div>
       </div>
@@ -664,10 +729,7 @@ function GeneralReport({ orders }: { orders: Order[] }) {
               <span className="text-gray-600">Total Pedidos:</span>
               <span className="font-semibold">{validOrders.filter(o => o.delivery?.type === 'delivery').length}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Entregados:</span>
-              <span className="font-semibold">{deliveryOrders.length}</span>
-            </div>
+            
             <div className="flex justify-between">
               <span className="text-gray-600">Ingresos:</span>
               <span className="font-semibold text-emerald-600">
@@ -693,10 +755,7 @@ function GeneralReport({ orders }: { orders: Order[] }) {
               <span className="text-gray-600">Total Pedidos:</span>
               <span className="font-semibold">{validOrders.filter(o => o.delivery?.type === 'pickup').length}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Entregados:</span>
-              <span className="font-semibold">{pickupOrders.length}</span>
-            </div>
+            
             <div className="flex justify-between">
               <span className="text-gray-600">Ingresos:</span>
               <span className="font-semibold text-emerald-600">
@@ -707,39 +766,7 @@ function GeneralReport({ orders }: { orders: Order[] }) {
         </div>
       </div>
 
-      {/* Métodos de pago */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          <i className="bi bi-credit-card me-2"></i>
-          Métodos de Pago
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="text-center p-4 bg-green-50 rounded-lg">
-            <i className="bi bi-cash text-3xl text-green-600 mb-2"></i>
-            <p className="text-sm text-gray-600">Efectivo</p>
-            <p className="text-xl font-bold text-green-600">${cashRevenue.toFixed(2)}</p>
-            <p className="text-xs text-gray-500 mt-1">
-              {deliveredOrders.filter(o => o.payment?.method === 'cash' || o.payment?.method === 'mixed').length} pedidos
-            </p>
-          </div>
-          <div className="text-center p-4 bg-blue-50 rounded-lg">
-            <i className="bi bi-bank text-3xl text-blue-600 mb-2"></i>
-            <p className="text-sm text-gray-600">Transferencia</p>
-            <p className="text-xl font-bold text-blue-600">${transferRevenue.toFixed(2)}</p>
-            <p className="text-xs text-gray-500 mt-1">
-              {deliveredOrders.filter(o => o.payment?.method === 'transfer' || o.payment?.method === 'mixed').length} pedidos
-            </p>
-          </div>
-          <div className="text-center p-4 bg-purple-50 rounded-lg">
-            <i className="bi bi-wallet2 text-3xl text-purple-600 mb-2"></i>
-            <p className="text-sm text-gray-600">Pago Mixto</p>
-            <p className="text-xl font-bold text-purple-600">
-              {deliveredOrders.filter(o => o.payment?.method === 'mixed').length}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">pedidos</p>
-          </div>
-        </div>
-      </div>
+      
     </>
   )
 }
