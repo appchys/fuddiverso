@@ -730,11 +730,31 @@ function GeneralReport({ orders }: { orders: Order[] }) {
               <span className="font-semibold">{validOrders.filter(o => o.delivery?.type === 'delivery').length}</span>
             </div>
             
-            <div className="flex justify-between">
-              <span className="text-gray-600">Ingresos:</span>
-              <span className="font-semibold text-emerald-600">
-                ${deliveryOrders.reduce((sum, o) => sum + o.total, 0).toFixed(2)}
-              </span>
+            <div className="space-y-1 pl-2 border-l-2 border-gray-100">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Efectivo:</span>
+                <span className="font-medium text-emerald-600">
+                  ${deliveryOrders
+                    .filter(o => o.payment.method === 'cash' || o.payment.method === 'mixed')
+                    .reduce((sum, o) => sum + o.total, 0)
+                    .toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Transferencia:</span>
+                <span className="font-medium text-blue-600">
+                  ${deliveryOrders
+                    .filter(o => o.payment.method === 'transfer' || o.payment.method === 'mixed')
+                    .reduce((sum, o) => sum + o.total, 0)
+                    .toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between font-semibold pt-1 mt-1 border-t border-gray-100">
+                <span>Total:</span>
+                <span className="text-emerald-600">
+                  ${deliveryOrders.reduce((sum, o) => sum + o.total, 0).toFixed(2)}
+                </span>
+              </div>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600">Costo de envíos:</span>
@@ -756,11 +776,31 @@ function GeneralReport({ orders }: { orders: Order[] }) {
               <span className="font-semibold">{validOrders.filter(o => o.delivery?.type === 'pickup').length}</span>
             </div>
             
-            <div className="flex justify-between">
-              <span className="text-gray-600">Ingresos:</span>
-              <span className="font-semibold text-emerald-600">
-                ${pickupOrders.reduce((sum, o) => sum + o.total, 0).toFixed(2)}
-              </span>
+            <div className="space-y-1 pl-2 border-l-2 border-gray-100">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Efectivo:</span>
+                <span className="font-medium text-emerald-600">
+                  ${pickupOrders
+                    .filter(o => o.payment.method === 'cash' || o.payment.method === 'mixed')
+                    .reduce((sum, o) => sum + o.total, 0)
+                    .toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Transferencia:</span>
+                <span className="font-medium text-blue-600">
+                  ${pickupOrders
+                    .filter(o => o.payment.method === 'transfer' || o.payment.method === 'mixed')
+                    .reduce((sum, o) => sum + o.total, 0)
+                    .toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between font-semibold pt-1 mt-1 border-t border-gray-100">
+                <span>Total:</span>
+                <span className="text-emerald-600">
+                  ${pickupOrders.reduce((sum, o) => sum + o.total, 0).toFixed(2)}
+                </span>
+              </div>
             </div>
           </div>
         </div>
