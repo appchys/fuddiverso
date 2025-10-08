@@ -600,9 +600,9 @@ function GeneralReport({ orders }: { orders: Order[] }) {
   
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-2">
             <div>
               <p className="text-sm text-gray-500">Ingresos Totales</p>
               <p className="text-2xl font-bold text-emerald-600">
@@ -613,37 +613,25 @@ function GeneralReport({ orders }: { orders: Order[] }) {
               <i className="bi bi-cash-stack text-emerald-600 text-xl"></i>
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-2">
+          <div className="mt-4 space-y-2">
+            <div className="flex justify-between items-center text-sm">
+              <div className="flex items-center">
+                <i className="bi bi-cash text-green-600 mr-2"></i>
+                <span className="text-gray-600">Efectivo</span>
+              </div>
+              <span className="font-medium text-green-600">${cashRevenue.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <div className="flex items-center">
+                <i className="bi bi-bank text-blue-600 mr-2"></i>
+                <span className="text-gray-600">Transferencias</span>
+              </div>
+              <span className="font-medium text-blue-600">${transferRevenue.toFixed(2)}</span>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-3">
             {deliveredOrders.length} pedidos entregados
           </p>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Efectivo</p>
-              <p className="text-2xl font-bold text-green-600">
-                ${cashRevenue.toFixed(2)}
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-              <i className="bi bi-cash text-green-600 text-xl"></i>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Transferencias</p>
-              <p className="text-2xl font-bold text-blue-600">
-                ${transferRevenue.toFixed(2)}
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-              <i className="bi bi-bank text-blue-600 text-xl"></i>
-            </div>
-          </div>
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
