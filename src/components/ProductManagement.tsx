@@ -529,13 +529,17 @@ export default function ProductManagement({
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
                       <div className="flex items-start space-x-4 mb-3 sm:mb-0 w-full sm:w-auto">
                         {/* Imagen del producto */}
-                        {product.image && (
-                          <img 
-                            src={product.image} 
-                            alt={product.name}
-                            className="w-16 h-16 object-cover rounded-lg flex-shrink-0"
-                          />
-                        )}
+                        <div className="w-16 h-16 flex-shrink-0 flex items-center justify-center bg-gray-200 rounded-lg">
+                          {product.image ? (
+                            <img 
+                              src={product.image} 
+                              alt={product.name}
+                              className="w-full h-full object-cover rounded-lg"
+                            />
+                          ) : (
+                            <i className="bi bi-box-seam text-2xl text-gray-500"></i>
+                          )}
+                        </div>
                         
                         {/* Información del producto */}
                         <div className="flex-1 min-w-0">
