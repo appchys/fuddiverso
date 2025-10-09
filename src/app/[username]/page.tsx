@@ -544,17 +544,37 @@ function RestaurantContent() {
     )
   }
 
-  // Agrupar productos por categoría (solo productos disponibles)
-  const productsByCategory = products
-    .filter(product => product.isAvailable) // Filtrar solo productos disponibles
-    .reduce((acc, product) => {
-      const category = product.category || 'Otros'
-      if (!acc[category]) {
-        acc[category] = []
+  // Agrupar productos por categoría, respetando el orden definido en business.categories
+  const productsByCategory: Record<string, Product[]> = {}
+  
+  // Primero, obtenemos todos los productos disponibles
+  const availableProducts = products.filter(product => product.isAvailable)
+  
+  // Si hay categorías definidas en el negocio, usamos ese orden
+  if (business.categories?.length) {
+    // Creamos las categorías en el orden definido
+    business.categories.forEach(category => {
+      const categoryProducts = availableProducts.filter(p => p.category === category)
+      if (categoryProducts.length > 0) {
+        productsByCategory[category] = categoryProducts
       }
-      acc[category].push(product)
-      return acc
-    }, {} as Record<string, Product[]>)
+    })
+    
+    // Agregamos productos sin categoría a 'Otros' si existen
+    const uncategorizedProducts = availableProducts.filter(p => !p.category || !business.categories?.includes(p.category))
+    if (uncategorizedProducts.length > 0) {
+      productsByCategory['Otros'] = uncategorizedProducts
+    }
+  } else {
+    // Si no hay categorías definidas, agrupamos normalmente
+    availableProducts.forEach(product => {
+      const category = product.category || 'Otros'
+      if (!productsByCategory[category]) {
+        productsByCategory[category] = []
+      }
+      productsByCategory[category].push(product)
+    })
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

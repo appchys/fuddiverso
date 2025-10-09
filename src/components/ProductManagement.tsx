@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { Product, ProductVariant, Business } from '@/types'
-import { updateProduct, deleteProduct, uploadImage, getBusinessCategories, addCategoryToBusiness, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem } from '@/lib/database'
+import { updateProduct, deleteProduct, uploadImage, getBusinessCategories, addCategoryToBusiness, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, updateBusiness } from '@/lib/database'
 
 interface ProductManagementProps {
   business: Business | null
@@ -462,15 +462,66 @@ export default function ProductManagement({
     )
   }
 
-  // Agrupar productos por categoría
-  const productsByCategory = products.reduce((acc, product) => {
-    const category = product.category || 'Sin categoría'
-    if (!acc[category]) {
-      acc[category] = []
+  // Mover categoría hacia arriba
+  const moveCategoryUp = async (category: string) => {
+    const index = businessCategories.indexOf(category)
+    if (index <= 0) return
+    
+    const newCategories = [...businessCategories]
+    ;[newCategories[index - 1], newCategories[index]] = [newCategories[index], newCategories[index - 1]]
+    
+    // Actualizar el estado local
+    onCategoriesChange(newCategories)
+    
+    // Guardar en la base de datos
+    if (business) {
+      try {
+        await updateBusiness(business.id, { categories: newCategories })
+      } catch (error) {
+        console.error('Error al actualizar el orden de las categorías:', error)
+        // Revertir el cambio si hay un error
+        onCategoriesChange([...businessCategories])
+      }
     }
-    acc[category].push(product)
+  }
+
+  // Mover categoría hacia abajo
+  const moveCategoryDown = async (category: string) => {
+    const index = businessCategories.indexOf(category)
+    if (index === -1 || index >= businessCategories.length - 1) return
+    
+    const newCategories = [...businessCategories]
+    ;[newCategories[index], newCategories[index + 1]] = [newCategories[index + 1], newCategories[index]]
+    
+    // Actualizar el estado local
+    onCategoriesChange(newCategories)
+    
+    // Guardar en la base de datos
+    if (business) {
+      try {
+        await updateBusiness(business.id, { categories: newCategories })
+      } catch (error) {
+        console.error('Error al actualizar el orden de las categorías:', error)
+        // Revertir el cambio si hay un error
+        onCategoriesChange([...businessCategories])
+      }
+    }
+  }
+
+  // Agrupar productos por categoría
+  const productsByCategory = businessCategories.reduce((acc, category) => {
+    const categoryProducts = products.filter(p => p.category === category)
+    if (categoryProducts.length > 0 || businessCategories.includes(category)) {
+      acc[category] = categoryProducts
+    }
     return acc
   }, {} as Record<string, Product[]>)
+  
+  // Añadir 'Sin categoría' si hay productos sin categoría
+  const uncategorizedProducts = products.filter(p => !p.category || !businessCategories.includes(p.category))
+  if (uncategorizedProducts.length > 0) {
+    productsByCategory['Sin categoría'] = uncategorizedProducts
+  }
 
   return (
     <>
@@ -518,9 +569,37 @@ export default function ProductManagement({
         <div className="space-y-6">
           {Object.entries(productsByCategory).map(([category, categoryProducts]) => (
             <div key={category} className="bg-white rounded-lg shadow-md overflow-hidden">
-              <div className="px-4 sm:px-6 py-3 bg-gray-50 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900">{category}</h3>
-                <p className="text-sm text-gray-500">{categoryProducts.length} producto{categoryProducts.length !== 1 ? 's' : ''}</p>
+              <div className="px-4 sm:px-6 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">{category}</h3>
+                  <p className="text-sm text-gray-500">{categoryProducts.length} producto{categoryProducts.length !== 1 ? 's' : ''}</p>
+                </div>
+                {category !== 'Sin categoría' && (
+                  <div className="flex space-x-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        moveCategoryUp(category)
+                      }}
+                      className="p-1 text-gray-500 hover:bg-gray-200 rounded-full disabled:opacity-50"
+                      disabled={businessCategories.indexOf(category) === 0}
+                      title="Mover categoría hacia arriba"
+                    >
+                      <i className="bi bi-arrow-up"></i>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        moveCategoryDown(category)
+                      }}
+                      className="p-1 text-gray-500 hover:bg-gray-200 rounded-full disabled:opacity-50"
+                      disabled={businessCategories.indexOf(category) === businessCategories.length - 1}
+                      title="Mover categoría hacia abajo"
+                    >
+                      <i className="bi bi-arrow-down"></i>
+                    </button>
+                  </div>
+                )}
               </div>
               
               <div className="divide-y divide-gray-200">
