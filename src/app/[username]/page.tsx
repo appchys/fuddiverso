@@ -613,34 +613,37 @@ function RestaurantContent() {
           )}
         </div>
         
-        {/* Contenido debajo de la portada (se deja igual por ahora) */}
-        <div className="max-w-7xl mx-auto px-4 pt-16 sm:pt-20 pb-6 sm:pb-8">
-          <div className="flex flex-col sm:flex-row items-center sm:items-start space-y-4 sm:space-y-0 sm:space-x-6">
-            {/* Logo removido de aquí, ahora se muestra superpuesto arriba */}
-            <div className="flex-1 text-center sm:text-left">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{business.name}</h1>
-                  {/* Descripción directamente debajo del nombre */}
-                  <p className="text-gray-600 mt-2">{business.description}</p>
-                  <div className="flex items-center justify-center sm:justify-start mt-3 space-x-2">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      isStoreOpen() 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      <i className={`bi ${isStoreOpen() ? 'bi-clock' : 'bi-clock-history'} mr-1`}></i>
-                      {isStoreOpen() ? 'Abierta' : 'Cerrada'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-col sm:flex-row items-center sm:items-start sm:space-x-4 mt-4 text-sm text-gray-500 space-y-1 sm:space-y-0">
-                <span className="flex items-center">
-                  <i className="bi bi-geo-alt mr-1"></i>
-                  {business.address}
+        {/* Contenido debajo de la portada */}
+        <div className="max-w-3xl mx-auto px-4 pt-16 sm:pt-20 pb-6 sm:pb-8 text-center">
+          <div className="flex flex-col items-center">
+            <div className="w-full">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{business.name}</h1>
+              {/* Descripción */}
+              {business.description && (
+                <p className="text-gray-600 mt-2 max-w-2xl mx-auto">
+                  {business.description}
+                </p>
+              )}
+              {/* Estado de la tienda */}
+              <div className="flex justify-center mt-3">
+                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                  isStoreOpen() 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-red-100 text-red-800'
+                }`}>
+                  <i className={`bi ${isStoreOpen() ? 'bi-clock' : 'bi-clock-history'} mr-2`}></i>
+                  {isStoreOpen() ? 'Abierta' : 'Cerrada'}
                 </span>
               </div>
+              {/* Dirección */}
+              {business.address && (
+                <div className="mt-4 text-gray-500">
+                  <span className="inline-flex items-center justify-center">
+                    <i className="bi bi-geo-alt mr-2"></i>
+                    {business.address}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
