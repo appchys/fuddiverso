@@ -479,6 +479,39 @@ export default function ProductManagement({
           <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 sm:mb-0">
             <i className="bi bi-box-seam me-2"></i>Productos
           </h2>
+          <button
+            onClick={() => {
+              setEditingProduct({
+                id: 'new',
+                businessId: business?.id || '',
+                name: '',
+                description: '',
+                price: 0,
+                category: businessCategories[0] || '',
+                image: '',
+                isAvailable: true,
+                variants: [],
+                createdAt: new Date(),
+                updatedAt: new Date()
+              })
+              setEditFormData({
+                name: '',
+                description: '',
+                price: '',
+                category: businessCategories[0] || '',
+                isAvailable: true,
+                image: null
+              })
+              setEditVariants([])
+              setEditIngredients([])
+              setVariantIngredients({})
+              setShowEditModal(true)
+            }}
+            className="flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+          >
+            <i className="bi bi-plus-lg me-2"></i>
+            Nuevo Producto
+          </button>
         </div>
 
         {/* Lista de productos agrupados por categoría */}
