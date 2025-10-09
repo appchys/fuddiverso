@@ -556,15 +556,26 @@ export default function ProductManagement({
                           <p className="text-sm text-gray-600 mt-1 line-clamp-2">
                             {product.description}
                           </p>
-                          <div className="flex items-center gap-4 mt-2">
-                            <span className="text-lg font-bold text-green-600">
-                              ${product.price.toFixed(2)}
-                            </span>
-                            {product.variants && product.variants.length > 0 && (
-                              <span className="text-xs text-gray-500">
-                                <i className="bi bi-list-ul me-1"></i>
-                                {product.variants.length} variante{product.variants.length !== 1 ? 's' : ''}
+                          <div className="mt-2">
+                            <div className="flex items-center">
+                              <span className="text-lg font-bold text-green-600">
+                                ${product.price.toFixed(2)}
                               </span>
+                            </div>
+                            {product.variants && product.variants.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                {product.variants.map((variant) => (
+                                  <div key={variant.id} className="flex items-center text-sm text-gray-600">
+                                    <span className="font-medium">{variant.name}:</span>
+                                    <span className="ml-2">${variant.price.toFixed(2)}</span>
+                                    {variant.description && (
+                                      <span className="ml-2 text-gray-500 text-xs">
+                                        ({variant.description})
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
                             )}
                           </div>
                         </div>
