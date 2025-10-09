@@ -674,7 +674,69 @@ export default function ProductManagement({
                 {/* Pestaña: Información General */}
                 {activeModalTab === 'general' && (
                   <>
-                    {/* Categoría */}
+                    {/* Nombre del producto */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nombre del Producto *
+                  </label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={editFormData.name}
+                    onChange={handleEditInputChange}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                      editErrors.name ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="Ej: Hamburguesa Clásica"
+                    required
+                  />
+                  {editErrors.name && <p className="text-red-500 text-sm mt-1">{editErrors.name}</p>}
+                </div>
+
+                {/* Descripción */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Descripción *
+                  </label>
+                  <textarea
+                    name="description"
+                    rows={3}
+                    value={editFormData.description}
+                    onChange={handleEditInputChange}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                      editErrors.description ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="Describe tu producto..."
+                    required
+                  />
+                  {editErrors.description && <p className="text-red-500 text-sm mt-1">{editErrors.description}</p>}
+                </div>
+
+                {/* Precio */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Precio Base *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-gray-500">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      name="price"
+                      value={editFormData.price}
+                      onChange={handleEditInputChange}
+                      className={`w-full pl-8 pr-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                        editErrors.price ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                      placeholder="0.00"
+                      required
+                    />
+                  </div>
+                  {editErrors.price && <p className="text-red-500 text-sm mt-1">{editErrors.price}</p>}
+                </div>
+
+                {/* Categoría */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Categoría *
@@ -739,69 +801,6 @@ export default function ProductManagement({
                   {editErrors.category && <p className="text-red-500 text-sm mt-1">{editErrors.category}</p>}
                 </div>
 
-                {/* Nombre del producto */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Nombre del Producto *
-                  </label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={editFormData.name}
-                    onChange={handleEditInputChange}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                      editErrors.name ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    placeholder="Ej: Hamburguesa Clásica"
-                    required
-                  />
-                  {editErrors.name && <p className="text-red-500 text-sm mt-1">{editErrors.name}</p>}
-                </div>
-
-                {/* Descripción */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Descripción *
-                  </label>
-                  <textarea
-                    name="description"
-                    rows={3}
-                    value={editFormData.description}
-                    onChange={handleEditInputChange}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                      editErrors.description ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    placeholder="Describe tu producto..."
-                    required
-                  />
-                  {editErrors.description && <p className="text-red-500 text-sm mt-1">{editErrors.description}</p>}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Precio */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Precio Base *
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2 text-gray-500">$</span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        name="price"
-                        value={editFormData.price}
-                        onChange={handleEditInputChange}
-                        className={`w-full pl-8 pr-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                          editErrors.price ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder="0.00"
-                        required
-                      />
-                    </div>
-                    {editErrors.price && <p className="text-red-500 text-sm mt-1">{editErrors.price}</p>}
-                  </div>
-
                   {/* Imagen */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -824,10 +823,9 @@ export default function ProductManagement({
                       </div>
                     )}
                   </div>
-                </div>
 
-                {/* Variantes */}
-                <div>
+                  {/* Variantes */}
+                  <div>
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-medium text-gray-900">Variantes del Producto</h3>
                     <span className="text-sm text-gray-500">Opcional</span>
