@@ -584,7 +584,7 @@ function RestaurantContent() {
       {/* Hero Section */}
       <div className="bg-white shadow-sm">
         {/* Portada con logo superpuesto */}
-        <div className="relative w-full h-48 sm:h-64 bg-gray-200">
+        <div className="relative w-full h-36 sm:h-48 bg-gray-200">
           {business.coverImage ? (
             <img
               src={business.coverImage}
@@ -614,36 +614,34 @@ function RestaurantContent() {
         </div>
         
         {/* Contenido debajo de la portada */}
-        <div className="max-w-3xl mx-auto px-4 pt-16 sm:pt-20 pb-6 sm:pb-8 text-center">
+        <div className="max-w-3xl mx-auto px-4 pt-12 sm:pt-14 pb-4 text-center">
           <div className="flex flex-col items-center">
             <div className="w-full">
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{business.name}</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{business.name}</h1>
               {/* Descripción */}
               {business.description && (
-                <p className="text-gray-600 mt-2 max-w-2xl mx-auto">
+                <p className="text-gray-600 text-sm mt-1 max-w-2xl mx-auto">
                   {business.description}
                 </p>
               )}
-              {/* Estado de la tienda */}
-              <div className="flex justify-center mt-3">
-                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 mt-2">
+                {/* Estado de la tienda */}
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                   isStoreOpen() 
                     ? 'bg-green-100 text-green-800' 
                     : 'bg-red-100 text-red-800'
                 }`}>
-                  <i className={`bi ${isStoreOpen() ? 'bi-clock' : 'bi-clock-history'} mr-2`}></i>
+                  <i className={`bi ${isStoreOpen() ? 'bi-clock' : 'bi-clock-history'} mr-1`}></i>
                   {isStoreOpen() ? 'Abierta' : 'Cerrada'}
                 </span>
-              </div>
-              {/* Dirección */}
-              {business.address && (
-                <div className="mt-4 text-gray-500">
-                  <span className="inline-flex items-center justify-center">
-                    <i className="bi bi-geo-alt mr-2"></i>
+                {/* Dirección */}
+                {business.address && (
+                  <span className="text-xs text-gray-500 inline-flex items-center">
+                    <i className="bi bi-geo-alt mr-1"></i>
                     {business.address}
                   </span>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>
