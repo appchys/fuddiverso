@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { Product, ProductVariant, Business } from '@/types'
-import { updateProduct, deleteProduct, uploadImage, getBusinessCategories, addCategoryToBusiness, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, updateBusiness } from '@/lib/database'
+import { createProduct, updateProduct, deleteProduct, uploadImage, getBusinessCategories, addCategoryToBusiness, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, updateBusiness } from '@/lib/database'
 
 interface ProductManagementProps {
   business: Business | null
@@ -160,7 +160,7 @@ export default function ProductManagement({
 
   const handleUpdateProduct = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!editingProduct || !business?.id) return
+    if (!business?.id) return
 
     // Validar formulario
     const newErrors: Record<string, string> = {}
@@ -178,7 +178,7 @@ export default function ProductManagement({
 
     setUploading(true)
     try {
-      let imageUrl = editingProduct.image // Mantener imagen actual por defecto
+      let imageUrl = editingProduct?.image || '' // Mantener imagen actual por defecto
 
       // Subir nueva imagen si se seleccionó una
       if (editFormData.image) {
@@ -193,7 +193,7 @@ export default function ProductManagement({
         ingredients: variantIngredients[variant.id] || undefined
       }))
 
-      const updatedData = {
+      const productData = {
         name: editFormData.name,
         description: editFormData.description,
         price: Number(editFormData.price),
@@ -202,21 +202,35 @@ export default function ProductManagement({
         variants: editVariants.length > 0 ? variantsWithIngredients : undefined,
         ingredients: editIngredients.length > 0 ? editIngredients : undefined,
         isAvailable: editFormData.isAvailable,
+        businessId: business.id,
         updatedAt: new Date()
       }
 
-      await updateProduct(editingProduct.id, updatedData)
-      
-      onProductsChange(products.map(product => 
-        product.id === editingProduct.id 
-          ? { ...product, ...updatedData }
-          : product
-      ))
+      if (editingProduct?.id === 'new') {
+        // Crear nuevo producto
+        const newProductId = await createProduct(productData)
+        const newProduct = {
+          ...productData,
+          id: newProductId,
+          createdAt: new Date()
+        }
+        onProductsChange([...products, newProduct])
+        alert('Producto creado exitosamente')
+      } else if (editingProduct) {
+        // Actualizar producto existente
+        await updateProduct(editingProduct.id, productData)
+        onProductsChange(products.map(product => 
+          product.id === editingProduct.id 
+            ? { ...product, ...productData }
+            : product
+        ))
+        alert('Producto actualizado exitosamente')
+      }
 
       handleCloseEditModal()
-      alert('Producto actualizado exitosamente')
     } catch (error) {
-      setEditErrors({ submit: 'Error al actualizar el producto' })
+      console.error('Error al guardar el producto:', error)
+      setEditErrors({ submit: 'Error al guardar el producto. Por favor, inténtalo de nuevo.' })
     } finally {
       setUploading(false)
     }
@@ -812,7 +826,8 @@ export default function ProductManagement({
             <div className="p-6">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-xl font-semibold text-gray-900">
-                  <i className="bi bi-pencil me-2"></i>Editar Producto
+                  <i className={`bi ${editingProduct?.id === 'new' ? 'bi-plus-lg' : 'bi-pencil'} me-2`}></i>
+                  {editingProduct?.id === 'new' ? 'Crear Producto' : 'Editar Producto'}
                 </h3>
                 <button
                   onClick={handleCloseEditModal}
