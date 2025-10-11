@@ -153,9 +153,9 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
         <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={onClose} />
 
-        <div className="inline-block w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-lg">
+        <div className="inline-block w-full h-full sm:max-h-[90vh] sm:max-w-md sm:rounded-lg flex flex-col overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl">
           {/* Header fijo */}
-          <div className="p-6 pb-0 flex-shrink-0">
+          <div className="p-4 sm:p-6 pb-0 flex-shrink-0">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-medium text-gray-900">Selecciona una opción</h3>
               <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
@@ -184,7 +184,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
           </div>
 
           {/* Sección de variantes desplazable */}
-          <div className="px-6 pb-4 overflow-y-auto flex-1 max-h-[40vh] custom-scrollbar">
+          <div className="px-4 sm:px-6 pb-4 overflow-y-auto flex-1 max-h-[60vh] sm:max-h-[40vh] custom-scrollbar">
             <div className="space-y-3 pr-2">
               {product?.variants?.filter((v: any) => v.isAvailable).map((variant: any, i: number) => {
                 const uid = makeUid(variant)
@@ -252,7 +252,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
           </div>
 
           {/* Footer fijo */}
-          <div className="p-4 border-t border-gray-100 flex-shrink-0 bg-white">
+          <div className="p-4 border-t border-gray-100 flex-shrink-0 bg-white sticky bottom-0">
             <div className="flex justify-end">
               <button
                 type="button"
