@@ -153,54 +153,115 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
         <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={onClose} />
 
-        <div className="inline-block w-full max-w-md p-6 my-8 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-lg">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-gray-900">Selecciona una opción</h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+        <div className="inline-block w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-lg">
+          {/* Header fijo */}
+          <div className="p-6 pb-0 flex-shrink-0">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900">Selecciona una opción</h3>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="w-full h-32 mb-3">
+              <img 
+                src={product?.image || businessImage} 
+                alt={product?.name} 
+                className="w-full h-full object-cover rounded-lg" 
+                onError={(e) => { 
+                  const target = e.target as HTMLImageElement; 
+                  if (target.src !== businessImage && businessImage) target.src = businessImage 
+                }} 
+              />
+            </div>
+
+            <h4 className="text-lg font-semibold text-gray-900 mb-1">{product?.name}</h4>
+            {product?.description && (
+              <p className="text-gray-600 text-sm mb-3 line-clamp-2">{product.description}</p>
+            )}
           </div>
 
-          <div className="w-full h-48 mb-4">
-            <img src={product?.image || businessImage} alt={product?.name} className="w-full h-full object-cover rounded-lg" onError={(e) => { const target = e.target as HTMLImageElement; if (target.src !== businessImage && businessImage) target.src = businessImage }} />
-          </div>
+          {/* Sección de variantes desplazable */}
+          <div className="px-6 pb-4 overflow-y-auto flex-1 max-h-[40vh] custom-scrollbar">
+            <div className="space-y-3 pr-2">
+              {product?.variants?.filter((v: any) => v.isAvailable).map((variant: any, i: number) => {
+                const uid = makeUid(variant)
+                const qty = getCartItemQuantity(uid)
 
-          <h4 className="text-lg font-semibold text-gray-900 mb-2">{product?.name}</h4>
-          <p className="text-gray-600 text-sm mb-4">{product?.description}</p>
+                return (
+                  <div 
+                    key={i} 
+                    onClick={() => setSelectedVariant(variant)} 
+                    className={`w-full p-3 rounded-lg border-2 flex items-center justify-between transition-colors ${
+                      selectedVariant === variant ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-gray-300 cursor-pointer'
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <h5 className="font-medium text-gray-900 truncate">{variant.name}</h5>
+                      {variant.description && (
+                        <p className="text-sm text-gray-600 truncate">{variant.description}</p>
+                      )}
+                      <div className="text-red-500 font-bold mt-1">${variant.price.toFixed(2)}</div>
+                    </div>
 
-          <div className="space-y-2 mb-6">
-            {product?.variants?.filter((v: any) => v.isAvailable).map((variant: any, i: number) => {
-              const uid = makeUid(variant)
-              const qty = getCartItemQuantity(uid)
-
-              return (
-                <div key={i} onClick={() => setSelectedVariant(variant)} className={`w-full p-3 rounded-lg border-2 flex items-center justify-between transition-colors ${selectedVariant === variant ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-gray-300 cursor-pointer'}`}>
-                  <div>
-                    <h5 className="font-medium text-gray-900">{variant.name}</h5>
-                    {variant.description && <p className="text-sm text-gray-600">{variant.description}</p>}
-                    <div className="text-red-500 font-bold mt-2">${variant.price.toFixed(2)}</div>
+                    <div className="flex-shrink-0 ml-2" onClick={(e) => e.stopPropagation()}>
+                      {qty > 0 ? (
+                        <div className="flex items-center border rounded-lg overflow-hidden bg-white">
+                          <button 
+                            onClick={() => updateQuantity(uid, qty - 1)} 
+                            className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+                          >
+                            -
+                          </button>
+                          <div className="px-3 py-1 min-w-[30px] text-center">
+                            {qty}
+                          </div>
+                          <button 
+                            onClick={() => updateQuantity(uid, qty + 1)}
+                            className="px-3 py-1 bg-red-500 text-white hover:bg-red-600 transition-colors"
+                          >
+                            +
+                          </button>
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => onAddToCart({
+                            id: uid,
+                            name: `${product.name} - ${variant.name}`,
+                            variantName: variant.name,
+                            productName: product.name,
+                            price: variant.price,
+                            image: product.image,
+                            description: variant.description || product.description,
+                            businessId: product.businessId,
+                            productId: product.id,
+                            variantId: variant.id
+                          })} 
+                          className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors whitespace-nowrap text-sm"
+                        >
+                          Agregar
+                        </button>
+                      )}
+                    </div>
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    {qty > 0 ? (
-                      <div className="flex items-center border rounded-lg overflow-hidden">
-                        <button onClick={(e) => { e.stopPropagation(); updateQuantity(uid, qty - 1) }} className="px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700">-</button>
-                        <div className="px-3 py-1">{qty}</div>
-                        <button onClick={(e) => { e.stopPropagation(); updateQuantity(uid, qty + 1) }} className="px-3 py-1 bg-red-500 text-white hover:bg-red-600">+</button>
-                      </div>
-                    ) : (
-                      <button onClick={(e) => { e.stopPropagation(); onAddToCart({ id: uid, name: `${product.name} - ${variant.name}`, variantName: variant.name, productName: product.name, price: variant.price, image: product.image, description: variant.description || product.description, businessId: product.businessId, productId: product.id, variantId: variant.id }); }} className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">Agregar</button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
 
-          <div className="flex space-x-3">
-            <button onClick={onClose} className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200">Cancelar</button>
+          {/* Footer fijo */}
+          <div className="p-4 border-t border-gray-100 flex-shrink-0 bg-white">
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       </div>
