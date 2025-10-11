@@ -1025,36 +1025,36 @@ export default function ProductManagement({
                       <div className="space-y-2">
                         {editVariants.map((variant, index) => (
                           <div key={variant.id} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                            <div className="flex items-center p-3">
+                            <div className="flex items-center h-8 px-1">
                               {/* Botones de orden */}
-                              <div className="flex flex-col mr-2">
+                              <div className="flex items-center space-x-0.5 mr-1">
                                 <button
                                   type="button"
-                                  onClick={() => moveVariantUp(index)}
+                                  onClick={(e) => { e.stopPropagation(); moveVariantUp(index); }}
                                   disabled={index === 0}
-                                  className={`p-1 ${index === 0 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:text-gray-800'}`}
+                                  className={`p-0.5 h-5 w-5 flex items-center justify-center rounded ${index === 0 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-100'}`}
                                   title="Subir"
                                 >
-                                  <i className="bi bi-chevron-up"></i>
+                                  <i className="bi bi-chevron-up text-xs"></i>
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => moveVariantDown(index)}
+                                  onClick={(e) => { e.stopPropagation(); moveVariantDown(index); }}
                                   disabled={index === editVariants.length - 1}
-                                  className={`p-1 ${index === editVariants.length - 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:text-gray-800'}`}
+                                  className={`p-0.5 h-5 w-5 flex items-center justify-center rounded ${index === editVariants.length - 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-100'}`}
                                   title="Bajar"
                                 >
-                                  <i className="bi bi-chevron-down"></i>
+                                  <i className="bi bi-chevron-down text-xs"></i>
                                 </button>
                               </div>
 
                               {/* Información de la variante */}
                               <div className="flex-1">
-                                <div className="flex items-center gap-4">
-                                  <span className="font-medium text-gray-900">{variant.name}</span>
-                                  <span className="text-green-600 font-medium">${variant.price.toFixed(2)}</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-medium text-xs text-gray-900">{variant.name}</span>
+                                  <span className="text-green-600 text-xs font-medium">${variant.price.toFixed(2)}</span>
                                   {variant.description && (
-                                    <span className="text-gray-500 text-sm">- {variant.description}</span>
+                                    <span className="text-gray-500 text-[11px] truncate max-w-[130px]">- {variant.description}</span>
                                   )}
                                 </div>
                               </div>
@@ -1063,18 +1063,18 @@ export default function ProductManagement({
                               <div className="flex items-center">
                                 <button
                                   type="button"
-                                  onClick={() => removeEditVariant(variant.id)}
-                                  className="text-red-600 hover:text-red-700 p-1"
+                                  onClick={(e) => { e.stopPropagation(); removeEditVariant(variant.id); }}
+                                  className="text-red-600 hover:text-red-700 p-0.5"
                                   title="Eliminar variante"
                                 >
-                                  <i className="bi bi-trash"></i>
+                                  <i className="bi bi-trash text-xs"></i>
                                 </button>
                               </div>
                             </div>
 
                             {/* Panel de ingredientes de la variante */}
                             {editingVariantIngredients === variant.id && (
-                              <div className="border-t border-gray-200 bg-gray-50 p-4">
+                              <div className="border-t border-gray-200 bg-gray-50 p-2">
                                 <h5 className="font-medium text-gray-900 mb-3">
                                   Ingredientes de "{variant.name}"
                                 </h5>
