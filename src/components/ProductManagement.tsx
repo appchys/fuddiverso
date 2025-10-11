@@ -1185,152 +1185,281 @@ export default function ProductManagement({
 
                 {/* Pestaña: Ingredientes y Costos */}
                 {activeModalTab === 'ingredients' && (
-                  <>
-                    <div className="mb-6">
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h3 className="text-lg font-medium text-gray-900">Ingredientes del Producto</h3>
-                          <p className="text-sm text-gray-500 mt-1">Gestiona los ingredientes y costos para control interno</p>
-                        </div>
-                        {editIngredients.length > 0 && (
-                          <div className="text-right">
-                            <p className="text-sm text-gray-500">Costo Total:</p>
-                            <p className="text-2xl font-bold text-emerald-600">
-                              ${calculateTotalIngredientCost().toFixed(2)}
-                            </p>
-                            {editFormData.price && (
-                              <p className="text-xs text-gray-500 mt-1">
-                                Margen: ${(Number(editFormData.price) - calculateTotalIngredientCost()).toFixed(2)}
-                                {' '}({((Number(editFormData.price) - calculateTotalIngredientCost()) / Number(editFormData.price) * 100).toFixed(1)}%)
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Lista de ingredientes */}
-                      {editIngredients.length > 0 && (
-                        <div className="mb-4">
-                          <h4 className="font-medium text-gray-900 mb-3">Ingredientes agregados:</h4>
-                          <div className="space-y-2">
-                            {editIngredients.map((ingredient) => (
-                              <div key={ingredient.id} className="flex justify-between items-center bg-white border border-gray-200 rounded-lg p-3">
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-4">
-                                    <span className="font-medium text-gray-900">{ingredient.name}</span>
-                                    <span className="text-gray-600 text-sm">
-                                      {ingredient.quantity} x ${ingredient.unitCost.toFixed(2)}
-                                    </span>
-                                    <span className="text-emerald-600 font-medium">
-                                      = ${(ingredient.quantity * ingredient.unitCost).toFixed(2)}
-                                    </span>
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => removeIngredient(ingredient.id)}
-                                  className="text-red-600 hover:text-red-700 p-1"
-                                >
-                                  <i className="bi bi-trash"></i>
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Formulario para agregar ingrediente */}
-                      <div className="bg-gray-50 p-4 rounded-md">
-                        <h4 className="font-medium text-gray-900 mb-3">Agregar Nuevo Ingrediente</h4>
-                        
-                        <div className="space-y-3">
+                  <div className="space-y-6">
+                    {/* Sección de ingredientes principales - Solo visible cuando no hay variantes */}
+                    {editVariants.length === 0 && (
+                      <div className="bg-white p-4 rounded-lg border border-gray-200">
+                        <div className="flex items-center justify-between mb-4">
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Nombre del Ingrediente *
-                            </label>
-                            <div className="relative ingredient-input-container">
-                              <input
-                                type="text"
-                                name="name"
-                                value={editCurrentIngredient.name}
-                                onChange={handleIngredientChange}
-                                onFocus={() => setShowIngredientSuggestions(true)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                                placeholder="Ej: Pan, Carne, Mayonesa (escribe para buscar)"
-                                autoComplete="off"
-                              />
-                              
-                              {/* Sugerencias de ingredientes */}
-                              {showIngredientSuggestions && getFilteredIngredients().length > 0 && (
-                                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                                  {getFilteredIngredients().map((ingredient) => (
-                                    <button
-                                      key={ingredient.id}
-                                      type="button"
-                                      onClick={() => selectIngredientFromLibrary(ingredient)}
-                                      className="w-full text-left px-4 py-3 hover:bg-emerald-50 border-b border-gray-100 last:border-b-0 transition-colors"
-                                    >
-                                      <div className="flex items-center justify-between">
-                                        <span className="text-sm font-medium text-gray-900">{ingredient.name}</span>
-                                        <span className="text-sm text-emerald-600 font-bold">${ingredient.unitCost.toFixed(2)}</span>
-                                      </div>
-                                      <div className="text-xs text-gray-500 mt-1">
-                                        <i className="bi bi-clock-history me-1"></i>
-                                        Usado {ingredient.usageCount} {ingredient.usageCount === 1 ? 'vez' : 'veces'}
-                                      </div>
-                                    </button>
-                                  ))}
-                                </div>
+                            <h3 className="text-lg font-medium text-gray-900">Ingredientes del Producto</h3>
+                            <p className="text-sm text-gray-500 mt-1">Ingredientes base que aplican a todas las variantes</p>
+                          </div>
+                          {editIngredients.length > 0 && (
+                            <div className="text-right">
+                              <p className="text-sm text-gray-500">Costo Total:</p>
+                              <p className="text-xl font-bold text-emerald-600">
+                                ${calculateTotalIngredientCost().toFixed(2)}
+                              </p>
+                              {editFormData.price && (
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Margen: ${(Number(editFormData.price) - calculateTotalIngredientCost()).toFixed(2)}
+                                  {' '}({((Number(editFormData.price) - calculateTotalIngredientCost()) / Number(editFormData.price) * 100).toFixed(1)}%)
+                                </p>
                               )}
                             </div>
-                          </div>
-                          
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Costo Unitario ($) *
-                              </label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                name="unitCost"
-                                value={editCurrentIngredient.unitCost}
-                                onChange={handleIngredientChange}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                                placeholder="0.00"
-                              />
-                            </div>
-                            
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Cantidad *
-                              </label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0.01"
-                                name="quantity"
-                                value={editCurrentIngredient.quantity}
-                                onChange={handleIngredientChange}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                                placeholder="1"
-                              />
+                          )}
+                        </div>
+
+                        {/* Lista de ingredientes */}
+                        {editIngredients.length > 0 && (
+                          <div className="mb-4">
+                            <h4 className="font-medium text-gray-900 mb-3">Ingredientes agregados:</h4>
+                            <div className="space-y-2">
+                              {editIngredients.map((ingredient) => (
+                                <div key={ingredient.id} className="flex justify-between items-center bg-white border border-gray-200 rounded-lg p-3">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-4">
+                                      <span className="font-medium text-gray-900">{ingredient.name}</span>
+                                      <span className="text-gray-600 text-sm">
+                                        {ingredient.quantity} x ${ingredient.unitCost.toFixed(2)}
+                                      </span>
+                                      <span className="text-emerald-600 font-medium">
+                                        = ${(ingredient.quantity * ingredient.unitCost).toFixed(2)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeIngredient(ingredient.id)}
+                                    className="text-red-600 hover:text-red-700 p-1"
+                                  >
+                                    <i className="bi bi-trash"></i>
+                                  </button>
+                                </div>
+                              ))}
                             </div>
                           </div>
-                          
-                          <button
-                            type="button"
-                            onClick={addIngredient}
-                            className="w-full bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700 transition-colors"
-                          >
-                            <i className="bi bi-plus-lg me-2"></i>
-                            Agregar Ingrediente
-                          </button>
+                        )}
+
+                        {/* Formulario para agregar ingrediente */}
+                        <div className="bg-gray-50 p-4 rounded-md">
+                          <h4 className="font-medium text-gray-900 mb-3">Agregar Nuevo Ingrediente</h4>
+
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Nombre del Ingrediente *
+                              </label>
+                              <div className="relative ingredient-input-container">
+                                <input
+                                  type="text"
+                                  name="name"
+                                  value={editCurrentIngredient.name}
+                                  onChange={handleIngredientChange}
+                                  onFocus={() => setShowIngredientSuggestions(true)}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                  placeholder="Ej: Pan, Carne, Mayonesa (escribe para buscar)"
+                                  autoComplete="off"
+                                />
+
+                                {/* Sugerencias de ingredientes */}
+                                {showIngredientSuggestions && getFilteredIngredients().length > 0 && (
+                                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                                    {getFilteredIngredients().map((ingredient) => (
+                                      <button
+                                        key={ingredient.id}
+                                        type="button"
+                                        onClick={() => selectIngredientFromLibrary(ingredient)}
+                                        className="w-full text-left px-4 py-3 hover:bg-emerald-50 border-b border-gray-100 last:border-b-0 transition-colors"
+                                      >
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-sm font-medium text-gray-900">{ingredient.name}</span>
+                                          <span className="text-sm text-emerald-600 font-bold">${ingredient.unitCost.toFixed(2)}</span>
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-1">
+                                          <i className="bi bi-clock-history me-1"></i>
+                                          Usado {ingredient.usageCount} {ingredient.usageCount === 1 ? 'vez' : 'veces'}
+                                        </div>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                  Costo Unitario ($) *
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  name="unitCost"
+                                  value={editCurrentIngredient.unitCost}
+                                  onChange={handleIngredientChange}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                  placeholder="0.00"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                  Cantidad *
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0.01"
+                                  name="quantity"
+                                  value={editCurrentIngredient.quantity}
+                                  onChange={handleIngredientChange}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                  placeholder="1"
+                                />
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={addIngredient}
+                              className="w-full bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700 transition-colors"
+                            >
+                              <i className="bi bi-plus-lg me-2"></i>
+                              Agregar Ingrediente
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </>
+                    )}
+
+                    {/* Sección de variantes */}
+                    {editVariants.length > 0 && (
+                      <div className="mt-8 bg-white p-4 rounded-lg border border-gray-200">
+                        <h3 className="text-lg font-medium text-gray-900 mb-4">Ingredientes por Variante</h3>
+                        <p className="text-sm text-gray-500 mb-4">
+                          Gestiona los ingredientes específicos para cada variante
+                        </p>
+                        
+                        <div className="space-y-6">
+                          {editVariants.map((variant) => (
+                            <div key={variant.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                              <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                                <h4 className="font-medium text-gray-900">
+                                  {variant.name}
+                                  {variant.price && (
+                                    <span className="ml-2 text-sm font-normal text-gray-500">
+                                      (${Number(variant.price).toFixed(2)})
+                                    </span>
+                                  )}
+                                </h4>
+                                {variant.description && (
+                                  <p className="text-sm text-gray-500 mt-1">{variant.description}</p>
+                                )}
+                              </div>
+                              
+                              <div className="p-4">
+                                {/* Lista de ingredientes de la variante */}
+                                {variantIngredients[variant.id]?.length > 0 ? (
+                                  <div className="mb-4 space-y-2">
+                                    {variantIngredients[variant.id].map((ingredient, idx) => (
+                                      <div key={`${variant.id}-${ingredient.id}-${idx}`} className="flex justify-between items-center bg-gray-50 p-2 rounded">
+                                        <div className="flex-1">
+                                          <p className="font-medium text-gray-900">{ingredient.name}</p>
+                                          <p className="text-sm text-gray-500">
+                                            {ingredient.quantity} x ${ingredient.unitCost.toFixed(2)} = ${(ingredient.quantity * ingredient.unitCost).toFixed(2)}
+                                          </p>
+                                        </div>
+                                        <button
+                                          onClick={() => removeIngredientFromVariant(variant.id, ingredient.id)}
+                                          className="text-red-500 hover:text-red-700 p-1"
+                                        >
+                                          <i className="bi bi-trash"></i>
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-center py-4 text-sm text-gray-500">
+                                    No se han agregado ingredientes específicos para esta variante.
+                                  </div>
+                                )}
+                                
+                                {/* Formulario para agregar ingrediente a la variante */}
+                                <div className="mt-4 pt-4 border-t border-gray-200">
+                                  <h5 className="text-sm font-medium text-gray-700 mb-3">Agregar ingrediente a esta variante</h5>
+                                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                    <div className="md:col-span-2 relative">
+                                      <input
+                                        type="text"
+                                        name="name"
+                                        value={editCurrentIngredient.name}
+                                        onChange={handleIngredientChange}
+                                        onFocus={() => setShowIngredientSuggestions(true)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                        placeholder="Buscar o agregar ingrediente"
+                                        autoComplete="off"
+                                      />
+                                      {showIngredientSuggestions && getFilteredIngredients().length > 0 && (
+                                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                                          {getFilteredIngredients().map((ingredient) => (
+                                            <button
+                                              key={ingredient.id}
+                                              type="button"
+                                              onClick={() => selectIngredientFromLibrary(ingredient)}
+                                              className="w-full text-left px-3 py-2 hover:bg-emerald-50 border-b border-gray-100 last:border-b-0 text-sm"
+                                            >
+                                              <div className="flex items-center justify-between">
+                                                <span className="font-medium text-gray-900">{ingredient.name}</span>
+                                                <span className="text-emerald-600 font-medium">${ingredient.unitCost.toFixed(2)}</span>
+                                              </div>
+                                              <div className="text-xs text-gray-500 mt-0.5">
+                                                Usado {ingredient.usageCount} {ingredient.usageCount === 1 ? 'vez' : 'veces'}
+                                              </div>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      name="unitCost"
+                                      value={editCurrentIngredient.unitCost}
+                                      onChange={handleIngredientChange}
+                                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                      placeholder="Costo unitario"
+                                    />
+                                    <div className="flex">
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0.01"
+                                        name="quantity"
+                                        value={editCurrentIngredient.quantity}
+                                        onChange={handleIngredientChange}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-l-md text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                        placeholder="Cantidad"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => addIngredientToVariant(variant.id)}
+                                        className="bg-emerald-600 text-white px-3 py-2 rounded-r-md hover:bg-emerald-700 transition-colors text-sm whitespace-nowrap"
+                                      >
+                                        Agregar
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {/* Errores */}
