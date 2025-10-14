@@ -1638,10 +1638,7 @@ export default function BusinessDashboard() {
               {/* 2. Botones de acción - Ancho fijo */}
               <div className="w-16 flex-shrink-0 flex justify-center">
                 <div className="flex items-center space-x-1">
-                  {isToday && (
-                    (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
-                    (order.delivery?.type === 'pickup' && business?.phone)
-                  ) && (
+                  {(order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
@@ -1769,37 +1766,16 @@ export default function BusinessDashboard() {
                     ) : null
                   })()}
                   
-                  {isToday && (
-                    (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
-                    (order.delivery?.type === 'pickup' && business?.phone)
-                  ) && (
+                  {(order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
                         handleSendWhatsApp(order)
                       }}
                       className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
-                      title="Enviar WhatsApp"
+                      title="Enviar mensaje de WhatsApp al delivery"
                     >
                       <i className="bi bi-whatsapp text-sm"></i>
-                    </button>
-                  )}
-
-                  {isToday && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleEditPayment(order)
-                      }}
-                      className={`${(() => {
-                        const status = order.payment?.paymentStatus
-                        if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
-                        if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
-                        return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-                      })()} p-1.5 rounded`}
-                      title="Editar método/estado de pago"
-                    >
-                      <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-sm`}></i>
                     </button>
                   )}
 
@@ -1869,10 +1845,7 @@ export default function BusinessDashboard() {
               ) : null
             })()}
 
-            {isToday && (
-              (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
-              (order.delivery?.type === 'pickup' && business?.phone)
-            ) && (
+            {(order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) && (
               <button
                 onClick={(e) => {
                   e.stopPropagation()
@@ -1885,23 +1858,30 @@ export default function BusinessDashboard() {
               </button>
             )}
 
-            {isToday && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleEditPayment(order)
-                }}
-                className={`${(() => {
-                  const status = order.payment?.paymentStatus
-                  if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
-                  if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
-                  return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-                })()} p-1 sm:p-1.5 rounded`}
-                title="Editar método/estado de pago"
-              >
-                <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-base sm:text-lg`}></i>
-              </button>
-            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                // Editar usando el sidebar manual
+                setManualSidebarMode('edit')
+                setEditingOrderForSidebar(order)
+                setShowManualOrderModal(true)
+              }}
+              className="text-blue-600 hover:text-blue-800 p-1 sm:p-1.5 rounded hover:bg-blue-50"
+              title="Editar orden"
+            >
+              <i className="bi bi-pencil text-base sm:text-lg"></i>
+            </button>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                handleDeleteOrder(order.id)
+              }}
+              className="text-red-600 hover:text-red-800 p-1 sm:p-1.5 rounded hover:bg-red-50"
+              title="Eliminar orden"
+            >
+              <i className="bi bi-trash text-base sm:text-lg"></i>
+            </button>
           </div>
         </td>
         <td className="hidden md:table-cell px-2 py-1.5 sm:px-3 sm:py-2 min-w-0 cursor-pointer flex-1">
