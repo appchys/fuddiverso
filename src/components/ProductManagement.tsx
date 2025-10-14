@@ -928,6 +928,7 @@ export default function ProductManagement({
                       name="price"
                       value={editFormData.price}
                       onChange={handleEditInputChange}
+                      onWheel={(e) => (e.target as HTMLInputElement).blur()}
                       className={`w-full pl-8 pr-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
                         editErrors.price ? 'border-red-500' : 'border-gray-300'
                       }`}
@@ -1164,6 +1165,7 @@ export default function ProductManagement({
                                       name="unitCost"
                                       value={editCurrentIngredient.unitCost}
                                       onChange={handleIngredientChange}
+                                      onWheel={(e) => (e.target as HTMLInputElement).blur()}
                                       className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                       placeholder="Costo ($)"
                                     />
@@ -1174,6 +1176,7 @@ export default function ProductManagement({
                                       name="quantity"
                                       value={editCurrentIngredient.quantity}
                                       onChange={handleIngredientChange}
+                                      onWheel={(e) => (e.target as HTMLInputElement).blur()}
                                       className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                       placeholder="Cantidad"
                                     />
@@ -1238,6 +1241,7 @@ export default function ProductManagement({
                           name="price"
                           value={editCurrentVariant.price}
                           onChange={handleEditVariantChange}
+                          onWheel={(e) => (e.target as HTMLInputElement).blur()}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                           placeholder="Dejalo vacío para usar precio base"
                         />
@@ -1386,6 +1390,7 @@ export default function ProductManagement({
                                   name="unitCost"
                                   value={editCurrentIngredient.unitCost}
                                   onChange={handleIngredientChange}
+                                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
                                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                                   placeholder="0.00"
                                 />
@@ -1402,6 +1407,7 @@ export default function ProductManagement({
                                   name="quantity"
                                   value={editCurrentIngredient.quantity}
                                   onChange={handleIngredientChange}
+                                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
                                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                                   placeholder="1"
                                 />
