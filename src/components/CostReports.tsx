@@ -347,13 +347,13 @@ export default function CostReports({ business }: CostReportsProps) {
       ) : report ? (
         <>
           {/* Resumen General */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Ingresos Totales <span className="text-xs">Incluyendo envío</span></p>
+                  <p className="text-sm text-gray-500">Ingresos (Sin envío)</p>
                   <p className="text-2xl font-bold text-emerald-600">
-                    ${report.totalRevenue.toFixed(2)}
+                    ${(report.totalRevenue - report.totalShippingCost).toFixed(2)}
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center">
@@ -365,13 +365,13 @@ export default function CostReports({ business }: CostReportsProps) {
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Valor de Envío</p>
-                  <p className="text-2xl font-bold text-orange-600">
-                    ${report.totalShippingCost.toFixed(2)}
+                  <p className="text-sm text-gray-500">Costos Totales</p>
+                  <p className="text-2xl font-bold text-red-600">
+                    ${(report.totalIngredientCost + report.totalShippingCost).toFixed(2)}
                   </p>
                 </div>
-                <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
-                  <i className="bi bi-truck text-orange-600 text-xl"></i>
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                  <i className="bi bi-calculator text-red-600 text-xl"></i>
                 </div>
               </div>
             </div>
@@ -379,27 +379,16 @@ export default function CostReports({ business }: CostReportsProps) {
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Ganancia Neta (después de envío)</p>
+                  <p className="text-sm text-gray-500">Ganancia Neta y Margen</p>
                   <p className="text-2xl font-bold text-blue-600">
                     ${(Math.max(0, report.profitAmount - report.totalShippingCost)).toFixed(2)}
+                  </p>
+                  <p className="text-sm text-purple-600 mt-1">
+                    {report.totalRevenue > 0 ? ((report.profitAmount - report.totalShippingCost) / report.totalRevenue * 100).toFixed(1) : 0}% margen
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
                   <i className="bi bi-graph-up-arrow text-blue-600 text-xl"></i>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">Margen de Ganancia (después de envío)</p>
-                  <p className="text-2xl font-bold text-purple-600">
-                    {report.totalRevenue > 0 ? ((report.profitAmount - report.totalShippingCost) / report.totalRevenue * 100).toFixed(1) : 0}%
-                  </p>
-                </div>
-                <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                  <i className="bi bi-percent text-purple-600 text-xl"></i>
                 </div>
               </div>
               <p className="text-xs text-gray-500 mt-2">
