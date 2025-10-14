@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { Business, Product, Order, ProductVariant, ClientLocation } from '@/types'
 import { auth, db } from '@/lib/firebase'
 import { doc, updateDoc, Timestamp } from 'firebase/firestore'
@@ -2342,9 +2341,15 @@ export default function BusinessDashboard() {
                 <i className="bi bi-list text-xl"></i>
               </button>
               
-              <Link href="/" className="text-xl sm:text-2xl font-bold text-red-600">
-                fuddi.shop
-              </Link>
+              <button
+                onClick={() => {
+                  setActiveTab('orders');
+                  setOrdersSubTab('today');
+                }}
+                className="text-xl sm:text-2xl font-bold text-red-600 hover:text-red-700 transition-colors"
+              >
+                Fuddi
+              </button>
               <span className="hidden sm:inline text-gray-600">Dashboard</span>
             </div>
             
