@@ -2008,6 +2008,7 @@ export interface CostReport {
   endDate: Date
   totalRevenue: number
   totalIngredientCost: number
+  totalShippingCost: number
   totalOrders: number
   profitMargin: number
   profitAmount: number
@@ -2058,12 +2059,18 @@ export async function calculateCostReport(
     const productSalesMap = new Map<string, any>()
     let totalRevenue = 0
     let totalOrders = 0
+    let totalShippingCost = 0
     
     // Procesar cada orden
     ordersSnapshot.forEach(orderDoc => {
       const order = orderDoc.data()
       totalOrders++
       totalRevenue += order.total || 0
+      
+      // Calcular costo de envío para esta orden
+      if (order.delivery?.type === 'delivery') {
+        totalShippingCost += order.delivery?.deliveryCost || 0
+      }
       
       // Procesar cada item de la orden
       order.items?.forEach((item: any) => {
@@ -2164,6 +2171,7 @@ export async function calculateCostReport(
       endDate,
       totalRevenue,
       totalIngredientCost,
+      totalShippingCost,
       totalOrders,
       profitMargin,
       profitAmount,

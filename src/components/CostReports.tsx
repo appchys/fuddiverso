@@ -347,11 +347,11 @@ export default function CostReports({ business }: CostReportsProps) {
       ) : report ? (
         <>
           {/* Resumen General */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Ingresos Totales</p>
+                  <p className="text-sm text-gray-500">Ingresos Totales <span className="text-xs">Incluyendo envío</span></p>
                   <p className="text-2xl font-bold text-emerald-600">
                     ${report.totalRevenue.toFixed(2)}
                   </p>
@@ -365,13 +365,13 @@ export default function CostReports({ business }: CostReportsProps) {
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Costo Ingredientes</p>
-                  <p className="text-2xl font-bold text-red-600">
-                    ${report.totalIngredientCost.toFixed(2)}
+                  <p className="text-sm text-gray-500">Valor de Envío</p>
+                  <p className="text-2xl font-bold text-orange-600">
+                    ${report.totalShippingCost.toFixed(2)}
                   </p>
                 </div>
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                  <i className="bi bi-basket text-red-600 text-xl"></i>
+                <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
+                  <i className="bi bi-truck text-orange-600 text-xl"></i>
                 </div>
               </div>
             </div>
@@ -379,9 +379,9 @@ export default function CostReports({ business }: CostReportsProps) {
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Ganancia Neta</p>
+                  <p className="text-sm text-gray-500">Ganancia Neta (después de envío)</p>
                   <p className="text-2xl font-bold text-blue-600">
-                    ${report.profitAmount.toFixed(2)}
+                    ${(Math.max(0, report.profitAmount - report.totalShippingCost)).toFixed(2)}
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
@@ -393,9 +393,9 @@ export default function CostReports({ business }: CostReportsProps) {
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Margen de Ganancia</p>
+                  <p className="text-sm text-gray-500">Margen de Ganancia (después de envío)</p>
                   <p className="text-2xl font-bold text-purple-600">
-                    {report.profitMargin.toFixed(1)}%
+                    {report.totalRevenue > 0 ? ((report.profitAmount - report.totalShippingCost) / report.totalRevenue * 100).toFixed(1) : 0}%
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
