@@ -1448,6 +1448,25 @@ export default function ProductManagement({
                                       </span>
                                     )}
                                   </h4>
+                                  {(() => {
+                                    const totalCost = (variantIngredients[variant.id] || []).reduce(
+                                      (sum, ingredient) => sum + (ingredient.quantity * ingredient.unitCost),
+                                      0
+                                    );
+                                    const profit = variant.price ? Number(variant.price) - totalCost : 0;
+                                    return (
+                                      <div className="mt-1 text-xs">
+                                        <span className="text-emerald-600">
+                                          Costo: ${totalCost.toFixed(2)}
+                                        </span>
+                                        {variant.price && (
+                                          <span className={`ml-2 ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                            Ganancia: ${profit.toFixed(2)}
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
                                   {variant.description && (
                                     <p className="text-sm text-gray-500 mt-1">{variant.description}</p>
                                   )}
