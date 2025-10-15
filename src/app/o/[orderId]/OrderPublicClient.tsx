@@ -87,40 +87,122 @@ export default function OrderPublicClient({ orderId }: Props) {
     return colors[status] || 'bg-gray-100 text-gray-800'
   }
 
-  const calculateDeliveryTime = () => {
-    if (!order.timing?.scheduledDate) return null
+  const getMinutesUntilDelivery = () => {
+    console.log('Full order object:', JSON.stringify(order, null, 2))
+    console.log('order.timing object:', order.timing)
+    console.log('order.timing keys:', order.timing ? Object.keys(order.timing) : 'null')
+
+    // Si tiene hora programada específica, calcular tiempo real hasta esa hora
+    if (order.timing?.scheduledTime) {
+      console.log('Has scheduled time, calculating real time remaining')
+
+      try {
+        const now = new Date()
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        const [hours, minutes] = order.timing.scheduledTime.split(':')
+        const scheduledDateTime = new Date(today)
+        scheduledDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0)
+
+        // Si la hora ya pasó hoy, asumir para mañana
+        if (scheduledDateTime < now) {
+          scheduledDateTime.setDate(scheduledDateTime.getDate() + 1)
+        }
+
+        const diffMs = scheduledDateTime.getTime() - now.getTime()
+        console.log('Time calculation (today):', {
+          now: now.toISOString(),
+          scheduled: scheduledDateTime.toISOString(),
+          diffMs,
+          diffMinutes: Math.floor(diffMs / (1000 * 60))
+        })
+
+        if (diffMs < 0) {
+          console.log('Scheduled time is in the past')
+          return null
+        }
+
+        const minutesToday = Math.floor(diffMs / (1000 * 60))
+        console.log('Minutes until delivery (today):', minutesToday)
+        return minutesToday
+      } catch (error) {
+        console.error('Error calculating minutes for today:', error)
+        return null
+      }
+    }
+
+    // Si es entrega inmediata SIN hora específica, devolver tiempo estimado
+    if (order.timing?.type === 'immediate') {
+      console.log('Immediate delivery type without scheduled time')
+      // Para entrega inmediata, asumir tiempo estimado (ej: 30-45 minutos)
+      return 35 // minutos estimados para entrega inmediata
+    }
+
+    // Si tiene fecha específica, usar esa
+    const possibleDateFields = ['scheduledDate', 'date', 'deliveryDate', 'fechaEntrega', 'fecha_entrega', 'fechaProgramada']
+    let scheduledDate = null
+
+    if (order.timing) {
+      for (const field of possibleDateFields) {
+        if (order.timing[field]) {
+          scheduledDate = order.timing[field]
+          console.log(`Found scheduled date in field: ${field} = ${scheduledDate}`)
+          break
+        }
+      }
+    }
+
+    if (!scheduledDate) {
+      console.log('No scheduled date found in any field')
+      return null
+    }
 
     try {
       const now = new Date()
-      const scheduledDateTime = new Date(order.timing.scheduledDate)
+      let scheduledDateTime
+
+      // Manejar diferentes formatos de fecha
+      if (typeof scheduledDate === 'string') {
+        scheduledDateTime = new Date(scheduledDate)
+      } else if (scheduledDate && typeof scheduledDate === 'object') {
+        // Si es un Timestamp de Firestore
+        if (scheduledDate.seconds) {
+          scheduledDateTime = new Date(scheduledDate.seconds * 1000)
+        } else if (scheduledDate.toDate && typeof scheduledDate.toDate === 'function') {
+          scheduledDateTime = scheduledDate.toDate()
+        } else {
+          scheduledDateTime = new Date(scheduledDate)
+        }
+      } else {
+        scheduledDateTime = new Date(scheduledDate)
+      }
 
       // Si también hay hora programada, incluirla
-      if (order.timing.scheduledTime) {
-        const [hours, minutes] = order.timing.scheduledTime.split(':')
-        scheduledDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0)
+      if (order.timing.scheduledTime || order.timing.time || order.timing.hora) {
+        const timeField = order.timing.scheduledTime || order.timing.time || order.timing.hora
+        if (timeField) {
+          const [hours, minutes] = timeField.split(':')
+          scheduledDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0)
+        }
       }
 
       const diffMs = scheduledDateTime.getTime() - now.getTime()
+      console.log('Time calculation:', {
+        now: now.toISOString(),
+        scheduled: scheduledDateTime.toISOString(),
+        diffMs,
+        diffMinutes: Math.floor(diffMs / (1000 * 60))
+      })
 
       if (diffMs < 0) {
-        return 'Entrega programada para el pasado'
+        console.log('Delivery time is in the past')
+        return null // Entrega programada para el pasado
       }
 
-      const diffMinutes = Math.floor(diffMs / (1000 * 60))
-      const diffHours = Math.floor(diffMinutes / 60)
-      const remainingMinutes = diffMinutes % 60
-
-      if (diffHours > 24) {
-        const diffDays = Math.floor(diffHours / 24)
-        const remainingHours = diffHours % 24
-        return `Falta ${diffDays} día${diffDays > 1 ? 's' : ''} y ${remainingHours} hora${remainingHours !== 1 ? 's' : ''}`
-      } else if (diffHours > 0) {
-        return `Falta ${diffHours} hora${diffHours > 1 ? 's' : ''} y ${remainingMinutes} minuto${remainingMinutes !== 1 ? 's' : ''}`
-      } else {
-        return `Falta ${remainingMinutes} minuto${remainingMinutes !== 1 ? 's' : ''}`
-      }
+      const minutesSpecific = Math.floor(diffMs / (1000 * 60))
+      console.log('Minutes until delivery:', minutesSpecific)
+      return minutesSpecific // Solo minutos
     } catch (error) {
-      console.error('Error calculating delivery time:', error)
+      console.error('Error calculating minutes until delivery:', error)
       return null
     }
   }
@@ -128,9 +210,19 @@ export default function OrderPublicClient({ orderId }: Props) {
   return (
     <div className="max-w-2xl mx-auto p-4">
       <div className="bg-white shadow rounded-lg p-4 border border-gray-200 relative">
-        {/* Estado en esquina superior derecha */}
-        <div className={`absolute top-4 right-4 px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
-          {getStatusTranslation(order.status)}
+        {/* Estado y tiempo en esquina superior derecha */}
+        <div className="absolute top-4 right-4 flex flex-col items-end space-y-1">
+          <div className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
+            {getStatusTranslation(order.status)}
+          </div>
+          {(() => {
+            const minutes = getMinutesUntilDelivery()
+            return minutes !== null ? (
+              <div className="text-xs text-gray-500">
+                <span className="text-orange-600 font-bold">{minutes}</span> minutos restantes
+              </div>
+            ) : null
+          })()}
         </div>
 
         {business?.image && (
@@ -153,11 +245,17 @@ export default function OrderPublicClient({ orderId }: Props) {
             }
           </div>
         )}
-        {calculateDeliveryTime() && (
-          <div className="text-sm font-medium text-blue-600 mb-4">
-            ⏰ {calculateDeliveryTime()}
-          </div>
-        )}
+
+        {/* Información cuando no hay horario programado */}
+        {(() => {
+          const possibleTimeFields = ['scheduledDate', 'date', 'deliveryDate', 'fechaEntrega', 'fecha_entrega', 'fechaProgramada', 'scheduledTime', 'time', 'hora']
+          const hasAnyTimeInfo = possibleTimeFields.some(field => order.timing?.[field])
+          return !hasAnyTimeInfo ? (
+            <div className="text-sm text-gray-500 mb-4 italic">
+              💡 Esta orden no tiene horario de entrega programado
+            </div>
+          ) : null
+        })()}
 
         <div className="mb-3">
           <div className="text-xs text-gray-500">Cliente</div>
