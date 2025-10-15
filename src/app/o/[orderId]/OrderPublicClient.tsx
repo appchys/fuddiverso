@@ -3,48 +3,6 @@
 import React, { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { getOrder, getBusiness, getDelivery } from '@/lib/database'
-import Image from 'next/image'
-
-// Componente para el mapa estático
-const StaticMap = ({ lat, lng }: { lat: number; lng: number }) => {
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-  const zoom = 15
-  const size = '600x300'
-  const mapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${zoom}&size=${size}&markers=color:red%7C${lat},${lng}&key=${apiKey}`
-  const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`
-
-  return (
-    <a 
-      href={mapsUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block group"
-      aria-label="Ver ubicación en Google Maps"
-    >
-      <div className="mt-6 rounded-lg overflow-hidden border border-gray-200 shadow-sm transition-all duration-200 group-hover:shadow-md group-hover:border-blue-300">
-        <div className="relative w-full h-48 md:h-64">
-          <Image
-            src={mapUrl}
-            alt="Ubicación de entrega"
-            fill
-            className="object-cover transition-transform duration-200 group-hover:scale-105"
-            unoptimized
-          />
-          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-5 transition-all duration-200" />
-        </div>
-        <div className="p-3 bg-gray-50 border-t border-gray-100 flex items-center justify-center">
-          <span className="text-sm text-blue-600 font-medium flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            Ver en Google Maps
-          </span>
-        </div>
-      </div>
-    </a>
-  )
-}
 
 type Props = {
   orderId: string
@@ -557,24 +515,11 @@ export default function OrderPublicClient({ orderId }: Props) {
                   <span className="font-medium">Dirección:</span> {order.delivery.references}
                 </p>
               )}
-              {order.delivery?.latlong && (() => {
-                try {
-                  // Intentar parsear las coordenadas del formato "lat, lng"
-                  const [lat, lng] = order.delivery.latlong
-                    .split(',')
-                    .map((coord: string) => parseFloat(coord.trim()));
-                  if (!isNaN(lat) && !isNaN(lng)) {
-                    return (
-                      <div className="mb-3">
-                        <StaticMap lat={lat} lng={lng} />
-                      </div>
-                    );
-                  }
-                } catch (e) {
-                  console.error('Error al parsear coordenadas:', e);
-                }
-                return null;
-              })()}
+              {order.delivery?.latlong && (
+                <p className="text-sm text-gray-700 mb-2">
+                  <span className="font-medium">Ubicación:</span> {order.delivery.latlong}
+                </p>
+              )}
               {order.delivery?.deliveryCost !== undefined && (
                 <p className="text-sm text-gray-700">
                   <span className="font-medium">Costo de envío:</span> ${parseFloat(order.delivery.deliveryCost).toFixed(2)}
