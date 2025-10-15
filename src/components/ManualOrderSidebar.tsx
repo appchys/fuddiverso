@@ -785,6 +785,12 @@ export default function ManualOrderSidebar({
 
     setCreatingOrder(true)
     try {
+      const now = new Date();
+      const firestoreTimestamp = {
+        seconds: Math.floor(now.getTime() / 1000),
+        nanoseconds: 0
+      };
+
       const orderData = {
         businessId: business.id,
         items: manualOrderData.selectedProducts.map(item => ({
@@ -822,15 +828,8 @@ export default function ManualOrderSidebar({
           }),
           ...(manualOrderData.timingType === 'immediate' && {
             // Para pedidos inmediatos, guardar fecha actual y hora actual + 30 minutos
-            scheduledDate: (() => {
-              const now = new Date();
-              return {
-                seconds: Math.floor(now.getTime() / 1000),
-                nanoseconds: 0
-              };
-            })(),
+            scheduledDate: firestoreTimestamp,
             scheduledTime: (() => {
-              const now = new Date();
               const plus30 = new Date(now.getTime() + 30 * 60 * 1000);
               const hh = String(plus30.getHours()).padStart(2, '0');
               const mm = String(plus30.getMinutes()).padStart(2, '0');
