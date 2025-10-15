@@ -1755,10 +1755,10 @@ export default function BusinessDashboard() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          handleAdvanceStatus(order)
+                          handleStatusChange(order.id, 'delivered')
                         }}
                         className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
-                        title={`Avanzar a ${getStatusText(nextStatus!)}`}
+                        title="Marcar como entregado"
                       >
                         <i className="bi bi-check-lg text-sm"></i>
                       </button>
@@ -1834,10 +1834,10 @@ export default function BusinessDashboard() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
-                    handleAdvanceStatus(order)
+                    handleStatusChange(order.id, 'delivered')
                   }}
                   className="text-green-600 hover:text-green-800 p-1 sm:p-1.5 rounded hover:bg-green-50"
-                  title={`Avanzar a ${getStatusText(nextStatus!)}`}
+                  title="Marcar como entregado"
                 >
                   <i className="bi bi-check-lg text-base sm:text-lg"></i>
                 </button>
@@ -2504,6 +2504,7 @@ export default function BusinessDashboard() {
         <div className={`
           w-64 bg-white shadow-sm border-r border-gray-200 fixed h-full overflow-y-auto z-50 transition-transform duration-300 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+          md:translate-x-0
         `}>
           <div className="p-4">
             {/* Header del sidebar */}
@@ -2616,7 +2617,7 @@ export default function BusinessDashboard() {
         </div>
 
         {/* Main Content */}
-        <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
+        <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto ${sidebarOpen ? 'ml-64' : 'ml-0'} md:ml-64`}>
           <div className="mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
 
         {/* Orders Tab */}
