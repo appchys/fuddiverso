@@ -68,12 +68,51 @@ export default function OrderPublicClient({ orderId }: Props) {
   if (error) return <div className="p-6 text-red-600">{error}</div>
   if (!order) return <div className="p-6">Orden no encontrada</div>
 
-  const formatDate = (d: any) => {
+  const formatDate = (d: any, timeOnly: boolean = false) => {
     try {
-      const date = new Date(d)
-      return date.toLocaleString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-    } catch {
-      return String(d)
+      // Handle Firestore Timestamp objects
+      if (d && typeof d === 'object' && 'seconds' in d) {
+        const timestamp = d.seconds * 1000 + (d.nanoseconds || 0) / 1000000;
+        const date = new Date(timestamp);
+        
+        if (timeOnly) {
+          return date.toLocaleTimeString('es-EC', { 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            hour12: true 
+          });
+        }
+        
+        return date.toLocaleString('es-EC', { 
+          day: '2-digit', 
+          month: '2-digit', 
+          year: 'numeric', 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        });
+      }
+      
+      // Handle regular dates
+      const date = d instanceof Date ? d : new Date(d);
+      
+      if (timeOnly) {
+        return date.toLocaleTimeString('es-EC', { 
+          hour: '2-digit', 
+          minute: '2-digit', 
+          hour12: true 
+        });
+      }
+      
+      return date.toLocaleString('es-EC', { 
+        day: '2-digit', 
+        month: '2-digit', 
+        year: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
+    } catch (e) {
+      console.error('Error formatting date:', e, 'Input:', d);
+      return '';
     }
   }
 
@@ -90,16 +129,119 @@ export default function OrderPublicClient({ orderId }: Props) {
   }
 
   const getStatusColor = (status: string) => {
-    const colors: { [key: string]: string } = {
-      'pending': 'bg-yellow-100 text-yellow-800',
-      'confirmed': 'bg-blue-100 text-blue-800',
-      'preparing': 'bg-orange-100 text-orange-800',
-      'ready': 'bg-green-100 text-green-800',
-      'delivered': 'bg-emerald-100 text-emerald-800',
-      'cancelled': 'bg-red-100 text-red-800'
+    const colors: { [key: string]: { bg: string; text: string; border: string } } = {
+      'pending': { bg: 'bg-yellow-50', text: 'text-yellow-800', border: 'border-yellow-300' },
+      'confirmed': { bg: 'bg-blue-50', text: 'text-blue-800', border: 'border-blue-300' },
+      'preparing': { bg: 'bg-orange-50', text: 'text-orange-800', border: 'border-orange-300' },
+      'ready': { bg: 'bg-green-50', text: 'text-green-800', border: 'border-green-300' },
+      'delivered': { bg: 'bg-emerald-50', text: 'text-emerald-800', border: 'border-emerald-300' },
+      'cancelled': { bg: 'bg-red-50', text: 'text-red-800', border: 'border-red-300' }
     }
-    return colors[status] || 'bg-gray-100 text-gray-800'
+    return colors[status] || { bg: 'bg-gray-50', text: 'text-gray-800', border: 'border-gray-300' }
   }
+
+  const getStatusIcon = (status: string) => {
+    const icons: { [key: string]: { icon: string, class?: string } } = {
+      'pending': { icon: 'clock-history', class: 'text-white' },
+      'confirmed': { icon: 'check-circle', class: 'text-white' },
+      'preparing': { icon: 'egg-fried', class: 'text-white' },
+      'ready': { icon: 'check2-circle', class: 'text-white' },
+      'delivered': { icon: 'bicycle', class: 'text-white' },
+      'cancelled': { icon: 'x-circle', class: 'text-white' }
+    }
+    
+    const iconData = icons[status] || { icon: 'circle', class: 'text-white' }
+    return (
+      <i className={`bi bi-${iconData.icon} ${iconData.class || ''}`}></i>
+    )
+  }
+
+  const getStatusLabel = (status: string) => {
+    const labels: { [key: string]: string } = {
+      'pending': 'Pendiente',
+      'confirmed': 'Confirmado',
+      'preparing': 'En preparación',
+      'ready': 'Listo para entrega',
+      'delivered': 'Entregado',
+      'cancelled': 'Cancelado'
+    }
+    return labels[status] || status
+  }
+
+  const renderTimeline = () => {
+    if (!order?.statusHistory) return null;
+
+    // Definir los estados a mostrar, excluyendo 'cancelled'
+    const statusOrder = ['pending', 'confirmed', 'preparing', 'ready', 'delivered'];
+    const currentStatus = order.status === 'cancelled' ? 'delivered' : order.status;
+    const currentStatusIndex = statusOrder.indexOf(currentStatus);
+    
+    // Crear un array con los estados a mostrar
+    const allStatuses = statusOrder.map(status => ({
+      status,
+      completed: statusOrder.indexOf(status) <= currentStatusIndex,
+      timestamp: order.statusHistory[`${status}At`],
+      isCurrent: status === currentStatus
+    }));
+
+    return (
+      <div className="mt-8">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Seguimiento de tu pedido</h3>
+        <div className="flow-root">
+          <ul className="-mb-8">
+            {allStatuses.map((item, index) => {
+              const colors = getStatusColor(item.status);
+              const isCompleted = item.completed && item.timestamp;
+              const isCurrent = item.isCurrent;
+              const isLast = index === allStatuses.length - 1;
+
+              return (
+                <li key={item.status} className="relative pb-8">
+                  {!isLast && (
+                    <span 
+                      className={`absolute left-4 top-4 -ml-px h-full w-0.5 ${isCompleted ? 'bg-emerald-500' : 'bg-gray-200'}`} 
+                      aria-hidden="true"
+                    />
+                  )}
+                  <div className="relative flex items-start group">
+                    <span className={`h-8 w-8 rounded-full flex items-center justify-center ring-8 ring-white ${isCompleted ? 'bg-emerald-500' : 'bg-gray-200'}`}>
+                      {isCompleted ? (
+                        <span className="text-white text-lg">{getStatusIcon(item.status)}</span>
+                      ) : (
+                        <span className="text-gray-500">•</span>
+                      )}
+                    </span>
+                    <div className="ml-4 flex-1">
+                      <div className="flex items-center">
+                        <h4 className={`text-sm font-medium ${isCurrent ? 'text-emerald-600' : 'text-gray-500'}`}>
+                          {getStatusLabel(item.status)}
+                        </h4>
+                        {isCurrent && (
+                          <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+                            Actual
+                          </span>
+                        )}
+                      </div>
+                      {item.timestamp && (
+                        <p className="mt-1 text-sm text-gray-500">
+                          {formatDate(item.timestamp, true)}
+                        </p>
+                      )}
+                      {isCurrent && !item.timestamp && (
+                        <p className="mt-1 text-sm text-gray-500">
+                          En progreso...
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </div>
+    );
+  };
 
   const getMinutesUntilDelivery = () => {
     console.log('=== DEBUG: getMinutesUntilDelivery ===')
@@ -284,22 +426,19 @@ export default function OrderPublicClient({ orderId }: Props) {
 
   return (
     <div className="max-w-2xl mx-auto p-4">
-      {/* Título fuera del contenedor */}
-      <h1 className="text-lg font-bold mb-2 text-gray-900">Detalles de la Orden</h1>
+      {/* Título */}
+      <h1 className="text-lg font-bold mb-4 text-gray-900">Detalles de la Orden</h1>
 
-      <div className="bg-white shadow rounded-lg p-4 border border-gray-200 relative">
+      {/* Tarjeta de información general */}
+      <div className="bg-white shadow rounded-lg p-4 mb-6 border border-gray-200 relative">
         {/* Estado y tiempo en esquina superior derecha */}
         <div className="absolute top-4 right-4 flex flex-col items-end space-y-1">
-          <div className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
+          <div className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status).bg} ${getStatusColor(order.status).text} border ${getStatusColor(order.status).border}`}>
             {getStatusTranslation(order.status)}
           </div>
           {(() => {
             const timeInfo = getMinutesUntilDelivery()
-            console.log('⏱️ TimeInfo result:', timeInfo)
-
             if (timeInfo !== null) {
-              console.log(`⏱️ Showing: ${timeInfo.minutes} ${timeInfo.isLate ? 'minutos de atraso' : 'minutos restantes'} (${timeInfo.isLate ? 'red' : 'orange'})`)
-
               return (
                 <div className="text-xs text-gray-500">
                   <span className={`font-bold ${timeInfo.isLate ? 'text-red-600' : 'text-orange-600'}`}>
@@ -307,10 +446,8 @@ export default function OrderPublicClient({ orderId }: Props) {
                   </span> {timeInfo.isLate ? 'minutos de atraso' : 'minutos restantes'}
                 </div>
               )
-            } else {
-              console.log('⏱️ No time info to display')
-              return null
             }
+            return null
           })()}
         </div>
 
@@ -324,12 +461,12 @@ export default function OrderPublicClient({ orderId }: Props) {
           </div>
         )}
 
-        <div className="text-sm text-gray-600 mb-4">Creada: {formatDate(order.createdAt)}</div>
+        <div className="text-sm text-gray-600 mb-2">Creada: {formatDate(order.createdAt)}</div>
         {order.timing?.scheduledTime && (
           <div className="text-sm text-gray-600 mb-4">
-            {order.timing?.scheduledDate ?
-              `Programada para: ${formatDate(order.timing.scheduledDate)}${order.timing.scheduledTime ? ` a las ${order.timing.scheduledTime}` : ''}` :
-              `Hora programada: ${order.timing.scheduledTime}`
+            {order.timing?.scheduledDate
+              ? `Programada para: ${formatDate(order.timing.scheduledDate)}${order.timing.scheduledTime ? ` a las ${order.timing.scheduledTime}` : ''}`
+              : `Hora programada: ${order.timing.scheduledTime}`
             }
           </div>
         )}
@@ -339,65 +476,51 @@ export default function OrderPublicClient({ orderId }: Props) {
           const possibleTimeFields = ['scheduledDate', 'date', 'deliveryDate', 'fechaEntrega', 'fecha_entrega', 'fechaProgramada', 'scheduledTime', 'time', 'hora']
           const hasAnyTimeInfo = possibleTimeFields.some(field => order.timing?.[field])
           return !hasAnyTimeInfo ? (
-            <div className="text-sm text-gray-500 mb-4 italic">
+            <div className="text-sm text-gray-500 mb-2 italic">
               💡 Esta orden no tiene horario de entrega programado
             </div>
           ) : null
         })()}
-
-        <div className="mb-3">
-          <div className="text-xs text-gray-500">Cliente</div>
-          <div className="font-medium">{order.customer?.name || '—'}</div>
-          <div className="text-sm text-gray-600">{order.customer?.phone || ''}</div>
-        </div>
-
-        <div className="mb-3">
-          <div className="text-xs text-gray-500">Entrega</div>
-          <div className="text-sm text-gray-900">{order.delivery?.type === 'delivery' ? 'Delivery' : 'Retiro'}</div>
-          {order.delivery?.assignedDelivery && deliveryPerson ? (
-            <div className="text-sm text-gray-600">
-              Repartidor: {deliveryPerson.nombres} - {deliveryPerson.celular}
-            </div>
-          ) : order.delivery?.assignedDelivery ? (
-            <div className="text-sm text-gray-600">
-              Repartidor: Cargando...
-            </div>
-          ) : null}
-          {order.delivery?.references && (
-            <div className="text-sm text-gray-600">{order.delivery.references}</div>
-          )}
-        </div>
-
-        <div className="mb-3">
-          <div className="text-xs text-gray-500">Productos</div>
-          <ul className="mt-2 space-y-2">
-            {order.items && order.items.length > 0 ? (
-              order.items.map((it: any, idx: number) => (
-                <li key={idx} className="flex justify-between">
-                  <div className="text-sm">{it.quantity}x {it.variant || it.name || (it.product && it.product.name) || 'Producto'}</div>
-                  <div className="text-sm font-medium">${(it.price || 0).toFixed(2)}</div>
-                </li>
-              ))
-            ) : (
-              <li className="text-sm text-gray-500">Sin productos</li>
-            )}
-          </ul>
-        </div>
-
-        {order.delivery?.deliveryCost && order.delivery?.deliveryCost > 0 && (
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-gray-500">Envío</div>
-            <div className="text-sm font-medium text-gray-700">${order.delivery.deliveryCost.toFixed(2)}</div>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between mt-4">
-          <div className="text-sm text-gray-500">Total</div>
-          <div className="text-lg font-bold text-emerald-600">${(order.total || 0).toFixed(2)}</div>
-        </div>
-
-        <div className="mt-4 text-xs text-gray-500">Si crees que hay un error, contacta al comercio.</div>
       </div>
+
+      {/* Tarjeta de detalles del pedido */}
+      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 className="text-xl font-bold mb-4">Detalles del Pedido</h2>
+        <div className="divide-y">
+          {order.items?.map((item: any, index: number) => (
+            <div key={index} className="py-3 flex justify-between">
+              <div>
+                <p className="font-medium">{item.name}</p>
+                {item.variant && <p className="text-sm text-gray-500">{item.variant}</p>}
+              </div>
+              <div className="text-right">
+                <p>{item.quantity} x ${item.price?.toFixed(2)}</p>
+                <p className="font-medium">${(item.quantity * item.price)?.toFixed(2)}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 pt-4 border-t">
+          <div className="flex justify-between py-1">
+            <span>Subtotal:</span>
+            <span>${order.subtotal?.toFixed(2)}</span>
+          </div>
+          {order.delivery?.deliveryCost > 0 && (
+            <div className="flex justify-between py-1">
+              <span>Envío:</span>
+              <span>${order.delivery?.deliveryCost?.toFixed(2)}</span>
+            </div>
+          )}
+          <div className="flex justify-between py-1 font-bold text-lg">
+            <span>Total:</span>
+            <span>${order.total?.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Línea de tiempo de estados */}
+      {renderTimeline()}
     </div>
   )
 }
