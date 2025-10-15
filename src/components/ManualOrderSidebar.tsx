@@ -839,7 +839,7 @@ export default function ManualOrderSidebar({
         },
         payment: {
           method: manualOrderData.paymentMethod,
-          paymentStatus: manualOrderData.paymentStatus,
+          paymentStatus: manualOrderData.paymentMethod === 'transfer' ? 'paid' : manualOrderData.paymentStatus,
           selectedBank: manualOrderData.selectedBank,
           ...(manualOrderData.paymentMethod === 'mixed' && {
             cashAmount: manualOrderData.cashAmount || 0,
