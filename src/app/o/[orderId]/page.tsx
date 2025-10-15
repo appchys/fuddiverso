@@ -2,11 +2,11 @@ import React from 'react'
 import OrderPublicClient from './OrderPublicClient'
 
 type Props = {
-  params: { orderId: string }
+  params: Promise<{ orderId: string }>
 }
 
-export default function Page({ params }: Props) {
-  const { orderId } = params
+export default async function Page({ params }: Props) {
+  const { orderId } = await params
   return (
     <main className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
