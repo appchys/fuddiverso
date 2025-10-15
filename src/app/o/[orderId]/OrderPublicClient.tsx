@@ -63,9 +63,76 @@ export default function OrderPublicClient({ orderId }: Props) {
     }
   }
 
+  const getStatusTranslation = (status: string) => {
+    const translations: { [key: string]: string } = {
+      'pending': 'Pendiente',
+      'confirmed': 'Confirmado',
+      'preparing': 'Preparando',
+      'ready': 'Listo',
+      'delivered': 'Entregado',
+      'cancelled': 'Cancelado'
+    }
+    return translations[status] || status
+  }
+
+  const getStatusColor = (status: string) => {
+    const colors: { [key: string]: string } = {
+      'pending': 'bg-yellow-100 text-yellow-800',
+      'confirmed': 'bg-blue-100 text-blue-800',
+      'preparing': 'bg-orange-100 text-orange-800',
+      'ready': 'bg-green-100 text-green-800',
+      'delivered': 'bg-emerald-100 text-emerald-800',
+      'cancelled': 'bg-red-100 text-red-800'
+    }
+    return colors[status] || 'bg-gray-100 text-gray-800'
+  }
+
+  const calculateDeliveryTime = () => {
+    if (!order.timing?.scheduledDate) return null
+
+    try {
+      const now = new Date()
+      const scheduledDateTime = new Date(order.timing.scheduledDate)
+
+      // Si también hay hora programada, incluirla
+      if (order.timing.scheduledTime) {
+        const [hours, minutes] = order.timing.scheduledTime.split(':')
+        scheduledDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0)
+      }
+
+      const diffMs = scheduledDateTime.getTime() - now.getTime()
+
+      if (diffMs < 0) {
+        return 'Entrega programada para el pasado'
+      }
+
+      const diffMinutes = Math.floor(diffMs / (1000 * 60))
+      const diffHours = Math.floor(diffMinutes / 60)
+      const remainingMinutes = diffMinutes % 60
+
+      if (diffHours > 24) {
+        const diffDays = Math.floor(diffHours / 24)
+        const remainingHours = diffHours % 24
+        return `Falta ${diffDays} día${diffDays > 1 ? 's' : ''} y ${remainingHours} hora${remainingHours !== 1 ? 's' : ''}`
+      } else if (diffHours > 0) {
+        return `Falta ${diffHours} hora${diffHours > 1 ? 's' : ''} y ${remainingMinutes} minuto${remainingMinutes !== 1 ? 's' : ''}`
+      } else {
+        return `Falta ${remainingMinutes} minuto${remainingMinutes !== 1 ? 's' : ''}`
+      }
+    } catch (error) {
+      console.error('Error calculating delivery time:', error)
+      return null
+    }
+  }
+
   return (
     <div className="max-w-2xl mx-auto p-4">
-      <div className="bg-white shadow rounded-lg p-4 border border-gray-200">
+      <div className="bg-white shadow rounded-lg p-4 border border-gray-200 relative">
+        {/* Estado en esquina superior derecha */}
+        <div className={`absolute top-4 right-4 px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
+          {getStatusTranslation(order.status)}
+        </div>
+
         {business?.image && (
           <div className="mb-4 flex justify-center">
             <img
@@ -79,13 +146,18 @@ export default function OrderPublicClient({ orderId }: Props) {
         <h1 className="text-lg font-semibold mb-2">Detalles de la Orden</h1>
         <div className="text-sm text-gray-600 mb-4">Creada: {formatDate(order.createdAt)}</div>
         {order.timing?.scheduledTime && (
-          <div className="text-sm text-gray-600 mb-4">Hora programada: {order.timing.scheduledTime}</div>
+          <div className="text-sm text-gray-600 mb-4">
+            {order.timing?.scheduledDate ?
+              `Programada para: ${formatDate(order.timing.scheduledDate)}${order.timing.scheduledTime ? ` a las ${order.timing.scheduledTime}` : ''}` :
+              `Hora programada: ${order.timing.scheduledTime}`
+            }
+          </div>
         )}
-
-        <div className="mb-3">
-          <div className="text-xs text-gray-500">Estado</div>
-          <div className="font-medium">{order.status}</div>
-        </div>
+        {calculateDeliveryTime() && (
+          <div className="text-sm font-medium text-blue-600 mb-4">
+            ⏰ {calculateDeliveryTime()}
+          </div>
+        )}
 
         <div className="mb-3">
           <div className="text-xs text-gray-500">Cliente</div>
