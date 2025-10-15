@@ -1106,18 +1106,20 @@ function CheckoutContent() {
         scheduledTime = timingData.scheduledTime;
       }
 
-      // Calcular subtotal (sin envío)
+      // Calcular todos los valores necesarios primero
       const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
       const deliveryCost = selectedLocation?.tarifa ? parseFloat(selectedLocation.tarifa) : 0;
+      const total = subtotal + deliveryCost;
 
+      // Luego crear el objeto orderData
       const orderData = {
         businessId: searchParams.get('businessId') || '',
         items: cartItems.map((item: any) => ({
-          productId: item.id.split('-')[0], // Remover sufijo, solo el ID del producto
-          name: item.variantName || item.productName || item.name, // Solo el nombre de la variante
+          productId: item.id.split('-')[0],
+          name: item.variantName || item.productName || item.name,
           price: item.price,
           quantity: item.quantity,
-          variant: item.variantName || item.name // Usar variant si existe, sino el nombre
+          variant: item.variantName || item.name
         })),
         customer: {
           name: customerData.name,
@@ -1135,24 +1137,22 @@ function CheckoutContent() {
           scheduledTime
         },
         payment: {
-          method: paymentData.method as 'cash' | 'transfer' | 'mixed',
+          method: (paymentData.method || 'cash') as 'cash' | 'transfer' | 'mixed',
           selectedBank: paymentData.method === 'transfer' ? paymentData.selectedBank : '',
-          paymentStatus: paymentData.method === 'transfer' ? paymentData.paymentStatus : 'pending'
-        } as any,
+          paymentStatus: (paymentData.method === 'transfer' ? 'pending' : undefined) as 'pending' | 'validating' | 'paid' | undefined
+        },
         total,
         subtotal,
-        status: 'pending' as 'pending' | 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled',
-        createdByAdmin: false, // Indicar que viene del checkout
+        status: 'pending' as const,
+        statusHistory: {
+          pendingAt: Timestamp.now()
+        },
+        createdByAdmin: false,
         createdAt: new Date(),
         updatedAt: new Date()
-      }
+      };
 
-      // Asegurar método válido antes de crear la orden
-      if (!orderData.payment.method) {
-        orderData.payment.method = 'cash'
-      }
-
-      const orderId = await createOrder(orderData)
+      const orderId = await createOrder(orderData);
       
       // Limpiar carrito específico de este negocio
       const businessId = searchParams.get('businessId')

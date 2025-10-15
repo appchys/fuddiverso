@@ -244,6 +244,12 @@ export default function OrderPublicClient({ orderId }: Props) {
   };
 
   const getMinutesUntilDelivery = () => {
+    // Si el pedido ya fue entregado, no mostrar contador
+    if (order.status === 'delivered' || order.status === 'cancelled') {
+      console.log('Pedido ya entregado o cancelado, no mostrar contador')
+      return null
+    }
+
     console.log('=== DEBUG: getMinutesUntilDelivery ===')
     console.log('Full order object:', JSON.stringify(order, null, 2))
     console.log('order.timing object:', order.timing)
