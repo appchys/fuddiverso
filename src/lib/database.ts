@@ -596,7 +596,7 @@ export async function updateOrder(orderId: string, orderData: Partial<Omit<Order
   try {
     const docRef = doc(db, 'orders', orderId)
     const cleanData = cleanObject(orderData)
-    await updateDoc(docRef, { 
+    await updateDoc(docRef, {
       ...cleanData,
       updatedAt: serverTimestamp()
     })
@@ -608,10 +608,45 @@ export async function updateOrder(orderId: string, orderData: Partial<Omit<Order
 
 export async function deleteOrder(orderId: string) {
   try {
+    console.log('🗑️ Deleting order:', orderId);
     const docRef = doc(db, 'orders', orderId)
     await deleteDoc(docRef)
+    console.log('✅ Order deleted successfully');
   } catch (error) {
-    console.error('Error deleting order:', error)
+    console.error('❌ Error deleting order:', error);
+    throw error;
+  }
+}
+
+// Función para obtener información del repartidor
+export async function getDelivery(deliveryId: string): Promise<Delivery | null> {
+  try {
+    console.log('🔍 Getting delivery person:', deliveryId);
+
+    const docRef = doc(db, 'deliveries', deliveryId)
+    const docSnap = await getDoc(docRef)
+
+    if (docSnap.exists()) {
+      const deliveryData = docSnap.data()
+      const delivery: Delivery = {
+        id: docSnap.id,
+        nombres: deliveryData.nombres || '',
+        celular: deliveryData.celular || '',
+        email: deliveryData.email || '',
+        fotoUrl: deliveryData.fotoUrl || '',
+        estado: deliveryData.estado || 'inactivo',
+        fechaRegistro: deliveryData.fechaRegistro || '',
+        uid: deliveryData.uid || ''
+      }
+
+      console.log('✅ Delivery person found:', delivery);
+      return delivery
+    }
+
+    console.log('❌ No delivery person found with ID:', deliveryId);
+    return null
+  } catch (error) {
+    console.error('Error getting delivery person:', error)
     throw error
   }
 }

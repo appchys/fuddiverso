@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { getOrder, getBusiness } from '@/lib/database'
+import { getOrder, getBusiness, getDelivery } from '@/lib/database'
 
 type Props = {
   orderId: string
@@ -11,6 +11,7 @@ type Props = {
 export default function OrderPublicClient({ orderId }: Props) {
   const [order, setOrder] = useState<any | null>(null)
   const [business, setBusiness] = useState<any | null>(null)
+  const [deliveryPerson, setDeliveryPerson] = useState<any | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,6 +38,19 @@ export default function OrderPublicClient({ orderId }: Props) {
             } catch (businessError) {
               console.error('Error loading business:', businessError)
               // No establecer error para el negocio, solo continuar sin él
+            }
+          }
+
+          // Cargar información del repartidor si existe
+          if (data.delivery?.assignedDelivery) {
+            try {
+              const deliveryData = await getDelivery(data.delivery.assignedDelivery)
+              if (mounted) {
+                setDeliveryPerson(deliveryData)
+              }
+            } catch (deliveryError) {
+              console.error('Error loading delivery person:', deliveryError)
+              // No establecer error para el repartidor, solo continuar sin él
             }
           }
         }
@@ -209,6 +223,9 @@ export default function OrderPublicClient({ orderId }: Props) {
 
   return (
     <div className="max-w-2xl mx-auto p-4">
+      {/* Título fuera del contenedor */}
+      <h1 className="text-lg font-bold mb-2 text-gray-900">Detalles de la Orden</h1>
+
       <div className="bg-white shadow rounded-lg p-4 border border-gray-200 relative">
         {/* Estado y tiempo en esquina superior derecha */}
         <div className="absolute top-4 right-4 flex flex-col items-end space-y-1">
@@ -235,7 +252,6 @@ export default function OrderPublicClient({ orderId }: Props) {
           </div>
         )}
 
-        <h1 className="text-lg font-semibold mb-2">Detalles de la Orden</h1>
         <div className="text-sm text-gray-600 mb-4">Creada: {formatDate(order.createdAt)}</div>
         {order.timing?.scheduledTime && (
           <div className="text-sm text-gray-600 mb-4">
@@ -266,6 +282,15 @@ export default function OrderPublicClient({ orderId }: Props) {
         <div className="mb-3">
           <div className="text-xs text-gray-500">Entrega</div>
           <div className="text-sm text-gray-900">{order.delivery?.type === 'delivery' ? 'Delivery' : 'Retiro'}</div>
+          {order.delivery?.assignedDelivery && deliveryPerson ? (
+            <div className="text-sm text-gray-600">
+              Repartidor: {deliveryPerson.nombres} - {deliveryPerson.celular}
+            </div>
+          ) : order.delivery?.assignedDelivery ? (
+            <div className="text-sm text-gray-600">
+              Repartidor: Cargando...
+            </div>
+          ) : null}
           {order.delivery?.references && (
             <div className="text-sm text-gray-600">{order.delivery.references}</div>
           )}
@@ -286,6 +311,13 @@ export default function OrderPublicClient({ orderId }: Props) {
             )}
           </ul>
         </div>
+
+        {order.delivery?.deliveryCost && order.delivery?.deliveryCost > 0 && (
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm text-gray-500">Envío</div>
+            <div className="text-sm font-medium text-gray-700">${order.delivery.deliveryCost.toFixed(2)}</div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between mt-4">
           <div className="text-sm text-gray-500">Total</div>
