@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Business, Product, Order, ProductVariant, ClientLocation } from '@/types'
 import { auth, db } from '@/lib/firebase'
 import { doc, updateDoc, Timestamp } from 'firebase/firestore'
@@ -857,6 +858,55 @@ export default function BusinessDashboard() {
     window.open(whatsappUrl, '_blank')
   }
 
+  // Enviar Whatsapp al cliente (número del cliente)
+  const handleSendWhatsAppToCustomer = (order: Order) => {
+    const customerPhoneRaw = order.customer?.phone || ''
+    const customerName = order.customer?.name || 'Cliente'
+
+    if (!customerPhoneRaw) {
+      alert('No se encontró el número del cliente')
+      return
+    }
+
+    // Normalizar y limpiar número
+    const cleanPhone = customerPhoneRaw.replace(/\D/g, '')
+    if (!cleanPhone) {
+      alert('Número de cliente inválido')
+      return
+    }
+
+    // Construir breve mensaje con detalles del pedido
+    const productsList = order.items?.map((item: any) => `${item.quantity}x ${item.variant || item.name || item.product?.name || 'Producto'}`).join('\n') || 'Sin productos'
+    const deliveryInfo = order.delivery?.type === 'delivery' ? `Dirección: ${order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}` : 'Retiro en tienda'
+    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
+
+    // Construir mensaje en texto plano y luego aplicar encodeURIComponent al final
+    let message = `Hola ${customerName}!\n\n`;
+    message += `Detalle del pedido:\n${productsList}\n\n`;
+    message += `Total: $${(order.total || 0).toFixed(2)}\n`;
+    if (order.delivery?.type === 'delivery') {
+      message += `Envío: $${(order.delivery?.deliveryCost || 0).toFixed(2)}\n`;
+      message += `${deliveryInfo}\n`;
+    }
+    message += `Forma de pago: ${paymentMethod}\n`;
+
+    // Agregar enlace público a la orden
+    try {
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      if (origin && order.id) {
+        const orderUrl = `${origin}/o/${encodeURIComponent(order.id)}`;
+        message += `\nVer tu orden: ${orderUrl}`;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // Armar URL y abrir (encodeURIComponent del mensaje)
+    const waPhone = `593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}`
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(message)}`
+    window.open(whatsappUrl, '_blank')
+  }
+
   
 
   // Función para subir imagen de portada
@@ -1637,7 +1687,10 @@ export default function BusinessDashboard() {
               {/* 2. Botones de acción - Ancho fijo */}
               <div className="w-16 flex-shrink-0 flex justify-center">
                 <div className="flex items-center space-x-1">
-                  {(order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) && (
+                  {isToday && (
+                    (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
+                    (order.delivery?.type === 'pickup' && business?.phone)
+                  ) && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
@@ -1646,6 +1699,19 @@ export default function BusinessDashboard() {
                       className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
                     >
                       <i className="bi bi-whatsapp text-sm"></i>
+                    </button>
+                  )}
+                  {/* Nuevo: botón para enviar WhatsApp al cliente */}
+                  {order.customer?.phone && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleSendWhatsAppToCustomer(order)
+                      }}
+                      className="text-green-500 hover:text-green-700 p-1.5 rounded hover:bg-green-50"
+                      title="Enviar WhatsApp al cliente"
+                    >
+                      <i className="bi bi-chat-dots text-sm"></i>
                     </button>
                   )}
                   {isToday && (
@@ -1755,26 +1821,47 @@ export default function BusinessDashboard() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          handleStatusChange(order.id, 'delivered')
+                          handleAdvanceStatus(order)
                         }}
                         className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
-                        title="Marcar como entregado"
+                        title={`Avanzar a ${getStatusText(nextStatus!)}`}
                       >
                         <i className="bi bi-check-lg text-sm"></i>
                       </button>
                     ) : null
                   })()}
                   
-                  {(order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) && (
+                  {isToday && (
+                    (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
+                    (order.delivery?.type === 'pickup' && business?.phone)
+                  ) && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
                         handleSendWhatsApp(order)
                       }}
                       className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
-                      title="Enviar mensaje de WhatsApp al delivery"
+                      title="Enviar WhatsApp"
                     >
                       <i className="bi bi-whatsapp text-sm"></i>
+                    </button>
+                  )}
+
+                  {isToday && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleEditPayment(order)
+                      }}
+                      className={`${(() => {
+                        const status = order.payment?.paymentStatus
+                        if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
+                        if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
+                        return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+                      })()} p-1.5 rounded`}
+                      title="Editar método/estado de pago"
+                    >
+                      <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-sm`}></i>
                     </button>
                   )}
 
@@ -1834,17 +1921,20 @@ export default function BusinessDashboard() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
-                    handleStatusChange(order.id, 'delivered')
+                    handleAdvanceStatus(order)
                   }}
                   className="text-green-600 hover:text-green-800 p-1 sm:p-1.5 rounded hover:bg-green-50"
-                  title="Marcar como entregado"
+                  title={`Avanzar a ${getStatusText(nextStatus!)}`}
                 >
                   <i className="bi bi-check-lg text-base sm:text-lg"></i>
                 </button>
               ) : null
             })()}
 
-            {(order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) && (
+            {isToday && (
+              (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
+              (order.delivery?.type === 'pickup' && business?.phone)
+            ) && (
               <button
                 onClick={(e) => {
                   e.stopPropagation()
@@ -1856,31 +1946,37 @@ export default function BusinessDashboard() {
                 <i className="bi bi-whatsapp text-base sm:text-lg"></i>
               </button>
             )}
+                  {/* Botón para enviar WhatsApp al cliente (desktop) */}
+                  {order.customer?.phone && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleSendWhatsAppToCustomer(order)
+                      }}
+                      className="text-green-500 hover:text-green-700 p-1 sm:p-1.5 rounded hover:bg-green-50"
+                      title="Enviar WhatsApp al cliente"
+                    >
+                      <i className="bi bi-chat-dots text-base sm:text-lg"></i>
+                    </button>
+                  )}
 
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                // Editar usando el sidebar manual
-                setManualSidebarMode('edit')
-                setEditingOrderForSidebar(order)
-                setShowManualOrderModal(true)
-              }}
-              className="text-blue-600 hover:text-blue-800 p-1 sm:p-1.5 rounded hover:bg-blue-50"
-              title="Editar orden"
-            >
-              <i className="bi bi-pencil text-base sm:text-lg"></i>
-            </button>
-
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                handleDeleteOrder(order.id)
-              }}
-              className="text-red-600 hover:text-red-800 p-1 sm:p-1.5 rounded hover:bg-red-50"
-              title="Eliminar orden"
-            >
-              <i className="bi bi-trash text-base sm:text-lg"></i>
-            </button>
+            {isToday && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleEditPayment(order)
+                }}
+                className={`${(() => {
+                  const status = order.payment?.paymentStatus
+                  if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
+                  if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
+                  return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+                })()} p-1 sm:p-1.5 rounded`}
+                title="Editar método/estado de pago"
+              >
+                <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-base sm:text-lg`}></i>
+              </button>
+            )}
           </div>
         </td>
         <td className="hidden md:table-cell px-2 py-1.5 sm:px-3 sm:py-2 min-w-0 cursor-pointer flex-1">
@@ -2341,15 +2437,9 @@ export default function BusinessDashboard() {
                 <i className="bi bi-list text-xl"></i>
               </button>
               
-              <button
-                onClick={() => {
-                  setActiveTab('orders');
-                  setOrdersSubTab('today');
-                }}
-                className="text-xl sm:text-2xl font-bold text-red-600 hover:text-red-700 transition-colors"
-              >
-                Fuddi
-              </button>
+              <Link href="/" className="text-xl sm:text-2xl font-bold text-red-600">
+                fuddi.shop
+              </Link>
               <span className="hidden sm:inline text-gray-600">Dashboard</span>
             </div>
             
@@ -2504,7 +2594,6 @@ export default function BusinessDashboard() {
         <div className={`
           w-64 bg-white shadow-sm border-r border-gray-200 fixed h-full overflow-y-auto z-50 transition-transform duration-300 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-          md:translate-x-0
         `}>
           <div className="p-4">
             {/* Header del sidebar */}
@@ -2617,7 +2706,7 @@ export default function BusinessDashboard() {
         </div>
 
         {/* Main Content */}
-        <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto ${sidebarOpen ? 'ml-64' : 'ml-0'} md:ml-64`}>
+        <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
           <div className="mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
 
         {/* Orders Tab */}
@@ -2782,7 +2871,7 @@ export default function BusinessDashboard() {
                                     className="w-full px-4 py-3 bg-gray-50 border-b border-gray-200 text-left hover:bg-gray-100 transition-colors"
                                   >
                                     <div className="flex items-center justify-between">
-                                      <h3 className="text-base font-semibold text-gray-900 capitalize">
+                                      <h3 className="text-lg font-semibold text-gray-900 capitalize">
                                         {date}
                                         <span className="ml-2 bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
                                           {orders.length}
