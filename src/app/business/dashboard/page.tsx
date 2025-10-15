@@ -153,8 +153,8 @@ export default function BusinessDashboard() {
   // Estados para categorías colapsadas en pedidos de hoy
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set(['delivered']))
 
-  // Mantener filas desplegadas (no autocerrar tras refresh)
-  const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set())
+  // Estado para la orden actualmente expandida (solo una a la vez)
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null)
 
   // Protección de ruta - esperar a que termine la carga de auth y redirigir si no está autenticado
   useEffect(() => {
@@ -876,18 +876,28 @@ export default function BusinessDashboard() {
     }
 
     // Construir breve mensaje con detalles del pedido
-    const productsList = order.items?.map((item: any) => `${item.quantity}x ${item.variant || item.name || item.product?.name || 'Producto'}`).join('\n') || 'Sin productos'
-    const deliveryInfo = order.delivery?.type === 'delivery' ? `Dirección: ${order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}` : 'Retiro en tienda'
+    const productsList = order.items?.map((item: any) => `${item.quantity} x ${item.variant || item.name || item.product?.name || 'Producto'}`).join('\n') || 'Sin productos'
+    const deliveryInfo = order.delivery?.type === 'delivery' ? `${order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}` : 'Retiro en tienda'
     const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
+    
+    // Calcular subtotal (total de productos sin envío)
+    const subtotal = order.total - (order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0)
 
     // Construir mensaje en texto plano y luego aplicar encodeURIComponent al final
-    let message = `Hola ${customerName}!\n\n`;
+    let message = 'Tu pedido está en preparación!\n\n';
+    message += `*Dirección:*\n${deliveryInfo}\n\n`;
     message += `Detalle del pedido:\n${productsList}\n\n`;
-    message += `Total: $${(order.total || 0).toFixed(2)}\n`;
+    message += `Subtotal: $${subtotal.toFixed(2)}\n`;
     if (order.delivery?.type === 'delivery') {
       message += `Envío: $${(order.delivery?.deliveryCost || 0).toFixed(2)}\n`;
-      message += `${deliveryInfo}\n`;
     }
+    message += '\n';
+    
+    // Solo mostrar total si es pago en efectivo
+    if (order.payment?.method === 'cash' || order.payment?.method === 'mixed') {
+      message += `*Total:* $${(order.total || 0).toFixed(2)}\n\n`;
+    }
+    
     message += `Forma de pago: ${paymentMethod}\n`;
 
     // Agregar enlace público a la orden
@@ -1569,8 +1579,8 @@ export default function BusinessDashboard() {
       ? "border-b-4 border-gray-300" 
       : "border-b border-gray-200";
 
-    // Estado para controlar la expansión de detalles en móvil
-    const [isExpanded, setIsExpanded] = useState(() => expandedOrderIds.has(order.id));
+    // La expansión ahora se controla desde el padre
+    const isExpanded = expandedOrderId === order.id;
 
     // Gestos táctiles para avanzar estado al arrastrar a la derecha
     const touchStartX = React.useRef<number | null>(null)
@@ -1668,13 +1678,9 @@ export default function BusinessDashboard() {
             <div 
               className="flex items-center w-full min-w-0 cursor-pointer hover:bg-gray-50 rounded transition-colors"
               onClick={() => {
-                const next = !isExpanded
-                setIsExpanded(next)
-                setExpandedOrderIds(prev => {
-                  const copy = new Set(prev)
-                  if (next) copy.add(order.id); else copy.delete(order.id)
-                  return copy
-                })
+                // Si esta orden ya está expandida, la contraemos
+                // Si no, expandimos esta y contraemos las demás
+                setExpandedOrderId(isExpanded ? null : order.id)
               }}
             >
               {/* 1. Hora - Ancho fijo */}
@@ -1699,19 +1705,6 @@ export default function BusinessDashboard() {
                       className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
                     >
                       <i className="bi bi-whatsapp text-sm"></i>
-                    </button>
-                  )}
-                  {/* Nuevo: botón para enviar WhatsApp al cliente */}
-                  {order.customer?.phone && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleSendWhatsAppToCustomer(order)
-                      }}
-                      className="text-green-500 hover:text-green-700 p-1.5 rounded hover:bg-green-50"
-                      title="Enviar WhatsApp al cliente"
-                    >
-                      <i className="bi bi-chat-dots text-sm"></i>
                     </button>
                   )}
                   {isToday && (
@@ -1815,6 +1808,7 @@ export default function BusinessDashboard() {
 
                 {/* Botones de acción */}
                 <div className="flex items-center justify-end space-x-1.5 pt-2">
+                  {/* 1. Botón de avanzar estado */}
                   {(() => {
                     const nextStatus = getNextStatus(order.status)
                     return isToday && !!nextStatus ? (
@@ -1826,10 +1820,41 @@ export default function BusinessDashboard() {
                         className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
                         title={`Avanzar a ${getStatusText(nextStatus!)}`}
                       >
-                        <i className="bi bi-check-lg text-sm"></i>
+                        <i className="bi bi-check-lg text-xl"></i>
                       </button>
                     ) : null
                   })()}
+                  
+                  {/* 2. Botón de WhatsApp para delivery/tienda */}
+                  {isToday && (
+                    (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
+                    (order.delivery?.type === 'pickup' && business?.phone)
+                  ) && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleSendWhatsApp(order)
+                      }}
+                      className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
+                      title={order.delivery?.type === 'delivery' ? 'Enviar WhatsApp al delivery' : 'Enviar WhatsApp a la tienda'}
+                    >
+                      <i className="bi bi-whatsapp text-xl"></i>
+                    </button>
+                  )}
+                  
+                  {/* 3. Botón de WhatsApp al cliente */}
+                  {order.customer?.phone && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleSendWhatsAppToCustomer(order)
+                      }}
+                      className="text-green-500 hover:text-green-700 p-1.5 rounded hover:bg-green-50"
+                      title="Enviar WhatsApp al cliente"
+                    >
+                      <i className="bi bi-chat-dots text-xl"></i>
+                    </button>
+                  )}
                   
                   {isToday && (
                     (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
