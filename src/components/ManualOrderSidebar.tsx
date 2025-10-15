@@ -821,7 +821,14 @@ export default function ManualOrderSidebar({
             scheduledTime: manualOrderData.scheduledTime || ''
           }),
           ...(manualOrderData.timingType === 'immediate' && {
-            // Registrar scheduledTime como ahora + 30 minutos (formato HH:MM)
+            // Para pedidos inmediatos, guardar fecha actual y hora actual + 30 minutos
+            scheduledDate: (() => {
+              const now = new Date();
+              return {
+                seconds: Math.floor(now.getTime() / 1000),
+                nanoseconds: 0
+              };
+            })(),
             scheduledTime: (() => {
               const now = new Date();
               const plus30 = new Date(now.getTime() + 30 * 60 * 1000);
