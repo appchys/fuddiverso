@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Business, Product, Order, ProductVariant, ClientLocation } from '@/types'
 import { auth, db } from '@/lib/firebase'
+import { printOrder } from '@/lib/print-utils'
 import { doc, updateDoc, Timestamp } from 'firebase/firestore'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
@@ -1855,6 +1856,26 @@ export default function BusinessDashboard() {
                       <i className="bi bi-chat-dots text-xl"></i>
                     </button>
                   )}
+
+                  {/* 4. Botón de imprimir */}
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      try {
+                        await printOrder({
+                          order: order as any,
+                          businessName: business?.name || '',
+                          businessLogo: business?.image
+                        })
+                      } catch (error: any) {
+                        alert(error.message || 'Error al imprimir')
+                      }
+                    }}
+                    className="text-gray-600 hover:text-gray-800 p-1.5 rounded hover:bg-gray-50"
+                    title="Imprimir comanda"
+                  >
+                    <i className="bi bi-printer text-xl"></i>
+                  </button>
                   
                   {isToday && (
                     (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||

@@ -437,16 +437,39 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
     // Filtrar valores undefined antes de enviar a Firestore
     const cleanOrderData = cleanObject(orderData)
     
-    const initialStatusHistory =
-      (cleanOrderData as any)?.status === 'pending'
-        ? { statusHistory: { pendingAt: serverTimestamp() } }
-        : {}
-
-    const docRef = await addDoc(collection(db, 'orders'), {
+    // Asegurarnos que siempre tenga la estructura correcta
+    const standardizedOrder = {
       ...cleanOrderData,
-      ...initialStatusHistory,
-      createdAt: serverTimestamp()
-    })
+      status: cleanOrderData.status || 'pending',
+      createdByAdmin: cleanOrderData.createdByAdmin ?? false,
+      delivery: {
+        type: cleanOrderData.delivery?.type || 'pickup',
+        references: cleanOrderData.delivery?.references || '',
+        latlong: cleanOrderData.delivery?.latlong || '',
+        deliveryCost: cleanOrderData.delivery?.deliveryCost || 0
+      },
+      statusHistory: {
+        ...(cleanOrderData.statusHistory || {}),
+        pendingAt: cleanOrderData.statusHistory?.pendingAt || serverTimestamp()
+      },
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }
+
+    // Si es una orden manual, asegurarse que tenga toda la estructura de statusHistory
+    if (standardizedOrder.createdByAdmin) {
+      standardizedOrder.statusHistory = {
+        pendingAt: standardizedOrder.statusHistory.pendingAt,
+        confirmedAt: null,
+        preparingAt: null,
+        readyAt: null,
+        deliveredAt: null,
+        cancelledAt: null,
+        ...standardizedOrder.statusHistory // Preservar timestamps existentes
+      }
+    }
+
+    const docRef = await addDoc(collection(db, 'orders'), standardizedOrder)
     return docRef.id
   } catch (error) {
     console.error('Error creating order:', error)
