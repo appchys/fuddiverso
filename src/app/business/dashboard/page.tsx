@@ -1687,7 +1687,9 @@ export default function BusinessDashboard() {
               {/* 1. Hora - Ancho fijo */}
               <div className="flex-shrink-0 min-w-max">
                 <span className={`text-xs font-medium whitespace-nowrap tabular-nums ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
-                  {isToday ? formatTime(getOrderDateTime(order)) : formatDate(getOrderDateTime(order))}
+                  {isToday
+                    ? (order.timing?.scheduledTime ? order.timing.scheduledTime : formatTime(getOrderDateTime(order)))
+                    : formatDate(getOrderDateTime(order))}
                 </span>
               </div>
 
