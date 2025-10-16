@@ -446,7 +446,9 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
         type: cleanOrderData.delivery?.type || 'pickup',
         references: cleanOrderData.delivery?.references || '',
         latlong: cleanOrderData.delivery?.latlong || '',
-        deliveryCost: cleanOrderData.delivery?.deliveryCost || 0
+        deliveryCost: cleanOrderData.delivery?.deliveryCost || 0,
+        // preservar repartidor asignado cuando viene desde la UI (p. ej. ManualOrderSidebar)
+        assignedDelivery: cleanOrderData.delivery?.assignedDelivery ?? null
       },
       statusHistory: {
         ...(cleanOrderData.statusHistory || {}),
