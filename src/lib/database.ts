@@ -2190,16 +2190,14 @@ export async function calculateCostReport(
   endDate: Date
 ): Promise<CostReport> {
   try {
-    // Obtener todas las órdenes en el rango de fechas
+    // Obtener todas las órdenes del negocio (filtraremos por fecha de referencia abajo)
     const ordersRef = collection(db, 'orders')
     const q = query(
       ordersRef,
       where('businessId', '==', businessId),
-      where('createdAt', '>=', Timestamp.fromDate(startDate)),
-      where('createdAt', '<=', Timestamp.fromDate(endDate)),
       where('status', '!=', 'cancelled')
     )
-    
+
     const ordersSnapshot = await getDocs(q)
     
     // Obtener todos los productos del negocio
@@ -2219,9 +2217,34 @@ export async function calculateCostReport(
     let totalOrders = 0
     let totalShippingCost = 0
     
-    // Procesar cada orden
+    // Helper para obtener la fecha de referencia de una orden
+    const toDateSafe = (d: any) => {
+      if (!d) return new Date(0)
+      if (d instanceof Date) return d
+      if (typeof d === 'object' && typeof d.toDate === 'function') return d.toDate()
+      if (typeof d === 'object' && 'seconds' in d && typeof d.seconds === 'number') {
+        return new Date(d.seconds * 1000)
+      }
+      return new Date(d)
+    }
+
+    // Procesar cada orden y filtrar por fecha de referencia (scheduledDate para órdenes programadas)
     ordersSnapshot.forEach(orderDoc => {
-      const order = orderDoc.data()
+      const order = orderDoc.data() as any
+      // determinar fecha de referencia
+      let orderRefDate = toDateSafe(order.createdAt)
+      try {
+        if (order?.timing?.type === 'scheduled' && order?.timing?.scheduledDate) {
+          orderRefDate = toDateSafe(order.timing.scheduledDate)
+        }
+      } catch (e) {
+        // fallback ya fue asignado a createdAt
+      }
+
+      if (!(orderRefDate >= startDate && orderRefDate <= endDate)) {
+        return // omitir ordenes fuera del rango de fechas
+      }
+
       totalOrders++
       totalRevenue += order.total || 0
       

@@ -101,6 +101,31 @@ export default function CostReports({ business }: CostReportsProps) {
     return date instanceof Date ? date : new Date(date)
   }
 
+  // Helper para obtener la fecha de referencia de una orden:
+  // usa timing.scheduledDate si la orden es 'scheduled', con conversiones seguras
+  const getOrderReferenceDate = (order: any): Date => {
+    const toDateSafe = (d: any) => {
+      if (!d) return new Date(0)
+      if (d instanceof Date) return d
+      if (typeof d === 'object' && typeof d.toDate === 'function') return d.toDate()
+      // Firestore timestamp-like object { seconds, nanoseconds }
+      if (typeof d === 'object' && 'seconds' in d && typeof d.seconds === 'number') {
+        return new Date(d.seconds * 1000)
+      }
+      return new Date(d)
+    }
+
+    try {
+      if (order?.timing?.type === 'scheduled' && order?.timing?.scheduledDate) {
+        return toDateSafe(order.timing.scheduledDate)
+      }
+    } catch (e) {
+      // ignore and fallback
+    }
+
+    return toDateSafe(order?.createdAt)
+  }
+
   const loadReport = async () => {
     if (!business?.id) return
     
@@ -123,9 +148,11 @@ export default function CostReports({ business }: CostReportsProps) {
           getDeliveriesByStatus('activo')
         ])
         
-        // Filtrar órdenes por rango de fechas
+        // Filtrar órdenes por rango de fechas.
+        // Si la orden es programada, usar timing.scheduledDate como fecha de referencia;
+        // en caso contrario usar createdAt.
         const filteredOrders = ordersData.filter(order => {
-          const orderDate = order.createdAt instanceof Date ? order.createdAt : new Date(order.createdAt)
+          const orderDate = getOrderReferenceDate(order)
           return orderDate >= start && orderDate <= end
         })
         
