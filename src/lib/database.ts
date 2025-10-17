@@ -118,6 +118,18 @@ export async function getExpensesByBusiness(
   }
 }
 
+/**
+ * Eliminar un egreso por id
+ */
+export async function deleteExpense(expenseId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'expenses', expenseId))
+  } catch (error) {
+    console.error('Error deleting expense:', error)
+    throw error
+  }
+}
+
 // Helper function para convertir timestamps de Firebase a Date de manera segura
 function toSafeDate(timestamp: any): Date {
   if (!timestamp) return new Date()

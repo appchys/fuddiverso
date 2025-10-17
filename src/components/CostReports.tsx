@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { Business, Order, Delivery } from '@/types'
-import { calculateCostReport, CostReport, getOrdersByBusiness, getDeliveriesByStatus, getExpensesByBusiness, ExpenseEntry, createExpense } from '@/lib/database'
+import { calculateCostReport, CostReport, getOrdersByBusiness, getDeliveriesByStatus, getExpensesByBusiness, ExpenseEntry, createExpense, deleteExpense } from '@/lib/database'
 
 interface CostReportsProps {
   business: Business | null
@@ -653,9 +653,9 @@ export default function CostReports({ business }: CostReportsProps) {
 
       {/* Modal para agregar gasto */}
       {showExpenseModal && (
-        <div className="fixed inset-0 flex items-center justify-center z-50">
+        <div className="fixed inset-0 flex items-start md:items-center justify-center z-50 overflow-auto py-8">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowExpenseModal(false)}></div>
-          <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+          <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
                 <i className="bi bi-wallet2 me-2"></i>
@@ -790,9 +790,30 @@ export default function CostReports({ business }: CostReportsProps) {
                                 {expense.paymentMethod === 'cash' ? 'Efectivo' : 'Transferencia'}
                               </p>
                             </div>
-                            <p className="font-semibold text-red-600">
-                              ${expense.amount.toFixed(2)}
-                            </p>
+                            <div className="flex items-center gap-3">
+                              <p className="font-semibold text-red-600">
+                                ${expense.amount.toFixed(2)}
+                              </p>
+                              <button
+                                type="button"
+                                title="Eliminar gasto"
+                                onClick={async () => {
+                                  if (!expense.id) return
+                                  const ok = confirm('¿Eliminar gasto? Esta acción no se puede deshacer.')
+                                  if (!ok) return
+                                  try {
+                                    await deleteExpense(expense.id)
+                                    await loadReport()
+                                  } catch (err) {
+                                    console.error('Error eliminando gasto', err)
+                                    alert('Error al eliminar el gasto')
+                                  }
+                                }}
+                                className="text-gray-400 hover:text-red-600"
+                              >
+                                <i className="bi bi-trash-fill"></i>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
