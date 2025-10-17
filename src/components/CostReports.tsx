@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { Business, Order, Delivery } from '@/types'
-import { calculateCostReport, CostReport, getOrdersByBusiness, getDeliveriesByStatus } from '@/lib/database'
+import { calculateCostReport, CostReport, getOrdersByBusiness, getDeliveriesByStatus, getExpensesByBusiness, ExpenseEntry, createExpense } from '@/lib/database'
 
 interface CostReportsProps {
   business: Business | null
@@ -28,6 +28,14 @@ interface DeliveryReport {
   orders: Order[]
 }
 
+// Helper function para obtener la fecha actual en Ecuador (UTC-5)
+const getEcuadorDate = () => {
+  const now = new Date()
+  // Convertir a UTC-5 (Ecuador)
+  const ecuadorDate = new Date(now.getTime() - (5 * 60 * 60 * 1000))
+  return ecuadorDate.toISOString().split('T')[0]
+}
+
 export default function CostReports({ business }: CostReportsProps) {
   const [report, setReport] = useState<CostReport | null>(null)
   const [loading, setLoading] = useState(false)
@@ -40,6 +48,14 @@ export default function CostReports({ business }: CostReportsProps) {
   const [selectedDelivery, setSelectedDelivery] = useState<string>('all')
   const [deliveryReports, setDeliveryReports] = useState<DeliveryReport[]>([])
   const [orders, setOrders] = useState<Order[]>([])
+  const [expenses, setExpenses] = useState<ExpenseEntry[]>([])
+  const [showExpenseModal, setShowExpenseModal] = useState(false)
+  const [newExpense, setNewExpense] = useState({
+    amount: '',
+    concept: '',
+    paymentMethod: 'cash',
+    date: getEcuadorDate()
+  })
 
   const getDateRange = () => {
     const now = new Date()
@@ -47,23 +63,42 @@ export default function CostReports({ business }: CostReportsProps) {
     
     switch (dateRange) {
       case 'today':
-        return { start: today, end: new Date(today.getTime() + 24 * 60 * 60 * 1000) }
+        // Para "Hoy", usamos la misma fecha como inicio y fin
+        const todayStr = today.toISOString().split('T')[0] // YYYY-MM-DD de hoy
+        const todayStart = new Date(todayStr + 'T00:00:00')
+        const todayEnd = new Date(todayStr + 'T23:59:59')
+        return { start: todayStart, end: todayEnd }
       case 'week':
         const weekStart = new Date(today)
-        weekStart.setDate(today.getDate() - 7)
-        return { start: weekStart, end: now }
+        weekStart.setDate(today.getDate() - 6) // -6 para incluir hoy
+        weekStart.setHours(0, 0, 0, 0)
+        return { start: weekStart, end: new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1) }
       case 'month':
         const monthStart = new Date(today)
-        monthStart.setDate(today.getDate() - 30)
-        return { start: monthStart, end: now }
+        monthStart.setDate(today.getDate() - 29) // -29 para incluir hoy
+        monthStart.setHours(0, 0, 0, 0)
+        return { start: monthStart, end: new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1) }
       case 'custom':
-        return {
-          start: customStartDate ? new Date(customStartDate) : today,
-          end: customEndDate ? new Date(customEndDate) : now
+        if (customStartDate && customEndDate) {
+          // Para fechas personalizadas, asegurar rango completo del día
+          const start = new Date(customStartDate + 'T00:00:00')
+          const end = new Date(customEndDate + 'T23:59:59')
+          return { start, end }
         }
+        return { start: today, end: new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1) }
       default:
-        return { start: today, end: now }
+        return { start: today, end: new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1) }
     }
+  }
+
+  // Helper para parsear correctamente el campo `date` guardado como "YYYY-MM-DD"
+  const parseExpenseDate = (date: any) => {
+    if (!date) return new Date(0)
+    if (typeof date === 'string') {
+      // Agregar hora local para que no se interprete como UTC y no reste un día en zonas UTC-5
+      return new Date(date + 'T00:00:00')
+    }
+    return date instanceof Date ? date : new Date(date)
   }
 
   const loadReport = async () => {
@@ -75,8 +110,12 @@ export default function CostReports({ business }: CostReportsProps) {
       
       // Cargar datos según el tipo de reporte
       if (reportType === 'costs') {
-        const reportData = await calculateCostReport(business.id, start, end)
+        const [reportData, expensesData] = await Promise.all([
+          calculateCostReport(business.id, start, end),
+          getExpensesByBusiness(business.id, start, end)
+        ])
         setReport(reportData)
+        setExpenses(expensesData)
       } else if (reportType === 'deliveries' || reportType === 'general') {
         // Cargar órdenes y deliveries
         const [ordersData, deliveriesData] = await Promise.all([
@@ -182,6 +221,28 @@ export default function CostReports({ business }: CostReportsProps) {
       </div>
     )
   }
+
+  // Filtrar gastos según el rango de fechas
+  const filteredExpenses = useMemo(() => {
+    const { start, end } = getDateRange();
+    return expenses.filter(expense => {
+      const expenseDate = parseExpenseDate(expense.date);
+      return expenseDate >= start && expenseDate <= end;
+    });
+  }, [expenses, dateRange, customStartDate, customEndDate]);
+
+  const filteredModalExpenses = useMemo(() => {
+    const { start, end } = getDateRange();
+    return expenses.filter(expense => {
+      const expenseDate = parseExpenseDate(expense.date);
+      return expenseDate >= start && expenseDate <= end;
+    });
+  }, [expenses, dateRange, customStartDate, customEndDate]);
+
+  const expenseConcepts = useMemo(() => {
+    const uniqueConcepts = new Set(expenses.map(expense => expense.concept));
+    return Array.from(uniqueConcepts);
+  }, [expenses]);
 
   return (
     <div className="space-y-6">
@@ -379,6 +440,27 @@ export default function CostReports({ business }: CostReportsProps) {
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between">
                 <div>
+                  <p className="text-sm text-gray-500">Gastos totales</p>
+                  <p className="text-2xl font-bold text-red-700">
+                    ${filteredExpenses.reduce((sum, e) => sum + (Number.isFinite(e.amount) ? e.amount : 0), 0).toFixed(2)}
+                  </p>
+                  <button
+                    onClick={() => setShowExpenseModal(true)}
+                    className="mt-2 text-sm text-red-600 hover:text-red-700 flex items-center gap-1"
+                  >
+                    <i className="bi bi-plus-circle"></i>
+                    Agregar gasto
+                  </button>
+                </div>
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                  <i className="bi bi-wallet2 text-red-700 text-xl"></i>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between">
+                <div>
                   <p className="text-sm text-gray-500">Ganancia Neta y Margen</p>
                   <p className="text-2xl font-bold text-blue-600">
                     ${(Math.max(0, report.profitAmount - report.totalShippingCost)).toFixed(2)}
@@ -566,6 +648,199 @@ export default function CostReports({ business }: CostReportsProps) {
       ) : (
         <div className="text-center py-12 text-gray-500">
           No hay datos para el período seleccionado
+        </div>
+      )}
+
+      {/* Modal para agregar gasto */}
+      {showExpenseModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowExpenseModal(false)}></div>
+          <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                <i className="bi bi-wallet2 me-2"></i>
+                Agregar Gasto
+              </h3>
+              <form onSubmit={async (e) => {
+                e.preventDefault()
+                if (!business?.id) return
+
+                try {
+                  const amount = parseFloat(newExpense.amount)
+                  if (isNaN(amount) || amount <= 0) {
+                    alert('El monto debe ser mayor a 0')
+                    return
+                  }
+
+                  await createExpense({
+                    businessId: business.id,
+                    concept: newExpense.concept,
+                    amount: amount,
+                    paymentMethod: newExpense.paymentMethod,
+                    date: newExpense.date
+                  })
+
+                  // Recargar reporte
+                  loadReport()
+                  // Limpiar form
+                  setNewExpense({
+                    amount: '',
+                    concept: '',
+                    paymentMethod: 'cash',
+                    date: getEcuadorDate()
+                  })
+                  // Cerrar modal
+                  setShowExpenseModal(false)
+                } catch (error) {
+                  console.error('Error al crear gasto:', error)
+                  alert('Error al crear el gasto')
+                }
+              }}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Concepto
+                    </label>
+                    <input
+                      list="expense-concepts"
+                      type="text"
+                      value={newExpense.concept}
+                      onChange={(e) => setNewExpense({...newExpense, concept: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                      required
+                    />
+                    <datalist id="expense-concepts">
+                      {expenseConcepts.map((concept, index) => (
+                        <option key={index} value={concept} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Monto ($)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={newExpense.amount}
+                      onChange={(e) => setNewExpense({...newExpense, amount: e.target.value})}
+                      onWheel={(e) => e.currentTarget.blur()} // Evitar cambios al hacer scroll
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Método de pago
+                    </label>
+                    <select
+                      value={newExpense.paymentMethod}
+                      onChange={(e) => setNewExpense({...newExpense, paymentMethod: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    >
+                      <option value="cash">Efectivo</option>
+                      <option value="transfer">Transferencia</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Fecha
+                    </label>
+                    <input
+                      type="date"
+                      value={newExpense.date}
+                      onChange={(e) => {
+                        setNewExpense({...newExpense, date: e.target.value});
+                      }}
+                      max="2030-12-31"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Lista de gastos */}
+                <div className="mt-6 border-t border-gray-200 pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-medium text-gray-700">
+                      Gastos {dateRange === 'today' ? 'de hoy' : 
+                             dateRange === 'week' ? 'últimos 7 días' :
+                             dateRange === 'month' ? 'últimos 30 días' :
+                             'del período'}
+                    </h4>
+                  </div>
+                  {filteredModalExpenses.length > 0 ? (
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+                      {filteredModalExpenses.map((expense, index) => (
+                        <div key={expense.id || index} className="bg-gray-50 p-3 rounded-lg">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium text-gray-900">{expense.concept}</p>
+                                <span className="text-xs text-gray-500">
+                                  {parseExpenseDate(expense.date).toLocaleDateString('es-EC', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric'
+                                  })}
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-500">
+                                {expense.paymentMethod === 'cash' ? 'Efectivo' : 'Transferencia'}
+                              </p>
+                            </div>
+                            <p className="font-semibold text-red-600">
+                              ${expense.amount.toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 text-center py-4">
+                      No hay gastos registrados en este período
+                    </p>
+                  )}
+                  <div className="mt-3 pt-3 border-t border-gray-200">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Total {dateRange === 'today' ? 'del día' : 'del período'}:</span>
+                      <span className="font-bold text-red-600">
+                        ${filteredModalExpenses.reduce((sum, e) => sum + e.amount, 0).toFixed(2)}
+                      </span>
+                    </div>
+                    {dateRange !== 'today' && (
+                      <div className="flex justify-between items-center mt-1">
+                        <span className="text-xs text-gray-500">Promedio diario:</span>
+                        <span className="text-sm font-medium text-gray-600">
+                          ${(filteredModalExpenses.reduce((sum, e) => sum + e.amount, 0) / 
+                             (dateRange === 'week' ? 7 : dateRange === 'month' ? 30 : 
+                              Math.max(1, Math.ceil((new Date(customEndDate).getTime() - new Date(customStartDate).getTime()) / (1000 * 60 * 60 * 24)))
+                             )).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-6 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowExpenseModal(false)}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg"
+                  >
+                    Guardar Gasto
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
       )}
     </div>

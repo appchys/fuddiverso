@@ -32,6 +32,92 @@ import {
   Delivery
 } from '../types'
 
+// Interfaz para egresos (expenses)
+export interface ExpenseEntry {
+  id?: string
+  businessId: string
+  date: string // 'YYYY-MM-DD'
+  concept: string
+  amount: number
+  paymentMethod?: string
+  createdAt?: any
+}
+
+/**
+ * Crear un nuevo egreso
+ */
+export async function createExpense(expense: Omit<ExpenseEntry, 'id' | 'createdAt'>): Promise<string> {
+  try {
+    const now = new Date();
+    const expenseData = {
+      ...expense,
+      createdAt: serverTimestamp(),
+      date: expense.date || now.toISOString().split('T')[0] // Asegurar que siempre haya un campo date
+    };
+    const docRef = await addDoc(collection(db, 'expenses'), expenseData);
+    return docRef.id;
+  } catch (error) {
+    console.error('Error creating expense:', error);
+    throw error;
+  }
+}
+
+/**
+ * Obtener egresos de un negocio en un rango de fechas
+ */
+export async function getExpensesByBusiness(
+  businessId: string,
+  startDate?: Date,
+  endDate?: Date
+): Promise<ExpenseEntry[]> {
+  try {
+    const expensesRef = collection(db, 'expenses')
+    let q
+
+    if (startDate && endDate) {
+      // Convertir fechas a string YYYY-MM-DD para comparar con el campo date
+      const startStr = startDate.toISOString().split('T')[0]
+      const endStr = endDate.toISOString().split('T')[0]
+      
+      // Si es el mismo día, buscamos exactamente esa fecha
+      if (startStr === endStr) {
+        q = query(
+          expensesRef,
+          where('businessId', '==', businessId),
+          where('date', '==', startStr),
+          orderBy('createdAt', 'desc')
+        )
+      } else {
+        q = query(
+          expensesRef,
+          where('businessId', '==', businessId),
+          where('date', '>=', startStr),
+          where('date', '<=', endStr),
+          orderBy('date', 'desc'),
+          orderBy('createdAt', 'desc')
+        )
+      }
+    } else {
+      // Si no hay fechas, traer todos los egresos del negocio
+      q = query(
+        expensesRef,
+        where('businessId', '==', businessId),
+        orderBy('date', 'desc'),
+        orderBy('createdAt', 'desc')
+      )
+    }
+
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as ExpenseEntry[]
+  } catch (error) {
+    console.error('Error getting expenses:', error)
+    return []
+  }
+}
+
 // Helper function para convertir timestamps de Firebase a Date de manera segura
 function toSafeDate(timestamp: any): Date {
   if (!timestamp) return new Date()
