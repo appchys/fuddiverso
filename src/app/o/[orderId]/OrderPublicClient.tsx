@@ -435,6 +435,11 @@ export default function OrderPublicClient({ orderId }: Props) {
               )}
               <div>
                 <h1 className="font-bold text-gray-900">{business?.name || 'Negocio'}</h1>
+                <div className="flex items-center mt-1">
+                  <p className="text-lg font-bold text-gray-900">${order.total?.toFixed(2)}</p>
+                  <span className="mx-2 text-gray-300">•</span>
+                  <p className="text-sm text-gray-500">{order.items?.length || 0} producto(s)</p>
+                </div>
               </div>
             </div>
             <div className={`px-3 py-1 rounded-full text-sm font-medium ${statusColors.bg} ${statusColors.text} border ${statusColors.border}`}>
@@ -466,22 +471,12 @@ export default function OrderPublicClient({ orderId }: Props) {
       {/* Información del pedido */}
       <div className="max-w-md mx-auto px-4 py-4">
         <div className="bg-white rounded-2xl shadow-sm p-5 mb-4 border border-gray-200">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-sm text-gray-500">Creada: {formatDate(order.createdAt)}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-lg font-bold text-gray-900">${order.total?.toFixed(2)}</p>
-              <p className="text-sm text-gray-500">{order.items?.length || 0} producto(s)</p>
-            </div>
-          </div>
-
           {/* Información cuando no hay horario programado */}
           {(() => {
             const possibleTimeFields = ['scheduledDate', 'date', 'deliveryDate', 'fechaEntrega', 'fecha_entrega', 'fechaProgramada', 'scheduledTime', 'time', 'hora']
             const hasAnyTimeInfo = possibleTimeFields.some(field => order.timing?.[field])
             return !hasAnyTimeInfo ? (
-              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 mt-3">
+              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
                 <p className="text-sm text-gray-600 italic flex items-center">
                   <span className="mr-2">💡</span>
                   Esta orden no tiene horario de entrega programado
