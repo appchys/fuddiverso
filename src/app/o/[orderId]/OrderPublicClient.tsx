@@ -14,6 +14,7 @@ export default function OrderPublicClient({ orderId }: Props) {
   const [deliveryPerson, setDeliveryPerson] = useState<any | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState('status')
 
   useEffect(() => {
     let mounted = true
@@ -63,10 +64,6 @@ export default function OrderPublicClient({ orderId }: Props) {
     load()
     return () => { mounted = false }
   }, [orderId])
-
-  if (loading) return <div className="p-6">Cargando orden...</div>
-  if (error) return <div className="p-6 text-red-600">{error}</div>
-  if (!order) return <div className="p-6">Orden no encontrada</div>
 
   const formatDate = (d: any, timeOnly: boolean = false) => {
     try {
@@ -130,30 +127,26 @@ export default function OrderPublicClient({ orderId }: Props) {
 
   const getStatusColor = (status: string) => {
     const colors: { [key: string]: { bg: string; text: string; border: string } } = {
-      'pending': { bg: 'bg-yellow-50', text: 'text-yellow-800', border: 'border-yellow-300' },
-      'confirmed': { bg: 'bg-blue-50', text: 'text-blue-800', border: 'border-blue-300' },
-      'preparing': { bg: 'bg-orange-50', text: 'text-orange-800', border: 'border-orange-300' },
-      'ready': { bg: 'bg-green-50', text: 'text-green-800', border: 'border-green-300' },
-      'delivered': { bg: 'bg-emerald-50', text: 'text-emerald-800', border: 'border-emerald-300' },
-      'cancelled': { bg: 'bg-red-50', text: 'text-red-800', border: 'border-red-300' }
+      'pending': { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300' },
+      'confirmed': { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-300' },
+      'preparing': { bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-300' },
+      'ready': { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300' },
+      'delivered': { bg: 'bg-emerald-100', text: 'text-emerald-800', border: 'border-emerald-300' },
+      'cancelled': { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300' }
     }
-    return colors[status] || { bg: 'bg-gray-50', text: 'text-gray-800', border: 'border-gray-300' }
+    return colors[status] || { bg: 'bg-gray-100', text: 'text-gray-800', border: 'border-gray-300' }
   }
 
   const getStatusIcon = (status: string) => {
-    const icons: { [key: string]: { icon: string, class?: string } } = {
-      'pending': { icon: 'clock-history', class: 'text-white' },
-      'confirmed': { icon: 'check-circle', class: 'text-white' },
-      'preparing': { icon: 'egg-fried', class: 'text-white' },
-      'ready': { icon: 'check2-circle', class: 'text-white' },
-      'delivered': { icon: 'bicycle', class: 'text-white' },
-      'cancelled': { icon: 'x-circle', class: 'text-white' }
+    const icons: { [key: string]: string } = {
+      'pending': '⏳',
+      'confirmed': '✅',
+      'preparing': '👨‍🍳',
+      'ready': '📦',
+      'delivered': '🚴',
+      'cancelled': '❌'
     }
-    
-    const iconData = icons[status] || { icon: 'circle', class: 'text-white' }
-    return (
-      <i className={`bi bi-${iconData.icon} ${iconData.class || ''}`}></i>
-    )
+    return icons[status] || '📋'
   }
 
   const getStatusLabel = (status: string) => {
@@ -168,7 +161,60 @@ export default function OrderPublicClient({ orderId }: Props) {
     return labels[status] || status
   }
 
-  const renderTimeline = () => {
+  const getMinutesUntilDelivery = () => {
+    // Si el pedido ya fue entregado, no mostrar contador
+    if (order.status === 'delivered' || order.status === 'cancelled') {
+      return null;
+    }
+
+    if (!order.timing) {
+      return null;
+    }
+
+    // Función para formatear la hora
+    const formatTime = (date: Date) => {
+      return date.toLocaleTimeString('es-EC', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    };
+
+    // Si hay una hora programada
+    if (order.timing?.scheduledTime) {
+      try {
+        const now = new Date();
+        const scheduledTime = order.timing.scheduledTime;
+        const [hours, minutes] = scheduledTime.split(':');
+        
+        // Crear objeto de fecha con la hora programada para hoy
+        const deliveryTime = new Date();
+        deliveryTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        
+        // Si la hora ya pasó hoy, asumir que es para mañana
+        if (deliveryTime < now) {
+          deliveryTime.setDate(deliveryTime.getDate() + 1);
+        }
+
+        const diffMs = deliveryTime.getTime() - now.getTime();
+        const diffMinutes = Math.floor(diffMs / (1000 * 60));
+        
+        return {
+          minutes: diffMinutes,
+          isLate: diffMs < 0,
+          deliveryTime: formatTime(deliveryTime)
+        };
+      } catch (error) {
+        console.error('Error al calcular la hora de entrega:', error);
+        return null;
+      }
+    }
+
+    // Si no hay hora programada, devolver null
+    return null;
+  };
+
+  const renderStatusTimeline = () => {
     if (!order?.statusHistory) return null;
 
     // Definir los estados a mostrar, excluyendo 'cancelled'
@@ -185,35 +231,25 @@ export default function OrderPublicClient({ orderId }: Props) {
     }));
 
     return (
-      <div className="mt-8">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Seguimiento de tu pedido</h3>
+      <div className="mt-6">
         <div className="flow-root">
-          <ul className="-mb-8">
+          <ul className="space-y-4">
             {allStatuses.map((item, index) => {
               const colors = getStatusColor(item.status);
               const isCompleted = item.completed && item.timestamp;
               const isCurrent = item.isCurrent;
-              const isLast = index === allStatuses.length - 1;
 
               return (
-                <li key={item.status} className="relative pb-8">
-                  {!isLast && (
-                    <span 
-                      className={`absolute left-4 top-4 -ml-px h-full w-0.5 ${isCompleted ? 'bg-emerald-500' : 'bg-gray-200'}`} 
-                      aria-hidden="true"
-                    />
-                  )}
-                  <div className="relative flex items-start group">
-                    <span className={`h-8 w-8 rounded-full flex items-center justify-center ring-8 ring-white ${isCompleted ? 'bg-emerald-500' : 'bg-gray-200'}`}>
-                      {isCompleted ? (
-                        <span className="text-white text-lg">{getStatusIcon(item.status)}</span>
-                      ) : (
-                        <span className="text-gray-500">•</span>
-                      )}
-                    </span>
+                <li key={item.status} className="relative">
+                  <div className="flex items-start">
+                    <div className={`flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center ${isCompleted ? colors.bg : 'bg-gray-200'}`}>
+                      <span className={`text-lg ${isCompleted ? colors.text : 'text-gray-500'}`}>
+                        {getStatusIcon(item.status)}
+                      </span>
+                    </div>
                     <div className="ml-4 flex-1">
                       <div className="flex items-center">
-                        <h4 className={`text-sm font-medium ${isCurrent ? 'text-emerald-600' : 'text-gray-500'}`}>
+                        <h4 className={`text-base font-medium ${isCurrent ? 'text-emerald-600' : isCompleted ? 'text-gray-900' : 'text-gray-500'}`}>
                           {getStatusLabel(item.status)}
                         </h4>
                         {isCurrent && (
@@ -234,6 +270,9 @@ export default function OrderPublicClient({ orderId }: Props) {
                       )}
                     </div>
                   </div>
+                  {index < allStatuses.length - 1 && (
+                    <div className={`absolute left-5 top-10 -ml-px h-6 w-0.5 ${isCompleted ? 'bg-emerald-500' : 'bg-gray-200'}`} aria-hidden="true" />
+                  )}
                 </li>
               );
             })}
@@ -243,268 +282,13 @@ export default function OrderPublicClient({ orderId }: Props) {
     );
   };
 
-  const getMinutesUntilDelivery = () => {
-    // Si el pedido ya fue entregado, no mostrar contador
-    if (order.status === 'delivered' || order.status === 'cancelled') {
-      console.log('Pedido ya entregado o cancelado, no mostrar contador')
-      return null
-    }
-
-    console.log('=== DEBUG: getMinutesUntilDelivery ===')
-    console.log('Full order object:', JSON.stringify(order, null, 2))
-    console.log('order.timing object:', order.timing)
-    console.log('order.timing keys:', order.timing ? Object.keys(order.timing) : 'null')
-
-    if (!order.timing) {
-      console.log('No timing data found')
-      return null
-    }
-
-    // Si solo hay hora programada (sin fecha específica)
-    if (order.timing?.scheduledTime && !order.timing?.scheduledDate) {
-      console.log('🔄 Branch 1: Only scheduled time, no date')
-
-      try {
-        const now = new Date()
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-        const [hours, minutes] = order.timing.scheduledTime.split(':')
-        const scheduledDateTime = new Date(today)
-        scheduledDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0)
-
-        console.log('Today:', today.toISOString())
-        console.log('Scheduled time:', order.timing.scheduledTime)
-        console.log('Order type:', order.timing.type)
-        console.log('Calculated scheduledDateTime:', scheduledDateTime.toISOString())
-
-        // Si la hora ya pasó hoy, asumir para mañana - PERO NO para órdenes inmediatas
-        if (scheduledDateTime < now && order.timing.type !== 'immediate') {
-          console.log('⏰ Time has passed today, moving to tomorrow')
-          scheduledDateTime.setDate(scheduledDateTime.getDate() + 1)
-          console.log('Updated scheduledDateTime:', scheduledDateTime.toISOString())
-        } else if (scheduledDateTime < now && order.timing.type === 'immediate') {
-          console.log('⏰ Immediate order time has passed today, keeping same day for calculation')
-        }
-
-        const diffMs = scheduledDateTime.getTime() - now.getTime()
-        const diffMinutes = Math.floor(diffMs / (1000 * 60))
-
-        console.log('Final calculation:', {
-          now: now.toISOString(),
-          scheduled: scheduledDateTime.toISOString(),
-          diffMs,
-          diffMinutes,
-          diffHours: diffMinutes / 60
-        })
-
-        console.log('Order timing type:', order.timing.type)
-        console.log('Is immediate?', order.timing.type === 'immediate')
-
-        // Verificación especial para órdenes con type "immediate"
-        if (order.timing.type === 'immediate') {
-          const createdAt = new Date(order.createdAt)
-          const hoursSinceCreated = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60)
-          console.log('🚨 IMMEDIATE ORDER DETECTED')
-          console.log('Order created at:', createdAt.toISOString())
-          console.log('Current time:', now.toISOString())
-          console.log('Hours since created:', hoursSinceCreated)
-          console.log('Minutes since created:', hoursSinceCreated * 60)
-
-          // Para órdenes inmediatas, calcular atraso desde la hora programada, no desde creación
-          if (hoursSinceCreated > 0.5) { // Si han pasado más de 30 minutos desde creación
-            // Usar la diferencia ya calculada (diffMinutes) que es negativa para horas pasadas
-            const minutesLateFromScheduled = Math.abs(diffMinutes)
-            console.log('🚨 Immediate order late from scheduled time:', minutesLateFromScheduled, 'minutes')
-            return { minutes: minutesLateFromScheduled, isLate: true }
-          }
-        }
-
-        // SOLUCIÓN DIRECTA: Si es orden inmediata y está muy atrasada, marcar como atrasada
-        if (order.timing.type === 'immediate' && diffMinutes > 60) {
-          console.log('🚨 FORZANDO: Orden inmediata muy atrasada, marcando como atrasada')
-          return { minutes: Math.abs(diffMinutes), isLate: true }
-        }
-
-        // Verificación adicional: si la diferencia es muy grande (más de 12 horas), asumir atraso
-        const isVeryLate = diffMinutes < -720 // Más de 12 horas de atraso
-
-        if (diffMs < 0 || isVeryLate) {
-          const minutesLate = Math.abs(diffMinutes)
-          console.log('❌ LATE: Delivery is late by', minutesLate, 'minutes (isVeryLate:', isVeryLate, ')')
-          return { minutes: minutesLate, isLate: true }
-        }
-
-        console.log('⏳ FUTURE: Minutes remaining:', diffMinutes)
-        return { minutes: diffMinutes, isLate: false }
-      } catch (error) {
-        console.error('❌ ERROR in branch 1:', error)
-        return null
-      }
-    }
-
-    // Buscar fecha programada en diferentes campos posibles
-    console.log('🔄 Branch 2: Looking for scheduled date')
-    const possibleDateFields = ['scheduledDate', 'date', 'deliveryDate', 'fechaEntrega', 'fecha_entrega', 'fechaProgramada']
-    let scheduledDate = null
-
-    for (const field of possibleDateFields) {
-      if (order.timing[field]) {
-        scheduledDate = order.timing[field]
-        console.log(`📅 Found scheduled date in field: ${field} = ${scheduledDate} (type: ${typeof scheduledDate})`)
-        break
-      }
-    }
-
-    if (!scheduledDate) {
-      console.log('❌ No scheduled date found in any field')
-      return null
-    }
-
-    try {
-      const now = new Date()
-      let scheduledDateTime
-
-      console.log('🔧 Processing scheduled date:', scheduledDate)
-
-      // Manejar diferentes formatos de fecha
-      if (typeof scheduledDate === 'string') {
-        console.log('📝 String format detected')
-        scheduledDateTime = new Date(scheduledDate)
-      } else if (scheduledDate && typeof scheduledDate === 'object') {
-        console.log('📋 Object format detected')
-        // Si es un Timestamp de Firestore
-        if (scheduledDate.seconds) {
-          console.log('🔥 Firestore timestamp detected')
-          scheduledDateTime = new Date(scheduledDate.seconds * 1000)
-        } else if (scheduledDate.toDate && typeof scheduledDate.toDate === 'function') {
-          console.log('📅 Date object with toDate method detected')
-          scheduledDateTime = scheduledDate.toDate()
-        } else {
-          console.log('📅 Regular date object detected')
-          scheduledDateTime = new Date(scheduledDate)
-        }
-      } else {
-        console.log('📅 Converting to Date')
-        scheduledDateTime = new Date(scheduledDate)
-      }
-
-      console.log('📅 Parsed scheduledDateTime:', scheduledDateTime.toISOString())
-
-      // Si también hay hora programada, incluirla
-      if (order.timing.scheduledTime || order.timing.time || order.timing.hora) {
-        const timeField = order.timing.scheduledTime || order.timing.time || order.timing.hora
-        if (timeField) {
-          console.log('⏰ Adding time to date:', timeField)
-          const [hours, minutes] = timeField.split(':')
-          scheduledDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0)
-          console.log('⏰ Updated scheduledDateTime with time:', scheduledDateTime.toISOString())
-        }
-      }
-
-      const diffMs = scheduledDateTime.getTime() - now.getTime()
-      const diffMinutes = Math.floor(diffMs / (1000 * 60))
-
-      console.log('🧮 Final calculation:', {
-        now: now.toISOString(),
-        scheduled: scheduledDateTime.toISOString(),
-        diffMs,
-        diffMinutes,
-        diffHours: diffMinutes / 60,
-        isLate: diffMs < 0
-      })
-
-      // Verificación adicional: si la diferencia es muy grande (más de 12 horas), asumir atraso
-      const isVeryLate = diffMinutes < -720 // Más de 12 horas de atraso
-
-      // Siempre devolver un objeto con minutes e isLate
-      if (diffMs < 0 || isVeryLate) {
-        const minutesLate = Math.abs(diffMinutes)
-        console.log('❌ LATE: Delivery is late by', minutesLate, 'minutes (isVeryLate:', isVeryLate, ')')
-        return { minutes: minutesLate, isLate: true }
-      }
-
-      console.log('⏳ FUTURE: Minutes remaining:', diffMinutes)
-      return { minutes: diffMinutes, isLate: false }
-    } catch (error) {
-      console.error('❌ ERROR in branch 2:', error)
-      return null
-    }
-  }
-
-  return (
-    <div className="max-w-2xl mx-auto p-4">
-      {/* Logo del negocio */}
-      {business?.image && (
-        <div className="mb-6 flex justify-center">
-          <img
-            src={business.image}
-            alt={`Logo de ${business.name}`}
-            className="w-20 h-20 rounded-full object-cover border-2 border-gray-200"
-          />
-        </div>
-      )}
-
-      {/* Título y datos del cliente */}
-      <div className="mb-6">
-        <h1 className="text-lg font-bold mb-2 text-gray-900">Detalles de la Orden</h1>
-        {order.customer && (
-          <div className="flex flex-col gap-1 text-sm text-gray-700">
-            <div className="font-semibold">{order.customer.name || 'No especificado'}</div>
-            <div>{order.customer.phone || 'No especificado'}</div>
-          </div>
-        )}
-      </div>
-
-      {/* Tarjeta de información general */}
-      <div className="bg-white shadow rounded-lg p-4 mb-6 border border-gray-200 relative">
-        {/* Estado y tiempo en esquina superior derecha */}
-        <div className="absolute top-4 right-4 flex flex-col items-end space-y-1">
-          <div className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status).bg} ${getStatusColor(order.status).text} border ${getStatusColor(order.status).border}`}>
-            {getStatusTranslation(order.status)}
-          </div>
-          {(() => {
-            const timeInfo = getMinutesUntilDelivery()
-            if (timeInfo !== null) {
-              return (
-                <div className="text-xs text-gray-500">
-                  <span className={`font-bold ${timeInfo.isLate ? 'text-red-600' : 'text-orange-600'}`}>
-                    {timeInfo.minutes}
-                  </span> {timeInfo.isLate ? 'minutos de atraso' : 'minutos restantes'}
-                </div>
-              )
-            }
-            return null
-          })()}
-        </div>
-
-        <div className="text-sm text-gray-600 mb-2">Creada: {formatDate(order.createdAt)}</div>
-        {order.timing?.scheduledTime && (
-          <div className="text-sm text-gray-600 mb-4">
-            {order.timing?.scheduledDate
-              ? `Programada para: ${formatDate(order.timing.scheduledDate)}${order.timing.scheduledTime ? ` a las ${order.timing.scheduledTime}` : ''}`
-              : `Hora programada: ${order.timing.scheduledTime}`
-            }
-          </div>
-        )}
-
-        {/* Información cuando no hay horario programado */}
-        {(() => {
-          const possibleTimeFields = ['scheduledDate', 'date', 'deliveryDate', 'fechaEntrega', 'fecha_entrega', 'fechaProgramada', 'scheduledTime', 'time', 'hora']
-          const hasAnyTimeInfo = possibleTimeFields.some(field => order.timing?.[field])
-          return !hasAnyTimeInfo ? (
-            <div className="text-sm text-gray-500 mb-2 italic">
-              💡 Esta orden no tiene horario de entrega programado
-            </div>
-          ) : null
-        })()}
-      </div>
-
-      {/* Tarjeta de detalles del pedido */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h2 className="text-xl font-bold mb-4">Detalles del Pedido</h2>
-
+  const renderOrderDetails = () => {
+    return (
+      <div className="space-y-4">
         {/* Información de Envío/Retiro */}
-        <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-          <h3 className="font-medium text-gray-900 mb-2">
+        <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+          <h3 className="font-medium text-gray-900 mb-2 flex items-center">
+            <span className="mr-2">📍</span>
             {order.delivery?.type === 'delivery' ? 'Información de Envío' : 'Información de Retiro'}
           </h3>
           
@@ -533,41 +317,238 @@ export default function OrderPublicClient({ orderId }: Props) {
           )}
         </div>
         
-        <div className="divide-y">
-          {order.items?.map((item: any, index: number) => (
-            <div key={index} className="py-3 flex justify-between">
-              <div>
-                <p className="font-medium">{item.name}</p>
-                {item.variant && <p className="text-sm text-gray-500">{item.variant}</p>}
+        {/* Productos */}
+        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-200">
+          <h3 className="font-medium text-gray-900 mb-3 flex items-center">
+            <span className="mr-2">🛒</span>
+            Productos
+          </h3>
+          <div className="space-y-3">
+            {order.items?.map((item: any, index: number) => (
+              <div key={index} className="flex justify-between items-start py-2 border-b border-gray-100 last:border-0">
+                <div className="flex-1">
+                  <p className="font-medium text-gray-900">{item.name}</p>
+                  {item.variant && <p className="text-sm text-gray-500 mt-1">{item.variant}</p>}
+                  <p className="text-sm text-gray-500 mt-1">Cantidad: {item.quantity}</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-medium text-gray-900">${(item.quantity * item.price)?.toFixed(2)}</p>
+                  <p className="text-sm text-gray-500">${item.price?.toFixed(2)} c/u</p>
+                </div>
               </div>
-              <div className="text-right">
-                <p>{item.quantity} x ${item.price?.toFixed(2)}</p>
-                <p className="font-medium">${(item.quantity * item.price)?.toFixed(2)}</p>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
-        <div className="mt-4 pt-4 border-t">
-          <div className="flex justify-between py-1">
-            <span>Subtotal:</span>
-            <span>${order.subtotal?.toFixed(2)}</span>
-          </div>
-          {order.delivery?.deliveryCost > 0 && (
-            <div className="flex justify-between py-1">
-              <span>Envío:</span>
-              <span>${order.delivery?.deliveryCost?.toFixed(2)}</span>
+        {/* Resumen de pago */}
+        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-200">
+          <h3 className="font-medium text-gray-900 mb-3 flex items-center">
+            <span className="mr-2">💰</span>
+            Resumen de pago
+          </h3>
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <span className="text-gray-600">Subtotal:</span>
+              <span>${order.subtotal?.toFixed(2)}</span>
             </div>
-          )}
-          <div className="flex justify-between py-1 font-bold text-lg">
-            <span>Total:</span>
-            <span>${order.total?.toFixed(2)}</span>
+            {order.delivery?.deliveryCost > 0 && (
+              <div className="flex justify-between">
+                <span className="text-gray-600">Envío:</span>
+                <span>${order.delivery?.deliveryCost?.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between pt-2 border-t border-gray-200 font-bold text-lg">
+              <span>Total:</span>
+              <span>${order.total?.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) return (
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white flex items-center justify-center p-4">
+      <div className="text-center">
+        <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+        <p className="text-gray-600">Cargando información de tu pedido...</p>
+      </div>
+    </div>
+  )
+  
+  if (error) return (
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white flex items-center justify-center p-4">
+      <div className="text-center max-w-md">
+        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <span className="text-2xl">❌</span>
+        </div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Ha ocurrido un error</h2>
+        <p className="text-gray-600">{error}</p>
+      </div>
+    </div>
+  )
+  
+  if (!order) return (
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white flex items-center justify-center p-4">
+      <div className="text-center max-w-md">
+        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <span className="text-2xl">🔍</span>
+        </div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Orden no encontrada</h2>
+        <p className="text-gray-600">La orden que buscas no existe o ha sido eliminada.</p>
+      </div>
+    </div>
+  )
+
+  const timeInfo = getMinutesUntilDelivery()
+  const statusColors = getStatusColor(order.status)
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white pb-20">
+      {/* Header con información del negocio */}
+      <div className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-10">
+        <div className="max-w-md mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              {business?.image && (
+                <img
+                  src={business.image}
+                  alt={`Logo de ${business.name}`}
+                  className="w-12 h-12 rounded-full object-cover border-2 border-gray-200 mr-3"
+                />
+              )}
+              <div>
+                <h1 className="font-bold text-gray-900">{business?.name || 'Negocio'}</h1>
+              </div>
+            </div>
+            <div className={`px-3 py-1 rounded-full text-sm font-medium ${statusColors.bg} ${statusColors.text} border ${statusColors.border}`}>
+              {getStatusTranslation(order.status)}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Línea de tiempo de estados */}
-      {renderTimeline()}
+      {/* Contador de tiempo (si aplica) */}
+      {timeInfo !== null && (
+        <div className="max-w-md mx-auto px-4 py-3">
+          <div className={`rounded-xl p-4 text-center ${timeInfo.isLate ? 'bg-red-50 border border-red-200' : 'bg-orange-50 border border-orange-200'}`}>
+            <p className="text-sm font-medium mb-1">
+              {timeInfo.isLate ? 'Tu pedido está atrasado' : 'Tiempo estimado de entrega'}
+            </p>
+            <p className={`text-2xl font-bold ${timeInfo.isLate ? 'text-red-600' : 'text-orange-600'}`}>
+              {timeInfo.minutes} min
+            </p>
+            {timeInfo.deliveryTime && (
+              <p className="text-sm text-gray-600 mt-1">
+                Hora estimada: {timeInfo.deliveryTime}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Información del pedido */}
+      <div className="max-w-md mx-auto px-4 py-4">
+        <div className="bg-white rounded-2xl shadow-sm p-5 mb-4 border border-gray-200">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-sm text-gray-500">Creada: {formatDate(order.createdAt)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-lg font-bold text-gray-900">${order.total?.toFixed(2)}</p>
+              <p className="text-sm text-gray-500">{order.items?.length || 0} producto(s)</p>
+            </div>
+          </div>
+
+          {/* Información cuando no hay horario programado */}
+          {(() => {
+            const possibleTimeFields = ['scheduledDate', 'date', 'deliveryDate', 'fechaEntrega', 'fecha_entrega', 'fechaProgramada', 'scheduledTime', 'time', 'hora']
+            const hasAnyTimeInfo = possibleTimeFields.some(field => order.timing?.[field])
+            return !hasAnyTimeInfo ? (
+              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 mt-3">
+                <p className="text-sm text-gray-600 italic flex items-center">
+                  <span className="mr-2">💡</span>
+                  Esta orden no tiene horario de entrega programado
+                </p>
+              </div>
+            ) : null
+          })()}
+        </div>
+
+        {/* Información del cliente */}
+        {order.customer && (
+          <div className="bg-white rounded-2xl shadow-sm p-5 mb-4 border border-gray-200">
+            <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+              <span className="mr-2">👤</span>
+              Información del cliente
+            </h3>
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Nombre:</span>
+                <span className="font-medium">{order.customer.name || 'No especificado'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Teléfono:</span>
+                <span className="font-medium">{order.customer.phone || 'No especificado'}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tabs de navegación */}
+        <div className="bg-white rounded-2xl shadow-sm p-1 mb-4 border border-gray-200">
+          <div className="flex">
+            <button
+              onClick={() => setActiveTab('status')}
+              className={`flex-1 py-3 px-4 text-center rounded-xl font-medium transition-colors ${
+                activeTab === 'status' 
+                  ? 'bg-blue-500 text-white' 
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Estado
+            </button>
+            <button
+              onClick={() => setActiveTab('details')}
+              className={`flex-1 py-3 px-4 text-center rounded-xl font-medium transition-colors ${
+                activeTab === 'details' 
+                  ? 'bg-blue-500 text-white' 
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Detalles
+            </button>
+          </div>
+        </div>
+
+        {/* Contenido de las tabs */}
+        <div className="bg-white rounded-2xl shadow-sm p-5 border border-gray-200">
+          {activeTab === 'status' ? renderStatusTimeline() : renderOrderDetails()}
+        </div>
+
+        {/* Información del repartidor (si existe) */}
+        {deliveryPerson && (
+          <div className="bg-white rounded-2xl shadow-sm p-5 mt-4 border border-gray-200">
+            <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+              <span className="mr-2">🚴</span>
+              Tu repartidor
+            </h3>
+            <div className="flex items-center">
+              {deliveryPerson.photoURL && (
+                <img
+                  src={deliveryPerson.photoURL}
+                  alt={`Foto de ${deliveryPerson.displayName}`}
+                  className="w-12 h-12 rounded-full object-cover border-2 border-gray-200 mr-3"
+                />
+              )}
+              <div>
+                <p className="font-medium text-gray-900">{deliveryPerson.displayName || 'Repartidor'}</p>
+                <p className="text-sm text-gray-500">En camino con tu pedido</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
