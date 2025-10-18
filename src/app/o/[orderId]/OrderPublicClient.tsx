@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { getOrder, getBusiness, getDelivery } from '@/lib/database'
+import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 
 type Props = {
   orderId: string
@@ -300,9 +301,24 @@ export default function OrderPublicClient({ orderId }: Props) {
                 </p>
               )}
               {order.delivery?.latlong && (
-                <p className="text-sm text-gray-700 mb-2">
-                  <span className="font-medium">Ubicación:</span> {order.delivery.latlong}
-                </p>
+                <div className="mb-3">
+                  <div className="mt-2 rounded-lg overflow-hidden border border-gray-200">
+                    <img 
+                      src={`https://maps.googleapis.com/maps/api/staticmap?center=${order.delivery.latlong}&zoom=16&size=600x200&maptype=roadmap&markers=color:red%7C${order.delivery.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
+                      alt="Ubicación de entrega"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        // En caso de error al cargar el mapa, mostramos un mensaje
+                        const target = e.target as HTMLImageElement;
+                        target.src = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22600%22%20height%3D%22200%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22600%22%20height%3D%22200%22%20fill%3D%22%23f3f4f6%22%2F%3E%3Ctext%20x%3D%22300%22%20y%3D%22100%22%20font-family%3D%22Arial%22%20font-size%3D%2214%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3EMapa%20no%20disponible%3C%2Ftext%3E%3C%2Fsvg%3E';
+                        target.alt = 'Mapa no disponible';
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1 text-center">
+                    Ubicación aproximada del destino
+                  </p>
+                </div>
               )}
               {order.delivery?.deliveryCost !== undefined && (
                 <p className="text-sm text-gray-700">
