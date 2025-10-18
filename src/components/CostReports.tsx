@@ -39,7 +39,7 @@ const getEcuadorDate = () => {
 export default function CostReports({ business }: CostReportsProps) {
   const [report, setReport] = useState<CostReport | null>(null)
   const [loading, setLoading] = useState(false)
-  const [dateRange, setDateRange] = useState<'today' | 'week' | 'month' | 'custom'>('today')
+  const [dateRange, setDateRange] = useState<'yesterday' | 'today' | 'week' | 'month' | 'custom'>('today')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [expandedIngredient, setExpandedIngredient] = useState<string | null>(null)
@@ -62,6 +62,13 @@ export default function CostReports({ business }: CostReportsProps) {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     
     switch (dateRange) {
+      case 'yesterday':
+        const yesterday = new Date(today)
+        yesterday.setDate(today.getDate() - 1)
+        const yesterdayStr = yesterday.toISOString().split('T')[0]
+        const yesterdayStart = new Date(yesterdayStr + 'T00:00:00')
+        const yesterdayEnd = new Date(yesterdayStr + 'T23:59:59')
+        return { start: yesterdayStart, end: yesterdayEnd }
       case 'today':
         // Para "Hoy", usamos la misma fecha como inicio y fin
         const todayStr = today.toISOString().split('T')[0] // YYYY-MM-DD de hoy
@@ -335,6 +342,16 @@ export default function CostReports({ business }: CostReportsProps) {
             }`}
           >
             Hoy
+          </button>
+          <button
+            onClick={() => setDateRange('yesterday')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              dateRange === 'yesterday'
+                ? 'bg-red-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Ayer
           </button>
           <button
             onClick={() => setDateRange('week')}
