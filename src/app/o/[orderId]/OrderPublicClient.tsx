@@ -468,25 +468,7 @@ export default function OrderPublicClient({ orderId }: Props) {
         </div>
       )}
 
-      {/* Información del pedido */}
-      <div className="max-w-md mx-auto px-4 py-4">
-        <div className="bg-white rounded-2xl shadow-sm p-5 mb-4 border border-gray-200">
-          {/* Información cuando no hay horario programado */}
-          {(() => {
-            const possibleTimeFields = ['scheduledDate', 'date', 'deliveryDate', 'fechaEntrega', 'fecha_entrega', 'fechaProgramada', 'scheduledTime', 'time', 'hora']
-            const hasAnyTimeInfo = possibleTimeFields.some(field => order.timing?.[field])
-            return !hasAnyTimeInfo ? (
-              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                <p className="text-sm text-gray-600 italic flex items-center">
-                  <span className="mr-2">💡</span>
-                  Esta orden no tiene horario de entrega programado
-                </p>
-              </div>
-            ) : null
-          })()}
-        </div>
-
-        {/* Información del cliente */}
+      {/* Información del cliente */}
         {order.customer && (
           <div className="bg-white rounded-2xl shadow-sm p-5 mb-4 border border-gray-200">
             <h3 className="font-bold text-gray-900 mb-3 flex items-center">
@@ -532,31 +514,32 @@ export default function OrderPublicClient({ orderId }: Props) {
           </div>
         </div>
 
-        {/* Contenido de las tabs */}
-        <div className="bg-white rounded-2xl shadow-sm p-5 border border-gray-200">
-          {activeTab === 'status' ? renderStatusTimeline() : renderOrderDetails()}
-        </div>
+        <div className="max-w-md mx-auto px-4 py-4">
+          {/* Contenido de las tabs */}
+          <div className="bg-white rounded-2xl shadow-sm p-5 border border-gray-200 mb-4">
+            {activeTab === 'status' ? renderStatusTimeline() : renderOrderDetails()}
+          </div>
 
-        {/* Información del repartidor (si existe) */}
-        {deliveryPerson && (
-          <div className="bg-white rounded-2xl shadow-sm p-5 mt-4 border border-gray-200">
-            <h3 className="font-bold text-gray-900 mb-3 flex items-center">
-              <span className="mr-2">🚴</span>
-              Tu repartidor
-            </h3>
-            <div className="flex items-center">
-              {deliveryPerson.fotoUrl && (
-                <img
-                  src={deliveryPerson.fotoUrl}
-                  alt={`Foto de ${deliveryPerson.nombres}`}
-                  className="w-12 h-12 rounded-full object-cover border-2 border-gray-200 mr-3"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiYjMDA3QkZGOyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0yMCAyMXYtMmE0IDQgMCAwIDAtNC00SDhhNCA0IDAgMDAtNCA0djIiPjwvcGF0aD48Y2lyY2xlIGN4PSIxMiIgY3k9IjciIHI9IjQiPjwvY2lyY2xlPjwvc3ZnPg==';
-                    target.alt = 'Avatar por defecto';
-                  }}
-                />
-              )}
+          {/* Información del repartidor (si existe) */}
+          {deliveryPerson && (
+            <div className="bg-white rounded-2xl shadow-sm p-5 border border-gray-200">
+              <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+                <span className="mr-2">🚴</span>
+                Tu repartidor
+              </h3>
+              <div className="flex items-center">
+                {deliveryPerson.fotoUrl && (
+                  <img
+                    src={deliveryPerson.fotoUrl}
+                    alt={`Foto de ${deliveryPerson.nombres}`}
+                    className="w-12 h-12 rounded-full object-cover border-2 border-gray-200 mr-3"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiYjMDA3QkZGOyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0yMCAyMXYtMmE0IDQgMCAwIDAtNC00SDhhNCA0IDAgMDAtNCA0djIiPjwvcGF0aD48Y2lyY2xlIGN4PSIxMiIgY3k9IjciIHI9IjQiPjwvY2lyY2xlPjwvc3ZnPg==';
+                      target.alt = 'Avatar por defecto';
+                    }}
+                  />
+                )}
               <div className="flex-1 flex items-center">
                 <div>
                   <p className="font-medium text-gray-900">{deliveryPerson.nombres || 'Repartidor'}</p>
