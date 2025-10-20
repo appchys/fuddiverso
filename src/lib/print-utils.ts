@@ -27,15 +27,15 @@ export interface PrintOrderOptions {
 export async function printOrder({ order, businessName, businessLogo }: PrintOrderOptions) {
   try {
     // Import dinámico del bundle ESM en tiempo de ejecución (solo en cliente)
-  // @ts-ignore: import dinámico del paquete (el bundler resolverá la entrada correcta para browser)
-  const ThermalPrinterModule = await import('thermal-printer-encoder')
-    // La exportación default es la clase del impresor
-    const ThermalPrinterClass: any = ThermalPrinterModule.default || ThermalPrinterModule
-    // Crear instancia usando la API real del bundle
-    const printer = new ThermalPrinterClass({
-      language: 'esc-pos',
-      columns: 42
-    })
+  // Importar el nuevo paquete
+  const { default: ThermalPrinter } = await import('@point-of-sale/receipt-printer-encoder')
+  
+  // Crear instancia del impresor
+  const printer = new ThermalPrinter({
+    language: 'esc-pos',
+    width: 42,
+    characterTable: ['CP437']
+  })
 
     // Inicializar y centrar
     printer.initialize()
