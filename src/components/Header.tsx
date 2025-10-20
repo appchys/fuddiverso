@@ -502,9 +502,10 @@ export default function Header() {
                 <div className="flex items-center space-x-3">
                   <Link 
                     href="/business/login"
-                    className="text-gray-700 hover:text-orange-600 transition-colors text-sm font-medium"
+                    className="flex items-center gap-2 text-gray-700 bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                   >
-                    Negocio
+                    <i className="bi bi-shop text-orange-600"></i>
+                    <span>Negocio</span>
                   </Link>
                   <button 
                     onClick={openLoginModal}
