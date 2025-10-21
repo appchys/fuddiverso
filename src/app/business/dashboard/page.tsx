@@ -2469,9 +2469,15 @@ export default function BusinessDashboard() {
                 <i className="bi bi-list text-xl"></i>
               </button>
               
-              <Link href="/" className="text-xl sm:text-2xl font-bold text-red-600">
-                fuddi.shop
-              </Link>
+              <button 
+                onClick={() => {
+                  setActiveTab('orders');
+                  setOrdersSubTab('today');
+                }} 
+                className="text-xl sm:text-2xl font-bold text-red-600 hover:text-red-700 transition-colors"
+              >
+                Fuddi
+              </button>
               <span className="hidden sm:inline text-gray-600">Dashboard</span>
             </div>
             
@@ -2602,10 +2608,10 @@ export default function BusinessDashboard() {
 
               <button
                 onClick={handleLogout}
-                className="bg-gray-100 text-gray-700 px-2 sm:px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors text-sm sm:text-base"
+                className="p-2 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                title="Cerrar sesión"
               >
-                <i className="bi bi-box-arrow-right sm:me-2"></i>
-                <span className="hidden sm:inline">Cerrar Sesión</span>
+                <i className="bi bi-box-arrow-right text-lg"></i>
               </button>
             </div>
           </div>
