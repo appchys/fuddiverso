@@ -632,8 +632,6 @@ export default function BusinessDashboard() {
       
       // Actualizar estado local
       setOrders(orders.filter(order => order.id !== orderId))
-      
-      alert('Orden eliminada correctamente')
     } catch (error) {
       alert('Error al eliminar la orden')
     }
