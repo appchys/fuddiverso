@@ -948,7 +948,7 @@ export default function ManualOrderSidebar({
         <div className="flex-1 overflow-y-auto p-4 pb-24">
           {/* Búsqueda de cliente */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-black mb-2">
               Búsqueda por celular
             </label>
             <div className="relative">
@@ -1000,7 +1000,7 @@ export default function ManualOrderSidebar({
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-green-800">
                     <i className="bi bi-check-circle me-2"></i>
-                    Cliente encontrado: <span className="font-medium">{manualOrderData.customerName}</span>
+                    <span className="font-medium">{manualOrderData.customerName}</span>
                   </p>
                   <i className="bi bi-pencil-square text-green-600 hover:text-green-800"></i>
                 </div>
@@ -1018,7 +1018,7 @@ export default function ManualOrderSidebar({
               </div>
             ) : null}
 
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Productos</h3>
+            <h3 className="text-sm font-medium text-black mb-3">Productos</h3>
             
             {/* Filtro de categorías */}
             <div className="mb-3">
@@ -1095,7 +1095,7 @@ export default function ManualOrderSidebar({
           }
           {manualOrderData.selectedProducts.length > 0 && (
             <div className="mb-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Productos seleccionados</h3>
+              <h3 className="text-sm font-medium text-black mb-3">Productos seleccionados</h3>
               <div className="space-y-2">
                 {manualOrderData.selectedProducts.map((item, index) => (
                   <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
@@ -1132,7 +1132,7 @@ export default function ManualOrderSidebar({
 
           {/* Tipo de entrega - siempre visible */}
           <div className="mb-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Tipo de entrega</h3>
+            <h3 className="text-sm font-medium text-black mb-3">Tipo de entrega</h3>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -1165,7 +1165,7 @@ export default function ManualOrderSidebar({
           {/* Ubicaciones del cliente */}
           {manualOrderData.deliveryType === 'delivery' && (
             <div className="mb-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Ubicación</h3>
+              <h3 className="text-sm font-medium text-black mb-3">Ubicación</h3>
               
               {(!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10) ? (
                 <p className="text-sm text-gray-500">Ingresa un número de teléfono válido para gestionar ubicaciones</p>
@@ -1230,7 +1230,7 @@ export default function ManualOrderSidebar({
           {/* Asignación de delivery - solo visible si es delivery */}
           {manualOrderData.deliveryType === 'delivery' && (
             <div className="mb-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Asignar delivery</h3>
+              <h3 className="text-sm font-medium text-black mb-3">Asignar delivery</h3>
               
               {manualOrderData.selectedDelivery ? (
                 <div 
@@ -1287,7 +1287,7 @@ export default function ManualOrderSidebar({
 
           {/* Método de pago - siempre visible */}
           <div className="mb-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Método de pago</h3>
+            <h3 className="text-sm font-medium text-black mb-3">Método de pago</h3>
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
@@ -1430,7 +1430,7 @@ export default function ManualOrderSidebar({
 
           {/* Timing - siempre visible */}
           <div className="mb-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Programación</h3>
+            <h3 className="text-sm font-medium text-black mb-3">Programación</h3>
             <div className="grid grid-cols-2 gap-2 mb-3">
               <button
                 type="button"
@@ -1497,7 +1497,7 @@ export default function ManualOrderSidebar({
 
           {/* Resumen - siempre visible */}
           <div className="mb-6 p-3 bg-gray-50 rounded-md">
-            <h3 className="text-sm font-medium text-gray-700 mb-2">Resumen</h3>
+            <h3 className="text-sm font-medium text-black mb-2">Resumen</h3>
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span>Subtotal:</span>
