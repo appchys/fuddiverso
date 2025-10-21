@@ -272,10 +272,24 @@ export default function ManualOrderSidebar({
     }
   }, [isOpen, mode, editOrder, availableDeliveries])
 
-  // Obtener categorías únicas de los productos
-  const getUniqueCategories = () => {
-    const categories = products.map(product => product.category).filter(Boolean)
-    return Array.from(new Set(categories))
+  // Obtener categorías en el orden definido en el negocio
+  const getBusinessCategories = (): string[] => {
+    // Usar las categorías del negocio si existen y tienen elementos
+    if (business && Array.isArray(business.categories) && business.categories.length > 0) {
+      return business.categories.filter((c): c is string => Boolean(c));
+    }
+    // Si no hay categorías definidas en el negocio, obtenerlas de los productos
+    const categorySet = new Set<string>();
+    const result: string[] = [];
+    
+    products.forEach(product => {
+      if (product.category && !categorySet.has(product.category)) {
+        categorySet.add(product.category);
+        result.push(product.category);
+      }
+    });
+    
+    return result;
   }
 
   // Filtrar productos por categoría
@@ -943,7 +957,7 @@ export default function ManualOrderSidebar({
                   type="tel"
                   value={manualOrderData.customerPhone}
                   onChange={(e) => handlePhoneSearch(e.target.value)}
-                  placeholder="0987654321 o +593 98 052 4391"
+                  placeholder="0912345678"
                   className="w-full px-3 py-2 pr-16 sm:pr-20 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                 />
                 <div className="absolute right-0 top-0 h-full flex items-center space-x-1 pr-2">
@@ -1019,7 +1033,7 @@ export default function ManualOrderSidebar({
                 >
                   Todos
                 </button>
-                {getUniqueCategories().map(category => (
+                {getBusinessCategories().map(category => (
                   <button
                     key={category}
                     onClick={() => setSelectedCategory(category)}
