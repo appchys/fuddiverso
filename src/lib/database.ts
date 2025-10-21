@@ -550,7 +550,8 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
       },
       statusHistory: {
         ...(cleanOrderData.statusHistory || {}),
-        pendingAt: cleanOrderData.statusHistory?.pendingAt || serverTimestamp()
+        pendingAt: cleanOrderData.statusHistory?.pendingAt || serverTimestamp(),
+        ...(cleanOrderData.createdByAdmin ? { confirmedAt: serverTimestamp() } : {})
       },
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()

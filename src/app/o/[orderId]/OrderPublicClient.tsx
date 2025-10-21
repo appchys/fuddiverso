@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { getOrder, getBusiness, getDelivery } from '@/lib/database'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 
@@ -10,6 +10,7 @@ type Props = {
 }
 
 export default function OrderPublicClient({ orderId }: Props) {
+  const router = useRouter()
   const [order, setOrder] = useState<any | null>(null)
   const [business, setBusiness] = useState<any | null>(null)
   const [deliveryPerson, setDeliveryPerson] = useState<any | null>(null)
@@ -483,6 +484,25 @@ export default function OrderPublicClient({ orderId }: Props) {
               <div className="flex justify-between">
                 <span className="text-gray-600">Teléfono:</span>
                 <span className="font-medium">{order.customer.phone || 'No especificado'}</span>
+              </div>
+              <div className="flex justify-end mt-3">
+                <button 
+                  onClick={() => {
+                    // Usar window para acceder al componente Header
+                    const header = document.querySelector('header');
+                    if (header) {
+                      // Disparar un evento personalizado que el Header puede escuchar
+                      window.dispatchEvent(new CustomEvent('openLoginModal'));
+                    }
+                  }}
+                  className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 font-medium py-1.5 px-3 rounded-md transition-colors duration-200"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" className="bi bi-person-plus" viewBox="0 0 16 16">
+                    <path d="M6 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H1s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C9.516 10.68 8.289 10 6 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
+                    <path fillRule="evenodd" d="M13.5 5a.5.5 0 0 1 .5.5V7h1.5a.5.5 0 0 1 0 1H14v1.5a.5.5 0 0 1-1 0V8h-1.5a.5.5 0 0 1 0-1H13V5.5a.5.5 0 0 1 .5-.5z"/>
+                  </svg>
+                  <span>Crea tu cuenta</span>
+                </button>
               </div>
             </div>
           </div>

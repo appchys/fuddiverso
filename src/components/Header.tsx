@@ -2,7 +2,7 @@
 
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { searchClientByPhone, searchBusinesses, getAllBusinesses, createClient, setClientPin, updateClient } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
@@ -141,10 +141,14 @@ function CartIndicator() {
   )
 }
 
-export default function Header() {
+type HeaderProps = {
+  initialShowLoginModal?: boolean;
+}
+
+export default function Header({ initialShowLoginModal = false }: HeaderProps) {
   const { user, login, logout } = useAuth()
   const [showDropdown, setShowDropdown] = useState(false)
-  const [showLoginModal, setShowLoginModal] = useState(false)
+  const [showLoginModal, setShowLoginModal] = useState(initialShowLoginModal)
   const [showMobileSearch, setShowMobileSearch] = useState(false)
   const [loginPhone, setLoginPhone] = useState('')
   const [loginError, setLoginError] = useState('')
@@ -166,6 +170,18 @@ export default function Header() {
   const pathname = usePathname()
 
   // Cargar categorías
+  // Efecto para manejar el evento de apertura del modal de login
+  useEffect(() => {
+    const handleOpenLoginModal = () => {
+      setShowLoginModal(true);
+    };
+
+    window.addEventListener('openLoginModal', handleOpenLoginModal);
+    return () => {
+      window.removeEventListener('openLoginModal', handleOpenLoginModal);
+    };
+  }, []);
+
   useEffect(() => {
     const loadCategories = async () => {
       try {
