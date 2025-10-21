@@ -166,6 +166,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [categories, setCategories] = useState<string[]>(['all'])
   const [selectedCategory, setSelectedCategory] = useState('all')
+  const [showEditFields, setShowEditFields] = useState(false)
   const router = useRouter()
   const pathname = usePathname()
 
@@ -595,9 +596,26 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
       {/* Modal de Login */}
       {showLoginModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
+          <div className="bg-[#ff6a8c] rounded-lg max-w-md w-full p-6 text-white">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Iniciar Sesión</h3>
+              <div>
+                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                  {registerName ? (
+                    <>
+                      Hola, {registerName}
+                      <i 
+                        className="bi bi-pencil text-white/70 hover:text-white transition-colors cursor-pointer"
+                        onClick={() => setShowEditFields(!showEditFields)}
+                      ></i>
+                    </>
+                  ) : 'Iniciar Sesión'}
+                </h3>
+                {loginPhone && (
+                  <p className="text-sm text-white/80 mt-1">
+                    {loginPhone}
+                  </p>
+                )}
+              </div>
               <button
                 onClick={() => setShowLoginModal(false)}
                 className="text-gray-400 hover:text-gray-600"
@@ -607,43 +625,47 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
             </div>
             
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nombres
-                </label>
-                <input
-                  type="text"
-                  value={registerName}
-                  onChange={(e) => setRegisterName(e.target.value)}
-                  placeholder="Tu nombre completo"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                />
-              </div>
+              {(showEditFields || !registerName || !loginPhone) && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-1">
+                      Nombres
+                    </label>
+                    <input
+                      type="text"
+                      value={registerName}
+                      onChange={(e) => setRegisterName(e.target.value)}
+                      placeholder="Tu nombre completo"
+                      className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Celular
-                </label>
-                <input
-                  type="tel"
-                  value={loginPhone}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    setLoginPhone(v)
-                    // debounce check
-                    if (phoneCheckTimeout) clearTimeout(phoneCheckTimeout)
-                    const t = setTimeout(() => checkPhone(v), 500)
-                    setPhoneCheckTimeout(t)
-                  }}
-                  onBlur={() => checkPhone()}
-                  placeholder="0998765432"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                  onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
-                />
-                {loginError && (
-                  <p className="text-red-500 text-sm mt-1">{loginError}</p>
-                )}
-              </div>
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-1">
+                      Celular
+                    </label>
+                    <input
+                      type="tel"
+                      value={loginPhone}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setLoginPhone(v)
+                        // debounce check
+                        if (phoneCheckTimeout) clearTimeout(phoneCheckTimeout)
+                        const t = setTimeout(() => checkPhone(v), 500)
+                        setPhoneCheckTimeout(t)
+                      }}
+                      onBlur={() => checkPhone()}
+                      placeholder="0998765432"
+                      className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70"
+                      onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
+                    />
+                    {loginError && (
+                      <p className="text-yellow-300 text-sm mt-1">{loginError}</p>
+                    )}
+                  </div>
+                </>
+              )}
               
               <div className="flex gap-3">
                 {/* Removed Cancelar and Iniciar Sesión buttons as requested */}
@@ -660,13 +682,30 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                 {foundClient && foundClient.pinHash && (
                   <div className="mt-3 space-y-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Ingresa tu PIN</label>
-                      <input type="password" value={loginPin} onChange={(e) => setLoginPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-lg" />
-                      {loginPinError && <p className="text-red-500 text-sm mt-1">{loginPinError}</p>}
+                      <label className="block text-sm font-medium text-white mb-1">Ingresa tu PIN</label>
+                      <input 
+                        type="password" 
+                        value={loginPin} 
+                        onChange={(e) => setLoginPin(e.target.value)} 
+                        maxLength={6} 
+                        className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70" 
+                      />
+                      {loginPinError && <p className="text-yellow-300 text-sm mt-1">{loginPinError}</p>}
                     </div>
                     <div className="flex gap-3">
-                      <button onClick={() => setShowLoginModal(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg">Cancelar</button>
-                      <button onClick={handleLoginWithPin} disabled={loginPinLoading} className="px-4 py-2 bg-orange-500 text-white rounded-lg">{loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}</button>
+                      <button 
+                        onClick={() => setShowLoginModal(false)} 
+                        className="flex-1 px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                      <button 
+                        onClick={handleLoginWithPin} 
+                        disabled={loginPinLoading} 
+                        className="flex-1 px-4 py-2 bg-white text-[#ff6a8c] font-medium rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-70"
+                      >
+                        {loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}
+                      </button>
                     </div>
                   </div>
                 )}
@@ -675,17 +714,34 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                 {( !foundClient || (foundClient && !foundClient.pinHash) ) && (
                   <div className="mt-3 space-y-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Crea un PIN (4-6 dígitos)</label>
-                      <input type="password" value={registerPin} onChange={(e) => setRegisterPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-lg" />
+                      <label className="block text-sm font-medium text-white mb-1">Crea un PIN (4-6 dígitos)</label>
+                      <input 
+                        type="password" 
+                        value={registerPin} 
+                        onChange={(e) => setRegisterPin(e.target.value)} 
+                        maxLength={6} 
+                        className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70" 
+                      />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar PIN</label>
-                      <input type="password" value={registerPinConfirm} onChange={(e) => setRegisterPinConfirm(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-lg" />
+                      <label className="block text-sm font-medium text-white mb-1">Confirmar PIN</label>
+                      <input 
+                        type="password" 
+                        value={registerPinConfirm} 
+                        onChange={(e) => setRegisterPinConfirm(e.target.value)} 
+                        maxLength={6} 
+                        className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70" 
+                      />
                     </div>
-                    {registerError && <p className="text-red-500 text-sm">{registerError}</p>}
+                    {registerError && <p className="text-yellow-300 text-sm">{registerError}</p>}
                     <div className="flex gap-3">
-                      {/* Only show the main action button renamed to Registrarse */}
-                      <button onClick={handleRegisterSubmit} disabled={registerLoading} className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg">{registerLoading ? 'Procesando...' : 'Registrarse'}</button>
+                      <button 
+                        onClick={handleRegisterSubmit} 
+                        disabled={registerLoading} 
+                        className="w-full px-4 py-2 bg-white text-[#ff6a8c] font-medium rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-70"
+                      >
+                        {registerLoading ? 'Procesando...' : 'Registrarse'}
+                      </button>
                     </div>
                   </div>
                 )}
