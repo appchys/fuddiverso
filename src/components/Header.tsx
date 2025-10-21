@@ -609,7 +609,20 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Número de teléfono
+                  Nombres
+                </label>
+                <input
+                  type="text"
+                  value={registerName}
+                  onChange={(e) => setRegisterName(e.target.value)}
+                  placeholder="Tu nombre completo"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Celular
                 </label>
                 <input
                   type="tel"
@@ -662,11 +675,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                 {( !foundClient || (foundClient && !foundClient.pinHash) ) && (
                   <div className="mt-3 space-y-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Nombres</label>
-                      <input type="text" value={registerName} onChange={(e) => setRegisterName(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">PIN (4-6 dígitos)</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Crea un PIN (4-6 dígitos)</label>
                       <input type="password" value={registerPin} onChange={(e) => setRegisterPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-lg" />
                     </div>
                     <div>
