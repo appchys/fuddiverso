@@ -2833,7 +2833,7 @@ export default function BusinessDashboard() {
                                   ${cashTotal.toFixed(2)}
                                 </span>
                                 <span className="text-blue-600">
-                                  <i className="bi bi-credit-card me-1"></i>
+                                  <i className="bi bi-bank me-1"></i>
                                   ${transferTotal.toFixed(2)}
                                 </span>
                               </span>
@@ -3719,7 +3719,7 @@ export default function BusinessDashboard() {
               {/* Información de Pago */}
               <div className="mb-6 p-4 bg-green-50 rounded-lg">
                 <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                  <i className="bi bi-credit-card-fill me-2"></i>
+                  <i className="bi bi-bank me-2"></i>
                   Información de Pago
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
