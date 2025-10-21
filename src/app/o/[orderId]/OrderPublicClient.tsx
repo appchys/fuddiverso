@@ -488,12 +488,17 @@ export default function OrderPublicClient({ orderId }: Props) {
               <div className="flex justify-end mt-3">
                 <button 
                   onClick={() => {
-                    // Usar window para acceder al componente Header
-                    const header = document.querySelector('header');
-                    if (header) {
-                      // Disparar un evento personalizado que el Header puede escuchar
-                      window.dispatchEvent(new CustomEvent('openLoginModal'));
-                    }
+                    // Obtener el número de teléfono y nombre del cliente si existen
+                    const phoneNumber = order.customer?.phone;
+                    const customerName = order.customer?.name;
+                    
+                    // Disparar un evento personalizado con el número de teléfono y nombre
+                    window.dispatchEvent(new CustomEvent('openLoginModal', { 
+                      detail: { 
+                        phone: phoneNumber,
+                        name: customerName 
+                      } 
+                    }));
                   }}
                   className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 font-medium py-1.5 px-3 rounded-md transition-colors duration-200"
                 >

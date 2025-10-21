@@ -172,12 +172,24 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
   // Cargar categorías
   // Efecto para manejar el evento de apertura del modal de login
   useEffect(() => {
-    const handleOpenLoginModal = () => {
+    const handleOpenLoginModal = (event: any) => {
+      // Si el evento trae un número de teléfono, lo establecemos
+      if (event.detail?.phone) {
+        setLoginPhone(event.detail.phone);
+        // Si también trae el nombre del cliente, lo establecemos
+        if (event.detail?.name) {
+          setRegisterName(event.detail.name);
+        }
+        // Verificar si el número ya está registrado
+        checkPhone(event.detail.phone);
+      }
       setShowLoginModal(true);
     };
 
+    // @ts-ignore - El tipo CustomEvent no está correctamente tipado por defecto
     window.addEventListener('openLoginModal', handleOpenLoginModal);
     return () => {
+      // @ts-ignore
       window.removeEventListener('openLoginModal', handleOpenLoginModal);
     };
   }, []);
@@ -297,10 +309,6 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
     try {
       const client = await searchClientByPhone(normalized)
       setFoundClient(client)
-      if (client) {
-        // No prellenar el nombre: permitir que el usuario lo escriba incluso si existe
-        setRegisterName('')
-      }
       // No hacemos auto-login aquí — si existe PIN pediremos al usuario que lo ingrese.
     } catch (error) {
       console.error('Error checking phone:', error)
