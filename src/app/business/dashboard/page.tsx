@@ -1880,22 +1880,6 @@ export default function BusinessDashboard() {
                   </button>
                   
                   {isToday && (
-                    (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
-                    (order.delivery?.type === 'pickup' && business?.phone)
-                  ) && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleSendWhatsApp(order)
-                      }}
-                      className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
-                      title="Enviar WhatsApp"
-                    >
-                      <i className="bi bi-whatsapp text-sm"></i>
-                    </button>
-                  )}
-
-                  {isToday && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
@@ -1909,7 +1893,7 @@ export default function BusinessDashboard() {
                       })()} p-1.5 rounded`}
                       title="Editar método/estado de pago"
                     >
-                      <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-sm`}></i>
+                      <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-xl`}></i>
                     </button>
                   )}
 
@@ -1924,7 +1908,7 @@ export default function BusinessDashboard() {
                     className="text-blue-600 hover:text-blue-800 p-1.5 rounded hover:bg-blue-50"
                     title="Editar orden"
                   >
-                    <i className="bi bi-pencil text-sm"></i>
+                    <i className="bi bi-pencil text-xl"></i>
                   </button>
                   
                   <button
@@ -1935,7 +1919,7 @@ export default function BusinessDashboard() {
                     className="text-red-600 hover:text-red-800 p-1.5 rounded hover:bg-red-50"
                     title="Eliminar orden"
                   >
-                    <i className="bi bi-trash text-sm"></i>
+                    <i className="bi bi-trash text-xl"></i>
                   </button>
                 </div>
               </div>
