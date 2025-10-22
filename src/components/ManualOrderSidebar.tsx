@@ -550,20 +550,24 @@ export default function ManualOrderSidebar({
 
   // Función para verificar si un texto es un Plus Code
   const isPlusCode = (text: string): boolean => {
-    // Patrón para códigos como 42W9+246 o 42W9+246Daule
-    return /^[0-9]+[A-Z]+[0-9]+\+[0-9A-Z]+.*$/i.test(text.trim());
+    // Patrón flexible que acepta:
+    // - Códigos que comienzan con números (5245+MQG)
+    // - Códigos alfanuméricos (8FVC9G8F+5W)
+    // - Con o sin texto descriptivo después
+    return /^[0-9A-Z]{4,}\+[0-9A-Z]+.*$/i.test(text.trim());
   };
 
   // Función para validar un Plus Code
   const validatePlusCode = (code: string): boolean => {
-    // Un Plus Code válido debe tener al menos 8 caracteres (ej: 8FVC9G8F+5W)
+    // Un Plus Code válido debe tener al menos 6 caracteres (ej: 5245+MQ o 8FVC9G+5W)
     const cleanCode = code.replace(/^pluscode:/i, '');
-    return /^[0-9A-Z]{4,}\+[0-9A-Z]{2,}$/i.test(cleanCode);
+    return /^[0-9A-Z]{3,}\+[0-9A-Z]{2,}$/i.test(cleanCode);
   };
 
   // Función para extraer el código Plus limpio
   const extractPlusCode = (text: string): string => {
-    const match = text.match(/^([0-9]+[A-Z]+[0-9]+\+[0-9A-Z]+)/i);
+    // Extrae el código Plus Code (mínimo 3 caracteres + + + 2 caracteres)
+    const match = text.match(/^([0-9A-Z]{3,}\+[0-9A-Z]{2,})/i);
     return match ? match[1].toUpperCase() : '';
   };
 
@@ -671,11 +675,8 @@ export default function ManualOrderSidebar({
       });
       setShowNewLocationForm(false);
       setShowLocationModal(false);
-      
-      alert('Ubicación creada exitosamente');
     } catch (error) {
       console.error('Error creando ubicación:', error);
-      alert('Error al crear la ubicación');
     } finally {
       setCreatingLocation(false);
     }
@@ -741,10 +742,8 @@ export default function ManualOrderSidebar({
       setEditingLocationId(null)
       setShowNewLocationForm(false)
       setNewLocationData({ referencia: '', tarifa: '1', googleMapsLink: '', latlong: '' })
-      alert('Ubicación actualizada correctamente')
     } catch (error) {
       console.error('Error actualizando ubicación:', error)
-      alert('Error al actualizar la ubicación')
     } finally {
       setCreatingLocation(false)
     }
