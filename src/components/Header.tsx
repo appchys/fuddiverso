@@ -2,9 +2,11 @@
 
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
-import { useState, useEffect, forwardRef, useImperativeHandle } from 'react'
+import { useState, useEffect, forwardRef, useImperativeHandle, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { searchClientByPhone, searchBusinesses, getAllBusinesses, createClient, setClientPin, updateClient } from '@/lib/database'
+import { storage } from '@/lib/firebase'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 
 // Componente para mostrar carritos activos
@@ -163,7 +165,9 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
   const [loginPin, setLoginPin] = useState('')
   const [loginPinError, setLoginPinError] = useState('')
   const [loginPinLoading, setLoginPinLoading] = useState(false)
+  const [profileImage, setProfileImage] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [categories, setCategories] = useState<string[]>(['all'])
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [showEditFields, setShowEditFields] = useState(false)
@@ -598,23 +602,61 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-[#ff6a8c] rounded-lg max-w-md w-full p-6 text-white">
             <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                  {registerName ? (
-                    <>
-                      Hola, {registerName}
-                      <i 
-                        className="bi bi-pencil text-white/70 hover:text-white transition-colors cursor-pointer"
-                        onClick={() => setShowEditFields(!showEditFields)}
-                      ></i>
-                    </>
-                  ) : 'Iniciar Sesión'}
-                </h3>
-                {loginPhone && (
-                  <p className="text-sm text-white/80 mt-1">
-                    {loginPhone}
-                  </p>
-                )}
+              <div className="flex items-center gap-3">
+                <div className="relative group">
+                  <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center overflow-hidden">
+                    {profileImage ? (
+                      <img 
+                        src={profileImage} 
+                        alt="Foto de perfil" 
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <i className="bi bi-person text-2xl text-white/70"></i>
+                    )}
+                  </div>
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="absolute bottom-0 right-0 translate-y-1/2 w-5 h-5 flex items-center justify-center text-white text-xs transition-all duration-200"
+                    title="Cambiar foto"
+                  >
+                    <i className="bi bi-pencil"></i>
+                  </button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          setProfileImage(event.target?.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                    {registerName ? (
+                      <>
+                        Hola, {registerName}
+                        <i 
+                          className="bi bi-pencil text-white/70 hover:text-white transition-colors cursor-pointer"
+                          onClick={() => setShowEditFields(!showEditFields)}
+                        ></i>
+                      </>
+                    ) : 'Iniciar Sesión'}
+                  </h3>
+                  {loginPhone && (
+                    <p className="text-sm text-white/80 mt-1">
+                      {loginPhone}
+                    </p>
+                  )}
+                </div>
               </div>
               <button
                 onClick={() => setShowLoginModal(false)}

@@ -531,17 +531,49 @@ export default function ManualOrderSidebar({
     }
   };
 
-  // Función para validar coordenadas
+  // Función para normalizar coordenadas (eliminar espacios alrededor de la coma)
   const normalizeLatLong = (coords: string): string => {
-    // Eliminar espacios alrededor de la coma y extra espacios
     return coords.trim().replace(/\s*,\s*/, ',');
   }
 
+  // Función para validar coordenadas tradicionales (lat,lng)
   const validateCoordinates = (coords: string): boolean => {
-    if (!coords) return false
-    const normalized = normalizeLatLong(coords)
-    const coordPattern = /^-?\d+\.?\d*,-?\d+\.?\d*$/;
-    return coordPattern.test(normalized);
+    if (!coords) return false;
+    const normalized = normalizeLatLong(coords);
+    const coordPattern = /^-?\d{1,3}\.?\d*,-?\d{1,3}\.?\d*$/;
+    if (!coordPattern.test(normalized)) return false;
+    
+    // Validar rangos de latitud (-90 a 90) y longitud (-180 a 180)
+    const [lat, lng] = normalized.split(',').map(Number);
+    return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+  };
+
+  // Función para verificar si un texto es un Plus Code
+  const isPlusCode = (text: string): boolean => {
+    // Patrón para códigos como 42W9+246 o 42W9+246Daule
+    return /^[0-9]+[A-Z]+[0-9]+\+[0-9A-Z]+.*$/i.test(text.trim());
+  };
+
+  // Función para validar un Plus Code
+  const validatePlusCode = (code: string): boolean => {
+    // Un Plus Code válido debe tener al menos 8 caracteres (ej: 8FVC9G8F+5W)
+    const cleanCode = code.replace(/^pluscode:/i, '');
+    return /^[0-9A-Z]{4,}\+[0-9A-Z]{2,}$/i.test(cleanCode);
+  };
+
+  // Función para extraer el código Plus limpio
+  const extractPlusCode = (text: string): string => {
+    const match = text.match(/^([0-9]+[A-Z]+[0-9]+\+[0-9A-Z]+)/i);
+    return match ? match[1].toUpperCase() : '';
+  };
+
+  // Función para validar cualquier tipo de ubicación
+  const isValidLocation = (location: string): boolean => {
+    if (!location) return false;
+    if (location.startsWith('pluscode:')) {
+      return validatePlusCode(location);
+    }
+    return validateCoordinates(location);
   };
 
   // Función para manejar cambio en enlace de Google Maps
@@ -549,10 +581,31 @@ export default function ManualOrderSidebar({
     setNewLocationData(prev => ({ ...prev, googleMapsLink: link }));
     
     if (link.trim()) {
+      // Verificar si es un Plus Code
+      if (isPlusCode(link)) {
+        const plusCode = extractPlusCode(link);
+        if (!plusCode) {
+          // Mostrar mensaje de error si el Plus Code no es válido
+          return;
+        }
+        if (plusCode) {
+          setNewLocationData(prev => ({ 
+            ...prev, 
+            latlong: `pluscode:${plusCode}`,
+            referencia: link.replace(plusCode, '').trim() || prev.referencia
+          }));
+          return;
+        }
+      }
+      
+      // Si no es un Plus Code, intentar extraer coordenadas
       const coordinates = extractCoordinatesFromGoogleMaps(link);
       if (coordinates) {
         // Normalizar antes de setear
-        setNewLocationData(prev => ({ ...prev, latlong: normalizeLatLong(coordinates) }));
+        setNewLocationData(prev => ({ 
+          ...prev, 
+          latlong: normalizeLatLong(coordinates) 
+        }));
       }
     }
   };
@@ -566,13 +619,15 @@ export default function ManualOrderSidebar({
 
     // LatLong ahora es opcional. Si se proporciona, debe ser válido.
     if (newLocationData.latlong.trim()) {
-      const normalized = normalizeLatLong(newLocationData.latlong)
-      if (!validateCoordinates(normalized)) {
-        alert('Por favor ingresa coordenadas válidas (formato: lat,lng)');
+      if (!isValidLocation(newLocationData.latlong)) {
+        alert('Por favor ingresa coordenadas válidas (formato: lat,lng o un Plus Code como 42W9+246)');
         return;
       }
-      // Guardar normalizadas
-      setNewLocationData(prev => ({ ...prev, latlong: normalized }))
+      // Solo normalizar si no es un Plus Code
+      if (!newLocationData.latlong.startsWith('pluscode:')) {
+        const normalized = normalizeLatLong(newLocationData.latlong);
+        setNewLocationData(prev => ({ ...prev, latlong: normalized }));
+      }
     }
 
     // Buscar el cliente para obtener su ID
@@ -647,12 +702,15 @@ export default function ManualOrderSidebar({
     }
 
     if (newLocationData.latlong.trim()) {
-      const normalized = normalizeLatLong(newLocationData.latlong)
-      if (!validateCoordinates(normalized)) {
-        alert('Por favor ingresa coordenadas válidas (formato: lat,lng)');
+      if (!isValidLocation(newLocationData.latlong)) {
+        alert('Por favor ingresa coordenadas válidas (formato: lat,lng o un Plus Code como 42W9+246)');
         return;
       }
-      setNewLocationData(prev => ({ ...prev, latlong: normalized }))
+      // Solo normalizar si no es un Plus Code
+      if (!newLocationData.latlong.startsWith('pluscode:')) {
+        const normalized = normalizeLatLong(newLocationData.latlong);
+        setNewLocationData(prev => ({ ...prev, latlong: normalized }));
+      }
     }
 
     setCreatingLocation(true)
@@ -1780,26 +1838,59 @@ export default function ManualOrderSidebar({
                   </div>
 
                   {/* Vista previa del mapa estático */}
-                  {newLocationData.latlong && validateCoordinates(newLocationData.latlong) && (
+                  {newLocationData.latlong && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Vista previa de ubicación
                       </label>
                       <div className="w-full h-48 bg-gray-200 rounded-md overflow-hidden">
-                        <img
-                          src={`https://maps.googleapis.com/maps/api/staticmap?center=${newLocationData.latlong}&zoom=15&size=400x192&maptype=roadmap&markers=color:red%7C${newLocationData.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
-                          alt="Vista previa de ubicación"
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                            const parent = target.parentElement;
-                            if (parent) {
-                              parent.innerHTML = '<div class="w-full h-full flex items-center justify-center bg-gray-200"><i class="bi bi-geo-alt text-gray-400 text-2xl"></i></div>';
-                            }
-                          }}
-                        />
+                        {newLocationData.latlong.startsWith('pluscode:') ? (
+                          <a
+                            href={`https://www.google.com/maps/pluscodes/${newLocationData.latlong.replace('pluscode:', '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full h-full flex flex-col items-center justify-center bg-blue-50 hover:bg-blue-100 transition-colors"
+                          >
+                            <i className="bi bi-geo-alt text-blue-500 text-3xl mb-2"></i>
+                            <p className="text-blue-700 font-medium">Ver en Google Maps</p>
+                            <p className="text-sm text-gray-600 mt-1">Código: {newLocationData.latlong.replace('pluscode:', '')}</p>
+                            <p className="text-xs text-gray-500 mt-2">Haz clic para abrir en Google Maps</p>
+                          </a>
+                        ) : validateCoordinates(newLocationData.latlong) ? (
+                          <img
+                            src={`https://maps.googleapis.com/maps/api/staticmap?center=${newLocationData.latlong}&zoom=15&size=400x192&maptype=roadmap&markers=color:red%7C${newLocationData.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
+                            alt="Vista previa de ubicación"
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.style.display = 'none';
+                              const parent = target.parentElement;
+                              if (parent) {
+                                parent.innerHTML = '<div class="w-full h-full flex items-center justify-center bg-gray-200"><i class="bi bi-geo-alt text-gray-400 text-2xl"></i></div>';
+                              }
+                            }}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-yellow-50">
+                            <div className="text-center p-4">
+                              <i className="bi bi-exclamation-triangle text-yellow-500 text-2xl mb-2"></i>
+                              <p className="text-sm text-yellow-700">Formato de coordenadas no reconocido</p>
+                            </div>
+                          </div>
+                        )}
                       </div>
+                      
+                      {/* Mostrar el código Plus en un campo de solo lectura si está disponible */}
+                      {newLocationData.latlong.startsWith('pluscode:') && (
+                        <div className="mt-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Código Plus
+                          </label>
+                          <div className="bg-gray-100 p-2 rounded-md text-sm font-mono">
+                            {newLocationData.latlong.replace('pluscode:', '')}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

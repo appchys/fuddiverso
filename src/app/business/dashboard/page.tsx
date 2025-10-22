@@ -781,14 +781,21 @@ export default function BusinessDashboard() {
     const customerPhone = order.customer?.phone || 'Sin teléfono'
     const references = order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'
     
-    // Crear enlace de Google Maps si hay coordenadas (solo para delivery)
+    // Crear enlace de Google Maps si hay coordenadas o Plus Code (solo para delivery)
     let locationLink = ''
     if (order.delivery.type === 'delivery') {
       if (order.delivery?.latlong) {
-        // Limpiar espacios en blanco de las coordenadas
         const cleanCoords = order.delivery.latlong.replace(/\s+/g, '')
-        locationLink = `https://www.google.com/maps/place/${cleanCoords}`
+        // Verificar si es un Plus Code
+        if (cleanCoords.startsWith('pluscode:')) {
+          const plusCode = cleanCoords.replace('pluscode:', '')
+          locationLink = `https://www.google.com/maps/place/${encodeURIComponent(plusCode)}`
+        } else {
+          // Es una coordenada tradicional
+          locationLink = `https://www.google.com/maps/place/${cleanCoords}`
+        }
       } else if (order.delivery?.mapLocation) {
+        // Para compatibilidad con mapLocation existente
         locationLink = `https://www.google.com/maps/place/${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}`
       }
     }
