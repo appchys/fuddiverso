@@ -789,10 +789,14 @@ export default function BusinessDashboard() {
         // Verificar si es un Plus Code
         if (cleanCoords.startsWith('pluscode:')) {
           const plusCode = cleanCoords.replace('pluscode:', '')
-          locationLink = `https://www.google.com/maps/place/${encodeURIComponent(plusCode)}`
-        } else {
+          // Usar el formato de búsqueda directa para mejor compatibilidad
+          locationLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(plusCode)}`
+        } else if (cleanCoords.includes(',')) {
           // Es una coordenada tradicional
           locationLink = `https://www.google.com/maps/place/${cleanCoords}`
+        } else {
+          // Si no es ninguno de los anteriores, intentar como búsqueda directa
+          locationLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`
         }
       } else if (order.delivery?.mapLocation) {
         // Para compatibilidad con mapLocation existente
