@@ -846,13 +846,19 @@ export default function BusinessDashboard() {
                          order.payment?.method === 'transfer' ? 'Transferencia' :
                          order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
     
+    // Determinar el tipo de pedido (Inmediato o Programado)
+    const orderType = order.timing?.type === 'scheduled' 
+      ? `⏰ Programado para las ${order.timing?.scheduledTime || ''}`
+      : '⚡ Inmediato';
+
     // Construir mensaje
     let message = `*Datos del cliente*\n`
     message += `Cliente: ${customerName}\n`
     message += `Celular: ${customerPhone}\n\n`
     
     if (order.delivery.type === 'delivery') {
-      message += `*Lugar de entrega*\n`
+      message += `*Detalles de la entrega*\n`
+      message += `${orderType}\n`
       message += `Referencias: ${references}\n`
       if (locationLink) {
         message += `Ubicación: ${locationLink}\n\n`
@@ -925,14 +931,21 @@ export default function BusinessDashboard() {
     // Calcular subtotal (total de productos sin envío)
     const subtotal = order.total - (order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0)
 
+    // Determinar el tipo de pedido (Inmediato o Programado)
+    const orderType = order.timing?.type === 'scheduled' 
+      ? `⏰ Programado para las ${order.timing?.scheduledTime || ''}`
+      : '⚡ Inmediato';
+
     // Construir mensaje en texto plano y luego aplicar encodeURIComponent al final
     let message = 'Tu pedido está en preparación!\n\n';
     message += `*Dirección:*\n${deliveryInfo}\n\n`;
+    message += `*Tipo de entrega:*\n${orderType}\n\n`;
     message += `Detalle del pedido:\n${productsList}\n\n`;
     message += `Subtotal: $${subtotal.toFixed(2)}\n`;
     if (order.delivery?.type === 'delivery') {
       message += `Envío: $${(order.delivery?.deliveryCost || 0).toFixed(2)}\n`;
     }
+    
     message += '\n';
     
     // Solo mostrar total si es pago en efectivo
