@@ -247,26 +247,56 @@ export default function BusinessDashboard() {
         ];
         
         // Remover duplicados por si acaso
-        const uniqueBusinesses = allUserBusinesses.filter((business, index, self) =>
+        let uniqueBusinesses = allUserBusinesses.filter((business, index, self) =>
           index === self.findIndex(b => b.id === business.id)
         );
         
+        // Función para obtener el timestamp de una fecha de Firebase
+        const getTimestamp = (timestamp: any): number => {
+          if (!timestamp) return 0;
+          
+          // Si es un objeto de Firestore con toDate()
+          if (typeof timestamp.toDate === 'function') {
+            return timestamp.toDate().getTime();
+          }
+          
+          // Si es un objeto de timestamp de Firebase con seconds y nanoseconds
+          if (timestamp.seconds) {
+            return timestamp.seconds * 1000 + (timestamp.nanoseconds || 0) / 1000000;
+          }
+          
+          // Si ya es un timestamp en milisegundos
+          if (typeof timestamp === 'number') {
+            return timestamp;
+          }
+          
+          // Si es un string de fecha
+          if (typeof timestamp === 'string') {
+            return new Date(timestamp).getTime() || 0;
+          }
+          
+          return 0;
+        };
+        
+        // Ordenar por fecha de creación (más antigua primero)
+        uniqueBusinesses = uniqueBusinesses.sort((a, b) => {
+          const timeA = getTimestamp(a.createdAt);
+          const timeB = getTimestamp(b.createdAt);
+          return timeA - timeB; // Orden ascendente (más antigua primero)
+        });
+        
         setBusinesses(uniqueBusinesses);
         
-        // Seleccionar tienda (preferencia: del contexto > primera propia > primera administrada)
+        // Seleccionar tienda (preferencia: del contexto > primera de la lista ordenada)
         let businessToSelect = null;
         
         if (businessId) {
           businessToSelect = uniqueBusinesses.find(b => b.id === businessId);
         }
         
-        if (!businessToSelect) {
-          // Preferir tiendas propias sobre administradas
-          if (businessAccess.ownedBusinesses.length > 0) {
-            businessToSelect = businessAccess.ownedBusinesses[0];
-          } else {
-            businessToSelect = businessAccess.adminBusinesses[0];
-          }
+        // Si no hay businessId o no se encontró la tienda, seleccionar la primera de la lista ordenada
+        if (!businessToSelect && uniqueBusinesses.length > 0) {
+          businessToSelect = uniqueBusinesses[0];
         }
         
         if (businessToSelect) {
@@ -789,8 +819,8 @@ export default function BusinessDashboard() {
         // Verificar si es un Plus Code
         if (cleanCoords.startsWith('pluscode:')) {
           const plusCode = cleanCoords.replace('pluscode:', '')
-          // Usar el formato de búsqueda directa para mejor compatibilidad
-          locationLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(plusCode)}`
+          // Usar el formato de lugar para mejor compatibilidad con WhatsApp
+          locationLink = `https://www.google.com/maps/place/${encodeURIComponent(plusCode)}`
         } else if (cleanCoords.includes(',')) {
           // Es una coordenada tradicional
           locationLink = `https://www.google.com/maps/place/${cleanCoords}`
