@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useDeliveryAuth } from '@/contexts/DeliveryAuthContext'
 import { getOrdersByDelivery, updateOrderStatus, getDeliveryById } from '@/lib/database'
 import { Order, Delivery } from '@/types'
+import { Timestamp } from 'firebase/firestore'
 
 export default function DeliveryDashboard() {
   const router = useRouter()
@@ -16,8 +17,7 @@ export default function DeliveryDashboard() {
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('active')
 
-  // Resúmenes para el delivery logueado (ingresos por método y ganancia por envíos)
-  // Filtro de fecha para el resumen (por defecto: hoy)
+  // Filtro de fecha para el resumen Y listado (por defecto: hoy)
   const [summaryRange, setSummaryRange] = useState<'today' | 'yesterday' | '7d' | 'all' | 'custom'>('today')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
@@ -25,12 +25,12 @@ export default function DeliveryDashboard() {
   const getRange = () => {
     const now = new Date()
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000 - 1)
     if (summaryRange === 'today') return { start: todayStart, end: todayEnd }
     if (summaryRange === 'yesterday') {
       const yStart = new Date(todayStart)
       yStart.setDate(todayStart.getDate() - 1)
-      const yEnd = new Date(todayStart)
+      const yEnd = new Date(yStart.getTime() + 24 * 60 * 60 * 1000 - 1)
       return { start: yStart, end: yEnd }
     }
     if (summaryRange === '7d') {
@@ -40,36 +40,86 @@ export default function DeliveryDashboard() {
     }
     if (summaryRange === 'custom') {
       const start = customStartDate ? new Date(customStartDate) : todayStart
-      const end = customEndDate ? new Date(new Date(customEndDate).getTime() + 24*60*60*1000) : now
-      return { start, end }
+      const end = customEndDate ? new Date(customEndDate).getTime() + 24*60*60*1000 - 1 : now.getTime()
+      return { start: new Date(start), end: new Date(end) }
     }
     return { start: new Date(0), end: now }
   }
 
   const { start: rangeStart, end: rangeEnd } = getRange()
 
+  // Función para obtener la fecha del pedido (prioridad: timing.scheduledDate, fallback: createdAt)
+  const getOrderDate = (order: Order): Date => {
+    // 1. Primero verificar si hay una fecha programada
+    if (order.timing?.scheduledDate && order.timing.type === 'scheduled') {
+      const ts = order.timing.scheduledDate;
+      // Manejar tanto Timestamp de Firestore como Date
+      const date = ts instanceof Date ? ts : new Date(ts.seconds * 1000 + (ts.nanoseconds || 0) / 1_000_000);
+      
+      // Debug log opcional (remueve en prod)
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[Timing] Pedido ${order.id}: scheduledDate=${date.toISOString()}, type=${order.timing.type}`);
+      }
+      return date;
+    }
+    
+    // 2. Si no hay fecha programada, usar createdAt
+    const createdAt = order.createdAt;
+    
+    // Si ya es un objeto Date, devolverlo directamente
+    if (createdAt instanceof Date) {
+      return createdAt;
+    }
+    
+    // Si es un Timestamp de Firestore (tiene método toDate)
+    if (createdAt && typeof createdAt === 'object' && 'toDate' in createdAt && typeof (createdAt as any).toDate === 'function') {
+      return (createdAt as any).toDate();
+    }
+    
+    // Si es un string o cualquier otro formato, intentar crear una fecha
+    try {
+      return new Date(createdAt as string);
+    } catch (e) {
+      console.error('Error al analizar la fecha:', e);
+      return new Date(); // Fallback a la fecha actual
+    }
+  }
+
+  // AJUSTADO PARA TIMING: Filtrar por getOrderDate
+  const filterOrdersByDate = (ordersToFilter: Order[]) => {
+    return ordersToFilter.filter(order => {
+      const orderDate = getOrderDate(order)
+      return orderDate >= rangeStart && orderDate <= rangeEnd
+    })
+  }
+
+  // Pedidos filtrados por fecha de programación (aplicado antes del filtro de estado)
+  const ordersByDate = filterOrdersByDate(orders)
+
+  // AJUSTADO PARA TIMING: Filtrar deliveredByMe por getOrderDate (no por deliveredAt ni createdAt)
+  // Ingresos/ganancias se atribuyen a la fecha programada del pedido
   const deliveredByMe = orders.filter(o => {
     if (!(o.status === 'delivered' && o.delivery?.assignedDelivery === deliveryId)) return false
-    // Usar deliveredAt (o statusHistory.deliveredAt) para el rango
-    const deliveredAtSource: any = (o as any).deliveredAt || (o as any)?.statusHistory?.deliveredAt || o.updatedAt
-    const deliveredAtDate = deliveredAtSource instanceof Date
-      ? deliveredAtSource
-      : (deliveredAtSource?.toDate ? deliveredAtSource.toDate() : new Date(deliveredAtSource))
-    return deliveredAtDate >= rangeStart && deliveredAtDate <= rangeEnd
+    const orderDate = getOrderDate(o)
+    // Debug log opcional
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[Resumen] Pedido ${o.id}: orderDate=${orderDate.toISOString()}, status=delivered, en rango? ${orderDate >= rangeStart && orderDate <= rangeEnd}`)
+    }
+    return orderDate >= rangeStart && orderDate <= rangeEnd
   })
 
   const summaryCash = deliveredByMe.reduce((sum, o) => {
     if (o.payment?.method === 'cash') return sum + o.total
-    if (o.payment?.method === 'mixed') return sum + ((o.payment as any)?.cashAmount || 0)
+    if (o.payment?.method === 'mixed') return sum + (o.payment.cashAmount || 0)
     return sum
   }, 0)
   const summaryTransfer = deliveredByMe.reduce((sum, o) => {
     if (o.payment?.method === 'transfer') return sum + o.total
-    if (o.payment?.method === 'mixed') return sum + ((o.payment as any)?.transferAmount || 0)
+    if (o.payment?.method === 'mixed') return sum + (o.payment.transferAmount || 0)
     return sum
   }, 0)
   const summaryEarnings = deliveredByMe.reduce((sum, o) => {
-    if (o.delivery?.type === 'delivery') return sum + (o.delivery?.deliveryCost || 0)
+    if (o.delivery?.type === 'delivery') return sum + (o.delivery.deliveryCost || 0)
     return sum
   }, 0)
 
@@ -111,18 +161,20 @@ export default function DeliveryDashboard() {
 
     loadData()
 
-    // Recargar pedidos cada 30 segundos
-    const interval = setInterval(async () => {
-      try {
-        const ordersData = await getOrdersByDelivery(deliveryId)
-        setOrders(ordersData)
-      } catch (error) {
-        console.error('Error reloading orders:', error)
-      }
-    }, 30000)
-
-    return () => clearInterval(interval)
-  }, [deliveryId])
+    // Recargar pedidos cada 30 segundos SOLO si rango es 'today' o '7d'
+    const shouldPoll = summaryRange === 'today' || summaryRange === '7d'
+    if (shouldPoll) {
+      const interval = setInterval(async () => {
+        try {
+          const ordersData = await getOrdersByDelivery(deliveryId)
+          setOrders(ordersData)
+        } catch (error) {
+          console.error('Error reloading orders:', error)
+        }
+      }, 30000)
+      return () => clearInterval(interval)
+    }
+  }, [deliveryId, summaryRange])
 
   const handleStatusChange = async (orderId: string, newStatus: Order['status']) => {
     try {
@@ -175,7 +227,8 @@ export default function DeliveryDashboard() {
     return texts[status] || status
   }
 
-  const filteredOrders = orders.filter(order => {
+  // Filtro de estado aplicado SOBRE ordersByDate (ya filtrados por fecha de programación)
+  const filteredOrders = ordersByDate.filter(order => {
     if (filter === 'active') {
       return order.status !== 'delivered' && order.status !== 'cancelled'
     }
@@ -239,7 +292,7 @@ export default function DeliveryDashboard() {
       {/* Resumen del Delivery (cobros y ganancias) */}
       <div className="bg-white border-b">
         <div className="px-4 py-3 space-y-3">
-          {/* Filtros de rango */}
+          {/* Filtros de rango - AJUSTADO: Ahora por fecha de programación */}
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => setSummaryRange('today')} className={`px-3 py-1.5 rounded text-sm ${summaryRange==='today'?'bg-blue-600 text-white':'bg-gray-100 text-gray-700'}`}>Hoy</button>
             <button onClick={() => setSummaryRange('yesterday')} className={`px-3 py-1.5 rounded text-sm ${summaryRange==='yesterday'?'bg-blue-600 text-white':'bg-gray-100 text-gray-700'}`}>Ayer</button>
@@ -271,7 +324,7 @@ export default function DeliveryDashboard() {
         </div>
       </div>
 
-      {/* Filtros */}
+      {/* Filtros de Estado - Contadores basados en ordersByDate (fecha de programación) */}
       <div className="bg-white border-b sticky top-[60px] sm:top-[68px] z-10">
         <div className="px-4 py-3">
           <div className="flex gap-2 overflow-x-auto">
@@ -283,7 +336,7 @@ export default function DeliveryDashboard() {
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              Activos ({orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length})
+              Activos ({ordersByDate.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length})
             </button>
             <button
               onClick={() => setFilter('completed')}
@@ -293,7 +346,7 @@ export default function DeliveryDashboard() {
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              Completados ({orders.filter(o => o.status === 'delivered' || o.status === 'cancelled').length})
+              Completados ({ordersByDate.filter(o => o.status === 'delivered' || o.status === 'cancelled').length})
             </button>
             <button
               onClick={() => setFilter('all')}
@@ -303,7 +356,7 @@ export default function DeliveryDashboard() {
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              Todos ({orders.length})
+              Todos ({ordersByDate.length})
             </button>
           </div>
         </div>
@@ -317,7 +370,10 @@ export default function DeliveryDashboard() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
             </svg>
             <p className="text-gray-600 font-medium">No hay pedidos</p>
-            <p className="text-sm text-gray-500 mt-1">Los pedidos asignados aparecerán aquí</p>
+            {/* AJUSTADO: Mensaje contextual por rango de programación */}
+            <p className="text-sm text-gray-500 mt-1">
+              {summaryRange === 'today' ? 'Los pedidos programados para hoy aparecerán aquí' : `No hay pedidos programados en este rango de fechas (${rangeStart.toLocaleDateString('es-EC')} - ${rangeEnd.toLocaleDateString('es-EC')}).`}
+            </p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -335,11 +391,11 @@ export default function DeliveryDashboard() {
                         {getStatusText(order.status)}
                       </span>
                     </div>
-                    {/* Mostrar hora destacada siempre en azul */}
+                    {/* AJUSTADO: Hora destacada (usa scheduledTime si existe) */}
                     <p className="text-lg font-semibold text-blue-600">
                       🕐 {order.timing?.scheduledTime
                         ? order.timing.scheduledTime
-                        : new Date(order.createdAt).toLocaleString('es-EC', {
+                        : new Date(getOrderDate(order)).toLocaleString('es-EC', {
                             hour: '2-digit',
                             minute: '2-digit'
                           })
@@ -425,7 +481,7 @@ export default function DeliveryDashboard() {
                   <ul className="space-y-0.5">
                     {order.items.slice(0, 2).map((item, idx) => (
                       <li key={idx} className="text-xs">
-                        • {item.quantity}x {item.product?.name || 'Producto'}
+                        • {item.quantity}x {(item as any).name || (item.product as any)?.name || 'Producto'}
                       </li>
                     ))}
                     {order.items.length > 2 && (
@@ -457,7 +513,7 @@ export default function DeliveryDashboard() {
         )}
       </div>
 
-      {/* Modal de detalles del pedido */}
+      {/* Modal de detalles del pedido - Sin cambios mayores */}
       {showOrderModal && selectedOrder && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full sm:max-w-2xl sm:rounded-lg max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl">
@@ -548,10 +604,10 @@ export default function DeliveryDashboard() {
                   {selectedOrder.items.map((item, idx) => (
                     <li key={idx} className="flex justify-between text-sm">
                       <span className="text-gray-700">
-                        {item.quantity}x {item.product?.name || 'Producto'}
+                        {item.quantity}x {(item as any).name || (item.product as any)?.name || 'Producto'}
                       </span>
                       <span className="font-medium text-gray-900">
-                        ${((item.product?.price || 0) * item.quantity).toFixed(2)}
+                        ${((item.product?.price || (item as any).price || 0) * item.quantity).toFixed(2)}
                       </span>
                     </li>
                   ))}
@@ -559,7 +615,7 @@ export default function DeliveryDashboard() {
                 <div className="mt-3 pt-3 border-t">
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-gray-600">Subtotal:</span>
-                    <span className="font-medium">${(selectedOrder.subtotal || selectedOrder.total - (selectedOrder.delivery.deliveryCost || 0)).toFixed(2)}</span>
+                    <span className="font-medium">${(selectedOrder.subtotal || 0).toFixed(2)}</span>
                   </div>
                   {selectedOrder.delivery.type === 'delivery' && (
                     <div className="flex justify-between text-sm mb-1">
@@ -584,8 +640,8 @@ export default function DeliveryDashboard() {
                 </p>
                 {selectedOrder.payment?.method === 'mixed' && (
                   <div className="mt-2 text-sm text-gray-600">
-                    <p>Efectivo: ${(selectedOrder.payment as any).cashAmount?.toFixed(2) || '0.00'}</p>
-                    <p>Transferencia: ${(selectedOrder.payment as any).transferAmount?.toFixed(2) || '0.00'}</p>
+                    <p>Efectivo: ${(selectedOrder.payment.cashAmount || 0).toFixed(2)}</p>
+                    <p>Transferencia: ${(selectedOrder.payment.transferAmount || 0).toFixed(2)}</p>
                   </div>
                 )}
               </div>
