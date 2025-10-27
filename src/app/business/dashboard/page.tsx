@@ -834,9 +834,9 @@ export default function BusinessDashboard() {
       }
     }
 
-    // Construir lista de productos
-    const productsList = order.items?.map((item: any, index: number) => 
-      `(${index + 1}) ${item.variant || item.name || item.product?.name || 'Producto'}`
+    // Construir lista de productos con cantidades entre paréntesis
+    const productsList = order.items?.map((item: any) => 
+      `(${item.quantity || 1}) ${item.variant || item.name || item.product?.name || 'Producto'}`
     ).join('\n') || 'Sin productos'
 
     // Calcular totales
