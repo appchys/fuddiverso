@@ -29,7 +29,9 @@ import {
   Product, 
   Order, 
   CoverageZone,
-  Delivery
+  Delivery,
+  QRCode,
+  UserQRProgress
 } from '../types'
 
 // Interfaz para egresos (expenses)
@@ -2363,5 +2365,281 @@ export async function calculateCostReport(
   } catch (error) {
     console.error('Error calculating cost report:', error)
     throw error
+  }
+}
+
+// ==================== QR CODE FUNCTIONS ====================
+
+/**
+ * Crear un nuevo código QR
+ */
+export async function createQRCode(qrCode: Omit<QRCode, 'id' | 'createdAt'>): Promise<string> {
+  try {
+    const qrCodeData = {
+      ...qrCode,
+      createdAt: serverTimestamp()
+    }
+    const docRef = await addDoc(collection(db, 'qrCodes'), qrCodeData)
+    return docRef.id
+  } catch (error) {
+    console.error('Error creating QR code:', error)
+    throw error
+  }
+}
+
+/**
+ * Obtener todos los códigos QR de un negocio
+ */
+export async function getQRCodesByBusiness(businessId: string): Promise<QRCode[]> {
+  try {
+    const q = query(
+      collection(db, 'qrCodes'),
+      where('businessId', '==', businessId),
+      where('isActive', '==', true)
+    )
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate() || new Date(),
+      updatedAt: doc.data().updatedAt?.toDate()
+    } as QRCode))
+  } catch (error) {
+    console.error('Error getting QR codes:', error)
+    throw error
+  }
+}
+
+/**
+ * Obtener un código QR por ID
+ */
+export async function getQRCodeById(qrCodeId: string): Promise<QRCode | null> {
+  try {
+    const docRef = doc(db, 'qrCodes', qrCodeId)
+    const docSnap = await getDoc(docRef)
+    
+    if (!docSnap.exists()) {
+      return null
+    }
+    
+    return {
+      id: docSnap.id,
+      ...docSnap.data(),
+      createdAt: docSnap.data().createdAt?.toDate() || new Date(),
+      updatedAt: docSnap.data().updatedAt?.toDate()
+    } as QRCode
+  } catch (error) {
+    console.error('Error getting QR code:', error)
+    throw error
+  }
+}
+
+/**
+ * Obtener o crear el progreso de un usuario
+ */
+export async function getUserQRProgress(userId: string, businessId: string): Promise<UserQRProgress | null> {
+  try {
+    const q = query(
+      collection(db, 'userQRProgress'),
+      where('userId', '==', userId),
+      where('businessId', '==', businessId),
+      limit(1)
+    )
+    const snapshot = await getDocs(q)
+    
+    if (snapshot.empty) {
+      return null
+    }
+    
+    const doc = snapshot.docs[0]
+    return {
+      userId: doc.data().userId,
+      scannedCodes: doc.data().scannedCodes || [],
+      completed: doc.data().completed || false,
+      lastScanned: doc.data().lastScanned?.toDate(),
+      rewardClaimed: doc.data().rewardClaimed || false,
+      businessId: doc.data().businessId,
+      createdAt: doc.data().createdAt?.toDate() || new Date(),
+      updatedAt: doc.data().updatedAt?.toDate()
+    } as UserQRProgress
+  } catch (error) {
+    console.error('Error getting user QR progress:', error)
+    throw error
+  }
+}
+
+/**
+ * Escanear un código QR
+ */
+export async function scanQRCode(userId: string, qrCodeId: string): Promise<{
+  success: boolean
+  message: string
+  progress?: UserQRProgress
+}> {
+  try {
+    // Verificar que el código QR existe y está activo
+    const qrCode = await getQRCodeById(qrCodeId)
+    
+    if (!qrCode) {
+      return {
+        success: false,
+        message: 'Código QR no válido'
+      }
+    }
+    
+    if (!qrCode.isActive) {
+      return {
+        success: false,
+        message: 'Este código QR ya no está activo'
+      }
+    }
+    
+    // Obtener o crear progreso del usuario
+    let progress = await getUserQRProgress(userId, qrCode.businessId)
+    
+    if (!progress) {
+      // Crear nuevo progreso
+      const progressData = {
+        userId,
+        businessId: qrCode.businessId,
+        scannedCodes: [qrCodeId],
+        completed: false,
+        lastScanned: serverTimestamp(),
+        rewardClaimed: false,
+        createdAt: serverTimestamp()
+      }
+      
+      await addDoc(collection(db, 'userQRProgress'), progressData)
+      
+      progress = {
+        userId,
+        businessId: qrCode.businessId,
+        scannedCodes: [qrCodeId],
+        completed: false,
+        lastScanned: new Date(),
+        rewardClaimed: false,
+        createdAt: new Date()
+      }
+      
+      return {
+        success: true,
+        message: `¡Código escaneado! (1/5)`,
+        progress
+      }
+    }
+    
+    // Verificar si ya escaneó este código
+    if (progress.scannedCodes.includes(qrCodeId)) {
+      return {
+        success: false,
+        message: 'Ya escaneaste este código anteriormente'
+      }
+    }
+    
+    // Agregar código a la lista de escaneados
+    const updatedScannedCodes = [...progress.scannedCodes, qrCodeId]
+    const isCompleted = updatedScannedCodes.length >= 5
+    
+    // Actualizar progreso
+    const q = query(
+      collection(db, 'userQRProgress'),
+      where('userId', '==', userId),
+      where('businessId', '==', qrCode.businessId),
+      limit(1)
+    )
+    const snapshot = await getDocs(q)
+    
+    if (!snapshot.empty) {
+      const docRef = snapshot.docs[0].ref
+      await updateDoc(docRef, {
+        scannedCodes: updatedScannedCodes,
+        completed: isCompleted,
+        lastScanned: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      })
+    }
+    
+    const updatedProgress: UserQRProgress = {
+      ...progress,
+      scannedCodes: updatedScannedCodes,
+      completed: isCompleted,
+      lastScanned: new Date(),
+      updatedAt: new Date()
+    }
+    
+    return {
+      success: true,
+      message: isCompleted 
+        ? '¡Felicidades! Completaste la colección' 
+        : `¡Código escaneado! (${updatedScannedCodes.length}/5)`,
+      progress: updatedProgress
+    }
+  } catch (error) {
+    console.error('Error scanning QR code:', error)
+    return {
+      success: false,
+      message: 'Error al procesar el código QR'
+    }
+  }
+}
+
+/**
+ * Reclamar recompensa
+ */
+export async function claimReward(userId: string, businessId: string): Promise<{
+  success: boolean
+  message: string
+}> {
+  try {
+    const progress = await getUserQRProgress(userId, businessId)
+    
+    if (!progress) {
+      return {
+        success: false,
+        message: 'No tienes progreso registrado'
+      }
+    }
+    
+    if (!progress.completed) {
+      return {
+        success: false,
+        message: 'Aún no has completado la colección'
+      }
+    }
+    
+    if (progress.rewardClaimed) {
+      return {
+        success: false,
+        message: 'Ya reclamaste tu recompensa'
+      }
+    }
+    
+    // Actualizar estado de recompensa
+    const q = query(
+      collection(db, 'userQRProgress'),
+      where('userId', '==', userId),
+      where('businessId', '==', businessId),
+      limit(1)
+    )
+    const snapshot = await getDocs(q)
+    
+    if (!snapshot.empty) {
+      const docRef = snapshot.docs[0].ref
+      await updateDoc(docRef, {
+        rewardClaimed: true,
+        updatedAt: serverTimestamp()
+      })
+    }
+    
+    return {
+      success: true,
+      message: '¡Recompensa reclamada exitosamente!'
+    }
+  } catch (error) {
+    console.error('Error claiming reward:', error)
+    return {
+      success: false,
+      message: 'Error al reclamar la recompensa'
+    }
   }
 }

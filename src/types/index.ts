@@ -179,3 +179,24 @@ export interface Delivery {
   fechaRegistro: string
   uid?: string // UID de Firebase Auth para autenticación
 }
+
+export interface QRCode {
+  id: string
+  name: string
+  points: number
+  isActive: boolean
+  businessId: string
+  createdAt: Date
+  updatedAt?: Date
+}
+
+export interface UserQRProgress {
+  userId: string
+  scannedCodes: string[] // Array de IDs de códigos escaneados
+  completed: boolean
+  lastScanned?: Date | Timestamp
+  rewardClaimed: boolean
+  businessId: string
+  createdAt: Date
+  updatedAt?: Date
+}

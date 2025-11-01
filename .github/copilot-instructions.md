@@ -1,33 +1,90 @@
-Cosas a tener en cuenta:
-- La aplicación se usará mayormente en dispositivos móviles.
-- Evita los errores TypeScript al desplegar en Vercel.
-- **CRÍTICO**: Siempre envuelve `useSearchParams()` en un boundary de Suspense para evitar errores de build en Vercel. Este error causa que falle el deployment: "useSearchParams() should be wrapped in a suspense boundary". NUNCA uses useSearchParams() directamente sin Suspense.
-- **PATRÓN OBLIGATORIO** para useSearchParams():
-  ```tsx
-  import { Suspense } from 'react'
-  
-  function SearchComponent() {
-    const searchParams = useSearchParams()
-    // tu código aquí
-  }
-  
-  export default function Page() {
-    return (
-      <Suspense fallback={<div>Cargando...</div>}>
-        <SearchComponent />
-      </Suspense>
-    )
-  }
-  ```
-- Siempre háblame en español.
-- Evita el uso de emojis, usa bootstrap icons.
-- Evita crear alertas para el usuario, usa modales o notificaciones.
-- Estamos en Ecuador, la zona horaria es UTC-5.
-- La moneda es USD, usa el símbolo $.
-- La app es para muchos negocios de comida, no para uno solo. 
-- Pretendo que haya un módulo para delivery.
+# Sistema de Códigos QR para Colección
 
-- Creé manualmente 2 colecciones en firebase y creo que no las comprendes bien, las explico:
+## 📌 Visión General
+Implementar un sistema de 5 códigos QR únicos que los clientes puedan escanear para completar una colección. Cada código puede ser escaneado por múltiples usuarios, pero cada usuario solo puede escanear cada código una vez.
+
+## 🏗️ Estructura de Datos (Firestore)
+
+### 1. Colección `qrCodes`
+- `id` (string): Identificador único del código QR
+- `name` (string): Nombre descriptivo (ej: "Código 1 - Entrada Principal")
+- `points` (number): Puntos que otorga al ser escaneado
+- `isActive` (boolean): Si el código está activo
+- `createdAt` (timestamp): Fecha de creación
+- `businessId` (string): ID del negocio dueño del código
+
+### 2. Subcolección `userProgress/{userId}`
+- `userId` (string): ID del usuario
+- `scannedCodes` (array): IDs de los códigos escaneados
+- `completed` (boolean): Si completó la colección (5/5)
+- `lastScanned` (timestamp): Fecha del último escaneo
+- `rewardClaimed` (boolean): Si reclamó la recompensa
+
+## 🔄 Flujo de Usuario
+
+1. **Escaneo de Código QR**
+   - Usuario autenticado escanea un código QR
+   - La app valida:
+     - Si el código existe y está activo
+     - Si el usuario ya lo escaneó previamente
+     - Si el código pertenece a un negocio existente
+
+2. **Procesamiento**
+   - Si es válido y no escaneado:
+     - Se registra el escaneo en `userProgress/{userId}`
+     - Se actualiza el contador de progreso
+     - Se muestra confirmación
+   - Si ya fue escaneado:
+     - Se muestra mensaje "Ya escaneaste este código"
+
+3. **Recompensa**
+   - Al completar los 5 códigos:
+     - Se marca `completed: true`
+     - Se habilita botón para reclamar recompensa
+     - Se otorga recompensa (descuento, producto gratis, etc.)
+
+## 🛠️ Componentes Necesarios
+
+1. **QRScanner**
+   - Lector de códigos QR con cámara
+   - Manejo de permisos de cámara
+   - Feedback visual al escanear
+
+2. **ProgressTracker**
+   - Muestra progreso actual (ej: 3/5 códigos)
+   - Lista de códigos con estado (obtenido/pendiente)
+   - Detalles de cada código escaneado
+
+3. **RewardModal**
+   - Se muestra al completar la colección
+   - Muestra recompensa obtenida
+   - Botón para reclamar
+
+## 🔒 Seguridad
+- Validar autenticación del usuario
+- Verificar validez de códigos en el backend
+- Prevenir inyección de datos
+- Validar permisos de negocio
+
+## 📱 Experiencia Móvil
+- Interfaz táctil y responsiva
+- Feedback táctil al escanear
+- Notificaciones push para recordatorios
+- Carga rápida incluso con conexión lenta
+
+## 📅 Próximos Pasos
+1. Configurar estructura de Firestore
+2. Crear endpoints de API para validación
+3. Desarrollar componente de escaneo
+4. Implementar seguimiento de progreso
+5. Diseñar interfaz de usuario
+6. Probar flujo completo
+
+## 📝 Notas Adicionales
+- Usar `Suspense` para componentes asíncronos
+- Manejar estados de carga/error
+- Optimizar para rendimiento en móviles
+- Seguir guías de accesibilidad
 
   clients: colección que contiene los datos de los clientes, cada documento tiene el id del cliente y los siguientes campos, se llaman así tal cual:
     - celular
