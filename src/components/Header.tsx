@@ -8,6 +8,7 @@ import { searchClientByPhone, searchBusinesses, getAllBusinesses, createClient, 
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
+import ClientLoginModal from '@/components/ClientLoginModal'
 
 // Componente para mostrar carritos activos
 function CartIndicator() {
@@ -148,56 +149,17 @@ type HeaderProps = {
 }
 
 export default function Header({ initialShowLoginModal = false }: HeaderProps) {
-  const { user, login, logout } = useAuth()
+  const { user, logout } = useAuth()
   const [showDropdown, setShowDropdown] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(initialShowLoginModal)
   const [showMobileSearch, setShowMobileSearch] = useState(false)
-  const [loginPhone, setLoginPhone] = useState('')
-  const [loginError, setLoginError] = useState('')
-  const [loginLoading, setLoginLoading] = useState(false)
-  const [registerName, setRegisterName] = useState('')
-  const [registerPin, setRegisterPin] = useState('')
-  const [registerPinConfirm, setRegisterPinConfirm] = useState('')
-  const [registerError, setRegisterError] = useState('')
-  const [registerLoading, setRegisterLoading] = useState(false)
-  const [foundClient, setFoundClient] = useState<any | null>(null)
-  const [phoneCheckTimeout, setPhoneCheckTimeout] = useState<any>(null)
-  const [loginPin, setLoginPin] = useState('')
-  const [loginPinError, setLoginPinError] = useState('')
-  const [loginPinLoading, setLoginPinLoading] = useState(false)
-  const [profileImage, setProfileImage] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const [categories, setCategories] = useState<string[]>(['all'])
   const [selectedCategory, setSelectedCategory] = useState('all')
-  const [showEditFields, setShowEditFields] = useState(false)
   const router = useRouter()
   const pathname = usePathname()
 
   // Cargar categorías
-  // Efecto para manejar el evento de apertura del modal de login
-  useEffect(() => {
-    const handleOpenLoginModal = (event: any) => {
-      // Si el evento trae un número de teléfono, lo establecemos
-      if (event.detail?.phone) {
-        setLoginPhone(event.detail.phone);
-        // Si también trae el nombre del cliente, lo establecemos
-        if (event.detail?.name) {
-          setRegisterName(event.detail.name);
-        }
-        // Verificar si el número ya está registrado
-        checkPhone(event.detail.phone);
-      }
-      setShowLoginModal(true);
-    };
-
-    // @ts-ignore - El tipo CustomEvent no está correctamente tipado por defecto
-    window.addEventListener('openLoginModal', handleOpenLoginModal);
-    return () => {
-      // @ts-ignore
-      window.removeEventListener('openLoginModal', handleOpenLoginModal);
-    };
-  }, []);
 
   useEffect(() => {
     const loadCategories = async () => {
@@ -228,124 +190,6 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
     }
   }
 
-  // Hash PIN using Web Crypto (SHA-256)
-  async function hashPin(pin: string) {
-    // Prefer Web Crypto API when disponible en contexto seguro
-    try {
-      if (typeof window !== 'undefined' && window.crypto?.subtle?.digest && typeof window.crypto.subtle.digest === 'function') {
-        const encoder = new TextEncoder()
-        const data = encoder.encode(pin)
-        const hashBuffer = await window.crypto.subtle.digest('SHA-256', data)
-        const hashArray = Array.from(new Uint8Array(hashBuffer))
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-      }
-    } catch (e) {
-      console.warn('Web Crypto not available, using fallback hash:', e)
-    }
-
-    // Fallback determinista (menos seguro) cuando crypto.subtle no está disponible
-    // Esto garantiza que el hash sea consistente entre registro y login en entornos no seguros
-    let h = 5381
-    for (let i = 0; i < pin.length; i++) {
-      h = ((h << 5) + h) + pin.charCodeAt(i)
-      h = h & 0xffffffff
-    }
-    const hex = (h >>> 0).toString(16)
-    return hex.padStart(64, '0')
-  }
-
-  const handleRegisterSubmit = async () => {
-    setRegisterError('')
-    if (!registerName.trim()) {
-      setRegisterError('Ingresa tu nombre')
-      return
-    }
-    if (!/^[0-9]{4,6}$/.test(registerPin)) {
-      setRegisterError('El PIN debe contener entre 4 y 6 dígitos')
-      return
-    }
-    if (registerPin !== registerPinConfirm) {
-      setRegisterError('Los PIN no coinciden')
-      return
-    }
-
-    setRegisterLoading(true)
-    try {
-        const pinHash = await hashPin(registerPin)
-        const normalizedPhone = normalizeEcuadorianPhone(loginPhone)
-
-        // If we have a foundClient (existing doc without pin), update name if provided and set its pin
-        if (foundClient && foundClient.id) {
-          if (registerName && registerName.trim()) {
-            try {
-              await updateClient(foundClient.id, { nombres: registerName.trim() })
-            } catch (e) {
-              console.warn('Could not update client name, continuing to set PIN', e)
-            }
-          }
-          await setClientPin(foundClient.id, pinHash)
-          // refresh client object
-          const updated = await searchClientByPhone(normalizedPhone)
-          if (updated) login(updated as any)
-        } else {
-          const newClient = await createClient({ celular: normalizedPhone, nombres: registerName, pinHash })
-          login(newClient as any)
-        }
-      // clear form
-      setLoginPhone('')
-      setRegisterName('')
-      setRegisterPin('')
-      setRegisterPinConfirm('')
-    } catch (error) {
-      console.error('Error creating client from header:', error)
-      setRegisterError('Error al crear la cuenta. Intenta nuevamente.')
-    } finally {
-      setRegisterLoading(false)
-    }
-  }
-
-  // Busca cliente por teléfono (con debounce corto)
-  const checkPhone = async (phoneRaw?: string) => {
-    const phoneToCheck = phoneRaw || loginPhone
-    if (!phoneToCheck) return
-    const normalized = normalizeEcuadorianPhone(phoneToCheck)
-    if (!validateEcuadorianPhone(normalized)) return
-
-    try {
-      const client = await searchClientByPhone(normalized)
-      setFoundClient(client)
-      // No hacemos auto-login aquí — si existe PIN pediremos al usuario que lo ingrese.
-    } catch (error) {
-      console.error('Error checking phone:', error)
-    }
-  }
-
-  const handleLoginWithPin = async () => {
-    setLoginPinError('')
-    if (!foundClient) return
-    if (!/^[0-9]{4,6}$/.test(loginPin)) {
-      setLoginPinError('PIN inválido')
-      return
-    }
-    setLoginPinLoading(true)
-    try {
-      const pinHash = await hashPin(loginPin)
-      if (pinHash === foundClient.pinHash) {
-        login(foundClient as any)
-        setShowLoginModal(false)
-        setLoginPhone('')
-        setLoginPin('')
-      } else {
-        setLoginPinError('PIN incorrecto')
-      }
-    } catch (error) {
-      console.error('Error validating PIN:', error)
-      setLoginPinError('Error al verificar PIN')
-    } finally {
-      setLoginPinLoading(false)
-    }
-  }
-
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleSearch()
@@ -357,33 +201,21 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
     return null
   }
 
+  // CAMBIO: Agregada limpieza de localStorage para resetear datos del cliente
   const handleLogout = () => {
     logout()
+    // Limpiar datos de cliente en localStorage para que el modal quede vacío al reabrir
+    localStorage.removeItem('loginPhone')
+    localStorage.removeItem('clientData')
+    // Opcional: Limpiar carritos si quieres resetear todo al logout (descomenta si aplica)
+    // localStorage.removeItem('carts')
     setShowDropdown(false)
     router.push('/')
   }
 
-  const handleLogin = async () => {
-    if (!loginPhone.trim()) {
-      setLoginError('Por favor ingresa tu número de teléfono')
-      return
-    }
-
-    const normalizedPhone = normalizeEcuadorianPhone(loginPhone)
-    if (!validateEcuadorianPhone(normalizedPhone)) {
-      setLoginError('Ingrese un número de celular ecuatoriano válido')
-      return
-    }
-
-    setLoginError('')
-    // Ejecutar la comprobación inmediata (checkPhone maneja el login automático si aplica)
-    await checkPhone(normalizedPhone)
-  }
-
-  const openLoginModal = () => {
-    setShowLoginModal(true)
-    setLoginPhone('')
-    setLoginError('')
+  const handleLoginSuccess = (client: any) => {
+    setShowLoginModal(false)
+    // El login ya se maneja en ClientLoginModal
   }
 
   // Función para obtener las iniciales del nombre
@@ -537,7 +369,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                     <span>Negocio</span>
                   </Link>
                   <button 
-                    onClick={openLoginModal}
+                    onClick={() => setShowLoginModal(true)}
                     className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-600 transition-colors"
                   >
                     Iniciar Sesión
@@ -597,202 +429,12 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
         )}
       </header>
 
-      {/* Modal de Login */}
-      {showLoginModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#ff6a8c] rounded-lg max-w-md w-full p-6 text-white">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="relative group">
-                  <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center overflow-hidden">
-                    {profileImage ? (
-                      <img 
-                        src={profileImage} 
-                        alt="Foto de perfil" 
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <i className="bi bi-person text-2xl text-white/70"></i>
-                    )}
-                  </div>
-                  <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="absolute bottom-0 right-0 translate-y-1/2 w-5 h-5 flex items-center justify-center text-white text-xs transition-all duration-200"
-                    title="Cambiar foto"
-                  >
-                    <i className="bi bi-pencil"></i>
-                  </button>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onload = (event) => {
-                          setProfileImage(event.target?.result as string);
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }}
-                  />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                    {registerName ? (
-                      <>
-                        Hola, {registerName}
-                        <i 
-                          className="bi bi-pencil text-white/70 hover:text-white transition-colors cursor-pointer"
-                          onClick={() => setShowEditFields(!showEditFields)}
-                        ></i>
-                      </>
-                    ) : 'Iniciar Sesión'}
-                  </h3>
-                  {loginPhone && (
-                    <p className="text-sm text-white/80 mt-1">
-                      {loginPhone}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <button
-                onClick={() => setShowLoginModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <i className="bi bi-x-lg"></i>
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              {(showEditFields || !registerName || !loginPhone) && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-1">
-                      Nombres
-                    </label>
-                    <input
-                      type="text"
-                      value={registerName}
-                      onChange={(e) => setRegisterName(e.target.value)}
-                      placeholder="Tu nombre completo"
-                      className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-1">
-                      Celular
-                    </label>
-                    <input
-                      type="tel"
-                      value={loginPhone}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        setLoginPhone(v)
-                        // debounce check
-                        if (phoneCheckTimeout) clearTimeout(phoneCheckTimeout)
-                        const t = setTimeout(() => checkPhone(v), 500)
-                        setPhoneCheckTimeout(t)
-                      }}
-                      onBlur={() => checkPhone()}
-                      placeholder="0998765432"
-                      className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70"
-                      onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
-                    />
-                    {loginError && (
-                      <p className="text-yellow-300 text-sm mt-1">{loginError}</p>
-                    )}
-                  </div>
-                </>
-              )}
-              
-              <div className="flex gap-3">
-                {/* Removed Cancelar and Iniciar Sesión buttons as requested */}
-              </div>
-              
-              {/* Inline registration area: si no se encontró cliente, mostrar formulario de nombre+pin; si existe sin pin, pedir crear pin */}
-              <div className="mt-2">
-                {/* Removed informational messages as requested */}
-                {foundClient && foundClient.pinHash && (
-                  <div className="text-center text-sm text-gray-700">Hola {foundClient.nombres}</div>
-                )}
-
-                {/* Si el cliente existe y tiene pinHash, mostrar entrada de PIN para autenticarse */}
-                {foundClient && foundClient.pinHash && (
-                  <div className="mt-3 space-y-3">
-                    <div>
-                      <label className="block text-sm font-medium text-white mb-1">Ingresa tu PIN</label>
-                      <input 
-                        type="password" 
-                        value={loginPin} 
-                        onChange={(e) => setLoginPin(e.target.value)} 
-                        maxLength={6} 
-                        className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70" 
-                      />
-                      {loginPinError && <p className="text-yellow-300 text-sm mt-1">{loginPinError}</p>}
-                    </div>
-                    <div className="flex gap-3">
-                      <button 
-                        onClick={() => setShowLoginModal(false)} 
-                        className="flex-1 px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30 transition-colors"
-                      >
-                        Cancelar
-                      </button>
-                      <button 
-                        onClick={handleLoginWithPin} 
-                        disabled={loginPinLoading} 
-                        className="flex-1 px-4 py-2 bg-white text-[#ff6a8c] font-medium rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-70"
-                      >
-                        {loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Formulario de nombre y PIN (visible si no hay client o si existe sin pin) */}
-                {( !foundClient || (foundClient && !foundClient.pinHash) ) && (
-                  <div className="mt-3 space-y-3">
-                    <div>
-                      <label className="block text-sm font-medium text-white mb-1">Crea un PIN (4-6 dígitos)</label>
-                      <input 
-                        type="password" 
-                        value={registerPin} 
-                        onChange={(e) => setRegisterPin(e.target.value)} 
-                        maxLength={6} 
-                        className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70" 
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-white mb-1">Confirmar PIN</label>
-                      <input 
-                        type="password" 
-                        value={registerPinConfirm} 
-                        onChange={(e) => setRegisterPinConfirm(e.target.value)} 
-                        maxLength={6} 
-                        className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70" 
-                      />
-                    </div>
-                    {registerError && <p className="text-yellow-300 text-sm">{registerError}</p>}
-                    <div className="flex gap-3">
-                      <button 
-                        onClick={handleRegisterSubmit} 
-                        disabled={registerLoading} 
-                        className="w-full px-4 py-2 bg-white text-[#ff6a8c] font-medium rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-70"
-                      >
-                        {registerLoading ? 'Procesando...' : 'Registrarse'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* removed separate register modal; inline flow in login modal */}
+      {/* Modal de Login con ClientLoginModal */}
+      <ClientLoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onLoginSuccess={handleLoginSuccess}
+      />
     </>
   )
 }

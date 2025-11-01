@@ -33,14 +33,45 @@ export default function ClientLoginModal({
   const [loginPinLoading, setLoginPinLoading] = useState(false)
   const [profileImage, setProfileImage] = useState<string | null>(null)
   const [showEditFields, setShowEditFields] = useState(false)
+  const [phoneValidated, setPhoneValidated] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Resetear todos los estados al abrir el modal (evita prellenado persistente)
   useEffect(() => {
-    if (initialPhone) {
-      setLoginPhone(initialPhone)
+    if (isOpen) {
+      // Resetear campos y errores
+      setLoginPhone(initialPhone || '')
+      setLoginError('')
+      setRegisterName('')
+      setRegisterPin('')
+      setRegisterPinConfirm('')
+      setRegisterError('')
+      setLoginPin('')
+      setLoginPinError('')
+      setRegisterLoading(false)
+      setLoginPinLoading(false)
+      setFoundClient(null)
+      setPhoneValidated(false)
+      setShowEditFields(false)
+      setProfileImage(null)
+      // Limpiar timeout si existe
+      if (phoneCheckTimeout) {
+        clearTimeout(phoneCheckTimeout)
+        setPhoneCheckTimeout(null)
+      }
+      // Si hay initialPhone, cargarlo y chequear
+      if (initialPhone) {
+        setLoginPhone(initialPhone)
+        checkPhone(initialPhone)
+      }
+    }
+  }, [isOpen, initialPhone])
+
+  useEffect(() => {
+    if (initialPhone && isOpen) {
       checkPhone(initialPhone)
     }
-  }, [initialPhone])
+  }, [initialPhone, isOpen])
 
   // Hash PIN using Web Crypto (SHA-256)
   async function hashPin(pin: string) {
@@ -125,16 +156,26 @@ export default function ClientLoginModal({
     const phoneToCheck = phoneRaw || loginPhone
     if (!phoneToCheck) return
     const normalized = normalizeEcuadorianPhone(phoneToCheck)
-    if (!validateEcuadorianPhone(normalized)) return
+    if (!validateEcuadorianPhone(normalized)) {
+      setPhoneValidated(false)
+      setFoundClient(null)
+      return
+    }
 
     try {
       const client = await searchClientByPhone(normalized)
       setFoundClient(client)
       if (client && client.nombres) {
         setRegisterName(client.nombres)
+      } else {
+        setRegisterName('')
       }
+      setPhoneValidated(true)
     } catch (error) {
       console.error('Error checking phone:', error)
+      setPhoneValidated(false)
+      setFoundClient(null)
+      setRegisterName('')
     }
   }
 
@@ -191,120 +232,113 @@ export default function ClientLoginModal({
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-[#ff6a8c] rounded-lg max-w-md w-full p-6 text-white">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="relative group">
-              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center overflow-hidden">
-                {profileImage ? (
-                  <img 
-                    src={profileImage} 
-                    alt="Foto de perfil" 
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <i className="bi bi-person text-2xl text-white/70"></i>
-                )}
+        {phoneValidated && (
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="relative group">
+                <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center overflow-hidden">
+                  {profileImage ? (
+                    <img 
+                      src={profileImage} 
+                      alt="Foto de perfil" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <i className="bi bi-person text-2xl text-white/70"></i>
+                  )}
+                </div>
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="absolute bottom-0 right-0 translate-y-1/2 w-5 h-5 flex items-center justify-center text-white text-xs transition-all duration-200"
+                  title="Cambiar foto"
+                >
+                  <i className="bi bi-pencil"></i>
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (event) => {
+                        setProfileImage(event.target?.result as string);
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                />
               </div>
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                className="absolute bottom-0 right-0 translate-y-1/2 w-5 h-5 flex items-center justify-center text-white text-xs transition-all duration-200"
-                title="Cambiar foto"
-              >
-                <i className="bi bi-pencil"></i>
-              </button>
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                      setProfileImage(event.target?.result as string);
-                    };
-                    reader.readAsDataURL(file);
-                  }
-                }}
-              />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                {registerName ? (
-                  <>
-                    Hola, {registerName}
-                    <i 
-                      className="bi bi-pencil text-white/70 hover:text-white transition-colors cursor-pointer"
-                      onClick={() => setShowEditFields(!showEditFields)}
-                    ></i>
-                  </>
-                ) : 'Iniciar Sesión'}
-              </h3>
-              {loginPhone && (
+              <div>
+                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                  {/* AJUSTE FINAL: Título condicional basado en foundClient */}
+                  {!foundClient ? (
+                    'Crear cuenta'
+                  ) : registerName ? (
+                    <>
+                      Hola, {registerName}
+                      <i 
+                        className="bi bi-pencil text-white/70 hover:text-white transition-colors cursor-pointer"
+                        onClick={() => setShowEditFields(!showEditFields)}
+                      ></i>
+                    </>
+                  ) : (
+                    'Iniciar Sesión'
+                  )}
+                </h3>
                 <p className="text-sm text-white/80 mt-1">
                   {loginPhone}
                 </p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-white/70 hover:text-white"
+            >
+              <i className="bi bi-x-lg"></i>
+            </button>
+          </div>
+        )}
+
+        {!phoneValidated ? (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-white mb-1">
+                Celular
+              </label>
+              <input
+                type="tel"
+                value={loginPhone}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setLoginPhone(v)
+                  if (phoneCheckTimeout) clearTimeout(phoneCheckTimeout)
+                  const t = setTimeout(() => checkPhone(v), 500)
+                  setPhoneCheckTimeout(t)
+                }}
+                onBlur={() => checkPhone()}
+                placeholder="0998765432"
+                className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70"
+                onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
+              />
+              {loginError && (
+                <p className="text-yellow-300 text-sm mt-1">{loginError}</p>
               )}
             </div>
+            <button 
+              onClick={handleLogin} 
+              disabled={!loginPhone.trim() || !!loginError}
+              className="w-full px-4 py-2 bg-white text-[#ff6a8c] font-medium rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              Continuar
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="text-white/70 hover:text-white"
-          >
-            <i className="bi bi-x-lg"></i>
-          </button>
-        </div>
-        
-        <div className="space-y-4">
-          {(showEditFields || !registerName || !loginPhone) && (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-white mb-1">
-                  Nombres
-                </label>
-                <input
-                  type="text"
-                  value={registerName}
-                  onChange={(e) => setRegisterName(e.target.value)}
-                  placeholder="Tu nombre completo"
-                  className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-white mb-1">
-                  Celular
-                </label>
-                <input
-                  type="tel"
-                  value={loginPhone}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    setLoginPhone(v)
-                    if (phoneCheckTimeout) clearTimeout(phoneCheckTimeout)
-                    const t = setTimeout(() => checkPhone(v), 500)
-                    setPhoneCheckTimeout(t)
-                  }}
-                  onBlur={() => checkPhone()}
-                  placeholder="0998765432"
-                  className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70"
-                  onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
-                />
-                {loginError && (
-                  <p className="text-yellow-300 text-sm mt-1">{loginError}</p>
-                )}
-              </div>
-            </>
-          )}
-          
-          <div className="mt-2">
-            {foundClient && foundClient.pinHash && (
-              <div className="text-center text-sm text-white/90 mb-2">Hola {foundClient.nombres}</div>
-            )}
-
-            {/* Si el cliente existe y tiene pinHash, mostrar entrada de PIN para autenticarse */}
-            {foundClient && foundClient.pinHash && (
+        ) : (
+          <div className="space-y-4">
+            {foundClient && foundClient.pinHash ? (
+              // Caso: Cliente existente con PIN - solo PIN de login
               <div className="mt-3 space-y-3">
                 <div>
                   <label className="block text-sm font-medium text-white mb-1">Ingresa tu PIN</label>
@@ -334,11 +368,22 @@ export default function ClientLoginModal({
                   </button>
                 </div>
               </div>
-            )}
-
-            {/* Formulario de nombre y PIN (visible si no hay client o si existe sin pin) */}
-            {( !foundClient || (foundClient && !foundClient.pinHash) ) && (
+            ) : (
+              // Caso: Nuevo o existente sin PIN - mostrar nombre + PINs
               <div className="mt-3 space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-white mb-1">
+                    {foundClient ? 'Nombres' : 'Tu nombre completo'}
+                  </label>
+                  <input
+                    type="text"
+                    value={registerName}
+                    onChange={(e) => setRegisterName(e.target.value)}
+                    placeholder="Tu nombre completo"
+                    className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-white mb-1">Crea un PIN (4-6 dígitos)</label>
                   <input 
@@ -362,17 +407,23 @@ export default function ClientLoginModal({
                 {registerError && <p className="text-yellow-300 text-sm">{registerError}</p>}
                 <div className="flex gap-3">
                   <button 
+                    onClick={onClose} 
+                    className="flex-1 px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
                     onClick={handleRegisterSubmit} 
                     disabled={registerLoading} 
-                    className="w-full px-4 py-2 bg-white text-[#ff6a8c] font-medium rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-70"
+                    className="flex-1 px-4 py-2 bg-white text-[#ff6a8c] font-medium rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-70"
                   >
-                    {registerLoading ? 'Procesando...' : 'Registrarse'}
+                    {registerLoading ? 'Procesando...' : (foundClient ? 'Crear PIN' : 'Registrarse')}
                   </button>
                 </div>
               </div>
             )}
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
