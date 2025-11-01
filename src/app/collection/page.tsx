@@ -2,38 +2,53 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { onAuthStateChanged } from 'firebase/auth'
-import { auth } from '@/lib/firebase'
 import { getQRCodesByBusiness, getUserQRProgress } from '@/lib/database'
 import { QRCode, UserQRProgress } from '@/types'
 import QRScanner from '@/components/QRScanner'
 import ProgressTracker from '@/components/ProgressTracker'
+import ClientLoginModal from '@/components/ClientLoginModal'
+import { useAuth } from '@/contexts/AuthContext'
 
 export default function CollectionPage() {
   const router = useRouter()
+  const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [userId, setUserId] = useState<string | null>(null)
   const [qrCodes, setQrCodes] = useState<QRCode[]>([])
   const [progress, setProgress] = useState<UserQRProgress | null>(null)
   const [showScanner, setShowScanner] = useState(false)
   const [businessId, setBusinessId] = useState<string>('')
+  const [showLoginModal, setShowLoginModal] = useState(false)
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setUserId(user.uid)
-        // Por ahora usaremos un businessId de ejemplo
-        // En producción, esto debería venir de la configuración del usuario o de la URL
+    // Verificar si hay un usuario en el contexto primero
+    if (user && user.celular) {
+      setUserId(user.celular)
+      const defaultBusinessId = '0FeNtdYThoTRMPJ6qaS7' // Reemplazar con el ID real
+      setBusinessId(defaultBusinessId)
+      loadData(user.celular, defaultBusinessId)
+    } else {
+      // Si no, verificar localStorage
+      const storedPhone = localStorage.getItem('loginPhone')
+      
+      if (storedPhone) {
+        setUserId(storedPhone)
         const defaultBusinessId = '0FeNtdYThoTRMPJ6qaS7' // Reemplazar con el ID real
         setBusinessId(defaultBusinessId)
-        await loadData(user.uid, defaultBusinessId)
+        loadData(storedPhone, defaultBusinessId)
       } else {
-        router.push('/login')
+        setShowLoginModal(true)
+        setLoading(false)
       }
-    })
+    }
+  }, [router, user])
 
-    return () => unsubscribe()
-  }, [router])
+  const handleLoginSuccess = (client: any) => {
+    setUserId(client.celular)
+    const defaultBusinessId = '0FeNtdYThoTRMPJ6qaS7'
+    setBusinessId(defaultBusinessId)
+    loadData(client.celular, defaultBusinessId)
+  }
 
   const loadData = async (uid: string, bizId: string) => {
     try {
@@ -160,6 +175,13 @@ export default function CollectionPage() {
           onClose={() => setShowScanner(false)}
         />
       )}
+
+      {/* Modal de Login con ClientLoginModal */}
+      <ClientLoginModal
+        isOpen={showLoginModal}
+        onClose={() => router.push('/')}
+        onLoginSuccess={handleLoginSuccess}
+      />
     </div>
   )
 }

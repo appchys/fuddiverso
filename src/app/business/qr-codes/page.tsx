@@ -39,9 +39,14 @@ export default function QRCodesManagementPage() {
       
       // Generar imágenes QR para cada código
       const images: { [key: string]: string } = {}
+      const baseUrl = window.location.origin
+      
       for (const code of codes) {
         try {
-          const qrDataUrl = await QRCodeLib.toDataURL(code.id, {
+          // Generar URL completa para el escaneo
+          const scanUrl = `${baseUrl}/scan/${code.id}`
+          
+          const qrDataUrl = await QRCodeLib.toDataURL(scanUrl, {
             width: 300,
             margin: 2,
             color: {
