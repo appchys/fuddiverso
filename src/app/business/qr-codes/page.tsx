@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
-import { getQRCodesByBusiness, createQRCode } from '@/lib/database'
+import { getQRCodesByBusiness, createQRCode, updateQRCode, deleteQRCode } from '@/lib/database'
 import { QRCode } from '@/types'
 import QRCodeLib from 'qrcode'
 
@@ -15,6 +15,15 @@ export default function QRCodesManagementPage() {
   const [businessId, setBusinessId] = useState<string>('')
   const [generating, setGenerating] = useState(false)
   const [qrImages, setQrImages] = useState<{ [key: string]: string }>({})
+
+  // Estado para el modal de generación/edición
+  const [showModal, setShowModal] = useState(false)
+  const [editingCodeId, setEditingCodeId] = useState<string | null>(null) // null para creación
+  const [newCodeName, setNewCodeName] = useState('')
+  const [newCodePoints, setNewCodePoints] = useState(10)
+  const [newCodeIsActive, setNewCodeIsActive] = useState(true)
+  const [nameError, setNameError] = useState('')
+  const [modalTitle, setModalTitle] = useState('Generar Nuevo Código QR')
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -31,7 +40,7 @@ export default function QRCodesManagementPage() {
     return () => unsubscribe()
   }, [router])
 
-  const loadQRCodes = async (bizId: string) => {
+  const loadQRCodes = useCallback(async (bizId: string) => {
     try {
       setLoading(true)
       const codes = await getQRCodesByBusiness(bizId)
@@ -43,9 +52,7 @@ export default function QRCodesManagementPage() {
       
       for (const code of codes) {
         try {
-          // Generar URL completa para el escaneo
           const scanUrl = `${baseUrl}/scan/${code.id}`
-          
           const qrDataUrl = await QRCodeLib.toDataURL(scanUrl, {
             width: 300,
             margin: 2,
@@ -62,38 +69,98 @@ export default function QRCodesManagementPage() {
       setQrImages(images)
     } catch (error) {
       console.error('Error loading QR codes:', error)
+      alert('Error al cargar los códigos QR. Intenta recargar la página.')
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const handleGenerateInitialCodes = async () => {
+  // Función para eliminar un código QR
+  const handleDeleteQR = useCallback(async (codeId: string, codeName: string) => {
+    if (!confirm(`¿Estás seguro de que quieres eliminar el código "${codeName}"? Esta acción no se puede deshacer.`)) {
+      return
+    }
+
+    try {
+      await deleteQRCode(codeId)
+      alert('Código QR eliminado exitosamente')
+      
+      // Recargar la lista y limpiar imagen
+      const updatedCodes = qrCodes.filter(code => code.id !== codeId)
+      setQrCodes(updatedCodes)
+      const updatedImages = { ...qrImages }
+      delete updatedImages[codeId]
+      setQrImages(updatedImages)
+    } catch (error) {
+      console.error('Error deleting QR code:', error)
+      alert('Error al eliminar el código QR. Verifica tu conexión.')
+    }
+  }, [qrCodes, qrImages])
+
+  // Abrir modal para edición o creación
+  const openModal = useCallback((code?: QRCode) => {
+    if (code) {
+      // Modo edición
+      setEditingCodeId(code.id)
+      setNewCodeName(code.name)
+      setNewCodePoints(code.points)
+      setNewCodeIsActive(code.isActive)
+      setModalTitle('Editar Código QR')
+    } else {
+      // Modo creación
+      setEditingCodeId(null)
+      setNewCodeName('')
+      setNewCodePoints(10)
+      setNewCodeIsActive(true)
+      setModalTitle('Generar Nuevo Código QR')
+    }
+    setNameError('')
+    setShowModal(true)
+  }, [])
+
+  const handleSaveCode = async () => {
+    if (!newCodeName.trim()) {
+      setNameError('El nombre es requerido.')
+      return
+    }
+    if (newCodePoints <= 0) {
+      alert('Los puntos deben ser mayores a 0.')
+      return
+    }
+
     if (!businessId) return
     
     setGenerating(true)
     try {
-      const codeNames = [
-        'Código 1 - Entrada Principal',
-        'Código 2 - Área de Mesas',
-        'Código 3 - Mostrador',
-        'Código 4 - Baños',
-        'Código 5 - Salida'
-      ]
-
-      for (let i = 0; i < 5; i++) {
-        await createQRCode({
-          name: codeNames[i],
-          points: 10,
-          isActive: true,
-          businessId: businessId
-        })
+      const codeData = {
+        name: newCodeName.trim(),
+        points: newCodePoints,
+        isActive: newCodeIsActive,
+        businessId: businessId
       }
 
+      if (editingCodeId) {
+        // Edición: actualizar existente
+        await updateQRCode(editingCodeId, codeData)
+        alert('Código QR actualizado exitosamente')
+      } else {
+        // Creación: nuevo código
+        await createQRCode(codeData)
+        alert('Código QR generado exitosamente')
+      }
+
+      // Limpiar formulario y cerrar modal
+      setNewCodeName('')
+      setNewCodePoints(10)
+      setNewCodeIsActive(true)
+      setNameError('')
+      setEditingCodeId(null)
+      setShowModal(false)
+
       await loadQRCodes(businessId)
-      alert('Códigos QR generados exitosamente')
     } catch (error) {
-      console.error('Error generating QR codes:', error)
-      alert('Error al generar códigos QR')
+      console.error('Error saving QR code:', error)
+      alert('Error al guardar el código QR. Verifica tu conexión.')
     } finally {
       setGenerating(false)
     }
@@ -199,25 +266,14 @@ export default function QRCodesManagementPage() {
               </p>
             </div>
             
-            {qrCodes.length === 0 && (
-              <button
-                onClick={handleGenerateInitialCodes}
-                disabled={generating}
-                className="bg-red-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-              >
-                {generating ? (
-                  <span className="flex items-center">
-                    <i className="bi bi-arrow-repeat animate-spin me-2"></i>
-                    Generando...
-                  </span>
-                ) : (
-                  <>
-                    <i className="bi bi-plus-lg me-2"></i>
-                    Generar 5 Códigos
-                  </>
-                )}
-              </button>
-            )}
+            <button
+              onClick={() => openModal()}
+              disabled={generating}
+              className="bg-red-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center"
+            >
+              <i className="bi bi-plus-lg me-2"></i>
+              Generar Código Nuevo
+            </button>
           </div>
         </div>
       </div>
@@ -231,7 +287,7 @@ export default function QRCodesManagementPage() {
               No hay códigos QR configurados
             </h3>
             <p className="text-gray-600 mb-6">
-              Genera los 5 códigos QR iniciales para comenzar la campaña de colección
+              Genera tu primer código QR para comenzar la campaña de colección
             </p>
           </div>
         ) : (
@@ -243,7 +299,8 @@ export default function QRCodesManagementPage() {
               >
                 <div className="bg-gradient-to-r from-red-500 to-red-600 p-4 text-white">
                   <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-lg">Código {index + 1}</h3>
+                    {/* CAMBIO: Ahora usamos el nombre real como título principal */}
+                    <h3 className="font-bold text-lg truncate">{qrCode.name}</h3>
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                       qrCode.isActive
                         ? 'bg-green-500 bg-opacity-20 border border-green-300'
@@ -267,15 +324,13 @@ export default function QRCodesManagementPage() {
                     )}
                   </div>
 
-                  <h4 className="font-semibold text-gray-800 mb-2">
-                    {qrCode.name}
-                  </h4>
+                  {/* CAMBIO: Eliminamos el h4 duplicado del nombre, ya que ahora está en el header */}
                   <p className="text-sm text-gray-600 mb-4">
                     <i className="bi bi-star-fill text-yellow-500 me-1"></i>
                     {qrCode.points} puntos
                   </p>
 
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 mb-3">
                     <button
                       onClick={() => handleDownloadQR(qrCode.id, qrCode.name)}
                       className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
@@ -289,6 +344,24 @@ export default function QRCodesManagementPage() {
                     >
                       <i className="bi bi-printer me-1"></i>
                       Imprimir
+                    </button>
+                    <button
+                      onClick={() => openModal(qrCode)}
+                      className="flex-1 bg-yellow-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-yellow-700 transition-colors"
+                    >
+                      <i className="bi bi-pencil me-1"></i>
+                      Editar
+                    </button>
+                  </div>
+
+                  {/* Botón de eliminar */}
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => handleDeleteQR(qrCode.id, qrCode.name)}
+                      className="text-red-600 hover:text-red-800 text-sm font-medium transition-colors flex items-center"
+                    >
+                      <i className="bi bi-trash me-1"></i>
+                      Eliminar
                     </button>
                   </div>
                 </div>
@@ -305,15 +378,95 @@ export default function QRCodesManagementPage() {
               Instrucciones
             </h3>
             <ul className="text-sm text-blue-800 space-y-2">
+              <li>• Genera o edita códigos QR según necesites</li>
               <li>• Descarga o imprime cada código QR</li>
               <li>• Coloca los códigos en diferentes ubicaciones del establecimiento</li>
-              <li>• Los clientes deben escanear los 5 códigos para completar la colección</li>
+              <li>• Los clientes deben escanear los códigos para completar la colección</li>
               <li>• Cada cliente solo puede escanear cada código una vez</li>
               <li>• Al completar la colección, el cliente puede reclamar su recompensa</li>
             </ul>
           </div>
         )}
       </div>
+
+      {/* Modal para Generar/Editar Código */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h2 className="text-xl font-bold text-gray-800 mb-4">{modalTitle}</h2>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Nombre del Código *</label>
+              <input
+                type="text"
+                value={newCodeName}
+                onChange={(e) => {
+                  setNewCodeName(e.target.value)
+                  if (nameError) setNameError('')
+                }}
+                placeholder="Ej: Entrada Principal"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+              {nameError && <p className="text-red-500 text-sm mt-1">{nameError}</p>}
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Puntos</label>
+              <input
+                type="number"
+                value={newCodePoints}
+                onChange={(e) => setNewCodePoints(Number(e.target.value))}
+                min="1"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+            </div>
+
+            <div className="mb-6">
+              <label className="flex items-center text-sm font-medium text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={newCodeIsActive}
+                  onChange={(e) => setNewCodeIsActive(e.target.checked)}
+                  className="mr-2"
+                />
+                Activo
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowModal(false)
+                  setNewCodeName('')
+                  setNewCodePoints(10)
+                  setNewCodeIsActive(true)
+                  setNameError('')
+                  setEditingCodeId(null)
+                }}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveCode}
+                disabled={generating || !newCodeName.trim()}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+              >
+                {generating ? (
+                  <span className="flex items-center">
+                    <i className="bi bi-arrow-repeat animate-spin me-2"></i>
+                    Guardando...
+                  </span>
+                ) : editingCodeId ? (
+                  'Actualizar'
+                ) : (
+                  'Generar'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

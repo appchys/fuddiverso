@@ -2370,6 +2370,31 @@ export async function calculateCostReport(
 
 // ==================== QR CODE FUNCTIONS ====================
 
+// Eliminar un código QR
+export async function deleteQRCode(qrCodeId: string): Promise<void> {
+  try {
+    const qrCodeRef = doc(db, 'qrCodes', qrCodeId);
+    await deleteDoc(qrCodeRef);
+  } catch (error) {
+    console.error('Error al eliminar el código QR:', error);
+    throw new Error('No se pudo eliminar el código QR');
+  }
+}
+
+// Actualizar un código QR existente
+export async function updateQRCode(qrCodeId: string, updates: Partial<QRCode>): Promise<void> {
+  try {
+    const qrCodeRef = doc(db, 'qrCodes', qrCodeId);
+    await updateDoc(qrCodeRef, {
+      ...updates,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error al actualizar el código QR:', error);
+    throw new Error('No se pudo actualizar el código QR');
+  }
+}
+
 /**
  * Crear un nuevo código QR
  */
