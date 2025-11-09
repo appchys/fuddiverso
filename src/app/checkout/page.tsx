@@ -160,17 +160,35 @@ function TransferReceiptUploader({
         Comprobante de Transferencia *
       </label>
       
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileSelect}
+        accept="image/jpeg, image/png, image/webp"
+        className="hidden"
+      />
       {!previewImage ? (
         <div
           className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
             dragActive ? 'border-red-500 bg-red-50' : 'border-gray-300 hover:border-gray-400'
           }`}
           onDragEnter={handleDrag}
+          onDragOver={handleDrag}
           onDragLeave={handleDrag}
+          onDrop={handleDrop}
         >
           <p className="text-sm text-gray-600">Arrastra aquí tu comprobante o haz clic para seleccionar un archivo</p>
           <div className="mt-4">
-            <button type="button" onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-red-500 text-white rounded-lg">Seleccionar Archivo</button>
+            <button 
+              type="button" 
+              onClick={(e) => {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }} 
+              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+            >
+              Seleccionar Archivo
+            </button>
           </div>
         </div>
       ) : (
@@ -1169,8 +1187,8 @@ function CheckoutContent() {
         }
       }
       
-      // Redirigir a página de confirmación con el ID real
-      router.push(`/order-confirmation?orderId=${orderId}`)
+      // Redirigir a la página de estado del pedido con la ruta /o/[orderId]
+      router.push(`/o/${orderId}`)
     } catch (error) {
       console.error('Error creating order:', error)
       setIsProcessingOrder(false) // Resetear estado en caso de error
