@@ -7,22 +7,32 @@ interface PremioFloatingButtonProps {
   onAgregarPremio: () => void
   premioYaAgregado: boolean
   businessName?: string
+  show?: boolean
 }
 
-export function PremioFloatingButton({ onAgregarPremio, premioYaAgregado, businessName = '' }: PremioFloatingButtonProps) {
-  // Si no es la tienda munchys, no mostrar el botón
-  if (businessName.toLowerCase() !== 'munchys') {
+export function PremioFloatingButton({ onAgregarPremio, premioYaAgregado, businessName = '', show = false }: PremioFloatingButtonProps) {
+  // Si no es la tienda munchys o no se debe mostrar, no renderizar nada
+  if (businessName.toLowerCase() !== 'munchys' || !show) {
     return null;
   }
-  const [showText, setShowText] = useState(true);
   
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowText(false);
-    }, 3000);
-    
-    return () => clearTimeout(timer);
-  }, []);
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  const handleClick = () => {
+    if (isExpanded) {
+      // Si ya está expandido, ejecutar la acción de agregar premio
+      onAgregarPremio();
+      // Colapsar después de agregar
+      setIsExpanded(false);
+    } else {
+      // Si está colapsado, expandir
+      setIsExpanded(true);
+      // Colapsar automáticamente después de 3 segundos
+      setTimeout(() => {
+        setIsExpanded(false);
+      }, 3000);
+    }
+  };;
   
   if (premioYaAgregado) return null
 
@@ -36,10 +46,10 @@ export function PremioFloatingButton({ onAgregarPremio, premioYaAgregado, busine
         className="fixed bottom-20 right-6 z-40"
       >
         <motion.button
-          onClick={onAgregarPremio}
+          onClick={handleClick}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          className={`bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-500 hover:via-amber-600 hover:to-yellow-600 text-white rounded-full shadow-2xl hover:shadow-xl transition-all duration-300 transform hover:scale-105 group`}
+          className={`bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-500 hover:via-amber-600 hover:to-yellow-600 text-white rounded-full shadow-2xl hover:shadow-xl transition-all duration-300 transform hover:scale-105 group flex items-center justify-center ${isExpanded ? 'px-6' : 'w-12 h-12'}`}
         >
           {/* Efecto de brillo animado */}
           <motion.div
@@ -55,11 +65,11 @@ export function PremioFloatingButton({ onAgregarPremio, premioYaAgregado, busine
           />
           
           {/* Ícono de regalo con animación */}
-          <div className={`flex items-center ${showText ? 'px-4 py-3 space-x-2' : 'p-3'}`}>
+          <div className={`flex items-center ${isExpanded ? 'px-4 py-3 space-x-2' : 'p-0'}`}>
             <div className="relative">
               <motion.svg
                 xmlns="http://www.w3.org/2000/svg"
-                className="h-6 w-6"
+                className={`${isExpanded ? 'h-6 w-6' : 'h-6 w-6'}`}
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -80,7 +90,7 @@ export function PremioFloatingButton({ onAgregarPremio, premioYaAgregado, busine
                 />
               </motion.svg>
             </div>
-            {showText && (
+            {isExpanded && (
               <div className="text-left">
                 <div className="text-sm font-semibold leading-none">¡Reclama tus</div>
                 <div className="text-xs text-amber-100 leading-none mt-0.5">5 munchys!</div>
@@ -89,7 +99,7 @@ export function PremioFloatingButton({ onAgregarPremio, premioYaAgregado, busine
           </div>
 
           {/* Contador de notificación */}
-          {!showText && (
+          {!isExpanded && (
             <span className="absolute -top-1 -right-1 bg-yellow-400 text-amber-900 rounded-full w-5 h-5 text-xs font-bold flex items-center justify-center animate-pulse">
               !
             </span>
