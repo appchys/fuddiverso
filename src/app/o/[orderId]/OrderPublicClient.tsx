@@ -445,6 +445,14 @@ export default function OrderPublicClient({ orderId }: Props) {
               <span>Total:</span>
               <span>${order.total?.toFixed(2)}</span>
             </div>
+            <div className="pt-2 text-sm text-gray-600">
+              <div className="flex justify-between items-center">
+                <span>Método de pago:</span>
+                <span className="font-medium">
+                  {order.payment?.method === 'cash' ? '💵 Efectivo' : '🏦 Transferencia'}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -502,15 +510,18 @@ export default function OrderPublicClient({ orderId }: Props) {
               )}
               <div>
                 <h1 className="font-bold text-gray-900">{business?.name || 'Negocio'}</h1>
-                <div className="flex items-center mt-1">
+                <div className="mt-1">
                   <p className="text-lg font-bold text-gray-900">${order.total?.toFixed(2)}</p>
-                  <span className="mx-2 text-gray-300">•</span>
-                  <p className="text-sm text-gray-500">{order.items?.length || 0} producto(s)</p>
                 </div>
               </div>
             </div>
-            <div className={`px-3 py-1 rounded-full text-sm font-medium ${statusColors.bg} ${statusColors.text} border ${statusColors.border}`}>
-              {getStatusTranslation(order.status)}
+            <div className="text-right">
+              <div className={`px-3 py-1 rounded-full text-sm font-medium ${statusColors.bg} ${statusColors.text} border ${statusColors.border} mb-1`}>
+                {getStatusTranslation(order.status)}
+              </div>
+              <div className="text-xs text-gray-500">
+                {order.payment?.method === 'cash' ? '💵 Efectivo' : '🏦 Transferencia'}
+              </div>
             </div>
           </div>
         </div>
