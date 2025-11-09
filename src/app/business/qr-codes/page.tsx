@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
-import { getQRCodesByBusiness, createQRCode, updateQRCode, deleteQRCode } from '@/lib/database'
+import { getQRCodesByBusiness, createQRCode, updateQRCode, deleteQRCode, uploadImage } from '@/lib/database'
 import { QRCode } from '@/types'
 import QRCodeLib from 'qrcode'
 
@@ -22,6 +22,9 @@ export default function QRCodesManagementPage() {
   const [newCodeName, setNewCodeName] = useState('')
   const [newCodePoints, setNewCodePoints] = useState(10)
   const [newCodeIsActive, setNewCodeIsActive] = useState(true)
+  const [newCodeImage, setNewCodeImage] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
   const [nameError, setNameError] = useState('')
   const [modalTitle, setModalTitle] = useState('Generar Nuevo Código QR')
 
@@ -98,6 +101,21 @@ export default function QRCodesManagementPage() {
   }, [qrCodes, qrImages])
 
   // Abrir modal para edición o creación
+  // Manejar selección de imagen
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      setNewCodeImage(file)
+      
+      // Crear vista previa
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
   const openModal = useCallback((code?: QRCode) => {
     if (code) {
       // Modo edición
@@ -105,6 +123,8 @@ export default function QRCodesManagementPage() {
       setNewCodeName(code.name)
       setNewCodePoints(code.points)
       setNewCodeIsActive(code.isActive)
+      setImagePreview(code.image || null)
+      setNewCodeImage(null)
       setModalTitle('Editar Código QR')
     } else {
       // Modo creación
@@ -112,6 +132,8 @@ export default function QRCodesManagementPage() {
       setNewCodeName('')
       setNewCodePoints(10)
       setNewCodeIsActive(true)
+      setImagePreview(null)
+      setNewCodeImage(null)
       setModalTitle('Generar Nuevo Código QR')
     }
     setNameError('')
@@ -131,12 +153,26 @@ export default function QRCodesManagementPage() {
     if (!businessId) return
     
     setGenerating(true)
+    setIsUploading(true)
     try {
-      const codeData = {
+      let imageUrl = imagePreview || ''
+      
+      // Subir imagen si hay una nueva
+      if (newCodeImage) {
+        const filePath = `qrcodes/${Date.now()}_${newCodeImage.name}`
+        imageUrl = await uploadImage(newCodeImage, filePath)
+      }
+
+      const codeData: any = {
         name: newCodeName.trim(),
         points: newCodePoints,
         isActive: newCodeIsActive,
         businessId: businessId
+      }
+
+      // Solo incluir la URL de la imagen si existe
+      if (imageUrl) {
+        codeData.image = imageUrl
       }
 
       if (editingCodeId) {
@@ -153,6 +189,8 @@ export default function QRCodesManagementPage() {
       setNewCodeName('')
       setNewCodePoints(10)
       setNewCodeIsActive(true)
+      setNewCodeImage(null)
+      setImagePreview(null)
       setNameError('')
       setEditingCodeId(null)
       setShowModal(false)
@@ -163,6 +201,7 @@ export default function QRCodesManagementPage() {
       alert('Error al guardar el código QR. Verifica tu conexión.')
     } finally {
       setGenerating(false)
+      setIsUploading(false)
     }
   }
 
@@ -312,6 +351,23 @@ export default function QRCodesManagementPage() {
                 </div>
 
                 <div className="p-6">
+                  <div className="relative">
+                    {qrCode.image ? (
+                      <img 
+                        src={qrCode.image} 
+                        alt={qrCode.name}
+                        className="w-full h-40 object-cover rounded-lg mb-4"
+                      />
+                    ) : (
+                      <div className="w-full h-40 bg-gradient-to-r from-gray-100 to-gray-200 rounded-lg flex items-center justify-center mb-4">
+                        <i className="bi bi-image text-4xl text-gray-300"></i>
+                      </div>
+                    )}
+                    <span className="absolute top-2 right-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded-full">
+                      {qrCode.points} pts
+                    </span>
+                  </div>
+                  
                   <div className="bg-white border-2 border-red-200 rounded-lg p-4 mb-4 flex items-center justify-center">
                     {qrImages[qrCode.id] ? (
                       <img
@@ -408,6 +464,39 @@ export default function QRCodesManagementPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
               />
               {nameError && <p className="text-red-500 text-sm mt-1">{nameError}</p>}
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Imagen (Opcional)
+              </label>
+              <div className="mt-1 flex items-center">
+                <label className="cursor-pointer">
+                  <div className="w-24 h-24 rounded-md overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center">
+                    {imagePreview ? (
+                      <img 
+                        src={imagePreview} 
+                        alt="Vista previa" 
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="text-gray-400">
+                        <i className="bi bi-image text-2xl"></i>
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={handleImageChange}
+                  />
+                </label>
+                <div className="ml-4 text-sm text-gray-500">
+                  <p>Haz clic para subir una imagen</p>
+                  <p className="text-xs">Tamaño recomendado: 500x500px</p>
+                </div>
+              </div>
             </div>
 
             <div className="mb-4">

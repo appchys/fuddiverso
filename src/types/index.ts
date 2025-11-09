@@ -184,6 +184,7 @@ export interface QRCode {
   id: string
   name: string
   points: number
+  image?: string
   isActive: boolean
   businessId: string
   createdAt: Date

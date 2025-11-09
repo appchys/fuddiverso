@@ -6,6 +6,7 @@ import Link from 'next/link'
 import Head from 'next/head'
 import { Business, Product } from '@/types'
 import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore } from '@/lib/database'
+import { PremioFloatingButton } from '@/components/PremioFloatingButton'
 
 // Componente para structured data JSON-LD
 function BusinessStructuredData({ business }: { business: Business }) {
@@ -302,6 +303,7 @@ function RestaurantContent() {
     message: '',
     type: 'success'
   })
+  const [premioAgregado, setPremioAgregado] = useState(false)
 
   useEffect(() => {
     const loadRestaurantData = async () => {
@@ -401,6 +403,9 @@ function RestaurantContent() {
         const allCarts = JSON.parse(savedCarts)
         const businessCart = allCarts[business.id] || []
         setCart(businessCart)
+        // Verificar si el premio ya está en el carrito
+        const tienePremio = businessCart.some((item: any) => item.esPremio === true)
+        setPremioAgregado(tienePremio)
       }
     }
   }, [business?.id])
@@ -490,9 +495,18 @@ function RestaurantContent() {
   const removeFromCart = (productId: string) => {
     if (!business?.id) return;
 
+    // Verificar si el ítem a eliminar es un premio
+    const itemToRemove = cart.find(item => item.id === productId)
+    const isPremio = itemToRemove?.esPremio === true
+
     const newCart = cart.filter(item => item.id !== productId)
     setCart(newCart)
     updateCartInStorage(business.id, newCart)
+
+    // Si se eliminó un premio, permitir reclamarlo de nuevo
+    if (isPremio) {
+      setPremioAgregado(false)
+    }
   }
 
   const updateQuantity = (productId: string, quantity: number) => {
@@ -534,6 +548,32 @@ function RestaurantContent() {
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
   const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+
+  const manejarAgregarPremio = () => {
+    if (!business?.id) return;
+
+    const premioEspecial = {
+      id: 'premio-especial-' + Date.now(),
+      name: '🎁 5 wantancitos',
+      variantName: null,
+      productName: '🎁 5 wantancitos',
+      description: '¡Felicidades! Has reclamado tu premio especial gratis',
+      price: 0,
+      isAvailable: true,
+      esPremio: true,
+      quantity: 1,
+      image: business.image || 'https://via.placeholder.com/150?text=Premio',
+      businessId: business.id,
+      businessName: business.name,
+      businessImage: business.image
+    }
+
+    const newCart = [...cart, premioEspecial]
+    setCart(newCart)
+    setPremioAgregado(true)
+    updateCartInStorage(business.id, newCart)
+    showNotification('¡Premio especial agregado al carrito! 🎉', 'success')
+  }
 
   // Función para determinar si la tienda está abierta
   const isStoreOpen = () => {
@@ -797,10 +837,19 @@ function RestaurantContent() {
                 ) : (
                   <div className="p-4 space-y-3">
                     {cart.map((item, index) => (
-                      <div key={item.id} className="group bg-white border border-gray-100 rounded-xl p-3 hover:shadow-md transition-all duration-200">
+                      <div 
+                        key={item.id} 
+                        className={`group rounded-xl p-3 transition-all duration-200 ${
+                          item.esPremio 
+                            ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300 shadow-md' 
+                            : 'bg-white border border-gray-100 hover:shadow-md'
+                        }`}
+                      >
                         <div className="flex items-center space-x-3">
                           {/* Imagen del producto */}
-                          <div className="w-16 h-16 flex-shrink-0 bg-gray-100 rounded-lg overflow-hidden">
+                          <div className={`w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden ${
+                            item.esPremio ? 'ring-2 ring-amber-400' : 'bg-gray-100'
+                          }`}>
                             <img
                               src={item.image || business?.image}
                               alt={item.name}
@@ -816,49 +865,62 @@ function RestaurantContent() {
                           
                           {/* Información del producto */}
                           <div className="flex-1 min-w-0">
-                            <h4 className="font-medium text-gray-900 text-sm line-clamp-2 leading-tight">
+                            <h4 className={`font-medium text-sm line-clamp-2 leading-tight ${
+                              item.esPremio ? 'text-amber-900' : 'text-gray-900'
+                            }`}>
                               {item.name}
                             </h4>
+                            {item.esPremio && (
+                              <span className="inline-block mt-1 text-xs bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-semibold">
+                                ¡Premio Especial!
+                              </span>
+                            )}
                             <div className="flex items-center justify-between mt-1">
-                              <span className="text-red-600 font-semibold">
-                                ${item.price.toFixed(2)}
+                              <span className={`font-semibold ${
+                                item.esPremio ? 'text-amber-700 text-base' : 'text-red-600'
+                              }`}>
+                                {item.price > 0 ? `$${item.price.toFixed(2)}` : '¡Gratis!'}
                               </span>
-                              <span className="text-xs text-gray-500">
-                                c/u
-                              </span>
+                              {!item.esPremio && (
+                                <span className="text-xs text-gray-500">
+                                  c/u
+                                </span>
+                              )}
                             </div>
                             
-                            {/* Controles de cantidad */}
-                            <div className="flex items-center justify-between mt-2">
-                              <div className="flex items-center bg-gray-100 rounded-lg overflow-hidden">
-                                <button
-                                  onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                                  className="w-8 h-8 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-                                  </svg>
-                                </button>
-                                <span className="px-3 py-1 text-sm font-medium min-w-[40px] text-center bg-white">
-                                  {item.quantity}
-                                </span>
-                                <button
-                                  onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                                  className="w-8 h-8 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                                  </svg>
-                                </button>
-                              </div>
-                              
-                              {/* Subtotal del producto */}
-                              <div className="text-right">
-                                <div className="text-sm font-semibold text-gray-900">
-                                  ${(item.price * item.quantity).toFixed(2)}
+                            {/* Controles de cantidad - No mostrar para premios */}
+                            {!item.esPremio && (
+                              <div className="flex items-center justify-between mt-2">
+                                <div className="flex items-center bg-gray-100 rounded-lg overflow-hidden">
+                                  <button
+                                    onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                                    className="w-8 h-8 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                                    </svg>
+                                  </button>
+                                  <span className="px-3 py-1 text-sm font-medium min-w-[40px] text-center bg-white">
+                                    {item.quantity}
+                                  </span>
+                                  <button
+                                    onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                                    className="w-8 h-8 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                    </svg>
+                                  </button>
+                                </div>
+                                
+                                {/* Subtotal del producto */}
+                                <div className="text-right">
+                                  <div className="text-sm font-semibold text-gray-900">
+                                    ${(item.price * item.quantity).toFixed(2)}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
+                            )}
                           </div>
                           
                           {/* Botón eliminar */}
@@ -918,6 +980,12 @@ function RestaurantContent() {
           </div>
         </div>
       )}
+
+      {/* Botón Flotante de Premio */}
+      <PremioFloatingButton 
+        onAgregarPremio={manejarAgregarPremio}
+        premioYaAgregado={premioAgregado}
+      />
 
       {/* Modal de variantes */}
       <VariantModal

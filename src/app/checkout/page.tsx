@@ -1866,19 +1866,37 @@ function CheckoutContent() {
               
               <div className="space-y-2 sm:space-y-3">
                 {cartItems.map((item: any, index: number) => (
-                  <div key={index} className="flex justify-between items-center gap-2">
+                  <div 
+                    key={index} 
+                    className={`flex justify-between items-center gap-2 p-2 rounded-lg transition-all ${
+                      item.esPremio 
+                        ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300 shadow-sm' 
+                        : ''
+                    }`}
+                  >
                     <div className="flex-1 min-w-0">
                       {item.variantName ? (
                         <>
-                          <p className="text-sm font-medium truncate">{item.variantName}</p>
+                          <p className={`text-sm font-medium truncate ${item.esPremio ? 'text-amber-800' : ''}`}>
+                            {item.variantName}
+                          </p>
                           <p className="text-xs text-gray-500">{item.productName}</p>
                         </>
                       ) : (
-                        <p className="text-sm font-medium truncate">{item.productName || item.name}</p>
+                        <p className={`text-sm font-medium truncate ${item.esPremio ? 'text-amber-800' : ''}`}>
+                          {item.productName || item.name}
+                        </p>
+                      )}
+                      {item.esPremio && (
+                        <span className="inline-block mt-1 text-xs bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-semibold">
+                          ¡Premio Especial!
+                        </span>
                       )}
                       <p className="text-xs text-gray-500">Cantidad: {item.quantity}</p>
                     </div>
-                    <p className="text-sm font-medium shrink-0">${(item.price * item.quantity).toFixed(2)}</p>
+                    <p className={`text-sm font-medium shrink-0 ${item.esPremio ? 'text-amber-700 font-bold' : ''}`}>
+                      {item.price > 0 ? `$${(item.price * item.quantity).toFixed(2)}` : '¡Gratis!'}
+                    </p>
                   </div>
                 ))}
               </div>
