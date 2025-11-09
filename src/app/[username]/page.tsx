@@ -959,15 +959,25 @@ function RestaurantContent() {
                     </div>
                   </div>
                   
-                  {/* Botón de checkout */}
-                  <Link
-                    href={`/checkout?businessId=${business.id}`}
-                    className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white py-4 rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-200 flex items-center justify-center font-semibold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-                    onClick={() => setIsCartOpen(false)}
-                  >
-                    <i className="bi bi-cart mr-2 text-xl"></i>
-                    Continuar con el pedido
-                  </Link>
+                  {/* Botón de checkout o agregar más */}
+                  {cartTotal > 0 ? (
+                    <Link
+                      href={`/checkout?businessId=${business.id}`}
+                      className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white py-4 rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-200 flex items-center justify-center font-semibold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                      onClick={() => setIsCartOpen(false)}
+                    >
+                      <i className="bi bi-cart mr-2 text-xl"></i>
+                      Continuar con el pedido
+                    </Link>
+                  ) : (
+                    <button
+                      onClick={() => setIsCartOpen(false)}
+                      className="w-full bg-gradient-to-r from-gray-500 to-gray-600 text-white py-4 rounded-xl hover:from-gray-600 hover:to-gray-700 transition-all duration-200 flex items-center justify-center font-semibold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                    >
+                      <i className="bi bi-plus-circle mr-2 text-xl"></i>
+                      Agrega más productos
+                    </button>
+                  )}
                   
                   {/* Texto informativo */}
                   <p className="text-xs text-gray-500 text-center">
@@ -984,6 +994,7 @@ function RestaurantContent() {
       <PremioFloatingButton 
         onAgregarPremio={manejarAgregarPremio}
         premioYaAgregado={premioAgregado}
+        businessName={business.name}
       />
 
       {/* Modal de variantes */}
