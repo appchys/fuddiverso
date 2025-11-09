@@ -17,6 +17,7 @@ export default function OrderPublicClient({ orderId }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('status')
+  const [timeInfo, setTimeInfo] = useState<any>(null) // Nuevo state para timeInfo dinámico
 
   useEffect(() => {
     let mounted = true
@@ -66,6 +67,27 @@ export default function OrderPublicClient({ orderId }: Props) {
     load()
     return () => { mounted = false }
   }, [orderId])
+
+  // Nuevo useEffect para actualizaciones en tiempo real del contador
+  useEffect(() => {
+    if (!order || !order.timing || ['delivered', 'cancelled'].includes(order.status)) {
+      setTimeInfo(null);
+      return;
+    }
+
+    // Calcular inicial
+    const updateTimeInfo = () => {
+      const info = getMinutesUntilDelivery();
+      setTimeInfo(info);
+    };
+
+    updateTimeInfo();
+
+    // Intervalo cada 30 segundos
+    const interval = setInterval(updateTimeInfo, 30000);
+
+    return () => clearInterval(interval);
+  }, [order]);
 
   const formatDate = (d: any, timeOnly: boolean = false) => {
     try {
@@ -163,57 +185,103 @@ export default function OrderPublicClient({ orderId }: Props) {
     return labels[status] || status
   }
 
+  // Función para formatear el tiempo en horas y minutos
+  const formatTimeDisplay = (totalMinutes: number) => {
+    if (totalMinutes >= 60) {
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      if (minutes === 0) {
+        return `${hours} hora${hours > 1 ? 's' : ''}`;
+      }
+      return `${hours} hora${hours > 1 ? 's' : ''} y ${minutes} minuto${minutes > 1 ? 's' : ''}`;
+    } else {
+      return `${totalMinutes} minuto${totalMinutes > 1 ? 's' : ''}`;
+    }
+  };
+
+  // Función mejorada: getMinutesUntilDelivery
   const getMinutesUntilDelivery = () => {
-    // Si el pedido ya fue entregado, no mostrar contador
+    // Si el pedido ya fue entregado o cancelado, no mostrar contador
     if (order.status === 'delivered' || order.status === 'cancelled') {
       return null;
     }
 
     if (!order.timing) {
+      console.warn('No hay timing en la orden');
       return null;
     }
 
-    // Función para formatear la hora
-    const formatTime = (date: Date) => {
-      return date.toLocaleTimeString('es-EC', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
-    };
+    const { scheduledDate, scheduledTime, type } = order.timing;
 
-    // Si hay una hora programada
-    if (order.timing?.scheduledTime) {
-      try {
-        const now = new Date();
-        const scheduledTime = order.timing.scheduledTime;
-        const [hours, minutes] = scheduledTime.split(':');
-        
-        // Crear objeto de fecha con la hora programada para hoy
-        const deliveryTime = new Date();
-        deliveryTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-        
-        // Si la hora ya pasó hoy, asumir que es para mañana
+    // Validación para scheduledTime (formato HH:MM)
+    if (scheduledTime && !/^\d{1,2}:\d{2}$/.test(scheduledTime)) {
+      console.error('Formato inválido en scheduledTime:', scheduledTime);
+      return null;
+    }
+
+    try {
+      const now = new Date();
+      let deliveryTime: Date;
+
+      if (scheduledDate && typeof scheduledDate === 'object' && 'seconds' in scheduledDate) {
+        // Usar timestamp de Firestore para la fecha base
+        const timestampMs = scheduledDate.seconds * 1000 + (scheduledDate.nanoseconds || 0) / 1000000;
+        deliveryTime = new Date(timestampMs);
+
+        // Si hay scheduledTime, sobrescribir la hora/minutos/segundos
+        if (scheduledTime) {
+          const [hours, minutes] = scheduledTime.split(':').map(Number);
+          deliveryTime.setHours(hours, minutes, 0, 0); // Resetear segundos y ms
+        }
+      } else if (scheduledTime) {
+        // Fallback: fecha actual + hora programada
+        deliveryTime = new Date();
+        const [hours, minutes] = scheduledTime.split(':').map(Number);
+        deliveryTime.setHours(hours, minutes, 0, 0);
+
+        // Si ya pasó hoy, asumir mañana (para type "immediate" o similar)
         if (deliveryTime < now) {
           deliveryTime.setDate(deliveryTime.getDate() + 1);
         }
-
-        const diffMs = deliveryTime.getTime() - now.getTime();
-        const diffMinutes = Math.floor(diffMs / (1000 * 60));
-        
-        return {
-          minutes: diffMinutes,
-          isLate: diffMs < 0,
-          deliveryTime: formatTime(deliveryTime)
-        };
-      } catch (error) {
-        console.error('Error al calcular la hora de entrega:', error);
+      } else {
+        // No hay ni fecha ni hora: null
         return null;
       }
-    }
 
-    // Si no hay hora programada, devolver null
-    return null;
+      const diffMs = deliveryTime.getTime() - now.getTime();
+      const diffMinutes = Math.floor(diffMs / (1000 * 60));
+      const absMinutes = Math.abs(diffMinutes); // Para mostrar siempre positivo
+
+      // Si type es "immediate", quizás ajustar con un ETA fijo (ej: +30 min), pero por ahora usa lo programado
+
+      return {
+        totalMinutes: absMinutes,
+        timeDisplay: formatTimeDisplay(absMinutes),
+        isLate: diffMs < 0,
+        deliveryTime: deliveryTime.toLocaleTimeString('es-EC', { 
+          hour: '2-digit', 
+          minute: '2-digit', 
+          hour12: true 
+        }),
+        fullDate: deliveryTime.toLocaleDateString('es-EC', { 
+          day: '2-digit', 
+          month: '2-digit', 
+          year: 'numeric' 
+        }),
+        isToday: deliveryTime.toLocaleDateString('es-EC', { 
+          day: '2-digit', 
+          month: '2-digit', 
+          year: 'numeric' 
+        }) === now.toLocaleDateString('es-EC', { 
+          day: '2-digit', 
+          month: '2-digit', 
+          year: 'numeric' 
+        })
+      };
+    } catch (error) {
+      console.error('Error al calcular tiempo de entrega:', error);
+      return null;
+    }
   };
 
   const renderStatusTimeline = () => {
@@ -416,7 +484,6 @@ export default function OrderPublicClient({ orderId }: Props) {
     </div>
   )
 
-  const timeInfo = getMinutesUntilDelivery()
   const statusColors = getStatusColor(order.status)
 
   return (
@@ -449,19 +516,35 @@ export default function OrderPublicClient({ orderId }: Props) {
         </div>
       </div>
 
-      {/* Contador de tiempo (si aplica) */}
+      {/* Contador de tiempo mejorado (si aplica) */}
       {timeInfo !== null && (
         <div className="max-w-md mx-auto px-4 py-3">
-          <div className={`rounded-xl p-4 text-center ${timeInfo.isLate ? 'bg-red-50 border border-red-200' : 'bg-orange-50 border border-orange-200'}`}>
-            <p className="text-sm font-medium mb-1">
-              {timeInfo.isLate ? 'Tu pedido está atrasado' : 'Tiempo estimado de entrega'}
+          <div className={`rounded-xl p-4 text-center ${
+            timeInfo.isLate 
+              ? 'bg-red-50 border border-red-200' 
+              : 'bg-orange-50 border border-orange-200'
+          }`}>
+            <p className={`text-sm font-medium mb-1 flex items-center justify-center ${
+              timeInfo.isLate ? 'text-red-600' : 'text-orange-600'
+            }`}>
+              {timeInfo.isLate ? (
+                <>
+                  <span className="mr-1">⚠️</span> Tu pedido está atrasado
+                </>
+              ) : (
+                <>
+                  <span className="mr-1">⏱️</span> Tiempo estimado de entrega
+                </>
+              )}
             </p>
-            <p className={`text-2xl font-bold ${timeInfo.isLate ? 'text-red-600' : 'text-orange-600'}`}>
-              {timeInfo.minutes} min
+            <p className={`text-2xl font-bold ${
+              timeInfo.isLate ? 'text-red-600' : 'text-orange-600'
+            }`}>
+              {timeInfo.timeDisplay}
             </p>
             {timeInfo.deliveryTime && (
               <p className="text-sm text-gray-600 mt-1">
-                Hora estimada: {timeInfo.deliveryTime}
+                Hora estimada: {timeInfo.deliveryTime} {timeInfo.isToday ? '' : `(${timeInfo.fullDate})`}
               </p>
             )}
           </div>
@@ -559,7 +642,7 @@ export default function OrderPublicClient({ orderId }: Props) {
                     className="w-12 h-12 rounded-full object-cover border-2 border-gray-200 mr-3"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
-                      target.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiYjMDA3QkZGOyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0yMCAyMXYtMmE0IDQgMCAwIDAtNC00SDhhNCA0IDAgMDAtNCA0djIiPjwvcGF0aD48Y2lyY2xlIGN4PSIxMiIgY3k9IjciIHI9IjQiPjwvY2lyY2xlPjwvc3ZnPg==';
+                      target.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMjMDA3QkZGOyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0yMCAyMXYtMmE0IDQgMCAwIDAtNC00SDhhNCA0IDAgMDAtNCA0djIiPjwvcGF0aD48Y2lyY2xlIGN4PSIxMiIgY3k9IjciIHI9IjQiPjwvY2lyY2xlPjwvc3ZnPg==';
                       target.alt = 'Avatar por defecto';
                     }}
                   />

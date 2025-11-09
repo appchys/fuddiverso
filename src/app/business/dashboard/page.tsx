@@ -775,7 +775,26 @@ export default function BusinessDashboard() {
   }
 
   // Función unificada para enviar mensajes de WhatsApp
-  const handleSendWhatsApp = (order: Order) => {
+  const handleSendWhatsApp = async (order: Order) => {
+    // Solo avanzar el estado si no está en estado 'ready' (Listo)
+    if (order.status !== 'ready') {
+      const nextStatus = getNextStatus(order.status);
+      if (nextStatus) {
+        try {
+          await handleStatusChange(order.id, nextStatus);
+          // Actualizar el estado local de la orden para reflejar el cambio
+          const updatedOrder = { ...order, status: nextStatus };
+          setOrders(prevOrders => 
+            prevOrders.map(o => o.id === order.id ? updatedOrder : o)
+          );
+          order = updatedOrder; // Actualizar la referencia local
+        } catch (error) {
+          console.error('Error al avanzar el estado del pedido:', error);
+          // Continuar con el envío del WhatsApp aunque falle el cambio de estado
+        }
+      }
+    }
+
     let phone = ''
     let title = ''
     
@@ -905,6 +924,11 @@ export default function BusinessDashboard() {
     // Abrir WhatsApp Web
     window.open(whatsappUrl, '_blank')
   }
+
+  // Función para manejar el envío de WhatsApp y avanzar el estado
+  const handleSendWhatsAppAndAdvance = async (order: Order) => {
+    await handleSendWhatsApp(order);
+  };
 
   // Enviar Whatsapp al cliente (número del cliente)
   const handleSendWhatsAppToCustomer = (order: Order) => {
@@ -1755,9 +1779,9 @@ export default function BusinessDashboard() {
                     (order.delivery?.type === 'pickup' && business?.phone)
                   ) && (
                     <button
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation()
-                        handleSendWhatsApp(order)
+                        await handleSendWhatsAppAndAdvance(order)
                       }}
                       className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
                     >
@@ -1888,9 +1912,9 @@ export default function BusinessDashboard() {
                     (order.delivery?.type === 'pickup' && business?.phone)
                   ) && (
                     <button
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation()
-                        handleSendWhatsApp(order)
+                        await handleSendWhatsAppAndAdvance(order)
                       }}
                       className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
                       title={order.delivery?.type === 'delivery' ? 'Enviar WhatsApp al delivery' : 'Enviar WhatsApp a la tienda'}
