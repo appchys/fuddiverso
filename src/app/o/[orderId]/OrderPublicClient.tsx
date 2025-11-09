@@ -344,8 +344,7 @@ export default function OrderPublicClient({ orderId }: Props) {
             {order.items?.map((item: any, index: number) => (
               <div key={index} className="flex justify-between items-start py-2 border-b border-gray-100 last:border-0">
                 <div className="flex-1">
-                  <p className="font-medium text-gray-900">{item.name}</p>
-                  {item.variant && <p className="text-sm text-gray-500 mt-1">{item.variant}</p>}
+                  {item.variant && <p className="font-medium text-gray-900">{item.variant}</p>}
                   <p className="text-sm text-gray-500 mt-1">Cantidad: {item.quantity}</p>
                 </div>
                 <div className="text-right">
