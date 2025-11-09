@@ -780,7 +780,7 @@ function RestaurantContent() {
           >
             <div className="flex items-center px-4 py-3 space-x-2">
               <div className="relative">
-                <i className="bi bi-bag text-xl"></i>
+                <i className="bi bi-cart text-xl"></i>
                 <span className="absolute -top-2 -right-2 bg-yellow-400 text-red-900 rounded-full w-5 h-5 text-xs font-bold flex items-center justify-center animate-pulse">
                   {cartItemsCount}
                 </span>
@@ -789,7 +789,6 @@ function RestaurantContent() {
                 <div className="text-sm font-semibold leading-none">${cartTotal.toFixed(2)}</div>
                 <div className="text-xs text-red-100 leading-none mt-0.5">Ver carrito</div>
               </div>
-              <i className="bi bi-chevron-right transition-transform group-hover:translate-x-1"></i>
             </div>
           </button>
         </div>
@@ -829,7 +828,7 @@ function RestaurantContent() {
                 {cart.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full px-4 text-center">
                     <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                      <i className="bi bi-bag text-4xl text-gray-400"></i>
+                      <i className="bi bi-cart text-4xl text-gray-400"></i>
                     </div>
                     <h4 className="text-lg font-medium text-gray-900 mb-2">Tu carrito está vacío</h4>
                     <p className="text-gray-500 text-sm">Agrega algunos productos deliciosos para comenzar</p>
@@ -966,7 +965,7 @@ function RestaurantContent() {
                     className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white py-4 rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-200 flex items-center justify-center font-semibold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
                     onClick={() => setIsCartOpen(false)}
                   >
-                    <i className="bi bi-bag mr-2 text-xl"></i>
+                    <i className="bi bi-cart mr-2 text-xl"></i>
                     Continuar con el pedido
                   </Link>
                   
