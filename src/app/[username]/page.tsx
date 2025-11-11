@@ -995,7 +995,6 @@ function RestaurantContent() {
         onAgregarPremio={manejarAgregarPremio}
         premioYaAgregado={premioAgregado}
         businessName={business.name}
-        show={cart.length > 0}
       />
 
       {/* Modal de variantes */}
