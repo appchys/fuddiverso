@@ -87,8 +87,9 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
   const handleCardClick = () => onAddToCart(product)
 
   return (
-    <div onClick={handleCardClick} className="bg-white rounded-lg shadow-md overflow-hidden cursor-pointer hover:shadow-lg transition">
-      <div className="w-full h-32 sm:h-40">
+    <div onClick={handleCardClick} className="bg-white rounded-lg shadow-sm overflow-hidden cursor-pointer hover:bg-gray-50 transition flex items-center p-3 border-b border-gray-100">
+      {/* Imagen cuadrada */}
+      <div className="w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100">
         <img
           src={product.image || businessImage}
           alt={product.name}
@@ -100,34 +101,37 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
             }
           }}
         />
-
       </div>
-      <div className="p-3 sm:p-4">
-        <h4 className="font-semibold text-sm sm:text-base text-gray-900 line-clamp-2">{product.name}</h4>
-        <p className="text-gray-600 text-xs sm:text-sm mt-1 line-clamp-2">{product.description}</p>
-        <div className="flex flex-col gap-2 mt-3">
-          {/* Mostrar precio */}
-          {product.variants && product.variants.length > 0 ? (
-            <span className="text-base sm:text-lg font-bold text-red-500">
-              Desde ${Math.min(...product.variants.filter((v: any) => v.isAvailable).map((v: any) => v.price)).toFixed(2)}
-            </span>
-          ) : (
-            <span className="text-base sm:text-lg font-bold text-red-500">${product.price.toFixed(2)}</span>
-          )}
-          
-          {/* Botón agregar */}
-          <button
-            onClick={(e) => { e.stopPropagation(); onAddToCart(product) }}
-            disabled={!product.isAvailable}
-            className={`text-xs sm:text-sm font-medium px-3 py-2 rounded-lg ${
-              product.isAvailable 
-                ? 'bg-red-500 text-white hover:bg-red-600' 
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-            }`}
-          >
-            {product.isAvailable ? 'Agregar' : 'No disponible'}
-          </button>
-        </div>
+      
+      {/* Nombre y descripción */}
+      <div className="flex-1 min-w-0 ml-3 sm:ml-4">
+        <h4 className="font-medium text-sm sm:text-base text-gray-900 truncate">{product.name}</h4>
+        <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2">{product.description}</p>
+      </div>
+      
+      {/* Precio y botón */}
+      <div className="flex flex-col items-end ml-2 sm:ml-4 w-24 sm:w-28 flex-shrink-0">
+        {product.variants && product.variants.length > 0 ? (
+          <span className="text-sm sm:text-base font-bold text-red-500 whitespace-nowrap">
+            ${Math.min(...product.variants.filter((v: any) => v.isAvailable).map((v: any) => v.price)).toFixed(2)}
+          </span>
+        ) : (
+          <span className="text-sm sm:text-base font-bold text-red-500 whitespace-nowrap">
+            ${product.price.toFixed(2)}
+          </span>
+        )}
+        
+        <button
+          onClick={(e) => { e.stopPropagation(); onAddToCart(product) }}
+          disabled={!product.isAvailable}
+          className={`mt-1 text-xs sm:text-sm font-medium px-2 sm:px-3 py-1.5 rounded-lg whitespace-nowrap ${
+            product.isAvailable 
+              ? 'bg-red-500 text-white hover:bg-red-600' 
+              : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+          }`}
+        >
+          {product.isAvailable ? 'Agregar' : 'Agotado'}
+        </button>
       </div>
     </div>
   );
@@ -755,7 +759,7 @@ function RestaurantContent() {
         {Object.entries(productsByCategory).map(([category, categoryProducts]) => (
           <div key={category} className="mb-8">
             <h3 className="text-lg sm:text-xl font-semibold text-gray-800 mb-4">{category}</h3>
-            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+            <div className="space-y-3">
               {categoryProducts.map((product) => (
                 <ProductVariantSelector
                   key={product.id}
