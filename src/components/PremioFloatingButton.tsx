@@ -11,8 +11,8 @@ interface PremioFloatingButtonProps {
 }
 
 export function PremioFloatingButton({ onAgregarPremio, premioYaAgregado, businessName = '', show = false }: PremioFloatingButtonProps) {
-  // Si no es la tienda munchys o no se debe mostrar, no renderizar nada
-  if (businessName.toLowerCase() !== 'munchys' || !show) {
+  // Mostrar solo si show es true
+  if (!show) {
     return null;
   }
   
