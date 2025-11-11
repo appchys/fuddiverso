@@ -241,18 +241,21 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
                         </div>
                       ) : (
                         <button 
-                          onClick={() => onAddToCart({
-                            id: uid,
-                            name: `${product.name} - ${variant.name}`,
-                            variantName: variant.name,
-                            productName: product.name,
-                            price: variant.price,
-                            image: product.image,
-                            description: variant.description || product.description,
-                            businessId: product.businessId,
-                            productId: product.id,
-                            variantId: variant.id
-                          })} 
+                          onClick={() => {
+                            onAddToCart({
+                              id: uid,
+                              name: `${product.name} - ${variant.name}`,
+                              variantName: variant.name,
+                              productName: product.name,
+                              price: variant.price,
+                              image: product.image,
+                              description: variant.description || product.description,
+                              businessId: product.businessId,
+                              productId: product.id,
+                              variantId: variant.id
+                            });
+                            onClose();
+                          }} 
                           className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors whitespace-nowrap text-sm"
                         >
                           Agregar
