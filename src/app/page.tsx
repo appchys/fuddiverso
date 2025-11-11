@@ -75,32 +75,6 @@ function HomePageContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* HERO */}
-      <section className="bg-gradient-to-r from-[#aa1918] to-[#d83935] text-white py-16 sm:py-24">
-        <div className="max-w-6xl mx-auto px-6 text-center">
-          <h1 className="text-4xl sm:text-5xl font-bold mb-4">Encuentra tu restaurante favorito 🍔</h1>
-          <p className="text-lg sm:text-xl text-red-100 mb-8">
-            Explora los mejores lugares para comer en tu ciudad con Fuddi.
-          </p>
-          <div className="flex justify-center">
-            <div className="relative w-full max-w-xl">
-              <input
-                type="text"
-                placeholder="Buscar restaurantes o platos..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full px-5 py-3 rounded-full shadow-lg text-gray-800 focus:outline-none"
-              />
-              <button
-                onClick={() => loadBusinessesWithParams(searchTerm, selectedCategory)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 bg-[#aa1918] text-white px-4 py-2 rounded-full hover:bg-[#911515] transition"
-              >
-                Buscar
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
 
       {/* CATEGORÍAS */}
       <section className="py-10 bg-white">
@@ -190,6 +164,21 @@ function HomePageContent() {
                     </div>
                     <div className="p-4">
                       <h3 className="text-lg font-semibold text-gray-900 line-clamp-1">{b.name}</h3>
+                      {b.categories && b.categories.length > 0 && (
+                        <div className="flex flex-wrap gap-1 my-2">
+                          {b.categories.slice(0, 3).map((cat, i) => (
+                            <span 
+                              key={i} 
+                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800"
+                            >
+                              {cat}
+                            </span>
+                          ))}
+                          {b.categories.length > 3 && (
+                            <span className="text-xs text-gray-500">+{b.categories.length - 3} más</span>
+                          )}
+                        </div>
+                      )}
                       <p className="text-sm text-gray-600 line-clamp-2 mb-3">{b.description}</p>
                       <div className="text-xs text-gray-500 flex justify-between">
                         <span>{b.address}</span>
