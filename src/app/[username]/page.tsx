@@ -124,13 +124,22 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
         <button
           onClick={(e) => { e.stopPropagation(); onAddToCart(product) }}
           disabled={!product.isAvailable}
-          className={`mt-1 text-xs sm:text-sm font-medium px-2 sm:px-3 py-1.5 rounded-lg whitespace-nowrap ${
+          className={`mt-1 flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-lg ${
             product.isAvailable 
               ? 'bg-red-500 text-white hover:bg-red-600' 
               : 'bg-gray-200 text-gray-500 cursor-not-allowed'
           }`}
+          title={product.isAvailable ? (product.variants?.length ? 'Ver opciones' : 'Agregar al carrito') : 'Agotado'}
         >
-          {product.isAvailable ? 'Agregar' : 'Agotado'}
+          {product.variants?.length ? (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          )}
         </button>
       </div>
     </div>
