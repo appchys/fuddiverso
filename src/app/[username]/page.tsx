@@ -112,9 +112,12 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
       {/* Precio y botón */}
       <div className="flex flex-col items-end ml-2 sm:ml-4 w-24 sm:w-28 flex-shrink-0">
         {product.variants && product.variants.length > 0 ? (
-          <span className="text-sm sm:text-base font-bold text-red-500 whitespace-nowrap">
-            ${Math.min(...product.variants.filter((v: any) => v.isAvailable).map((v: any) => v.price)).toFixed(2)}
-          </span>
+          <div className="text-right">
+            <span className="text-xs text-gray-500">Desde </span>
+            <span className="text-sm sm:text-base font-bold text-red-500 whitespace-nowrap">
+              ${Math.min(...product.variants.filter((v: any) => v.isAvailable).map((v: any) => v.price)).toFixed(2)}
+            </span>
+          </div>
         ) : (
           <span className="text-sm sm:text-base font-bold text-red-500 whitespace-nowrap">
             ${product.price.toFixed(2)}
@@ -124,13 +127,18 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
         <button
           onClick={(e) => { e.stopPropagation(); onAddToCart(product) }}
           disabled={!product.isAvailable}
-          className={`mt-1 text-xs sm:text-sm font-medium px-2 sm:px-3 py-1.5 rounded-lg whitespace-nowrap ${
+          className={`mt-1 p-2 rounded-lg whitespace-nowrap flex items-center justify-center ${
             product.isAvailable 
               ? 'bg-red-500 text-white hover:bg-red-600' 
               : 'bg-gray-200 text-gray-500 cursor-not-allowed'
           }`}
+          aria-label={product.isAvailable ? (product.variants?.length ? 'Ver opciones' : 'Agregar al carrito') : 'Agotado'}
         >
-          {product.isAvailable ? 'Agregar' : 'Agotado'}
+          {product.isAvailable ? (
+            <i className={`bi ${product.variants?.length ? 'bi-chevron-down' : 'bi-cart-plus'}`}></i>
+          ) : (
+            <i className="bi bi-cart-x"></i>
+          )}
         </button>
       </div>
     </div>
