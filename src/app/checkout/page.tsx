@@ -1515,7 +1515,17 @@ function CheckoutContent() {
                         <div className="grid grid-cols-2 gap-2">
                           <button
                             type="button"
-                            onClick={() => setDeliveryData(prev => ({ ...prev, type: 'pickup' }))}
+                            onClick={() => {
+                              // Al cambiar a pickup, limpiamos la ubicación seleccionada
+                              setSelectedLocation(null);
+                              setDeliveryData(prev => ({
+                                ...prev, 
+                                type: 'pickup',
+                                address: '',
+                                references: '',
+                                tarifa: '0'
+                              }));
+                            }}
                             className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
                               deliveryData.type === 'pickup'
                                 ? 'border-blue-500 bg-blue-50 text-blue-700'
@@ -1528,7 +1538,14 @@ function CheckoutContent() {
 
                           <button
                             type="button"
-                            onClick={() => setDeliveryData(prev => ({ ...prev, type: 'delivery' }))}
+                            onClick={() => {
+                              // Al cambiar a delivery, mantenemos la dirección pero reseteamos la tarifa
+                              setDeliveryData(prev => ({
+                                ...prev, 
+                                type: 'delivery',
+                                tarifa: '0' // Reseteamos la tarifa
+                              }));
+                            }}
                             className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
                               deliveryData.type === 'delivery'
                                 ? 'border-blue-500 bg-blue-50 text-blue-700'
