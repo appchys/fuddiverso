@@ -35,6 +35,24 @@ export default function ClientLoginModal({
   const [showEditFields, setShowEditFields] = useState(false)
   const [phoneValidated, setPhoneValidated] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
+
+  // Cerrar el modal al hacer clic fuera
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
+        onClose()
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isOpen, onClose])
 
   // Resetear todos los estados al abrir el modal (evita prellenado persistente)
   useEffect(() => {
@@ -73,29 +91,40 @@ export default function ClientLoginModal({
     }
   }, [initialPhone, isOpen])
 
-  // Hash PIN using Web Crypto (SHA-256)
-  async function hashPin(pin: string) {
+  // Función para hashear el PIN de manera consistente
+  async function hashPin(pin: string): Promise<string> {
+    // Usamos una implementación de hash simple pero consistente
+    // que funcione igual en todos los entornos
+    const simpleHash = (str: string): string => {
+      let hash = 0
+      for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i)
+        hash = ((hash << 5) - hash) + char
+        hash = hash & hash // Convierte a 32bit entero
+      }
+      return Math.abs(hash).toString(16).padStart(8, '0')
+    }
+    
+    // Para compatibilidad con hashes existentes, intentamos primero con el método simple
+    // Si el hash resultante tiene 64 caracteres, asumimos que fue generado con SHA-256
+    // y usamos ese método si está disponible
     try {
-      if (typeof window !== 'undefined' && window.crypto?.subtle?.digest && typeof window.crypto.subtle.digest === 'function') {
-        const encoder = new TextEncoder()
-        const data = encoder.encode(pin)
-        const hashBuffer = await window.crypto.subtle.digest('SHA-256', data)
-        const hashArray = Array.from(new Uint8Array(hashBuffer))
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-        return hashHex
+      if (typeof window !== 'undefined' && window.crypto?.subtle?.digest) {
+        // Si el hash existente es de 64 caracteres, usamos SHA-256
+        if (foundClient?.pinHash?.length === 64) {
+          const encoder = new TextEncoder()
+          const data = encoder.encode(pin)
+          const hashBuffer = await window.crypto.subtle.digest('SHA-256', data)
+          const hashArray = Array.from(new Uint8Array(hashBuffer))
+          return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+        }
       }
     } catch (e) {
-      console.warn('Web Crypto API not available, using fallback', e)
+      console.warn('Error usando Web Crypto API, usando hash simple', e)
     }
-    // Fallback simple hash
-    let hash = 0
-    for (let i = 0; i < pin.length; i++) {
-      const char = pin.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash
-    }
-    const hex = Math.abs(hash).toString(16)
-    return hex.padStart(64, '0')
+    
+    // Por defecto, usar el hash simple
+    return simpleHash(pin)
   }
 
   const handleRegisterSubmit = async () => {
@@ -229,10 +258,24 @@ export default function ClientLoginModal({
 
   if (!isOpen) return null
 
+  if (!isOpen) return null
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-[#ff6a8c] rounded-lg max-w-md w-full p-6 text-white">
-        {phoneValidated && (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div 
+        ref={modalRef}
+        className="bg-[#ff6a8c] rounded-lg max-w-md w-full p-6 text-white relative"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Botón de cierre mejorado */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 w-8 h-8 text-white hover:bg-white/20 rounded-full flex items-center justify-center transition-colors focus:outline-none"
+          aria-label="Cerrar modal"
+        >
+          <i className="bi bi-x-lg text-xl"></i>
+        </button>
+        {phoneValidated ? (
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className="relative group">
@@ -293,13 +336,9 @@ export default function ClientLoginModal({
                 </p>
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="text-white/70 hover:text-white"
-            >
-              <i className="bi bi-x-lg"></i>
-            </button>
           </div>
+        ) : (
+          <div className="h-8"></div> // Espacio para mantener el mismo espaciado
         )}
 
         {!phoneValidated ? (

@@ -294,16 +294,40 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                 <div className="relative">
                   <button
                     onClick={() => setShowDropdown(!showDropdown)}
-                    className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                    className="flex items-center space-x-2 p-1 rounded-full hover:bg-gray-100 transition-colors group"
+                    aria-label="Menú de usuario"
                   >
-                    {/* Avatar con iniciales */}
-                    <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                      {getInitials(user.nombres || 'Usuario')}
+                    {/* Contenedor del avatar */}
+                    <div className="relative w-9 h-9">
+                      {/* Imagen de perfil - solo se muestra si hay photoURL */}
+                      {user.photoURL && (
+                        <img 
+                          src={user.photoURL} 
+                          alt={user.nombres || 'Usuario'}
+                          className="w-full h-full rounded-full object-cover"
+                          onError={(e) => {
+                            // Si falla la carga de la imagen, forzamos mostrar las iniciales
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const initials = target.nextElementSibling as HTMLElement;
+                            if (initials) initials.style.display = 'flex';
+                          }}
+                        />
+                      )}
+                      {/* Iniciales - siempre presentes pero ocultas si hay imagen */}
+                      <div 
+                        className={`absolute inset-0 rounded-full flex items-center justify-center text-white font-medium ${user.photoURL ? 'hidden' : 'flex'}`}
+                        style={{ backgroundColor: user.photoURL ? 'transparent' : '#f97316' }}
+                      >
+                        {getInitials(user.nombres || 'Usuario')}
+                      </div>
                     </div>
+                    
+                    {/* Nombre del usuario (oculto en móviles) */}
                     <span className="text-gray-700 text-sm font-medium hidden sm:block">
                       {user.nombres || 'Usuario'}
                     </span>
-                    <i className="bi bi-chevron-down text-gray-400 text-xs"></i>
+                    <i className="bi bi-chevron-down text-gray-400 text-xs group-hover:text-gray-600 transition-colors"></i>
                   </button>
 
                   {/* Dropdown Menu */}
@@ -360,19 +384,13 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                   )}
                 </div>
               ) : (
-                <div className="flex items-center space-x-3">
-                  <Link 
-                    href="/business/login"
-                    className="flex items-center gap-2 text-gray-700 bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                  >
-                    <i className="bi bi-shop text-orange-600"></i>
-                    <span>Negocio</span>
-                  </Link>
+                <div className="flex items-center">
                   <button 
                     onClick={() => setShowLoginModal(true)}
-                    className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-600 transition-colors"
+                    className="w-9 h-9 flex items-center justify-center bg-gray-200 text-gray-600 rounded-full hover:bg-gray-300 transition-colors"
+                    title="Iniciar Sesión"
                   >
-                    Iniciar Sesión
+                    <i className="bi bi-person-fill text-lg"></i>
                   </button>
                 </div>
               )}

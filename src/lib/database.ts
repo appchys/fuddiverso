@@ -1024,6 +1024,7 @@ export interface FirestoreClient {
   createdAt?: any;
   updatedAt?: any;
   pinHash?: string | null;
+  photoURL?: string; // URL de la imagen de perfil del usuario
 }
 
 export interface ClientLocation {
