@@ -13,7 +13,8 @@ import {
   orderBy, 
   serverTimestamp,
   increment as firestoreIncrement,
-  Timestamp
+  Timestamp,
+  getCountFromServer
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
@@ -2395,6 +2396,151 @@ export async function calculateCostReport(
   } catch (error) {
     console.error('Error calculating cost report:', error)
     throw error
+  }
+}
+
+// ==================== RATING FUNCTIONS ====================
+
+// Types for ratings
+export interface BusinessRating {
+  id?: string;
+  businessId: string;
+  orderId: string;
+  rating: number;
+  comment?: string;
+  clientName?: string;
+  clientPhone?: string;
+  clientEmail?: string;
+  userAgent?: string;
+  ipAddress?: string;
+  createdAt: any;
+  updatedAt: any;
+}
+
+/**
+ * Save a rating for a business
+ */
+export async function saveBusinessRating(
+  businessId: string,
+  orderId: string,
+  rating: number,
+  comment: string = '',
+  clientInfo: { name?: string; phone?: string; email?: string } = {}
+): Promise<string> {
+  try {
+    const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
+    const ratingData: Omit<BusinessRating, 'id'> = {
+      businessId,
+      orderId,
+      rating,
+      comment,
+      clientName: clientInfo.name || 'Cliente',
+      clientPhone: clientInfo.phone || '',
+      clientEmail: clientInfo.email || '',
+      userAgent: typeof window !== 'undefined' ? navigator.userAgent : '',
+      ipAddress: '', // Will be set by Firestore rules
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    
+    const docRef = await addDoc(ratingsRef, ratingData);
+    
+    // Update business rating stats
+    await updateBusinessRatingStats(businessId);
+    
+    return docRef.id;
+  } catch (error) {
+    console.error('Error saving rating:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update business rating statistics
+ */
+async function updateBusinessRatingStats(businessId: string): Promise<void> {
+  try {
+    const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
+    const q = query(ratingsRef);
+    const snapshot = await getDocs(q);
+    
+    let totalRating = 0;
+    let ratingCount = 0;
+    
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.rating) {
+        totalRating += data.rating;
+        ratingCount++;
+      }
+    });
+    
+    const averageRating = ratingCount > 0 ? totalRating / ratingCount : 0;
+    
+    // Update business document with new rating stats
+    const businessRef = doc(db, 'businesses', businessId);
+    await updateDoc(businessRef, {
+      ratingAverage: averageRating,
+      ratingCount,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error updating business rating stats:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get ratings for a business
+ */
+export async function getBusinessRatings(
+  businessId: string,
+  limitCount: number = 10
+): Promise<BusinessRating[]> {
+  try {
+    const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
+    const q = query(
+      ratingsRef,
+      orderBy('createdAt', 'desc'),
+      limit(limitCount)
+    );
+    
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as BusinessRating[];
+  } catch (error) {
+    console.error('Error getting business ratings:', error);
+    return [];
+  }
+}
+
+/**
+ * Check if an order has already been rated
+ */
+export async function hasOrderBeenRated(orderId: string): Promise<boolean> {
+  try {
+    // We need to search across all businesses' ratings
+    // This is a limitation of Firestore - in a production app, you might want to 
+    // maintain a separate collection for all ratings with an orderId index
+    const businessesRef = collection(db, 'businesses');
+    const businessesSnapshot = await getDocs(businessesRef);
+    
+    for (const businessDoc of businessesSnapshot.docs) {
+      const ratingsRef = collection(db, 'businesses', businessDoc.id, 'ratings');
+      const q = query(ratingsRef, where('orderId', '==', orderId), limit(1));
+      const snapshot = await getCountFromServer(q);
+      
+      if (snapshot.data().count > 0) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Error checking if order has been rated:', error);
+    return false;
   }
 }
 

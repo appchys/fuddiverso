@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getOrder, getBusiness, getDelivery } from '@/lib/database'
+import { getOrder, getBusiness, getDelivery, saveBusinessRating, hasOrderBeenRated } from '@/lib/database'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 
 type Props = {
@@ -18,15 +18,75 @@ export default function OrderPublicClient({ orderId }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('status')
   const [timeInfo, setTimeInfo] = useState<any>(null) // Nuevo state para timeInfo dinámico
+  
+  // Estados para la calificación
+  const [rating, setRating] = useState(0)
+  const [hover, setHover] = useState(0)
+  const [review, setReview] = useState('')
+  const [clientName, setClientName] = useState('')
+  const [clientEmail, setClientEmail] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [reviewSubmitted, setReviewSubmitted] = useState(false)
+  const [orderRated, setOrderRated] = useState(false)
+  
+
+  // Verificar si la orden ya fue calificada
+  useEffect(() => {
+    const checkOrderRating = async () => {
+      try {
+        const rated = await hasOrderBeenRated(orderId);
+        setOrderRated(rated);
+      } catch (error) {
+        console.error('Error verificando si la orden fue calificada:', error);
+      }
+    };
+
+    if (orderId) {
+      checkOrderRating();
+    }
+  }, [orderId]);
+
+  // Manejar el envío de la calificación
+  const handleRatingSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (rating === 0 || !order?.businessId) return;
+
+    setIsSubmitting(true);
+    try {
+      // Usar el nombre del cliente de la orden (customer.name) si existe, o el proporcionado en el formulario
+      const clientNameToUse = clientName.trim() || order.customer?.name || 'Cliente';
+      // Usar el teléfono del cliente de la orden (customer.phone) si existe
+      const clientPhone = order.customer?.phone || '';
+
+      await saveBusinessRating(
+        order.businessId,
+        orderId,
+        rating,
+        review,
+        {
+          name: clientNameToUse,
+          phone: clientPhone,
+          email: clientEmail.trim() || undefined
+        }
+      );
+      setReviewSubmitted(true);
+      setOrderRated(true);
+    } catch (error) {
+      console.error('Error al enviar la calificación:', error);
+      alert('Ocurrió un error al enviar tu calificación. Por favor, inténtalo de nuevo.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   useEffect(() => {
-    let mounted = true
+    let mounted = true;
     const load = async () => {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
       try {
-        const data = await getOrder(orderId)
-        if (!mounted) return
+        const data = await getOrder(orderId);
+        if (!mounted) return;
         if (!data) {
           setError('Orden no encontrada')
         } else {
@@ -690,6 +750,157 @@ export default function OrderPublicClient({ orderId }: Props) {
                   <p className="text-sm text-gray-400 mt-1">Pronto te asignaremos uno para entregar tu pedido</p>
                 </div>
               )}
+            </div>
+          )}
+          
+          {/* Sección de Calificación */}
+          {!reviewSubmitted && (
+            <div className="mt-8 p-6 bg-white rounded-lg shadow-md">
+              <h3 className="text-lg font-semibold mb-4">Califica tu experiencia</h3>
+              <p className="text-gray-600 mb-4">¿Cómo calificarías tu pedido en {business?.name}?</p>
+              
+              <form onSubmit={handleRatingSubmit} className="space-y-4">
+                <div className="flex items-center">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      className={`text-3xl ${star <= (hover || rating) ? 'text-yellow-400' : 'text-gray-300'}`}
+                      onClick={() => setRating(star)}
+                      onMouseEnter={() => setHover(star)}
+                      onMouseLeave={() => setHover(rating)}
+                    >
+                      ★
+                    </button>
+                  ))}
+                </div>
+                
+                <div>
+                  <label htmlFor="review" className="block text-sm font-medium text-gray-700 mb-1">
+                    Comentario (opcional)
+                  </label>
+                  <textarea
+                    id="review"
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    placeholder="¿Qué te pareció el servicio?"
+                    value={review}
+                    onChange={(e) => setReview(e.target.value)}
+                  />
+                </div>
+                
+                <button
+                  type="submit"
+                  disabled={isSubmitting || rating === 0}
+                  className={`px-4 py-2 rounded-md text-white font-medium ${
+                    rating === 0 ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'
+                  }`}
+                >
+                  {isSubmitting ? 'Enviando...' : 'Enviar calificación'}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* Sección de Calificación */}
+          {!reviewSubmitted && !orderRated && order?.status === 'completed' && (
+            <div className="mt-8 bg-white rounded-lg shadow-md p-6">
+              <h3 className="text-xl font-semibold mb-4">Califica tu experiencia</h3>
+              <p className="text-gray-600 mb-6">¿Cómo calificarías tu pedido en {business?.name}?</p>
+              
+              <form onSubmit={handleRatingSubmit} className="space-y-6">
+                <div className="flex items-center justify-center space-x-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      className={`text-4xl ${star <= (hover || rating) ? 'text-yellow-400' : 'text-gray-300'}`}
+                      onClick={() => setRating(star)}
+                      onMouseEnter={() => setHover(star)}
+                      onMouseLeave={() => setHover(rating)}
+                      aria-label={`Calificar con ${star} ${star === 1 ? 'estrella' : 'estrellas'}`}
+                    >
+                      ★
+                    </button>
+                  ))}
+                </div>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="clientName" className="block text-sm font-medium text-gray-700 mb-1">
+                      Tu nombre (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      id="clientName"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                      placeholder="¿Cómo te llamas?"
+                      value={clientName}
+                      onChange={(e) => setClientName(e.target.value)}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="clientEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                      Tu correo (opcional)
+                    </label>
+                    <input
+                      type="email"
+                      id="clientEmail"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                      placeholder="tu@correo.com"
+                      value={clientEmail}
+                      onChange={(e) => setClientEmail(e.target.value)}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="review" className="block text-sm font-medium text-gray-700 mb-1">
+                      Comentario (opcional)
+                    </label>
+                    <textarea
+                      id="review"
+                      rows={3}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                      placeholder="¿Qué te pareció el servicio?"
+                      value={review}
+                      onChange={(e) => setReview(e.target.value)}
+                    />
+                  </div>
+                </div>
+                
+                <button
+                  type="submit"
+                  disabled={isSubmitting || rating === 0}
+                  className={`w-full py-3 px-4 rounded-md font-medium text-white ${rating === 0 ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'} transition-colors`}
+                >
+                  {isSubmitting ? 'Enviando...' : 'Enviar calificación'}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {reviewSubmitted && (
+            <div className="mt-8 p-6 bg-green-50 text-green-800 rounded-lg">
+              <div className="flex items-center">
+                <svg className="h-6 w-6 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                <p className="font-medium">¡Gracias por tu calificación!</p>
+              </div>
+              <p className="mt-1">Tu opinión es muy importante para nosotros.</p>
+            </div>
+          )}
+
+          {orderRated && !reviewSubmitted && (
+            <div className="mt-8 p-6 bg-blue-50 text-blue-800 rounded-lg">
+              <div className="flex items-center">
+                <svg className="h-6 w-6 text-blue-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="font-medium">¡Gracias por calificar este pedido!</p>
+              </div>
+              <p className="mt-1">Tu opinión ayuda a mejorar nuestro servicio.</p>
             </div>
           )}
       </div>
