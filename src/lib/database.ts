@@ -1197,6 +1197,35 @@ export async function setClientPin(clientId: string, pinHash: string) {
   }
 }
 
+// Limpiar el PIN del cliente (dejarlo en null)
+export async function clearClientPin(clientId: string) {
+  try {
+    console.log('🧹 Clearing PIN for client:', clientId)
+    const clientRef = doc(db, 'clients', clientId)
+    await updateDoc(clientRef, { pinHash: null, updatedAt: serverTimestamp() })
+    return true
+  } catch (error) {
+    console.error('❌ Error clearing client PIN:', error)
+    throw error
+  }
+}
+
+// Registrar evento de olvido de PIN en el cliente
+export async function registerClientForgotPin(clientId: string) {
+  try {
+    console.log('📝 Registering forgot PIN event for client:', clientId)
+    const clientRef = doc(db, 'clients', clientId)
+    await updateDoc(clientRef, { 
+      forgotPinCount: firestoreIncrement(1),
+      lastForgotPinAt: serverTimestamp()
+    })
+    return true
+  } catch (error) {
+    console.error('❌ Error registering forgot PIN event:', error)
+    throw error
+  }
+}
+
 export async function createClient(clientData: { celular: string; nombres: string; fecha_de_registro?: string; id?: string; pinHash?: string }) {
   try {
     console.log('📝 Creating client:', clientData);

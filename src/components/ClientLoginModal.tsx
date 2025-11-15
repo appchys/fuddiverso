@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { searchClientByPhone, createClient, setClientPin, updateClient } from '@/lib/database'
+import { searchClientByPhone, createClient, setClientPin, updateClient, clearClientPin, registerClientForgotPin } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -389,6 +389,33 @@ export default function ClientLoginModal({
                     className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70" 
                     onKeyPress={(e) => e.key === 'Enter' && handleLoginWithPin()}
                   />
+                  <div className="text-right mt-1">
+                    <button 
+                      type="button" 
+                      onClick={async () => {
+                        if (!foundClient?.id) return;
+                        try {
+                          setLoginPinLoading(true)
+                          await registerClientForgotPin(foundClient.id)
+                          await clearClientPin(foundClient.id)
+                          // Refrescar UI para mostrar flujo de crear PIN
+                          setFoundClient((prev: any | null) => (prev ? { ...prev, pinHash: null } : prev))
+                          setLoginPin('')
+                          setLoginPinError('')
+                          // Mantener el teléfono validado para seguir en el modal, pero cambiar de rama
+                          // Al no tener pinHash, se mostrará la sección de crear PIN
+                        } catch (e) {
+                          console.error('Error al limpiar PIN:', e)
+                          setLoginPinError('No se pudo restablecer el PIN. Intenta nuevamente.')
+                        } finally {
+                          setLoginPinLoading(false)
+                        }
+                      }}
+                      className="text-xs text-white/70 hover:text-white transition-colors"
+                    >
+                      ¿Olvidaste tu PIN?
+                    </button>
+                  </div>
                   {loginPinError && <p className="text-yellow-300 text-sm mt-1">{loginPinError}</p>}
                 </div>
                 <div className="flex gap-3">
