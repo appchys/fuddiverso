@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Head from 'next/head'
@@ -84,21 +84,27 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
   updateQuantity: (id: string, quantity: number) => void,
   businessImage?: string
 }) {
+  const [imgLoaded, setImgLoaded] = useState(false)
   const handleCardClick = () => onAddToCart(product)
 
   return (
     <div onClick={handleCardClick} className="bg-white rounded-lg shadow-sm overflow-hidden cursor-pointer hover:bg-gray-50 transition flex items-center p-3 border-b border-gray-100">
       {/* Imagen cuadrada */}
-      <div className="w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100">
+      <div className="w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100 relative">
+        <div className={`absolute inset-0 animate-pulse bg-gray-200 ${imgLoaded ? 'hidden' : 'block'}`}></div>
         <img
           src={product.image || businessImage}
           alt={product.name}
           className="w-full h-full object-cover"
+          loading="lazy"
+          decoding="async"
+          onLoad={() => setImgLoaded(true)}
           onError={(e) => {
             const target = e.target as HTMLImageElement;
-            if (target.src !== businessImage && businessImage) {
-              target.src = businessImage;
+            if (target.src !== (businessImage || '')) {
+              target.src = businessImage || '';
             }
+            setImgLoaded(true)
           }}
         />
       </div>
@@ -163,6 +169,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
   updateQuantity: (id: string, quantity: number) => void;
 }) {
   const [selectedVariant, setSelectedVariant] = useState<any>(null)
+  const [modalImgLoaded, setModalImgLoaded] = useState(false)
 
   if (!isOpen || !product) return null
 
@@ -187,14 +194,19 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
 
             <div className="flex items-start gap-3 mb-3">
               {/* Imagen cuadrada a la izquierda */}
-              <div className="w-24 h-24 sm:w-28 sm:h-28 flex-shrink-0">
+              <div className="w-24 h-24 sm:w-28 sm:h-28 flex-shrink-0 relative">
+                <div className={`absolute inset-0 rounded-lg animate-pulse bg-gray-200 ${modalImgLoaded ? 'hidden' : 'block'}`}></div>
                 <img 
                   src={product?.image || businessImage} 
                   alt={product?.name} 
                   className="w-full h-full object-cover rounded-lg" 
+                  loading="lazy"
+                  decoding="async"
+                  onLoad={() => setModalImgLoaded(true)}
                   onError={(e) => { 
                     const target = e.target as HTMLImageElement; 
-                    if (target.src !== businessImage && businessImage) target.src = businessImage 
+                    if (target.src !== (businessImage || '')) target.src = businessImage || ''
+                    setModalImgLoaded(true)
                   }} 
                 />
               </div>
@@ -301,18 +313,8 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
 }
 
 export default function RestaurantPage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-red-500 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Cargando restaurante...</p>
-        </div>
-      </div>
-    }>
-      <RestaurantContent />
-    </Suspense>
-  )
+  // Quita Suspense: renderiza directo
+  return <RestaurantContent />
 }
 
 function RestaurantContent() {
@@ -334,11 +336,13 @@ function RestaurantContent() {
     type: 'success'
   })
   const [premioAgregado, setPremioAgregado] = useState(false)
+  const [coverLoaded, setCoverLoaded] = useState(false)
+  const [logoLoaded, setLogoLoaded] = useState(false)
 
   useEffect(() => {
     const loadRestaurantData = async () => {
+      // No setLoading(true) aquí para zero-load feel, pero mantén el estado para skeletons
       try {
-        setLoading(true)
         console.log('🔍 Loading restaurant data for username:', username)
         
         const businessData = await getBusinessByUsername(username)
@@ -646,18 +650,8 @@ function RestaurantContent() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-red-500 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Cargando...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (error || !business) {
+  // Si hay error, mostrar página de error (no loading)
+  if (error || (!loading && !business)) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -682,7 +676,7 @@ function RestaurantContent() {
   const availableProducts = products.filter(product => product.isAvailable)
   
   // Si hay categorías definidas en el negocio, usamos ese orden
-  if (business.categories?.length) {
+  if (business?.categories?.length && !loading) {
     // Creamos las categorías en el orden definido
     business.categories.forEach(category => {
       const categoryProducts = availableProducts.filter(p => p.category === category)
@@ -696,7 +690,7 @@ function RestaurantContent() {
     if (uncategorizedProducts.length > 0) {
       productsByCategory['Otros'] = uncategorizedProducts
     }
-  } else {
+  } else if (!loading) {
     // Si no hay categorías definidas, agrupamos normalmente
     availableProducts.forEach(product => {
       const category = product.category || 'Otros'
@@ -710,22 +704,31 @@ function RestaurantContent() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Structured Data for SEO */}
-      <BusinessStructuredData business={business} />
+      {!loading && business && <BusinessStructuredData business={business} />}
       
-      {/* Hero Section */}
+      {/* Hero Section - Siempre visible, con shimmer si loading */}
       <div className="bg-white shadow-sm">
         {/* Portada con logo superpuesto */}
-        <div className="relative w-full h-36 sm:h-48 bg-gray-200">
-          {business.coverImage ? (
-            <img
-              src={business.coverImage}
-              alt={`Portada de ${business.name}`}
-              className="w-full h-full object-cover"
-            />
+        <div className={`relative w-full h-36 sm:h-48 ${loading ? 'bg-gray-200 animate-pulse' : 'bg-gray-200'}`}>
+          {loading ? (
+            <div className="absolute inset-0 bg-gradient-to-br from-gray-200 to-gray-300 rounded-b-lg" />
+          ) : business?.coverImage ? (
+            <>
+              <div className={`absolute inset-0 animate-pulse bg-gray-200 ${coverLoaded ? 'hidden' : 'block'}`}></div>
+              <img
+                src={business.coverImage}
+                alt={`Portada de ${business.name}`}
+                className="w-full h-full object-cover"
+                loading="eager"
+                decoding="async"
+                onLoad={() => setCoverLoaded(true)}
+                onError={() => setCoverLoaded(true)}
+              />
+            </>
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-orange-100 to-orange-200" />
           )}
-          {/* Botón copiar enlace como ícono (mejor para móviles) */}
+          {/* Botón copiar enlace como ícono (mejor para móviles) - siempre visible */}
           <button
             onClick={copyStoreLink}
             aria-label="Copiar enlace de la tienda"
@@ -733,72 +736,109 @@ function RestaurantContent() {
           >
             <i className="bi bi-share"></i>
           </button>
-          {business.image && (
-            <div className="absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 z-10">
+          {/* Logo: placeholder si loading */}
+          <div className={`absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 z-10 ${loading ? 'w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-white shadow-lg bg-gray-200 animate-pulse' : ''}`}>
+            {!loading && business?.image && (
               <img
                 src={business.image}
                 alt={business.name}
                 className="w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-white shadow-lg object-cover"
+                loading="eager"
+                decoding="async"
+                onLoad={() => setLogoLoaded(true)}
+                onError={() => setLogoLoaded(true)}
               />
-            </div>
-          )}
+            )}
+          </div>
         </div>
         
         {/* Contenido debajo de la portada */}
-        <div className="max-w-3xl mx-auto px-4 pt-12 sm:pt-14 pb-4 text-center">
+        <div className={`max-w-3xl mx-auto px-4 pt-12 sm:pt-14 pb-4 text-center ${loading ? 'opacity-50 animate-pulse' : ''}`}>
           <div className="flex flex-col items-center">
             <div className="w-full">
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{business.name}</h1>
-              {/* Descripción */}
-              {business.description && (
+              <h1 className={`text-xl sm:text-2xl font-bold ${loading ? 'bg-gray-200 h-8 rounded animate-pulse w-full' : 'text-gray-900'}`}>
+                {!loading && business?.name}
+              </h1>
+              {/* Descripción con shimmer */}
+              {loading ? (
+                <div className="h-4 bg-gray-200 rounded mt-1 w-3/4 mx-auto animate-pulse"></div>
+              ) : business?.description ? (
                 <p className="text-gray-600 text-sm mt-1 max-w-2xl mx-auto">
                   {business.description}
                 </p>
-              )}
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 mt-2">
-                {/* Estado de la tienda */}
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                  isStoreOpen() 
-                    ? 'bg-green-100 text-green-800' 
-                    : 'bg-red-100 text-red-800'
-                }`}>
-                  <i className={`bi ${isStoreOpen() ? 'bi-clock' : 'bi-clock-history'} mr-1`}></i>
-                  {isStoreOpen() ? 'Abierta' : 'Cerrada'}
-                </span>
-                {/* Dirección */}
-                {business.address && (
+              ) : null}
+              <div className={`flex flex-col sm:flex-row items-center justify-center gap-2 mt-2 ${loading ? 'space-y-2' : ''}`}>
+                {/* Estado de la tienda con placeholder */}
+                {loading ? (
+                  <div className="inline-flex items-center px-8 py-0.5 bg-gray-200 rounded-full animate-pulse"></div>
+                ) : (
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                    isStoreOpen() 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-red-100 text-red-800'
+                  }`}>
+                    <i className={`bi ${isStoreOpen() ? 'bi-clock' : 'bi-clock-history'} mr-1`}></i>
+                    {isStoreOpen() ? 'Abierta' : 'Cerrada'}
+                  </span>
+                )}
+                {/* Dirección con placeholder */}
+                {loading ? (
+                  <div className="text-xs bg-gray-200 h-4 w-32 rounded animate-pulse"></div>
+                ) : business?.address ? (
                   <span className="text-xs text-gray-500 inline-flex items-center">
                     <i className="bi bi-geo-alt mr-1"></i>
                     {business.address}
                   </span>
-                )}
+                ) : null}
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Menu Content */}
+      {/* Menu Content - Con shimmer cards si loading */}
       <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
-        <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-6">Nuestro Menú</h2>
+        <h2 className={`text-xl sm:text-2xl font-bold ${loading ? 'bg-gray-300 h-8 w-48 rounded animate-pulse mb-6 mx-auto' : 'text-gray-900 mb-6'}`}>
+          {!loading ? 'Nuestro Menú' : ''}
+        </h2>
         
-        {Object.entries(productsByCategory).map(([category, categoryProducts]) => (
-          <div key={category} className="mb-8">
-            <h3 className="text-lg sm:text-xl font-semibold text-gray-800 mb-4">{category}</h3>
-            <div className="space-y-3">
-              {categoryProducts.map((product) => (
-                <ProductVariantSelector
-                  key={product.id}
-                  product={product}
-                  onAddToCart={addToCart}
-                  getCartItemQuantity={getCartItemQuantity}
-                  updateQuantity={updateQuantity}
-                  businessImage={business?.image}
-                />
-              ))}
-            </div>
+        {loading ? (
+          // Skeleton para categorías y productos
+          <div className="space-y-8">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="mb-8">
+                <div className="h-6 bg-gray-200 rounded w-32 animate-pulse mb-4"></div>
+                <div className="space-y-3">
+                  {Array.from({ length: 4 }).map((_, j) => (
+                    <div key={j} className="bg-white rounded-lg shadow-sm p-3 h-20 animate-pulse border-b border-gray-100"></div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
+        ) : Object.entries(productsByCategory).length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-gray-500">No hay productos disponibles en este momento.</p>
+          </div>
+        ) : (
+          Object.entries(productsByCategory).map(([category, categoryProducts]) => (
+            <div key={category} className="mb-8">
+              <h3 className="text-lg sm:text-xl font-semibold text-gray-800 mb-4">{category}</h3>
+              <div className="space-y-3">
+                {categoryProducts.map((product) => (
+                  <ProductVariantSelector
+                    key={product.id}
+                    product={product}
+                    onAddToCart={addToCart}
+                    getCartItemQuantity={getCartItemQuantity}
+                    updateQuantity={updateQuantity}
+                    businessImage={business?.image}
+                  />
+                ))}
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Floating Cart Button */}
@@ -1011,7 +1051,7 @@ function RestaurantContent() {
       <PremioFloatingButton 
         onAgregarPremio={manejarAgregarPremio}
         premioYaAgregado={premioAgregado}
-        businessName={business.name}
+        businessName={business?.name || ''}
         show={true}
       />
 
