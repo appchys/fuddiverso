@@ -1109,18 +1109,44 @@ function CheckoutContent() {
         await handleCreateClient()
       }
 
+      // Validar que la hora programada sea al menos 30 minutos en el futuro
+      if (timingData.type === 'scheduled') {
+        const now = new Date();
+        const scheduledDateTime = new Date(`${timingData.scheduledDate}T${timingData.scheduledTime}`);
+        const minScheduledTime = new Date(now.getTime() + 29 * 60 * 1000); // 29 minutos para dar un pequeño margen
+        
+        if (scheduledDateTime < minScheduledTime) {
+          alert('La hora programada debe ser al menos 30 minutos después de la hora actual');
+          setLoading(false);
+          setIsProcessingOrder(false);
+          return;
+        }
+      }
+
       // Calcular tiempo de entrega
       let scheduledTime, scheduledDate;
       
       if (timingData.type === 'immediate') {
         // Para inmediato: fecha y hora actuales + 30 minutos
-        const deliveryTime = new Date(Date.now() + 30 * 60 * 1000);
-        scheduledDate = Timestamp.fromDate(deliveryTime); // Convertir a Timestamp de Firebase
-        scheduledTime = deliveryTime.toTimeString().slice(0, 5); // HH:MM
+        const now = new Date();
+        const deliveryTime = new Date(now.getTime() + 30 * 60 * 1000);
+        
+        // Asegurarse de que la hora esté en formato de 24h con ceros a la izquierda
+        const hours = String(deliveryTime.getHours()).padStart(2, '0');
+        const minutes = String(deliveryTime.getMinutes()).padStart(2, '0');
+        
+        scheduledDate = Timestamp.fromDate(deliveryTime);
+        scheduledTime = `${hours}:${minutes}`; // Formato HH:MM
       } else {
-        // Para programado: convertir string a Date y luego a Timestamp
-        const programmedDate = new Date(timingData.scheduledDate);
-        scheduledDate = Timestamp.fromDate(programmedDate);
+        // Para programado: combinar fecha y hora en la zona horaria local
+        const [year, month, day] = timingData.scheduledDate.split('-').map(Number);
+        const [hours, minutes] = timingData.scheduledTime.split(':').map(Number);
+        
+        // Crear fecha en la zona horaria local
+        const localDate = new Date(year, month - 1, day, hours, minutes);
+        
+        // Convertir a Timestamp (Firestore usa UTC internamente)
+        scheduledDate = Timestamp.fromDate(localDate);
         scheduledTime = timingData.scheduledTime;
       }
 
