@@ -1019,13 +1019,13 @@ function RestaurantContent() {
                   {/* Botón de checkout o agregar más */}
                   {cartTotal > 0 ? (
                     <Link
-                      href={`/checkout?businessId=${business.id}`}
-                      className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white py-4 rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-200 flex items-center justify-center font-semibold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-                      onClick={() => setIsCartOpen(false)}
-                    >
-                      <i className="bi bi-cart mr-2 text-xl"></i>
-                      Continuar con el pedido
-                    </Link>
+  href={`/checkout?businessId=${business!.id}`}  // Agrega ! para non-null assertion, ya que business existe aquí
+  className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white py-4 rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-200 flex items-center justify-center font-semibold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+  onClick={() => setIsCartOpen(false)}
+>
+  <i className="bi bi-cart mr-2 text-xl"></i>
+  Continuar con el pedido
+</Link>
                   ) : (
                     <button
                       onClick={() => setIsCartOpen(false)}
@@ -1048,11 +1048,12 @@ function RestaurantContent() {
       )}
 
       {/* Botón Flotante de Premio */}
-      <PremioFloatingButton 
+      <PremioFloatingButton
         onAgregarPremio={manejarAgregarPremio}
         premioYaAgregado={premioAgregado}
         businessName={business?.name || ''}
         show={true}
+        initialExpanded={true}
       />
 
       {/* Modal de variantes */}

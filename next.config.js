@@ -6,6 +6,14 @@ const withPWA = require('@ducanh2912/next-pwa').default({
   disable: process.env.NODE_ENV === 'development',
   cacheOnFrontEndNav: true,
   aggressiveFrontEndNavCaching: true,
+  // Deshabilitar precaching en desarrollo
+  disableDevLogs: true,
+  // Configuración de precaching
+  buildExcludes: [
+    /middleware-manifest\.json$/, 
+    /_middleware\.js$/, 
+    /_middleware\.js\.map$/
+  ],
   runtimeCaching: [
     {
       urlPattern: /^https?:\/\/.*\.(png|jpg|jpeg|svg|gif|webp)$/i,

@@ -8,15 +8,32 @@ interface PremioFloatingButtonProps {
   premioYaAgregado: boolean
   businessName?: string
   show?: boolean
+  initialExpanded?: boolean
 }
 
-export function PremioFloatingButton({ onAgregarPremio, premioYaAgregado, businessName = '', show = false }: PremioFloatingButtonProps) {
+export function PremioFloatingButton({ 
+  onAgregarPremio, 
+  premioYaAgregado, 
+  businessName = '', 
+  show = false, 
+  initialExpanded = false 
+}: PremioFloatingButtonProps) {
   // Mostrar solo si show es true
   if (!show) {
     return null;
   }
   
-  const [isExpanded, setIsExpanded] = useState(false);
+  // Efecto para manejar el colapso automático cuando está inicialmente expandido
+  useEffect(() => {
+    if (initialExpanded) {
+      const timer = setTimeout(() => {
+        setIsExpanded(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [initialExpanded]);
+  
+  const [isExpanded, setIsExpanded] = useState(initialExpanded);
   
   const handleClick = () => {
     if (isExpanded) {
