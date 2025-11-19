@@ -905,92 +905,106 @@ function RestaurantContent() {
                   </div>
                 ) : (
                   <div className="p-4 space-y-3">
-                    {cart.map((item, index) => (
-                      <div 
-                        key={item.id} 
-                        className={`group rounded-xl p-3 transition-all duration-200 ${
-                          item.esPremio 
-                            ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300 shadow-md' 
-                            : 'bg-white border border-gray-100 hover:shadow-md'
-                        }`}
-                      >
-                        <div className="flex items-center space-x-3">
-                          {/* Imagen del producto */}
-                          <div className={`w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden ${
-                            item.esPremio ? 'ring-2 ring-amber-400' : 'bg-gray-100'
-                          }`}>
-                            <img
-                              src={item.image || business?.image}
-                              alt={item.name}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                if (target.src !== business?.image) {
-                                  target.src = business?.image || '';
-                                }
-                              }}
-                            />
-                          </div>
-                          
-                          {/* Información del producto */}
-                          <div className="flex-1 min-w-0">
-                            <h4 className={`font-medium text-sm line-clamp-2 leading-tight ${
-                              item.esPremio ? 'text-amber-900' : 'text-gray-900'
-                            }`}>
-                              {item.name}
-                            </h4>
-                            {item.esPremio && (
-                              <span className="inline-block mt-1 text-xs bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-semibold">
-                                ¡Premio Especial!
-                              </span>
-                            )}
-                            {/* Controles de cantidad - No mostrar para premios */}
-                            {!item.esPremio && (
-                              <div className="mt-2">
-                                <div className="flex items-center bg-gray-100 rounded-lg overflow-hidden w-fit">
-                                  <button
-                                    onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                                    className="w-8 h-8 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
-                                  >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-                                    </svg>
-                                  </button>
-                                  <span className="px-3 py-1 text-sm font-medium min-w-[40px] text-center bg-white">
-                                    {item.quantity}
-                                  </span>
-                                  <button
-                                    onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                                    className="w-8 h-8 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
-                                  >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                                    </svg>
-                                  </button>
-                                </div>
-                                
-                                {/* Subtotal del producto */}
-                                <div className="text-right">
-                                  <div className="text-sm font-semibold text-gray-900">
-                                    ${(item.price * item.quantity).toFixed(2)}
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          
-                          {/* Botón eliminar */}
-                          <button
-                            onClick={() => removeFromCart(item.id)}
-                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                    {/* === NUEVA VERSIÓN AGRUPADA DEL CARRITO === */}
+{(() => {
+  // Agrupamos los ítems por producto base (ignorando variantes y premios)
+  const grouped: Record<string, any[]> = {}
+  
+  cart.forEach(item => {
+    if (item.esPremio) {
+      // Los premios van solos
+      if (!grouped['__premio__']) grouped['__premio__'] = []
+      grouped['__premio__'].push(item)
+      return
+    }
+
+    const key = item.productName || item.name
+    if (!grouped[key]) grouped[key] = []
+    grouped[key].push(item)
+  })
+
+  return Object.entries(grouped).map(([productName, items]) => (
+    <div key={productName} className="mb-4 last:mb-0">
+      {/* Nombre del producto como "título" (solo si no es premio) */}
+      {productName !== '__premio__' && (
+        <h3 className="text-sm font-semibold text-gray-700 mb-2 px-1">
+          {productName}
+        </h3>
+      )}
+
+      {/* Lista de variantes / ítems de este producto */}
+      <div className="space-y-2">
+        {items.map((item, index) => (
+          <div
+            key={item.id}
+            className={`rounded-lg p-3 transition-all ${
+              item.esPremio
+                ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300 shadow-md'
+                : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                {/* Nombre de la variante o nombre completo */}
+                <p className={`font-medium text-sm ${
+                  item.esPremio ? 'text-amber-900' : 'text-gray-900'
+                }`}>
+                  {item.esPremio
+                    ? item.name
+                    : (item.variantName || item.name)}
+                </p>
+
+                {/* Etiqueta de premio */}
+                {item.esPremio && (
+                  <span className="inline-block mt-1 text-xs bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-semibold">
+                    ¡Premio Especial!
+                  </span>
+                )}
+              </div>
+
+              {/* Controles de cantidad y precio */}
+              <div className="text-right">
+                {!item.esPremio && (
+                  <div className="flex items-center gap-2 mb-1 justify-end">
+                    <button
+                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                      className="w-7 h-7 rounded-full bg-white border border-gray-300 flex items-center justify-center hover:bg-gray-200 transition"
+                    >
+                      <span className="text-xs">−</span>
+                    </button>
+                    <span className="w-8 text-center font-medium text-sm">
+                      {item.quantity}
+                    </span>
+                    <button
+                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                      className="w-7 h-7 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition"
+                    >
+                      <span className="text-xs">+</span>
+                    </button>
+                  </div>
+                )}
+
+                <div className={`font-semibold ${item.price === 0 ? 'text-green-600' : 'text-gray-900'}`}>
+                  {item.price === 0 ? 'GRATIS' : `$${(item.price * item.quantity).toFixed(2)}`}
+                </div>
+              </div>
+
+              {/* Botón eliminar */}
+              <button
+                onClick={() => removeFromCart(item.id)}
+                className="ml-2 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  ))
+})()}
                   </div>
                 )}
               </div>
