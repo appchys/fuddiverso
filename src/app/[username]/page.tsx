@@ -893,121 +893,135 @@ function RestaurantContent() {
                 )}
               </div>
 
-              {/* Cart Content */}
-              <div className="flex-1 overflow-y-auto">
-                {cart.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full px-4 text-center">
-                    <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                      <i className="bi bi-cart text-4xl text-gray-400"></i>
+              {/* Cart Content - VERSIÓN FINAL PREMIUM */}
+<div className="flex-1 overflow-y-auto px-4 pt-4">
+  {cart.length === 0 ? (
+    <div className="flex flex-col items-center justify-center h-full text-center px-4">
+      <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+        <i className="bi bi-cart text-4xl text-gray-400"></i>
+      </div>
+      <h4 className="text-lg font-medium text-gray-900 mb-2">Tu carrito está vacío</h4>
+      <p className="text-gray-500 text-sm">Agrega algunos productos deliciosos para comenzar</p>
+    </div>
+  ) : (
+    <div className="space-y-6 pb-4">
+      {/* === CARRITO AGRUPADO CON IMAGEN Y DISEÑO PREMIUM === */}
+      {(() => {
+        const grouped: Record<string, any[]> = {}
+        
+        cart.forEach(item => {
+          if (item.esPremio) {
+            if (!grouped['___premio_final___']) grouped['___premio_final___'] = []
+            grouped['___premio_final___'].push(item)
+            return
+          }
+          const key = item.productName || item.name
+          if (!grouped[key]) grouped[key] = []
+          grouped[key].push(item)
+        })
+
+        return Object.entries(grouped)
+          .sort(([a]) => (a === '___premio_final___' ? 1 : -1))
+          .map(([productName, items], groupIndex) => {
+            const firstItem = items[0]
+            const isPremio = productName === '___premio_final___'
+
+            return (
+              <div key={productName} className={`${groupIndex > 0 && !isPremio ? 'pt-6 border-t border-gray-200' : ''}`}>
+                {/* Título del producto + imagen (solo si no es premio) */}
+                {!isPremio && (
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 shadow-sm">
+                      <img
+                        src={firstItem.image || business?.image}
+                        alt={productName}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement
+                          if (target.src !== business?.image) target.src = business?.image || ''
+                        }}
+                      />
                     </div>
-                    <h4 className="text-lg font-medium text-gray-900 mb-2">Tu carrito está vacío</h4>
-                    <p className="text-gray-500 text-sm">Agrega algunos productos deliciosos para comenzar</p>
-                  </div>
-                ) : (
-                  <div className="p-4 space-y-3">
-                    {/* === NUEVA VERSIÓN AGRUPADA DEL CARRITO === */}
-{(() => {
-  // Agrupamos los ítems por producto base (ignorando variantes y premios)
-  const grouped: Record<string, any[]> = {}
-  
-  cart.forEach(item => {
-    if (item.esPremio) {
-      // Los premios van solos
-      if (!grouped['__premio__']) grouped['__premio__'] = []
-      grouped['__premio__'].push(item)
-      return
-    }
-
-    const key = item.productName || item.name
-    if (!grouped[key]) grouped[key] = []
-    grouped[key].push(item)
-  })
-
-  return Object.entries(grouped).map(([productName, items]) => (
-    <div key={productName} className="mb-4 last:mb-0">
-      {/* Nombre del producto como "título" (solo si no es premio) */}
-      {productName !== '__premio__' && (
-        <h3 className="text-sm font-semibold text-gray-700 mb-2 px-1">
-          {productName}
-        </h3>
-      )}
-
-      {/* Lista de variantes / ítems de este producto */}
-      <div className="space-y-2">
-        {items.map((item, index) => (
-          <div
-            key={item.id}
-            className={`rounded-lg p-3 transition-all ${
-              item.esPremio
-                ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300 shadow-md'
-                : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
-            }`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                {/* Nombre de la variante o nombre completo */}
-                <p className={`font-medium text-sm ${
-                  item.esPremio ? 'text-amber-900' : 'text-gray-900'
-                }`}>
-                  {item.esPremio
-                    ? item.name
-                    : (item.variantName || item.name)}
-                </p>
-
-                {/* Etiqueta de premio */}
-                {item.esPremio && (
-                  <span className="inline-block mt-1 text-xs bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-semibold">
-                    ¡Premio Especial!
-                  </span>
-                )}
-              </div>
-
-              {/* Controles de cantidad y precio */}
-              <div className="text-right">
-                {!item.esPremio && (
-                  <div className="flex items-center gap-2 mb-1 justify-end">
-                    <button
-                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                      className="w-7 h-7 rounded-full bg-white border border-gray-300 flex items-center justify-center hover:bg-gray-200 transition"
-                    >
-                      <span className="text-xs">−</span>
-                    </button>
-                    <span className="w-8 text-center font-medium text-sm">
-                      {item.quantity}
-                    </span>
-                    <button
-                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                      className="w-7 h-7 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition"
-                    >
-                      <span className="text-xs">+</span>
-                    </button>
+                    <h3 className="font-bold text-gray-900">{productName}</h3>
                   </div>
                 )}
 
-                <div className={`font-semibold ${item.price === 0 ? 'text-green-600' : 'text-gray-900'}`}>
-                  {item.price === 0 ? 'GRATIS' : `$${(item.price * item.quantity).toFixed(2)}`}
+                {/* Variantes del producto */}
+                <div className="space-y-3 ml-15"> {/* ml-15 = ml-[60px] para alinear con la imagen */}
+                  {items.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`relative rounded-2xl p-4 transition-all ${
+                        item.esPremio
+                          ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300 shadow-lg'
+                          : 'bg-white border border-gray-200 shadow-sm hover:shadow-md'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        {/* Nombre variante + etiqueta premio */}
+                        <div className="flex-1 min-w-0">
+                          <p className={`font-semibold text-base leading-tight ${
+                            item.esPremio ? 'text-amber-900' : 'text-gray-900'
+                          }`}>
+                            {item.esPremio ? item.name : (item.variantName || item.name)}
+                          </p>
+                          {item.esPremio && (
+                            <span className="inline-block mt-1.5 text-xs bg-amber-200 text-amber-900 px-3 py-1 rounded-full font-bold">
+                              ¡Premio Especial! 🎁
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Controles cantidad + precio */}
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            {!item.esPremio && (
+                              <div className="flex items-center gap-2 mb-2">
+                                <button
+                                  onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                                  className="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition"
+                                >
+                                  <span className="text-lg">−</span>
+                                </button>
+                                <span className="w-10 text-center font-bold text-gray-900">
+                                  {item.quantity}
+                                </span>
+                                <button
+                                  onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                                  className="w-9 h-9 rounded-full bg-red-500 text-white hover:bg-red-600 flex items-center justify-center transition"
+                                >
+                                  <span className="text-lg">+</span>
+                                </button>
+                              </div>
+                            )}
+                            <div className={`font-bold text-lg ${
+                              item.price === 0 ? 'text-green-600' : 'text-gray-900'
+                            }`}>
+                              {item.price === 0 ? 'GRATIS' : `$${(item.price * item.quantity).toFixed(2)}`}
+                            </div>
+                          </div>
+
+                          {/* Botón eliminar */}
+                          <button
+                            onClick={() => removeFromCart(item.id)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-
-              {/* Botón eliminar */}
-              <button
-                onClick={() => removeFromCart(item.id)}
-                className="ml-2 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+            )
+          })
+      })()}
     </div>
-  ))
-})()}
-                  </div>
-                )}
-              </div>
+  )}
+</div>
 
               {/* Footer con resumen y botón de checkout */}
               {cart.length > 0 && (
