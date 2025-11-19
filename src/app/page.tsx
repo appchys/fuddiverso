@@ -6,6 +6,7 @@ import { getAllBusinesses, searchBusinesses } from '@/lib/database'
 import { Business } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSearchParams } from 'next/navigation'
+import StarRating from '@/components/StarRating'
 
 function HomePageContent() {
   const { user } = useAuth()
@@ -179,10 +180,20 @@ function HomePageContent() {
                           )}
                         </div>
                       )}
+                      <div className="mb-2">
+                        {b.ratingAverage ? (
+                          <div className="flex items-center">
+                            <StarRating rating={b.ratingAverage} size="sm" />
+                            <span className="text-xs text-gray-500 ml-1">({b.ratingCount || 0})</span>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-gray-400">Sin calificaciones</div>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-600 line-clamp-2 mb-3">{b.description}</p>
-                      <div className="text-xs text-gray-500 flex justify-between">
-                        <span>{b.address}</span>
-                        <span className="text-[#aa1918] font-medium">Envío $1</span>
+                      <div className="text-xs text-gray-500 flex justify-between items-center">
+                        <span className="truncate max-w-[70%]">{b.address}</span>
+                        <span className="text-[#aa1918] font-medium whitespace-nowrap ml-2">Envío $1</span>
                       </div>
                     </div>
                   </Link>

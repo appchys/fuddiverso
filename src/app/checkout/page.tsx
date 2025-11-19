@@ -1118,13 +1118,9 @@ function CheckoutContent() {
         scheduledDate = Timestamp.fromDate(deliveryTime); // Convertir a Timestamp de Firebase
         scheduledTime = deliveryTime.toTimeString().slice(0, 5); // HH:MM
       } else {
-        // Para programado: combinar fecha y hora en la zona horaria local y luego convertir a Timestamp
-        const [hours, minutes] = timingData.scheduledTime.split(':').map(Number);
-        const localDate = new Date(timingData.scheduledDate);
-        localDate.setHours(hours, minutes, 0, 0);
-        
-        // Usar la fecha/hora local para crear el timestamp
-        scheduledDate = Timestamp.fromDate(localDate);
+        // Para programado: convertir string a Date y luego a Timestamp
+        const programmedDate = new Date(timingData.scheduledDate);
+        scheduledDate = Timestamp.fromDate(programmedDate);
         scheduledTime = timingData.scheduledTime;
       }
 

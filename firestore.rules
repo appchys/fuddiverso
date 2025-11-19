@@ -5,6 +5,38 @@ service cloud.firestore {
     match /businesses/{document} {
       allow read: if true;
       allow write: if request.auth != null;
+      
+      // Subcolección de biblioteca de ingredientes
+      match /ingredientLibrary/{ingredientId} {
+        // Lectura: usuarios autenticados pueden leer ingredientes de su negocio
+        allow read: if request.auth != null;
+        // Escritura: usuarios autenticados pueden crear/actualizar/eliminar ingredientes
+        allow write: if request.auth != null;
+      }
+      
+      // Subcolección de calificaciones
+      match /ratings/{ratingId} {
+        // Permitir lectura pública para verificar si una orden ya fue calificada
+        allow read: if true;
+        
+        // Permitir consultas de agregación (necesario para count, avg, etc.)
+        allow list, get: if true;
+        
+        // Cualquiera puede crear calificaciones (los clientes sin autenticación)
+        allow create: if (
+          // Validar que los campos requeridos estén presentes
+          request.resource.data.keys().hasAll(['orderId', 'rating']) &&
+          // Validar que el rating sea un número entre 1 y 5
+          request.resource.data.rating is number &&
+          request.resource.data.rating >= 1 &&
+          request.resource.data.rating <= 5 &&
+          // Asegurarse de que el businessId en la ruta coincida con el negocio
+          request.resource.data.businessId == document
+        );
+        
+        // No permitir actualizaciones ni eliminaciones
+        allow update, delete: if false;
+      }
     }
 
     match /products/{document} {
@@ -20,9 +52,10 @@ service cloud.firestore {
       allow write: if true;
     }
 
-    // Los pedidos solo pueden ser creados por usuarios autenticados
+    // Los pedidos pueden ser creados, leídos y editados sin autenticación (para checkout y acceso a "sus pedidos"), pero eliminación solo para autenticados
     match /orders/{document} {
-      allow read, write: if request.auth != null;
+      allow create, read, update: if true;
+      allow delete: if request.auth != null;
     }
 
     // Colección para contadores de visitas por negocio
@@ -34,7 +67,7 @@ service cloud.firestore {
 
       // Creación: autenticados pueden crear libremente.
       // Anónimos sólo pueden crear el documento inicial con count == 1
-      // y opcionalmente incluir timestamps `createdAt`/`updatedAt`.
+      // y opcionalmente incluir timestamps `createdAt` /`updatedAt` .
       allow create: if request.auth != null || (
         request.resource.data.keys().hasAll(['count']) &&
         request.resource.data.count is int &&
@@ -47,9 +80,9 @@ service cloud.firestore {
       );
 
       // Update: autenticados pueden actualizar libremente.
-      // Anónimos sólo pueden modificar el contador y el timestamp `updatedAt`.
+      // Anónimos sólo pueden modificar el contador y el timestamp `updatedAt` .
       // Permitimos esta operación cuando las únicas claves que se escriben
-      // son `count` y opcionalmente `updatedAt`. Esto permite usar
+      // son `count`  y opcionalmente `updatedAt` . Esto permite usar
       // FieldValue.increment y serverTimestamp desde el cliente.
       allow update: if request.auth != null || (
         request.writeFields.size() > 0 &&
@@ -66,8 +99,8 @@ service cloud.firestore {
       // Permitimos lectura pública para que el frontend (checkout) pueda
       // obtener las ubicaciones del cliente sin necesidad de auth.
       allow read: if true;
-      // Escrituras sólo por usuarios autenticados (crear/editar/eliminar)
-      allow write: if request.auth != null;
+      // Escrituras permitidas sin autenticación para permitir guardado durante checkout (similar a clients)
+      allow write: if true;
     }
 
     // Colección de deliveries (repartidores)
@@ -83,6 +116,40 @@ service cloud.firestore {
       allow read: if true;
       // Escrituras sólo por usuarios autenticados (administración)
       allow write: if request.auth != null;
+    }
+
+    // Colección de Gastos
+    // Acceso restringido a usuarios autenticados (admin/bussiness)
+    match /expenses/{document} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // Colección de códigos QR
+    match /qrCodes/{document} {
+      // Lectura pública para que cualquier cliente pueda escanear
+      allow read: if true;
+      // Solo usuarios autenticados pueden crear y actualizar códigos
+      allow create, update: if request.auth != null;
+      // Permitir eliminación solo a usuarios autenticados
+      allow delete: if request.auth != null;
+    }
+
+    // Colección de progreso de usuarios en códigos QR
+    // Similar a ubicaciones: permitir lectura/escritura pública para clientes sin auth
+    // Los clientes se identifican por su número de celular (userId)
+    match /userQRProgress/{document} {
+      // Lectura pública (similar a ubicaciones y clients)
+      // Los clientes pueden consultar su progreso usando su celular como userId
+      allow read: if true;
+      
+      // Escritura pública (similar a ubicaciones y clients)
+      // Permitir crear y actualizar para que los clientes puedan registrar escaneos
+      // sin necesidad de autenticación Firebase
+      allow create, update: if true;
+      
+      // No permitir eliminación
+      allow delete: if false;
     }
   }
 }
