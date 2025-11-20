@@ -34,6 +34,8 @@ export interface Business {
   isActive: boolean
   createdAt: Date
   updatedAt: Date
+  ratingAverage?: number // Calificación promedio
+  ratingCount?: number // Cantidad de calificaciones
 }
 
 export interface BusinessAdministrator {

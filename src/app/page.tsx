@@ -1,16 +1,18 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { getAllBusinesses, searchBusinesses } from '@/lib/database'
 import { Business } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
-import { useSearchParams } from 'next/navigation'
 import StarRating from '@/components/StarRating'
 
-function HomePageContent() {
+export default function HomePage() {
   const { user } = useAuth()
   const searchParams = useSearchParams()
+  const router = useRouter()
+
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -18,6 +20,7 @@ function HomePageContent() {
   const [followedBusinesses, setFollowedBusinesses] = useState<Set<string>>(new Set())
   const [categories, setCategories] = useState<string[]>(['all'])
 
+  // Cargar parámetros de la URL al inicio
   useEffect(() => {
     const urlSearch = searchParams.get('search') || ''
     const urlCategory = searchParams.get('category') || 'all'
@@ -35,6 +38,7 @@ function HomePageContent() {
         : await getAllBusinesses()
       setBusinesses(data)
 
+      // Cargar categorías únicas
       getAllBusinesses().then((allBusinesses) => {
         const uniqueCategories = new Set<string>()
         allBusinesses.forEach(b => b.categories?.forEach(c => uniqueCategories.add(c)))
@@ -47,7 +51,8 @@ function HomePageContent() {
 
   const handleCategoryChange = async (category: string) => {
     setSelectedCategory(category)
-    window.history.pushState({}, '', category === 'all' ? '/' : `/?category=${category}`)
+    const newUrl = category === 'all' ? '/' : `/?category=${category}`
+    router.push(newUrl)
     await loadBusinessesWithParams(searchTerm, category)
   }
 
@@ -150,7 +155,7 @@ function HomePageContent() {
                         className="w-full h-40 object-cover"
                       />
                       <button
-                        onClick={(e) => {
+                        onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                           e.preventDefault()
                           handleFollowToggle(b.id)
                         }}
@@ -228,25 +233,12 @@ function HomePageContent() {
           <Link href="/" className="text-2xl font-bold text-[#aa1918]">Fuddi</Link>
           <p className="max-w-xl mx-auto text-sm">La plataforma de delivery #1 en Ecuador. Conectamos restaurantes con clientes hambrientos.</p>
           <div className="flex justify-center gap-4 text-gray-500">
-            <a href="https://instagram.com/fuddi.shop" target="_blank"><i className="bi bi-instagram text-lg hover:text-white"></i></a>
-            <a href="https://wa.me/593984612236" target="_blank"><i className="bi bi-whatsapp text-lg hover:text-white"></i></a>
+            <a href="https://instagram.com/fuddi.shop" target="_blank" rel="noopener noreferrer"><i className="bi bi-instagram text-lg hover:text-white"></i></a>
+            <a href="https://wa.me/593984612236" target="_blank" rel="noopener noreferrer"><i className="bi bi-whatsapp text-lg hover:text-white"></i></a>
           </div>
           <p className="text-xs text-gray-500 pt-4 border-t border-gray-800">© 2025 Fuddi. Todos los derechos reservados.</p>
         </div>
       </footer>
     </div>
-  )
-}
-
-export default function HomePage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#aa1918] mx-auto mb-4"></div>
-        <p className="text-gray-600">Cargando...</p>
-      </div>
-    </div>}>
-      <HomePageContent />
-    </Suspense>
   )
 }
