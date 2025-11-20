@@ -1810,82 +1810,87 @@ function CheckoutContent() {
 
                   {paymentData.method === 'transfer' && (
                     <div className="mt-6 bg-gray-50 p-4 rounded-lg">
-                      <h3 className="font-medium mb-4">💳 Datos para realizar la transferencia</h3>
+                      {/* Solo mostrar datos bancarios si NO hay comprobante adjunto */}
+                      {!paymentData.receiptImageUrl && (
+                        <>
+                          <h3 className="font-medium mb-4">💳 Datos para realizar la transferencia</h3>
 
-                      {/* Selector de banco */}
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Selecciona el banco:
-                        </label>
-                        <select
-                          value={paymentData.selectedBank}
-                          onChange={(e) => setPaymentData({ ...paymentData, selectedBank: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                        >
-                          <option value="">Selecciona un banco</option>
-                          <option value="pichincha">🟡 Banco Pichincha</option>
-                          <option value="pacifico">🔵 Banco Pacifico</option>
-                          <option value="guayaquil">🩷 Banco Guayaquil</option>
-                          <option value="produbanco">🟢 Banco Produbanco</option>
-                        </select>
-                        {errors.selectedBank && (
-                          <p className="text-red-500 text-xs mt-1 flex items-center">
-                            <i className="bi bi-exclamation-triangle mr-1"></i>
-                            {errors.selectedBank}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Mostrar datos bancarios según selección */}
-                      {paymentData.selectedBank && (
-                        <div className="bg-white p-4 rounded-lg border">
-                          <h4 className="font-semibold mb-3">Datos de la cuenta:</h4>
-
-                          {paymentData.selectedBank === 'pichincha' && (
-                            <div className="text-sm space-y-2">
-                              <p><strong>🟡 Banco Pichincha</strong></p>
-                              <p><strong>Cuenta de ahorros:</strong> 2203257517</p>
-                              <p><strong>A nombre de:</strong> Pedro Sánchez León</p>
-                              <p><strong>Cédula:</strong> 0929057636</p>
-                            </div>
-                          )}
-
-                          {paymentData.selectedBank === 'pacifico' && (
-                            <div className="text-sm space-y-2">
-                              <p><strong>🔵 Banco Pacifico</strong></p>
-                              <p><strong>Cuenta de ahorros:</strong> 1063889358</p>
-                              <p><strong>A nombre de:</strong> Pedro Sánchez León</p>
-                              <p><strong>Cédula:</strong> 0929057636</p>
-                            </div>
-                          )}
-
-                          {paymentData.selectedBank === 'guayaquil' && (
-                            <div className="text-sm space-y-2">
-                              <p><strong>🩷 Banco Guayaquil</strong></p>
-                              <p><strong>Cuenta de ahorros:</strong> 0030697477</p>
-                              <p><strong>A nombre de:</strong> Pedro Sánchez León</p>
-                              <p><strong>Cédula:</strong> 0929057636</p>
-                            </div>
-                          )}
-
-                          {paymentData.selectedBank === 'produbanco' && (
-                            <div className="text-sm space-y-2">
-                              <p><strong>🟢 Banco Produbanco</strong></p>
-                              <p><strong>Cuenta de ahorros:</strong> 20000175331</p>
-                              <p><strong>A nombre de:</strong> Liliana Ravelo Coloma</p>
-                              <p><strong>Cédula:</strong> 0940482169</p>
-                            </div>
-                          )}
-
-                          <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                            <p className="text-sm text-yellow-800">
-                              <strong>Importante:</strong> Realiza la transferencia por el monto exacto de ${total.toFixed(2)} y sube el comprobante aquí.
-                            </p>
+                          {/* Selector de banco */}
+                          <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Selecciona el banco:
+                            </label>
+                            <select
+                              value={paymentData.selectedBank}
+                              onChange={(e) => setPaymentData({ ...paymentData, selectedBank: e.target.value })}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                            >
+                              <option value="">Selecciona un banco</option>
+                              <option value="pichincha">🟡 Banco Pichincha</option>
+                              <option value="pacifico">🔵 Banco Pacifico</option>
+                              <option value="guayaquil">🩷 Banco Guayaquil</option>
+                              <option value="produbanco">🟢 Banco Produbanco</option>
+                            </select>
+                            {errors.selectedBank && (
+                              <p className="text-red-500 text-xs mt-1 flex items-center">
+                                <i className="bi bi-exclamation-triangle mr-1"></i>
+                                {errors.selectedBank}
+                              </p>
+                            )}
                           </div>
-                        </div>
+
+                          {/* Mostrar datos bancarios según selección */}
+                          {paymentData.selectedBank && (
+                            <div className="bg-white p-4 rounded-lg border">
+                              <h4 className="font-semibold mb-3">Datos de la cuenta:</h4>
+
+                              {paymentData.selectedBank === 'pichincha' && (
+                                <div className="text-sm space-y-2">
+                                  <p><strong>🟡 Banco Pichincha</strong></p>
+                                  <p><strong>Cuenta de ahorros:</strong> 2203257517</p>
+                                  <p><strong>A nombre de:</strong> Pedro Sánchez León</p>
+                                  <p><strong>Cédula:</strong> 0929057636</p>
+                                </div>
+                              )}
+
+                              {paymentData.selectedBank === 'pacifico' && (
+                                <div className="text-sm space-y-2">
+                                  <p><strong>🔵 Banco Pacifico</strong></p>
+                                  <p><strong>Cuenta de ahorros:</strong> 1063889358</p>
+                                  <p><strong>A nombre de:</strong> Pedro Sánchez León</p>
+                                  <p><strong>Cédula:</strong> 0929057636</p>
+                                </div>
+                              )}
+
+                              {paymentData.selectedBank === 'guayaquil' && (
+                                <div className="text-sm space-y-2">
+                                  <p><strong>🩷 Banco Guayaquil</strong></p>
+                                  <p><strong>Cuenta de ahorros:</strong> 0030697477</p>
+                                  <p><strong>A nombre de:</strong> Pedro Sánchez León</p>
+                                  <p><strong>Cédula:</strong> 0929057636</p>
+                                </div>
+                              )}
+
+                              {paymentData.selectedBank === 'produbanco' && (
+                                <div className="text-sm space-y-2">
+                                  <p><strong>🟢 Banco Produbanco</strong></p>
+                                  <p><strong>Cuenta de ahorros:</strong> 20000175331</p>
+                                  <p><strong>A nombre de:</strong> Liliana Ravelo Coloma</p>
+                                  <p><strong>Cédula:</strong> 0940482169</p>
+                                </div>
+                              )}
+
+                              <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                                <p className="text-sm text-yellow-800">
+                                  <strong>Importante:</strong> Realiza la transferencia por el monto exacto de ${total.toFixed(2)} y sube el comprobante aquí.
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </>
                       )}
 
-                      {/* Componente para subir comprobante */}
+                      {/* Componente para subir comprobante - SIEMPRE VISIBLE */}
                       {paymentData.selectedBank && (
                         <TransferReceiptUploader
                           onReceiptUpload={handleReceiptUpload}

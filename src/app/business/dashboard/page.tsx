@@ -113,7 +113,7 @@ export default function BusinessDashboard() {
   const [availableDeliveries, setAvailableDeliveries] = useState<any[]>([])
   const [showCreateClient, setShowCreateClient] = useState(false)
   const [creatingClient, setCreatingClient] = useState(false)
-  
+
   // Estados para modal de variantes
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<Product | null>(null)
   const [isVariantModalOpen, setIsVariantModalOpen] = useState(false)
@@ -145,7 +145,7 @@ export default function BusinessDashboard() {
       const dt = performance.now() - t0
       console.debug('[Dashboard] mount->ready', dt.toFixed(2), 'ms')
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Estados para historial agrupado por fecha
@@ -192,7 +192,7 @@ export default function BusinessDashboard() {
 
   useEffect(() => {
     if (typeof window === 'undefined' || !user || !isAuthenticated) return;
-    
+
     const loadBusinesses = async () => {
       const t0 = performance.now()
       try {
@@ -211,7 +211,7 @@ export default function BusinessDashboard() {
               usedCache = true;
               console.debug('[Dashboard] using cached businessAccess');
             }
-          } catch {}
+          } catch { }
         }
 
         // Si no hay caché válido, o queremos refrescar, hacer fetch
@@ -223,17 +223,17 @@ export default function BusinessDashboard() {
           // Guardar en caché
           try {
             localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: businessAccess }));
-          } catch {}
+          } catch { }
         } else {
           // Refresco en segundo plano sin bloquear la UI
           (async () => {
             try {
               const fresh = await getUserBusinessAccess(user.email || '', user.uid);
               localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: fresh }));
-            } catch {}
+            } catch { }
           })();
         }
-        
+
         if (!businessAccess.hasAccess) {
           logout();
           router.push('/business/login');
@@ -245,69 +245,69 @@ export default function BusinessDashboard() {
           ...businessAccess.ownedBusinesses,
           ...businessAccess.adminBusinesses
         ];
-        
+
         // Remover duplicados por si acaso
         let uniqueBusinesses = allUserBusinesses.filter((business, index, self) =>
           index === self.findIndex(b => b.id === business.id)
         );
-        
+
         // Función para obtener el timestamp de una fecha de Firebase
         const getTimestamp = (timestamp: any): number => {
           if (!timestamp) return 0;
-          
+
           // Si es un objeto de Firestore con toDate()
           if (typeof timestamp.toDate === 'function') {
             return timestamp.toDate().getTime();
           }
-          
+
           // Si es un objeto de timestamp de Firebase con seconds y nanoseconds
           if (timestamp.seconds) {
             return timestamp.seconds * 1000 + (timestamp.nanoseconds || 0) / 1000000;
           }
-          
+
           // Si ya es un timestamp en milisegundos
           if (typeof timestamp === 'number') {
             return timestamp;
           }
-          
+
           // Si es un string de fecha
           if (typeof timestamp === 'string') {
             return new Date(timestamp).getTime() || 0;
           }
-          
+
           return 0;
         };
-        
+
         // Ordenar por fecha de creación (más antigua primero)
         uniqueBusinesses = uniqueBusinesses.sort((a, b) => {
           const timeA = getTimestamp(a.createdAt);
           const timeB = getTimestamp(b.createdAt);
           return timeA - timeB; // Orden ascendente (más antigua primero)
         });
-        
+
         setBusinesses(uniqueBusinesses);
-        
+
         // Seleccionar tienda (preferencia: del contexto > primera de la lista ordenada)
         let businessToSelect = null;
-        
+
         if (businessId) {
           businessToSelect = uniqueBusinesses.find(b => b.id === businessId);
         }
-        
+
         // Si no hay businessId o no se encontró la tienda, seleccionar la primera de la lista ordenada
         if (!businessToSelect && uniqueBusinesses.length > 0) {
           businessToSelect = uniqueBusinesses[0];
         }
-        
+
         if (businessToSelect) {
           setSelectedBusinessId(businessToSelect.id);
           setBusiness(businessToSelect);
-          
+
           // Actualizar el contexto si es diferente
           if (businessToSelect.id !== businessId) {
             setBusinessId(businessToSelect.id);
           }
-          
+
           // Determinar el rol del usuario en esta tienda
           const isOwner = businessAccess.ownedBusinesses.some((b: any) => b.id === businessToSelect.id);
           if (isOwner) {
@@ -320,7 +320,7 @@ export default function BusinessDashboard() {
             setUserRole(adminRole?.role || 'admin');
           }
         }
-        
+
       } catch (error) {
         router.push('/business/login');
       } finally {
@@ -352,7 +352,7 @@ export default function BusinessDashboard() {
           try {
             const { timestamp, data } = JSON.parse(raw)
             if (Date.now() - timestamp < CACHE_TTL_MS) return data
-          } catch {}
+          } catch { }
           return null
         }
 
@@ -385,25 +385,25 @@ export default function BusinessDashboard() {
         try {
           localStorage.setItem(pKey, JSON.stringify({ timestamp: Date.now(), data: productsData }))
           localStorage.setItem(cKey, JSON.stringify({ timestamp: Date.now(), data: categoriesData }))
-        } catch {}
-        
+        } catch { }
+
         // Detectar nuevos pedidos para notificaciones
         if (previousOrdersCount > 0 && ordersData.length > previousOrdersCount) {
           const newOrders = ordersData.slice(0, ordersData.length - previousOrdersCount);
-          
+
           // Enviar notificación por cada nuevo pedido
           newOrders.forEach((order: Order) => {
             if (permission === 'granted') {
               // Construir título y descripción personalizados
-              
+
               const businessName = business?.name || 'Tu Tienda';
               const orderType = order.timing?.type === 'immediate' ? 'Pedido Inmediato' : 'Pedido Programado';
               const title = `${businessName} - ${orderType}`;
-              
+
               // Construir descripción con elementos del carrito
               const items = order.items || [];
               let itemsText = '';
-              
+
               if (items.length === 1) {
                 // Un solo elemento: mostrar nombre específico del producto
                 const item = items[0];
@@ -416,10 +416,10 @@ export default function BusinessDashboard() {
               } else {
                 itemsText = 'Sin productos';
               }
-              
+
               const deliveryType = order.delivery?.type === 'delivery' ? 'Delivery' : 'Retiro';
               const body = `${itemsText} - ${deliveryType} - $${order.total.toFixed(2)}`;
-              
+
               showNotification({
                 title,
                 body,
@@ -429,12 +429,12 @@ export default function BusinessDashboard() {
             }
           });
         }
-        
+
         setOrders(ordersData);
         setPreviousOrdersCount(ordersData.length);
         try {
           localStorage.setItem(oKey, JSON.stringify({ timestamp: Date.now(), data: ordersData }))
-        } catch {}
+        } catch { }
 
         // Inicializar fechas colapsadas para el historial
         const { pastOrders } = categorizeOrdersForData(ordersData);
@@ -495,11 +495,11 @@ export default function BusinessDashboard() {
     const interval = setInterval(async () => {
       try {
         const ordersData = await getOrdersByBusiness(selectedBusinessId);
-        
+
         // Detectar nuevos pedidos
         if (previousOrdersCount > 0 && ordersData.length > previousOrdersCount) {
           const newOrders = ordersData.slice(0, ordersData.length - previousOrdersCount);
-          
+
           // Enviar notificación por cada nuevo pedido
           newOrders.forEach((order: Order) => {
             if (permission === 'granted') {
@@ -507,11 +507,11 @@ export default function BusinessDashboard() {
               const businessName = business?.name || 'Tu Tienda';
               const orderType = order.timing?.type === 'immediate' ? 'Pedido Inmediato' : 'Pedido Programado';
               const title = `${businessName} - ${orderType}`;
-              
+
               // Construir descripción con elementos del carrito
               const items = order.items || [];
               let itemsText = '';
-              
+
               if (items.length === 1) {
                 // Un solo elemento: mostrar nombre específico del producto
                 const item = items[0];
@@ -524,10 +524,10 @@ export default function BusinessDashboard() {
               } else {
                 itemsText = 'Sin productos';
               }
-              
+
               const deliveryType = order.delivery?.type === 'delivery' ? 'Delivery' : 'Retiro';
               const body = `${itemsText} - ${deliveryType} - $${order.total.toFixed(2)}`;
-              
+
               showNotification({
                 title,
                 body,
@@ -537,7 +537,7 @@ export default function BusinessDashboard() {
             }
           });
         }
-        
+
         setOrders(ordersData);
         setPreviousOrdersCount(ordersData.length);
       } catch (error) {
@@ -550,14 +550,14 @@ export default function BusinessDashboard() {
 
   // Efecto para calcular automáticamente el total del pedido manual
   useEffect(() => {
-    const subtotal = manualOrderData.selectedProducts.reduce((sum, item) => 
+    const subtotal = manualOrderData.selectedProducts.reduce((sum, item) =>
       sum + (item.price * item.quantity), 0
     );
     const delivery = manualOrderData.deliveryType === 'delivery' && manualOrderData.selectedLocation
       ? parseFloat(manualOrderData.selectedLocation.tarifa || '0')
       : 0;
     const newTotal = subtotal + delivery;
-    
+
     // Solo actualizar si el total cambió
     if (Math.abs(manualOrderData.total - newTotal) > 0.01) {
       setManualOrderData(prev => ({
@@ -577,10 +577,10 @@ export default function BusinessDashboard() {
     if (selectedBusiness) {
       setSelectedBusinessId(businessId);
       setBusiness(selectedBusiness);
-      
+
       // Actualizar el contexto
       setBusinessId(businessId);
-      
+
       // Actualizar el rol del usuario en la nueva tienda
       const isOwner = user && selectedBusiness.ownerId === user.uid;
       if (isOwner) {
@@ -598,7 +598,7 @@ export default function BusinessDashboard() {
     try {
       await updateOrderStatus(orderId, newStatus)
       // Actualizar estado local
-      setOrders(orders.map(order => 
+      setOrders(orders.map(order =>
         order.id === orderId ? { ...order, status: newStatus } : order
       ))
     } catch (error) {
@@ -628,15 +628,15 @@ export default function BusinessDashboard() {
       await updateDoc(orderRef, {
         'delivery.assignedDelivery': deliveryId || null
       })
-      
+
       // Actualizar estado local
-      setOrders(orders.map(order => 
-        order.id === orderId ? { 
-          ...order, 
-          delivery: { 
-            ...order.delivery, 
-            assignedDelivery: deliveryId || undefined 
-          } 
+      setOrders(orders.map(order =>
+        order.id === orderId ? {
+          ...order,
+          delivery: {
+            ...order.delivery,
+            assignedDelivery: deliveryId || undefined
+          }
         } : order
       ))
     } catch (error) {
@@ -656,13 +656,13 @@ export default function BusinessDashboard() {
     if (!window.confirm('¿Estás seguro de que deseas eliminar esta orden? Esta acción no se puede deshacer.')) {
       return
     }
-    
+
     try {
       await deleteOrder(orderId)
-      
+
       // Actualizar estado local
       setOrders(orders.filter(order => order.id !== orderId))
-      
+
       alert('Orden eliminada correctamente')
     } catch (error) {
       alert('Error al eliminar la orden')
@@ -708,8 +708,8 @@ export default function BusinessDashboard() {
       })
 
       // Actualizar la lista local
-      setOrders(orders.map(order => 
-        order.id === paymentEditingOrder.id 
+      setOrders(orders.map(order =>
+        order.id === paymentEditingOrder.id
           ? { ...order, payment: { ...order.payment, ...paymentUpdate } }
           : order
       ))
@@ -732,21 +732,21 @@ export default function BusinessDashboard() {
     if (!window.confirm('¿Marcar este pedido como pagado por transferencia?')) {
       return
     }
-    
+
     try {
       const orderRef = doc(db, 'orders', orderId)
       await updateDoc(orderRef, {
         'payment.paymentStatus': 'paid'
       })
-      
+
       // Actualizar estado local
-      setOrders(orders.map(order => 
-        order.id === orderId ? { 
-          ...order, 
-          payment: { 
-            ...order.payment, 
-            paymentStatus: 'paid' 
-          } 
+      setOrders(orders.map(order =>
+        order.id === orderId ? {
+          ...order,
+          payment: {
+            ...order.payment,
+            paymentStatus: 'paid'
+          }
         } : order
       ))
     } catch (error) {
@@ -784,7 +784,7 @@ export default function BusinessDashboard() {
           await handleStatusChange(order.id, nextStatus);
           // Actualizar el estado local de la orden para reflejar el cambio
           const updatedOrder = { ...order, status: nextStatus };
-          setOrders(prevOrders => 
+          setOrders(prevOrders =>
             prevOrders.map(o => o.id === order.id ? updatedOrder : o)
           );
           order = updatedOrder; // Actualizar la referencia local
@@ -797,7 +797,7 @@ export default function BusinessDashboard() {
 
     let phone = ''
     let title = ''
-    
+
     if (order.delivery.type === 'delivery') {
       // Para delivery, enviar al delivery asignado
       const assignedDeliveryId = order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery
@@ -811,7 +811,7 @@ export default function BusinessDashboard() {
         alert('No se encontró la información del delivery')
         return
       }
-      
+
       phone = delivery.celular
       title = 'Enviar mensaje de WhatsApp al delivery'
     } else {
@@ -820,7 +820,7 @@ export default function BusinessDashboard() {
         alert('No se encontró el número de teléfono de la tienda')
         return
       }
-      
+
       phone = business.phone
       title = 'Enviar mensaje de WhatsApp a la tienda'
     }
@@ -829,7 +829,7 @@ export default function BusinessDashboard() {
     const customerName = order.customer?.name || 'Cliente sin nombre'
     const customerPhone = order.customer?.phone || 'Sin teléfono'
     const references = order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'
-    
+
     // Crear enlace de Google Maps si hay coordenadas o Plus Code (solo para delivery)
     let locationLink = ''
     if (order.delivery.type === 'delivery') {
@@ -854,19 +854,19 @@ export default function BusinessDashboard() {
     }
 
     // Construir lista de productos con cantidades entre paréntesis
-    const productsList = order.items?.map((item: any) => 
+    const productsList = order.items?.map((item: any) =>
       `(${item.quantity || 1}) ${item.variant || item.name || item.product?.name || 'Producto'}`
     ).join('\n') || 'Sin productos'
 
     // Calcular totales
     const deliveryCost = order.delivery.type === 'delivery' ? (order.delivery?.deliveryCost || 1) : 0
     const subtotal = order.total - deliveryCost
-    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : 
-                         order.payment?.method === 'transfer' ? 'Transferencia' :
-                         order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
-    
+    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' :
+      order.payment?.method === 'transfer' ? 'Transferencia' :
+        order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
+
     // Determinar el tipo de pedido (Inmediato o Programado)
-    const orderType = order.timing?.type === 'scheduled' 
+    const orderType = order.timing?.type === 'scheduled'
       ? `⏰ Programado para las ${order.timing?.scheduledTime || ''}`
       : '⚡ Inmediato';
 
@@ -874,7 +874,7 @@ export default function BusinessDashboard() {
     let message = `*Datos del cliente*\n`
     message += `Cliente: ${customerName}\n`
     message += `Celular: ${customerPhone}\n\n`
-    
+
     if (order.delivery.type === 'delivery') {
       message += `*Detalles de la entrega*\n`
       message += `${orderType}\n`
@@ -888,19 +888,19 @@ export default function BusinessDashboard() {
       message += `*Tipo de entrega*\n`
       message += `🏪 Retiro en tienda\n\n`
     }
-    
+
     message += `*Detalle del pedido*\n`
     message += `${productsList}\n\n`
-    
+
     message += `*Detalles del pago*\n`
     message += `Valor del pedido: $${subtotal.toFixed(2)}\n`
-    
+
     if (order.delivery.type === 'delivery') {
       message += `Envío: $${deliveryCost.toFixed(2)}\n\n`
     }
-    
+
     message += `Forma de pago: ${paymentMethod}\n`
-    
+
     // Mostrar detalles de pago mixto si aplica
     if (order.payment?.method === 'mixed') {
       const payment = order.payment as any
@@ -909,7 +909,7 @@ export default function BusinessDashboard() {
         message += `- Transferencia: $${payment.transferAmount.toFixed(2)}\n\n`
       }
     }
-    
+
     // Solo mostrar "Total a cobrar" si es efectivo o pago mixto
     if (order.payment?.method === 'cash' || order.payment?.method === 'mixed') {
       message += `Total a cobrar: $${order.total.toFixed(2)}`
@@ -917,10 +917,10 @@ export default function BusinessDashboard() {
 
     // Limpiar el número de teléfono (quitar espacios, guiones, etc.)
     const cleanPhone = phone.replace(/\D/g, '')
-    
+
     // Crear enlace de WhatsApp
     const whatsappUrl = `https://api.whatsapp.com/send?phone=593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}&text=${encodeURIComponent(message)}`
-    
+
     // Abrir WhatsApp Web
     window.open(whatsappUrl, '_blank')
   }
@@ -951,12 +951,12 @@ export default function BusinessDashboard() {
     const productsList = order.items?.map((item: any) => `${item.quantity} x ${item.variant || item.name || item.product?.name || 'Producto'}`).join('\n') || 'Sin productos'
     const deliveryInfo = order.delivery?.type === 'delivery' ? `${order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}` : 'Retiro en tienda'
     const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
-    
+
     // Calcular subtotal (total de productos sin envío)
     const subtotal = order.total - (order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0)
 
     // Determinar el tipo de pedido (Inmediato o Programado)
-    const orderType = order.timing?.type === 'scheduled' 
+    const orderType = order.timing?.type === 'scheduled'
       ? `⏰ Programado para las ${order.timing?.scheduledTime || ''}`
       : '⚡ Inmediato';
 
@@ -969,14 +969,14 @@ export default function BusinessDashboard() {
     if (order.delivery?.type === 'delivery') {
       message += `Envío: $${(order.delivery?.deliveryCost || 0).toFixed(2)}\n`;
     }
-    
+
     message += '\n';
-    
+
     // Solo mostrar total si es pago en efectivo
     if (order.payment?.method === 'cash' || order.payment?.method === 'mixed') {
       message += `*Total:* $${(order.total || 0).toFixed(2)}\n\n`;
     }
-    
+
     message += `Forma de pago: ${paymentMethod}\n`;
 
     // Agregar enlace público a la orden
@@ -996,7 +996,7 @@ export default function BusinessDashboard() {
     window.open(whatsappUrl, '_blank')
   }
 
-  
+
 
   // Función para subir imagen de portada
   const handleCoverImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1009,19 +1009,19 @@ export default function BusinessDashboard() {
       const timestamp = Date.now();
       const path = `businesses/covers/${business.id}_${timestamp}_${file.name}`;
       const imageUrl = await uploadImage(file, path);
-      
+
       // Actualizar el negocio en Firebase
       await updateBusiness(business.id, { coverImage: imageUrl });
-      
+
       // Actualizar estado local
       const updatedBusiness = { ...business, coverImage: imageUrl };
       setBusiness(updatedBusiness);
-      
+
       // Actualizar en la lista de negocios
-      setBusinesses(prev => prev.map(b => 
+      setBusinesses(prev => prev.map(b =>
         b.id === business.id ? updatedBusiness : b
       ));
-      
+
     } catch (error) {
       alert('Error al subir la imagen de portada. Inténtalo de nuevo.');
     } finally {
@@ -1040,19 +1040,19 @@ export default function BusinessDashboard() {
       const timestamp = Date.now();
       const path = `businesses/profiles/${business.id}_${timestamp}_${file.name}`;
       const imageUrl = await uploadImage(file, path);
-      
+
       // Actualizar el negocio en Firebase
       await updateBusiness(business.id, { image: imageUrl });
-      
+
       // Actualizar estado local
       const updatedBusiness = { ...business, image: imageUrl };
       setBusiness(updatedBusiness);
-      
+
       // Actualizar en la lista de negocios
-      setBusinesses(prev => prev.map(b => 
+      setBusinesses(prev => prev.map(b =>
         b.id === business.id ? updatedBusiness : b
       ));
-      
+
     } catch (error) {
       alert('Error al subir la imagen de perfil. Inténtalo de nuevo.');
     } finally {
@@ -1079,16 +1079,16 @@ export default function BusinessDashboard() {
     try {
       // Actualizar en Firebase
       await updateBusiness(editedBusiness.id, editedBusiness);
-      
+
       // Actualizar estados locales
       setBusiness(editedBusiness);
-      setBusinesses(prev => prev.map(b => 
+      setBusinesses(prev => prev.map(b =>
         b.id === editedBusiness.id ? editedBusiness : b
       ));
-      
+
       setIsEditingProfile(false);
       setEditedBusiness(null);
-      
+
       alert('Información actualizada exitosamente');
     } catch (error) {
       alert('Error al guardar los cambios. Inténtalo de nuevo.');
@@ -1141,7 +1141,7 @@ export default function BusinessDashboard() {
       const updatedBusiness = await getBusiness(business.id);
       if (updatedBusiness) {
         setBusiness(updatedBusiness);
-        setBusinesses(prev => prev.map(b => 
+        setBusinesses(prev => prev.map(b =>
           b.id === business.id ? updatedBusiness : b
         ));
       }
@@ -1172,16 +1172,16 @@ export default function BusinessDashboard() {
 
     try {
       await removeBusinessAdministrator(business.id, adminEmail);
-      
+
       // Recargar datos del negocio
       const updatedBusiness = await getBusiness(business.id);
       if (updatedBusiness) {
         setBusiness(updatedBusiness);
-        setBusinesses(prev => prev.map(b => 
+        setBusinesses(prev => prev.map(b =>
           b.id === business.id ? updatedBusiness : b
         ));
       }
-      
+
       alert('Administrador removido exitosamente');
     } catch (error: any) {
       alert(error.message || 'Error al remover administrador');
@@ -1193,16 +1193,16 @@ export default function BusinessDashboard() {
 
     try {
       await updateAdministratorPermissions(business.id, adminEmail, newPermissions);
-      
+
       // Recargar datos del negocio
       const updatedBusiness = await getBusiness(business.id);
       if (updatedBusiness) {
         setBusiness(updatedBusiness);
-        setBusinesses(prev => prev.map(b => 
+        setBusinesses(prev => prev.map(b =>
           b.id === business.id ? updatedBusiness : b
         ));
       }
-      
+
       alert('Permisos actualizados exitosamente');
     } catch (error: any) {
       alert(error.message || 'Error al actualizar permisos');
@@ -1240,7 +1240,7 @@ export default function BusinessDashboard() {
       const ecuadorDate = getEcuadorDate();
       return ecuadorDate.toISOString().split('T')[0];
     }
-    
+
     // Para fechas que vienen de Firebase o que ya están en la zona horaria correcta,
     // usar directamente los componentes de fecha sin conversión adicional
     // Esto evita el problema de doble conversión de zona horaria
@@ -1297,7 +1297,7 @@ export default function BusinessDashboard() {
         month: 'long',
         day: 'numeric'
       })
-      
+
       if (!acc[dateKey]) {
         acc[dateKey] = []
       }
@@ -1421,7 +1421,7 @@ export default function BusinessDashboard() {
       if (order.timing?.scheduledDate && order.timing?.scheduledTime) {
         // Manejar diferentes tipos de scheduledDate
         let dateToUse: Date;
-        
+
         if (order.timing.scheduledDate instanceof Date) {
           // Es un objeto Date
           dateToUse = order.timing.scheduledDate;
@@ -1444,22 +1444,22 @@ export default function BusinessDashboard() {
           // Fallback: intentar convertir a Date
           dateToUse = new Date(order.timing.scheduledDate as any);
         }
-        
+
         // Verificar que la fecha sea válida
         if (isNaN(dateToUse.getTime())) {
           console.error('Invalid date after conversion for order:', order.id, dateToUse);
           throw new Error('Invalid date after conversion');
         }
-        
+
         // Parsear la hora del scheduledTime
         const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number);
-        
+
         // Verificar que los valores de hora sean válidos
         if (isNaN(hours) || isNaN(minutes)) {
           console.error('Invalid time components for order:', order.id, order.timing.scheduledTime);
           throw new Error('Invalid time components');
         }
-        
+
         // El scheduledDate ya contiene la fecha y hora correctas, solo necesitamos validar
         return dateToUse;
       }
@@ -1469,12 +1469,12 @@ export default function BusinessDashboard() {
         if (isNaN(createdDate.getTime())) {
           throw new Error('Invalid createdAt date');
         }
-        
+
         const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number);
         if (isNaN(hours) || isNaN(minutes)) {
           throw new Error('Invalid time format');
         }
-        
+
         const orderDate = new Date(createdDate);
         orderDate.setHours(hours, minutes, 0, 0);
         return orderDate;
@@ -1529,7 +1529,7 @@ export default function BusinessDashboard() {
     const orderTime = getOrderDateTime(order);
     const now = new Date();
     const diffInMinutes = (orderTime.getTime() - now.getTime()) / (1000 * 60);
-    
+
     // Está dentro de los próximos 30 minutos
     return diffInMinutes <= 30 && diffInMinutes >= 0;
   };
@@ -1537,19 +1537,19 @@ export default function BusinessDashboard() {
   // Función para agrupar y ordenar pedidos por estado
   const groupOrdersByStatus = (orders: Order[]) => {
     const statusOrder = ['pending', 'confirmed', 'preparing', 'ready', 'delivered', 'cancelled'];
-    
+
     return orders.sort((a, b) => {
       const aIndex = statusOrder.indexOf(a.status);
       const bIndex = statusOrder.indexOf(b.status);
-      
+
       if (aIndex !== bIndex) {
         return aIndex - bIndex;
       }
-      
+
       // Si tienen el mismo estado, ordenar por hora
       const timeA = getOrderDateTime(a).getTime();
       const timeB = getOrderDateTime(b).getTime();
-      
+
       return timeA - timeB;
     });
   };
@@ -1558,14 +1558,14 @@ export default function BusinessDashboard() {
   const groupOrdersWithTitles = (orders: Order[]) => {
     const grouped: { [status: string]: Order[] } = {};
     const statusOrder = ['pending', 'confirmed', 'preparing', 'ready', 'delivered', 'cancelled'];
-    
+
     orders.forEach(order => {
       if (!grouped[order.status]) {
         grouped[order.status] = [];
       }
       grouped[order.status].push(order);
     });
-    
+
     return statusOrder.filter(status => grouped[status]?.length > 0).map(status => ({
       status,
       orders: grouped[status]
@@ -1576,7 +1576,7 @@ export default function BusinessDashboard() {
   const OrdersTable = ({ orders, isToday = false }: { orders: Order[], isToday?: boolean }) => {
     if (isToday) {
       const groupedOrders = groupOrdersWithTitles(groupOrdersByStatus(orders));
-      
+
       return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
@@ -1613,9 +1613,9 @@ export default function BusinessDashboard() {
                     </tr>
                     {/* Órdenes del estado - solo mostrar si no está colapsado */}
                     {!collapsedCategories.has(status) && statusOrders.map((order, orderIndex) => (
-                      <OrderRow 
-                        key={order.id} 
-                        order={order} 
+                      <OrderRow
+                        key={order.id}
+                        order={order}
                         isToday={isToday}
                         isLastInGroup={orderIndex === statusOrders.length - 1}
                         isLastGroup={groupIndex === groupedOrders.length - 1}
@@ -1647,15 +1647,15 @@ export default function BusinessDashboard() {
   };
 
   // Componente para fila de orden
-  const OrderRow = ({ order, isToday, isLastInGroup = false, isLastGroup = false }: { 
-    order: Order, 
+  const OrderRow = ({ order, isToday, isLastInGroup = false, isLastGroup = false }: {
+    order: Order,
     isToday: boolean,
     isLastInGroup?: boolean,
-    isLastGroup?: boolean 
+    isLastGroup?: boolean
   }) => {
     // Agregar border-bottom más grueso entre grupos
-    const borderClass = isLastInGroup && !isLastGroup 
-      ? "border-b-4 border-gray-300" 
+    const borderClass = isLastInGroup && !isLastGroup
+      ? "border-b-4 border-gray-300"
       : "border-b border-gray-200";
 
     // La expansión ahora se controla desde el padre
@@ -1743,7 +1743,7 @@ export default function BusinessDashboard() {
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        style={{ 
+        style={{
           transform: dragOffset > 0 ? `translateX(${dragOffset}px)` : undefined,
           // Reducir vibración: no aplicar cambios de fondo mientras se arrastra ligeramente
           backgroundColor: swipeProgress >= 0.3 ? `rgba(16,185,129,${0.08 * swipeProgress})` : undefined,
@@ -1754,7 +1754,7 @@ export default function BusinessDashboard() {
         <td className="md:hidden w-full max-w-full">
           <div className="p-3 max-w-full">
             {/* Layout horizontal fijo: Hora | Botones | Cliente/Dirección | Expandir */}
-            <div 
+            <div
               className="flex items-center w-full min-w-0 cursor-pointer hover:bg-gray-50 rounded transition-colors"
               onClick={() => {
                 // Si esta orden ya está expandida, la contraemos
@@ -1778,16 +1778,16 @@ export default function BusinessDashboard() {
                     (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
                     (order.delivery?.type === 'pickup' && business?.phone)
                   ) && (
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation()
-                        await handleSendWhatsAppAndAdvance(order)
-                      }}
-                      className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
-                    >
-                      <i className="bi bi-whatsapp text-sm"></i>
-                    </button>
-                  )}
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          await handleSendWhatsAppAndAdvance(order)
+                        }}
+                        className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
+                      >
+                        <i className="bi bi-whatsapp text-sm"></i>
+                      </button>
+                    )}
                   {isToday && (
                     <button
                       onClick={(e) => {
@@ -1816,7 +1816,7 @@ export default function BusinessDashboard() {
                   {order.delivery?.type === 'delivery' ? (
                     <div className="flex items-center min-w-0">
                       <i className="bi bi-geo-alt me-1 flex-shrink-0"></i>
-                      <span 
+                      <span
                         className="truncate min-w-0"
                         title={order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
                       >
@@ -1905,24 +1905,24 @@ export default function BusinessDashboard() {
                       </button>
                     ) : null
                   })()}
-                  
+
                   {/* 2. Botón de WhatsApp para delivery/tienda */}
                   {isToday && (
                     (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
                     (order.delivery?.type === 'pickup' && business?.phone)
                   ) && (
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation()
-                        await handleSendWhatsAppAndAdvance(order)
-                      }}
-                      className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
-                      title={order.delivery?.type === 'delivery' ? 'Enviar WhatsApp al delivery' : 'Enviar WhatsApp a la tienda'}
-                    >
-                      <i className="bi bi-whatsapp text-xl"></i>
-                    </button>
-                  )}
-                  
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          await handleSendWhatsAppAndAdvance(order)
+                        }}
+                        className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
+                        title={order.delivery?.type === 'delivery' ? 'Enviar WhatsApp al delivery' : 'Enviar WhatsApp a la tienda'}
+                      >
+                        <i className="bi bi-whatsapp text-xl"></i>
+                      </button>
+                    )}
+
                   {/* 3. Botón de WhatsApp al cliente */}
                   {order.customer?.phone && (
                     <button
@@ -1956,7 +1956,7 @@ export default function BusinessDashboard() {
                   >
                     <i className="bi bi-printer text-xl"></i>
                   </button>
-                  
+
                   {isToday && (
                     <button
                       onClick={(e) => {
@@ -1988,7 +1988,7 @@ export default function BusinessDashboard() {
                   >
                     <i className="bi bi-pencil text-xl"></i>
                   </button>
-                  
+
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
@@ -2007,7 +2007,7 @@ export default function BusinessDashboard() {
 
         {/* Vista desktop */}
         <td className="hidden md:table-cell relative pl-6 px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer shrink-0 w-0">
-          <div 
+          <div
             className="absolute left-1 top-1/2 -translate-y-1/2 pointer-events-none"
             style={{ opacity: swipeProgress }}
           >
@@ -2045,30 +2045,30 @@ export default function BusinessDashboard() {
               (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
               (order.delivery?.type === 'pickup' && business?.phone)
             ) && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleSendWhatsApp(order)
+                  }}
+                  className="text-green-600 hover:text-green-800 p-1 sm:p-1.5 rounded hover:bg-green-50"
+                  title={order.delivery?.type === 'delivery' ? 'Enviar mensaje de WhatsApp al delivery' : 'Enviar mensaje de WhatsApp a la tienda'}
+                >
+                  <i className="bi bi-whatsapp text-base sm:text-lg"></i>
+                </button>
+              )}
+            {/* Botón para enviar WhatsApp al cliente (desktop) */}
+            {order.customer?.phone && (
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  handleSendWhatsApp(order)
+                  handleSendWhatsAppToCustomer(order)
                 }}
-                className="text-green-600 hover:text-green-800 p-1 sm:p-1.5 rounded hover:bg-green-50"
-                title={order.delivery?.type === 'delivery' ? 'Enviar mensaje de WhatsApp al delivery' : 'Enviar mensaje de WhatsApp a la tienda'}
+                className="text-green-500 hover:text-green-700 p-1 sm:p-1.5 rounded hover:bg-green-50"
+                title="Enviar WhatsApp al cliente"
               >
-                <i className="bi bi-whatsapp text-base sm:text-lg"></i>
+                <i className="bi bi-chat-dots text-base sm:text-lg"></i>
               </button>
             )}
-                  {/* Botón para enviar WhatsApp al cliente (desktop) */}
-                  {order.customer?.phone && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleSendWhatsAppToCustomer(order)
-                      }}
-                      className="text-green-500 hover:text-green-700 p-1 sm:p-1.5 rounded hover:bg-green-50"
-                      title="Enviar WhatsApp al cliente"
-                    >
-                      <i className="bi bi-chat-dots text-base sm:text-lg"></i>
-                    </button>
-                  )}
 
             {isToday && (
               <button
@@ -2138,17 +2138,16 @@ export default function BusinessDashboard() {
             {(() => {
               const currentDeliveryId = order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery;
               const currentDelivery = availableDeliveries?.find(d => d.id === currentDeliveryId);
-              
+
               return (
                 <div className="relative">
                   <select
                     value={currentDeliveryId || ''}
                     onChange={(e) => handleDeliveryAssignment(order.id, e.target.value)}
-                    className={`text-xs px-2 py-1 rounded-full border-0 font-medium transition-colors ${
-                      currentDelivery 
-                        ? 'bg-blue-100 text-blue-800' 
-                        : 'bg-gray-100 text-gray-600'
-                    }`}
+                    className={`text-xs px-2 py-1 rounded-full border-0 font-medium transition-colors ${currentDelivery
+                      ? 'bg-blue-100 text-blue-800'
+                      : 'bg-gray-100 text-gray-600'
+                      }`}
                   >
                     <option value="">Sin asignar</option>
                     {availableDeliveries?.map((delivery) => (
@@ -2162,7 +2161,7 @@ export default function BusinessDashboard() {
             })()}
           </td>
         )}
-        
+
       </tr>
     );
   };
@@ -2178,14 +2177,14 @@ export default function BusinessDashboard() {
 
     try {
       const client = await searchClientByPhone(phoneToSearch);
-      
+
       if (client) {
         setManualOrderData(prev => ({
           ...prev,
           customerName: client.nombres || ''
         }));
         setClientFound(true);
-        
+
         // Cargar ubicaciones del cliente
         setLoadingClientLocations(true);
         const locations = await getClientLocations(client.id);
@@ -2239,7 +2238,7 @@ export default function BusinessDashboard() {
 
   const handlePhoneChange = (value: string) => {
     const normalizedPhone = normalizePhone(value);
-    
+
     setManualOrderData(prev => ({
       ...prev,
       customerPhone: normalizedPhone
@@ -2271,14 +2270,14 @@ export default function BusinessDashboard() {
   const normalizePhone = (phone: string) => {
     // Remover todos los caracteres no numéricos excepto el +
     let normalized = phone.replace(/[^\d+]/g, '');
-    
+
     // Si empieza con +593, convertir a formato local
     if (normalized.startsWith('+593')) {
       normalized = '0' + normalized.substring(4); // +593 99 -> 099
     } else if (normalized.startsWith('593')) {
       normalized = '0' + normalized.substring(3); // 593 99 -> 099
     }
-    
+
     return normalized;
   };
 
@@ -2297,7 +2296,7 @@ export default function BusinessDashboard() {
           ...prev,
           customerPhone: normalizedPhone
         }));
-        
+
         // Buscar inmediatamente después de pegar
         if (normalizedPhone.length >= 8) {
           setTimeout(() => {
@@ -2314,7 +2313,7 @@ export default function BusinessDashboard() {
           ...prev,
           customerPhone: normalizedPhone
         }));
-        
+
         if (normalizedPhone.length >= 8) {
           setTimeout(() => {
             handleSearchClient(normalizedPhone);
@@ -2331,7 +2330,7 @@ export default function BusinessDashboard() {
     } else {
       // Producto sin variantes
       const existingProductIndex = manualOrderData.selectedProducts.findIndex(p => p.id === product.id);
-      
+
       if (existingProductIndex >= 0) {
         const newProducts = [...manualOrderData.selectedProducts];
         newProducts[existingProductIndex].quantity += 1;
@@ -2357,10 +2356,10 @@ export default function BusinessDashboard() {
     if (!selectedProductForVariants) return;
 
     const variantKey = `${selectedProductForVariants.id}-${variant.name}`;
-    const existingProductIndex = manualOrderData.selectedProducts.findIndex(p => 
+    const existingProductIndex = manualOrderData.selectedProducts.findIndex(p =>
       p.id === selectedProductForVariants.id && p.variant === variant.name
     );
-    
+
     if (existingProductIndex >= 0) {
       const newProducts = [...manualOrderData.selectedProducts];
       newProducts[existingProductIndex].quantity += 1;
@@ -2389,7 +2388,7 @@ export default function BusinessDashboard() {
     if (!business || !clientFound || manualOrderData.selectedProducts.length === 0) return;
 
     try {
-      const subtotal = manualOrderData.selectedProducts.reduce((sum, item) => 
+      const subtotal = manualOrderData.selectedProducts.reduce((sum, item) =>
         sum + (item.price * item.quantity), 0
       );
 
@@ -2402,7 +2401,7 @@ export default function BusinessDashboard() {
 
       // Calcular hora de entrega unificada
       let scheduledTime, scheduledDate;
-      
+
       if (manualOrderData.timingType === 'immediate') {
         // Para inmediato: fecha y hora actuales + 30 minutos
         const deliveryTime = new Date(Date.now() + 30 * 60 * 1000);
@@ -2412,19 +2411,19 @@ export default function BusinessDashboard() {
         // Para programado: crear fecha en zona horaria de Ecuador (UTC-5)
         const selectedDate = manualOrderData.scheduledDate;
         const selectedTime = manualOrderData.scheduledTime;
-        
+
         // Parsear la fecha seleccionada (formato YYYY-MM-DD)
         const [year, month, day] = selectedDate.split('-').map(Number);
         const [hours, minutes] = selectedTime.split(':').map(Number);
-        
+
         // Crear fecha en zona horaria local (Ecuador)
         const programmedDate = new Date(year, month - 1, day, hours, minutes);
-        
+
         // Verificar que la fecha sea válida
         if (isNaN(programmedDate.getTime())) {
           throw new Error('Fecha programada inválida');
         }
-        
+
         scheduledDate = Timestamp.fromDate(programmedDate);
         scheduledTime = selectedTime;
       }
@@ -2470,7 +2469,7 @@ export default function BusinessDashboard() {
       };
 
       await createOrder(orderData as any);
-      
+
       // Limpiar formulario
       setManualOrderData({
         customerPhone: '',
@@ -2492,9 +2491,9 @@ export default function BusinessDashboard() {
       });
       setClientFound(false);
       setShowManualOrderModal(false); // Cerrar el modal
-      
+
       setActiveTab('orders'); // Cambiar a la pestaña de pedidos
-      
+
       // Recargar pedidos
       if (selectedBusinessId) {
         const ordersData = await getOrdersByBusiness(selectedBusinessId);
@@ -2521,7 +2520,7 @@ export default function BusinessDashboard() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-600">No se pudo cargar la información del negocio</p>
-          <button 
+          <button
             onClick={() => router.push('/business/login')}
             className="mt-4 bg-red-600 text-white px-4 py-2 rounded-lg"
           >
@@ -2546,19 +2545,19 @@ export default function BusinessDashboard() {
               >
                 <i className="bi bi-list text-xl"></i>
               </button>
-              
-              <button 
+
+              <button
                 onClick={() => {
                   setActiveTab('orders');
                   setOrdersSubTab('today');
-                }} 
+                }}
                 className="text-xl sm:text-2xl font-bold text-red-600 hover:text-red-700 transition-colors"
               >
                 Fuddi
               </button>
               <span className="hidden sm:inline text-gray-600">Dashboard</span>
             </div>
-            
+
             <div className="flex items-center space-x-2 sm:space-x-4">
               {/* Selector de Tiendas con imagen */}
               <div className="relative business-dropdown-container">
@@ -2580,7 +2579,7 @@ export default function BusinessDashboard() {
                       </div>
                     )}
                   </div>
-                  
+
                   <div className="hidden sm:flex items-center space-x-2">
                     <div className="flex flex-col">
                       <span className="text-gray-700 font-medium">
@@ -2588,20 +2587,18 @@ export default function BusinessDashboard() {
                       </span>
                       {userRole && (
                         <span className="text-xs text-gray-500">
-                          {userRole === 'owner' ? 'Propietario' : 
-                           userRole === 'admin' ? 'Administrador' : 'Gerente'}
+                          {userRole === 'owner' ? 'Propietario' :
+                            userRole === 'admin' ? 'Administrador' : 'Gerente'}
                         </span>
                       )}
                     </div>
-                    <i className={`bi bi-chevron-down text-gray-500 text-xs transition-transform ${
-                      showBusinessDropdown ? 'rotate-180' : ''
-                    }`}></i>
+                    <i className={`bi bi-chevron-down text-gray-500 text-xs transition-transform ${showBusinessDropdown ? 'rotate-180' : ''
+                      }`}></i>
                   </div>
-                  
+
                   {/* Solo flecha en móvil */}
-                  <i className={`sm:hidden bi bi-chevron-down text-gray-500 text-xs transition-transform ${
-                    showBusinessDropdown ? 'rotate-180' : ''
-                  }`}></i>
+                  <i className={`sm:hidden bi bi-chevron-down text-gray-500 text-xs transition-transform ${showBusinessDropdown ? 'rotate-180' : ''
+                    }`}></i>
                 </button>
 
                 {/* Dropdown */}
@@ -2616,14 +2613,13 @@ export default function BusinessDashboard() {
                         admin => admin.email === user?.email
                       );
                       const role = isOwner ? 'owner' : (adminRole?.role || 'admin');
-                      
+
                       return (
                         <button
                           key={biz.id}
                           onClick={() => handleBusinessChange(biz.id)}
-                          className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${
-                            selectedBusinessId === biz.id ? 'bg-red-50 border-r-2 border-red-500' : ''
-                          }`}
+                          className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${selectedBusinessId === biz.id ? 'bg-red-50 border-r-2 border-red-500' : ''
+                            }`}
                         >
                           <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
                             {biz.image ? (
@@ -2642,13 +2638,12 @@ export default function BusinessDashboard() {
                             <p className="font-medium text-gray-900 truncate">{biz.name}</p>
                             <div className="flex items-center space-x-2">
                               <p className="text-sm text-gray-500 truncate">@{biz.username}</p>
-                              <span className={`text-xs px-2 py-0.5 rounded-full ${
-                                role === 'owner' 
-                                  ? 'bg-red-100 text-red-700' 
-                                  : 'bg-blue-100 text-blue-700'
-                              }`}>
-                                {role === 'owner' ? 'Propietario' : 
-                                 role === 'admin' ? 'Admin' : 'Gerente'}
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${role === 'owner'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-blue-100 text-blue-700'
+                                }`}>
+                                {role === 'owner' ? 'Propietario' :
+                                  role === 'admin' ? 'Admin' : 'Gerente'}
                               </span>
                             </div>
                           </div>
@@ -2658,14 +2653,14 @@ export default function BusinessDashboard() {
                         </button>
                       );
                     })}
-                    
+
                     {/* Separador */}
                     {businesses.length > 0 && (
                       <hr className="my-2 border-gray-200" />
                     )}
-                    
+
                     {/* Crear nueva tienda */}
-                    <button 
+                    <button
                       onClick={() => {
                         setShowBusinessDropdown(false);
                         router.push('/business/register');
@@ -2700,7 +2695,7 @@ export default function BusinessDashboard() {
       <div className="flex h-screen">
         {/* Overlay solo en móvil */}
         {sidebarOpen && (
-          <div 
+          <div
             className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
@@ -2729,11 +2724,10 @@ export default function BusinessDashboard() {
                   setActiveTab('orders')
                   setSidebarOpen(false)
                 }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
-                  activeTab === 'orders'
-                    ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'orders'
+                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                  : 'text-gray-700 hover:bg-gray-50'
+                  }`}
               >
                 <i className="bi bi-clipboard-check me-3 text-lg"></i>
                 <span className="font-medium">Pedidos</span>
@@ -2741,17 +2735,16 @@ export default function BusinessDashboard() {
                   {orders.length}
                 </span>
               </button>
-              
+
               <button
                 onClick={() => {
                   setActiveTab('products')
                   setSidebarOpen(false)
                 }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
-                  activeTab === 'products'
-                    ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'products'
+                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                  : 'text-gray-700 hover:bg-gray-50'
+                  }`}
               >
                 <i className="bi bi-box-seam me-3 text-lg"></i>
                 <span className="font-medium">Productos</span>
@@ -2759,32 +2752,30 @@ export default function BusinessDashboard() {
                   {products.length}
                 </span>
               </button>
-              
+
               <button
                 onClick={() => {
                   setActiveTab('profile')
                   setSidebarOpen(false)
                 }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
-                  activeTab === 'profile'
-                    ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'profile'
+                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                  : 'text-gray-700 hover:bg-gray-50'
+                  }`}
               >
                 <i className="bi bi-shop me-3 text-lg"></i>
                 <span className="font-medium">Perfil</span>
               </button>
-              
+
               <button
                 onClick={() => {
                   setActiveTab('admins')
                   setSidebarOpen(false)
                 }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
-                  activeTab === 'admins'
-                    ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'admins'
+                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                  : 'text-gray-700 hover:bg-gray-50'
+                  }`}
               >
                 <i className="bi bi-people me-3 text-lg"></i>
                 <span className="font-medium">Administradores</span>
@@ -2797,16 +2788,15 @@ export default function BusinessDashboard() {
                   setActiveTab('reports')
                   setSidebarOpen(false)
                 }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
-                  activeTab === 'reports'
-                    ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'reports'
+                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                  : 'text-gray-700 hover:bg-gray-50'
+                  }`}
               >
                 <i className="bi bi-graph-up me-3 text-lg"></i>
                 <span className="font-medium">Reportes de Costos</span>
               </button>
-              
+
               {/* Botón de Notificaciones - solo si no es iOS y necesita acción */}
               {!isIOS && needsUserAction && (
                 <button
@@ -2825,1304 +2815,1299 @@ export default function BusinessDashboard() {
         <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
           <div className="mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
 
-        {/* Orders Tab */}
-        {activeTab === 'orders' && (
-          <div className="space-y-6">
-            {/* Sub-pestañas para pedidos */}
-            <div className="border-b border-gray-200">
-              <nav className="-mb-px flex space-x-8">
-                <button
-                  onClick={() => setOrdersSubTab('today')}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-                    ordersSubTab === 'today'
-                      ? 'border-red-500 text-red-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <i className="bi bi-calendar-check me-2"></i>
-                  Pedidos de hoy
-                  {(() => {
-                    const { todayOrders } = categorizeOrders();
-                    return todayOrders.length > 0 && (
-                      <span className="ml-2 bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs">
-                        {todayOrders.length}
-                      </span>
-                    );
-                  })()}
-                </button>
-                <button
-                  onClick={() => setOrdersSubTab('history')}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-                    ordersSubTab === 'history'
-                      ? 'border-red-500 text-red-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <i className="bi bi-journal-text me-2"></i>
-                  Historial
-                  {(() => {
-                    const { pastOrders, upcomingOrders } = categorizeOrders();
-                    const totalHistorial = pastOrders.length + upcomingOrders.length;
-                    return totalHistorial > 0 && (
-                      <span className="ml-2 bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs">
-                        {totalHistorial}
-                      </span>
-                    );
-                  })()}
-                </button>
-              </nav>
-            </div>
+            {/* Orders Tab */}
+            {activeTab === 'orders' && (
+              <div className="space-y-6">
+                {/* Sub-pestañas para pedidos */}
+                <div className="border-b border-gray-200">
+                  <nav className="-mb-px flex space-x-8">
+                    <button
+                      onClick={() => setOrdersSubTab('today')}
+                      className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${ordersSubTab === 'today'
+                        ? 'border-red-500 text-red-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                        }`}
+                    >
+                      <i className="bi bi-calendar-check me-2"></i>
+                      Pedidos de hoy
+                      {(() => {
+                        const { todayOrders } = categorizeOrders();
+                        return todayOrders.length > 0 && (
+                          <span className="ml-2 bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs">
+                            {todayOrders.length}
+                          </span>
+                        );
+                      })()}
+                    </button>
+                    <button
+                      onClick={() => setOrdersSubTab('history')}
+                      className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${ordersSubTab === 'history'
+                        ? 'border-red-500 text-red-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                        }`}
+                    >
+                      <i className="bi bi-journal-text me-2"></i>
+                      Historial
+                      {(() => {
+                        const { pastOrders, upcomingOrders } = categorizeOrders();
+                        const totalHistorial = pastOrders.length + upcomingOrders.length;
+                        return totalHistorial > 0 && (
+                          <span className="ml-2 bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs">
+                            {totalHistorial}
+                          </span>
+                        );
+                      })()}
+                    </button>
+                  </nav>
+                </div>
 
-            {/* Contenido de las pestañas */}
-            {ordersSubTab === 'today' && (
-              <div>
-                {(() => {
-                  const { todayOrders } = categorizeOrders();
-                  
-                  return todayOrders.length === 0 ? (
-                    <div className="bg-white rounded-xl p-8 text-center border border-gray-200">
-                      <div className="text-6xl mb-4">📅</div>
-                      <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes pedidos para hoy</h3>
-                      <p className="text-gray-500 text-sm">Los nuevos pedidos aparecerán aquí</p>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-xl font-bold text-gray-900">
-                          {(() => {
-                            const cashTotal = todayOrders
-                              .reduce((sum, order) => {
-                                if (order.payment?.method === 'cash') {
-                                  return sum + (order.total || 0);
-                                } else if (order.payment?.method === 'mixed') {
-                                  return sum + ((order.payment as any)?.cashAmount || 0);
-                                }
-                                return sum;
-                              }, 0);
-                            
-                            const transferTotal = todayOrders
-                              .reduce((sum, order) => {
-                                if (order.payment?.method === 'transfer') {
-                                  return sum + (order.total || 0);
-                                } else if (order.payment?.method === 'mixed') {
-                                  return sum + ((order.payment as any)?.transferAmount || 0);
-                                }
-                                return sum;
-                              }, 0);
-                            
-                            return (
-                              <span className="flex items-center space-x-4">
-                                <span className="text-green-600">
-                                  <i className="bi bi-cash me-1"></i>
-                                  ${cashTotal.toFixed(2)}
-                                </span>
-                                <span className="text-blue-600">
-                                  <i className="bi bi-bank me-1"></i>
-                                  ${transferTotal.toFixed(2)}
-                                </span>
-                              </span>
-                            );
-                          })()}
-                        </h2>
-                        <span className="text-sm text-gray-500">
-                          {new Date().toLocaleDateString('es-EC', { 
-                            weekday: 'long', 
-                            year: 'numeric', 
-                            month: 'long', 
-                            day: 'numeric' 
-                          })}
-                        </span>
-                      </div>
-                      <OrdersTable orders={todayOrders} isToday={true} />
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
+                {/* Contenido de las pestañas */}
+                {ordersSubTab === 'today' && (
+                  <div>
+                    {(() => {
+                      const { todayOrders } = categorizeOrders();
 
-            {ordersSubTab === 'history' && (
-              <div>
-                {(() => {
-                  const { upcomingOrders, pastOrders } = categorizeOrders();
-                  const groupedPastOrders = groupOrdersByDate(pastOrders.slice(0, 100)); // Limitar a 100 pedidos
-                  
-                  return (
-                    <div className="space-y-8">
-                      {/* Pedidos Próximos */}
-                      {upcomingOrders.length > 0 && (
-                        <div>
-                          <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xl font-bold text-gray-900">
-                              <i className="bi bi-clock me-2"></i>
-                              Pedidos Próximos ({upcomingOrders.length})
-                            </h2>
-                          </div>
-                          <OrdersTable orders={upcomingOrders} isToday={false} />
-                        </div>
-                      )}
-
-                      {/* Historial de Pedidos Agrupado por Fecha */}
-                      {groupedPastOrders.length > 0 ? (
-                        <div>
-                          <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xl font-bold text-gray-900">
-                              <i className="bi bi-archive me-2"></i>
-                              Historial de Pedidos ({pastOrders.length})
-                            </h2>
-                            {pastOrders.length > 100 && (
-                              <span className="text-sm text-gray-500">
-                                Mostrando los últimos 100 pedidos
-                              </span>
-                            )}
-                          </div>
-                          
-                          <div className="space-y-4">
-                            {groupedPastOrders.map(({ date, orders }) => {
-                              const isCollapsed = collapsedDates.has(date);
-                              return (
-                                <div key={date} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                                  {/* Header de fecha colapsable */}
-                                  <button
-                                    onClick={() => toggleDateCollapse(date)}
-                                    className="w-full px-4 py-3 bg-gray-50 border-b border-gray-200 text-left hover:bg-gray-100 transition-colors"
-                                  >
-                                    <div className="flex items-center justify-between">
-                                      <h3 className="text-lg font-semibold text-gray-900 capitalize">
-                                        {date}
-                                        <span className="ml-2 bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
-                                          {orders.length}
-                                        </span>
-                                      </h3>
-                                      <div className="flex items-center">
-                                        <span className="text-sm text-gray-500 mr-2">
-                                          ${orders.reduce((sum, order) => sum + (order.total || 0), 0).toFixed(2)} total
-                                        </span>
-                                        <i className={`bi ${isCollapsed ? 'bi-chevron-down' : 'bi-chevron-up'} text-gray-400`}></i>
-                                      </div>
-                                    </div>
-                                  </button>
-                                  
-                                  {/* Tabla de pedidos (colapsable) */}
-                                  {!isCollapsed && (
-                                    <div className="overflow-x-auto">
-                                      <table className="w-full">
-                                        <thead className="bg-gray-50">
-                                          <tr>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                              Hora
-                                            </th>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                              Cliente
-                                            </th>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                              Productos
-                                            </th>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                              Total
-                                            </th>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                              Estado
-                                            </th>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                              Pago
-                                            </th>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                              Acciones
-                                            </th>
-                                          </tr>
-                                        </thead>
-                                        <tbody className="bg-white divide-y divide-gray-200">
-                                          {orders.map((order) => (
-                                            <OrderRow key={order.id} order={order} isToday={false} />
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ) : upcomingOrders.length === 0 && (
+                      return todayOrders.length === 0 ? (
                         <div className="bg-white rounded-xl p-8 text-center border border-gray-200">
-                          <div className="text-6xl mb-4">📋</div>
-                          <h3 className="text-lg font-medium text-gray-900 mb-2">No hay pedidos en el historial</h3>
-                          <p className="text-gray-500 text-sm">Los pedidos completados aparecerán aquí</p>
+                          <div className="text-6xl mb-4">📅</div>
+                          <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes pedidos para hoy</h3>
+                          <p className="text-gray-500 text-sm">Los nuevos pedidos aparecerán aquí</p>
                         </div>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-        )}
+                      ) : (
+                        <div>
+                          <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-bold text-gray-900">
+                              {(() => {
+                                const cashTotal = todayOrders
+                                  .reduce((sum, order) => {
+                                    if (order.payment?.method === 'cash') {
+                                      return sum + (order.total || 0);
+                                    } else if (order.payment?.method === 'mixed') {
+                                      return sum + ((order.payment as any)?.cashAmount || 0);
+                                    }
+                                    return sum;
+                                  }, 0);
 
-                {/* Products Tab */}
-                {activeTab === 'products' && (
-          <ProductManagement
-            business={business}
-            products={products}
-            onProductsChange={setProducts}
-            businessCategories={businessCategories}
-            onCategoriesChange={setBusinessCategories}
-          />
-        )}
+                                const transferTotal = todayOrders
+                                  .reduce((sum, order) => {
+                                    if (order.payment?.method === 'transfer') {
+                                      return sum + (order.total || 0);
+                                    } else if (order.payment?.method === 'mixed') {
+                                      return sum + ((order.payment as any)?.transferAmount || 0);
+                                    }
+                                    return sum;
+                                  }, 0);
 
-        {/* Profile Tab */}
-        {activeTab === 'profile' && (
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4 sm:mb-6">
-              <i className="bi bi-shop me-2"></i>Información de la Tienda
-            </h2>
-            
-            {/* Imagen de Portada */}
-            <div className="bg-white rounded-lg shadow-md overflow-hidden mb-4 sm:mb-6">
-              <div className="h-32 sm:h-48 bg-gradient-to-r from-red-400 to-red-600 relative">
-                {business.coverImage ? (
-                  <img
-                    src={business.coverImage}
-                    alt="Portada de la tienda"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <div className="text-center text-white">
-                      <i className="bi bi-image text-2xl sm:text-4xl mb-1 sm:mb-2 opacity-70"></i>
-                      <p className="text-xs sm:text-sm opacity-90">Imagen de portada</p>
-                    </div>
+                                return (
+                                  <span className="flex items-center space-x-4">
+                                    <span className="text-green-600">
+                                      <i className="bi bi-cash me-1"></i>
+                                      ${cashTotal.toFixed(2)}
+                                    </span>
+                                    <span className="text-blue-600">
+                                      <i className="bi bi-bank me-1"></i>
+                                      ${transferTotal.toFixed(2)}
+                                    </span>
+                                  </span>
+                                );
+                              })()}
+                            </h2>
+                            <span className="text-sm text-gray-500">
+                              {new Date().toLocaleDateString('es-EC', {
+                                weekday: 'long',
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric'
+                              })}
+                            </span>
+                          </div>
+                          <OrdersTable orders={todayOrders} isToday={true} />
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
-                
-                {/* Botón para subir portada */}
-                <div className="absolute top-2 right-2 sm:top-4 sm:right-4">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleCoverImageUpload}
-                    className="hidden"
-                    id="cover-upload"
-                  />
-                  <label
-                    htmlFor="cover-upload"
-                    className="cursor-pointer bg-white bg-opacity-90 hover:bg-opacity-100 text-gray-700 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all inline-flex items-center"
-                  >
-                    {uploadingCover ? (
-                      <>
-                        <i className="bi bi-arrow-clockwise animate-spin me-1"></i>
-                        <span className="hidden sm:inline">Subiendo...</span>
-                        <span className="sm:hidden">...</span>
-                      </>
-                    ) : (
-                      <>
-                        <i className="bi bi-camera me-1"></i>
-                        <span className="hidden sm:inline">
-                          {business.coverImage ? 'Cambiar Portada' : 'Subir Portada'}
-                        </span>
-                        <span className="sm:hidden">Portada</span>
-                      </>
-                    )}
-                  </label>
-                </div>
-              </div>
-              
-              {/* Imagen de Perfil superpuesta */}
-              <div className="relative px-4 sm:px-6 pb-4 sm:pb-6">
-                <div className="flex items-end -mt-12 sm:-mt-16">
-                  <div className="relative">
-                    <div className="w-20 h-20 sm:w-24 sm:h-24 bg-white rounded-full p-1 shadow-lg">
-                      {business.image ? (
-                        <img
-                          src={business.image}
-                          alt={business.name}
-                          className="w-full h-full object-cover rounded-full"
-                        />
-                      ) : (
-                        <div className="w-full h-full bg-gray-200 rounded-full flex items-center justify-center">
-                          <i className="bi bi-shop text-gray-400 text-xl sm:text-2xl"></i>
+
+                {ordersSubTab === 'history' && (
+                  <div>
+                    {(() => {
+                      const { upcomingOrders, pastOrders } = categorizeOrders();
+                      const groupedPastOrders = groupOrdersByDate(pastOrders.slice(0, 100)); // Limitar a 100 pedidos
+
+                      return (
+                        <div className="space-y-8">
+                          {/* Pedidos Próximos */}
+                          {upcomingOrders.length > 0 && (
+                            <div>
+                              <div className="flex items-center justify-between mb-4">
+                                <h2 className="text-xl font-bold text-gray-900">
+                                  <i className="bi bi-clock me-2"></i>
+                                  Pedidos Próximos ({upcomingOrders.length})
+                                </h2>
+                              </div>
+                              <OrdersTable orders={upcomingOrders} isToday={false} />
+                            </div>
+                          )}
+
+                          {/* Historial de Pedidos Agrupado por Fecha */}
+                          {groupedPastOrders.length > 0 ? (
+                            <div>
+                              <div className="flex items-center justify-between mb-4">
+                                <h2 className="text-xl font-bold text-gray-900">
+                                  <i className="bi bi-archive me-2"></i>
+                                  Historial de Pedidos ({pastOrders.length})
+                                </h2>
+                                {pastOrders.length > 100 && (
+                                  <span className="text-sm text-gray-500">
+                                    Mostrando los últimos 100 pedidos
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="space-y-4">
+                                {groupedPastOrders.map(({ date, orders }) => {
+                                  const isCollapsed = collapsedDates.has(date);
+                                  return (
+                                    <div key={date} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                      {/* Header de fecha colapsable */}
+                                      <button
+                                        onClick={() => toggleDateCollapse(date)}
+                                        className="w-full px-4 py-3 bg-gray-50 border-b border-gray-200 text-left hover:bg-gray-100 transition-colors"
+                                      >
+                                        <div className="flex items-center justify-between">
+                                          <h3 className="text-lg font-semibold text-gray-900 capitalize">
+                                            {date}
+                                            <span className="ml-2 bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
+                                              {orders.length}
+                                            </span>
+                                          </h3>
+                                          <div className="flex items-center">
+                                            <span className="text-sm text-gray-500 mr-2">
+                                              ${orders.reduce((sum, order) => sum + (order.total || 0), 0).toFixed(2)} total
+                                            </span>
+                                            <i className={`bi ${isCollapsed ? 'bi-chevron-down' : 'bi-chevron-up'} text-gray-400`}></i>
+                                          </div>
+                                        </div>
+                                      </button>
+
+                                      {/* Tabla de pedidos (colapsable) */}
+                                      {!isCollapsed && (
+                                        <div className="overflow-x-auto">
+                                          <table className="w-full">
+                                            <thead className="bg-gray-50">
+                                              <tr>
+                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                  Hora
+                                                </th>
+                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                  Cliente
+                                                </th>
+                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                  Productos
+                                                </th>
+                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                  Total
+                                                </th>
+                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                  Estado
+                                                </th>
+                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                  Pago
+                                                </th>
+                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                  Acciones
+                                                </th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                              {orders.map((order) => (
+                                                <OrderRow key={order.id} order={order} isToday={false} />
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : upcomingOrders.length === 0 && (
+                            <div className="bg-white rounded-xl p-8 text-center border border-gray-200">
+                              <div className="text-6xl mb-4">📋</div>
+                              <h3 className="text-lg font-medium text-gray-900 mb-2">No hay pedidos en el historial</h3>
+                              <p className="text-gray-500 text-sm">Los pedidos completados aparecerán aquí</p>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    
-                    {/* Botón para cambiar imagen de perfil */}
-                    <div className="absolute -bottom-1 -right-1">
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Products Tab */}
+            {activeTab === 'products' && (
+              <ProductManagement
+                business={business}
+                products={products}
+                onProductsChange={setProducts}
+                businessCategories={businessCategories}
+                onCategoriesChange={setBusinessCategories}
+              />
+            )}
+
+            {/* Profile Tab */}
+            {activeTab === 'profile' && (
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4 sm:mb-6">
+                  <i className="bi bi-shop me-2"></i>Información de la Tienda
+                </h2>
+
+                {/* Imagen de Portada */}
+                <div className="bg-white rounded-lg shadow-md overflow-hidden mb-4 sm:mb-6">
+                  <div className="h-32 sm:h-48 bg-gradient-to-r from-red-400 to-red-600 relative">
+                    {business.coverImage ? (
+                      <img
+                        src={business.coverImage}
+                        alt="Portada de la tienda"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <div className="text-center text-white">
+                          <i className="bi bi-image text-2xl sm:text-4xl mb-1 sm:mb-2 opacity-70"></i>
+                          <p className="text-xs sm:text-sm opacity-90">Imagen de portada</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Botón para subir portada */}
+                    <div className="absolute top-2 right-2 sm:top-4 sm:right-4">
                       <input
                         type="file"
                         accept="image/*"
-                        onChange={handleProfileImageUpload}
+                        onChange={handleCoverImageUpload}
                         className="hidden"
-                        id="profile-upload"
+                        id="cover-upload"
                       />
                       <label
-                        htmlFor="profile-upload"
-                        className="cursor-pointer bg-red-600 text-white p-1 sm:p-1.5 rounded-full hover:bg-red-700 transition-colors inline-flex items-center justify-center"
+                        htmlFor="cover-upload"
+                        className="cursor-pointer bg-white bg-opacity-90 hover:bg-opacity-100 text-gray-700 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all inline-flex items-center"
                       >
-                        {uploadingProfile ? (
-                          <i className="bi bi-arrow-clockwise animate-spin text-xs"></i>
+                        {uploadingCover ? (
+                          <>
+                            <i className="bi bi-arrow-clockwise animate-spin me-1"></i>
+                            <span className="hidden sm:inline">Subiendo...</span>
+                            <span className="sm:hidden">...</span>
+                          </>
                         ) : (
-                          <i className="bi bi-camera text-xs"></i>
+                          <>
+                            <i className="bi bi-camera me-1"></i>
+                            <span className="hidden sm:inline">
+                              {business.coverImage ? 'Cambiar Portada' : 'Subir Portada'}
+                            </span>
+                            <span className="sm:hidden">Portada</span>
+                          </>
                         )}
                       </label>
                     </div>
                   </div>
-                  
-                  <div className="ml-3 sm:ml-4 flex-1 min-w-0">
-                    <h3 className="text-lg sm:text-xl font-bold text-gray-900 truncate">{business.name}</h3>
-                    <p className="text-sm sm:text-base text-gray-600 truncate">@{business.username}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
 
-            {/* Información de la Tienda */}
-            <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
-              {!isEditingProfile ? (
-                // Vista de solo lectura
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        <i className="bi bi-shop me-2"></i>Nombre de la Tienda
-                      </label>
-                      <p className="text-gray-900 text-sm sm:text-base">{business.name}</p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        <i className="bi bi-at me-2"></i>Usuario
-                      </label>
-                      <p className="text-gray-900 text-sm sm:text-base">@{business.username}</p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        <i className="bi bi-envelope me-2"></i>Email
-                      </label>
-                      <p className="text-gray-900 text-sm sm:text-base break-all">{business.email}</p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        <i className="bi bi-telephone me-2"></i>Teléfono
-                      </label>
-                      <p className="text-gray-900 text-sm sm:text-base">{business.phone}</p>
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        <i className="bi bi-tags me-2"></i>Categorías
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        {business.categories && business.categories.length > 0 ? (
-                          business.categories.map((category, index) => (
-                            <span key={index} className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs">
-                              {category}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-gray-500 text-sm">Sin categorías</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        <i className="bi bi-clock me-2"></i>Estado
-                      </label>
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        business.isActive 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        <i className={`bi ${business.isActive ? 'bi-check-circle' : 'bi-x-circle'} me-1`}></i>
-                        {business.isActive ? 'Activa' : 'Inactiva'}
-                      </span>
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        <i className="bi bi-geo-alt me-2"></i>Dirección
-                      </label>
-                      <p className="text-gray-900 text-sm sm:text-base">{business.address}</p>
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        <i className="bi bi-card-text me-2"></i>Descripción
-                      </label>
-                      <p className="text-gray-900 text-sm sm:text-base">{business.description}</p>
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        <i className="bi bi-building me-2"></i>Referencias de Ubicación
-                      </label>
-                      <p className="text-gray-900 text-sm sm:text-base">{business.references || 'Sin referencias'}</p>
-                    </div>
-                    
-                    {/* Horario de atención */}
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        <i className="bi bi-clock-history me-2"></i>Horario de Atención
-                      </label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map((day) => {
-                          const dayObj = editedBusiness?.schedule?.[day] || { open: '09:00', close: '18:00', isOpen: true };
-                          const label = day.charAt(0).toUpperCase() + day.slice(1);
-                          return (
-                            <div key={day} className="flex items-center gap-2">
-                              <div className="w-28">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-sm text-gray-700">{label}</span>
-                                  <button type="button" onClick={() => toggleDayOpen(day)} className={`text-xs px-2 py-1 rounded ${dayObj.isOpen ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                    {dayObj.isOpen ? 'Abierto' : 'Cerrado'}
-                                  </button>
-                                </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <input type="time" value={dayObj.open} onChange={(e) => handleScheduleFieldChange(day, 'open', e.target.value)} className="w-24 px-2 py-1 border rounded text-sm" />
-                                  <span className="text-xs text-gray-400">-</span>
-                                  <input type="time" value={dayObj.close} onChange={(e) => handleScheduleFieldChange(day, 'close', e.target.value)} className="w-24 px-2 py-1 border rounded text-sm" />
-                                </div>
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-gray-200 flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
-                    <button 
-                      onClick={handleEditProfile}
-                      className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base"
-                    >
-                      <i className="bi bi-pencil me-2"></i>
-                      Editar Información
-                    </button>
-                  </div>
-                </>
-              ) : (
-                // Vista de edición
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        <i className="bi bi-shop me-2"></i>Nombre de la Tienda
-                      </label>
-                      <input
-                        type="text"
-                        value={editedBusiness?.name || ''}
-                        onChange={(e) => handleBusinessFieldChange('name', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        <i className="bi bi-at me-2"></i>Usuario
-                      </label>
-                      <input
-                        type="text"
-                        value={editedBusiness?.username || ''}
-                        onChange={(e) => handleBusinessFieldChange('username', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        <i className="bi bi-envelope me-2"></i>Email
-                      </label>
-                      <input
-                        type="email"
-                        value={editedBusiness?.email || ''}
-                        onChange={(e) => handleBusinessFieldChange('email', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        <i className="bi bi-telephone me-2"></i>Teléfono
-                      </label>
-                      <input
-                        type="tel"
-                        value={editedBusiness?.phone || ''}
-                        onChange={(e) => handleBusinessFieldChange('phone', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        <i className="bi bi-tags me-2"></i>Categorías (separadas por comas)
-                      </label>
-                      <input
-                        type="text"
-                        value={editedBusiness?.categories?.join(', ') || ''}
-                        onChange={(e) => handleBusinessFieldChange('categories', e.target.value.split(',').map(c => c.trim()).filter(c => c))}
-                        placeholder="Ej: Comida rápida, Pizza, Italiana"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        <i className="bi bi-clock me-2"></i>Estado de la Tienda
-                      </label>
-                      <select
-                        value={editedBusiness?.isActive ? 'true' : 'false'}
-                        onChange={(e) => handleBusinessFieldChange('isActive', e.target.value === 'true')}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
-                      >
-                        <option value="true">Activa</option>
-                        <option value="false">Inactiva</option>
-                      </select>
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        <i className="bi bi-geo-alt me-2"></i>Dirección
-                      </label>
-                      <input
-                        type="text"
-                        value={editedBusiness?.address || ''}
-                        onChange={(e) => handleBusinessFieldChange('address', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        <i className="bi bi-card-text me-2"></i>Descripción
-                      </label>
-                      <textarea
-                        value={editedBusiness?.description || ''}
-                        onChange={(e) => handleBusinessFieldChange('description', e.target.value)}
-                        rows={3}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        <i className="bi bi-building me-2"></i>Referencias de Ubicación
-                      </label>
-                      <textarea
-                        value={editedBusiness?.references || ''}
-                        onChange={(e) => handleBusinessFieldChange('references', e.target.value)}
-                        rows={2}
-                        placeholder="Ej: Cerca del centro comercial, junto a la farmacia..."
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
-                      />
-                    </div>
-                    
-                    {/* Horario de atención */}
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        <i className="bi bi-clock-history me-2"></i>Horario de Atención
-                      </label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map((day) => {
-                          const dayObj = editedBusiness?.schedule?.[day] || { open: '09:00', close: '18:00', isOpen: true };
-                          const label = day.charAt(0).toUpperCase() + day.slice(1);
-                          return (
-                            <div key={day} className="flex items-center gap-2">
-                              <div className="w-28">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-sm text-gray-700">{label}</span>
-                                  <button type="button" onClick={() => toggleDayOpen(day)} className={`text-xs px-2 py-1 rounded ${dayObj.isOpen ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                    {dayObj.isOpen ? 'Abierto' : 'Cerrado'}
-                                  </button>
-                                </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <input type="time" value={dayObj.open} onChange={(e) => handleScheduleFieldChange(day, 'open', e.target.value)} className="w-24 px-2 py-1 border rounded text-sm" />
-                                  <span className="text-xs text-gray-400">-</span>
-                                  <input type="time" value={dayObj.close} onChange={(e) => handleScheduleFieldChange(day, 'close', e.target.value)} className="w-24 px-2 py-1 border rounded text-sm" />
-                                </div>
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-gray-200 flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
-                    <button 
-                      onClick={handleSaveProfile}
-                      className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base"
-                    >
-                      <i className="bi bi-check-circle me-2"></i>
-                      Guardar Cambios
-                    </button>
-                    <button 
-                      onClick={handleCancelEdit}
-                      className="w-full sm:w-auto bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors text-sm sm:text-base"
-                    >
-                      <i className="bi bi-x-circle me-2"></i>
-                      Cancelar
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Administrators Tab */}
-        {activeTab === 'admins' && (
-          <div>
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6">
-              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 sm:mb-0">
-                <i className="bi bi-people me-2"></i>Administradores
-              </h2>
-              <button
-                onClick={() => setShowAddAdminModal(true)}
-                className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base"
-              >
-                <i className="bi bi-person-plus me-2"></i>
-                Agregar Administrador
-              </button>
-            </div>
-
-            {/* Lista de administradores */}
-            <div className="bg-white rounded-lg shadow-md overflow-hidden">
-              <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900">
-                  Propietario y Administradores
-                </h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  Gestiona quién puede administrar tu tienda
-                </p>
-              </div>
-
-              <div className="divide-y divide-gray-200">
-                {/* Propietario */}
-                <div className="px-4 sm:px-6 py-4">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
-                    <div className="flex items-center mb-3 sm:mb-0">
-                      <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <i className="bi bi-crown text-red-600"></i>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm font-medium text-gray-900">{business.email}</p>
-                        <p className="text-sm text-gray-500">Propietario</p>
-                      </div>
-                    </div>
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                      Todos los permisos
-                    </span>
-                  </div>
-                </div>
-
-                {/* Administradores */}
-                {business.administrators && business.administrators.length > 0 ? (
-                  business.administrators.map((admin, index) => (
-                    <div key={index} className="px-4 sm:px-6 py-4">
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
-                        <div className="flex items-center mb-3 sm:mb-0">
-                          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                            <i className="bi bi-person text-blue-600"></i>
-                          </div>
-                          <div className="ml-3">
-                            <p className="text-sm font-medium text-gray-900">{admin.email}</p>
-                            <p className="text-sm text-gray-500 capitalize">{admin.role}</p>
-                          </div>
-                        </div>
-                        <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            {admin.role === 'admin' ? 'Administrador' : 'Gerente'}
-                          </span>
-                          <button
-                            onClick={() => handleRemoveAdmin(admin.email)}
-                            className="text-red-600 hover:text-red-700 text-sm"
-                          >
-                            <i className="bi bi-trash me-1"></i>
-                            Remover
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Permisos */}
-                      <div className="mt-3 sm:ml-13">
-                        <p className="text-xs text-gray-500 mb-2">Permisos:</p>
-                        <div className="flex flex-wrap gap-1">
-                          {admin.permissions.manageProducts && (
-                            <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
-                              Productos
-                            </span>
-                          )}
-                          {admin.permissions.manageOrders && (
-                            <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
-                              Pedidos
-                            </span>
-                          )}
-                          {admin.permissions.viewReports && (
-                            <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
-                              Reportes
-                            </span>
-                          )}
-                          {admin.permissions.editBusiness && (
-                            <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
-                              Editar Tienda
-                            </span>
-                          )}
-                          {admin.permissions.manageAdmins && (
-                            <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
-                              Administradores
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="px-4 sm:px-6 py-8 text-center">
-                    <i className="bi bi-people text-gray-400 text-4xl mb-4"></i>
-                    <p className="text-gray-500">No hay administradores adicionales</p>
-                    <p className="text-sm text-gray-400 mt-1">
-                      Agrega administradores para que te ayuden a gestionar tu tienda
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Modal para agregar administrador */}
-            {showAddAdminModal && (
-              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                <div className="bg-white rounded-lg max-w-md w-full max-h-screen overflow-y-auto">
-                  <div className="px-6 py-4 border-b border-gray-200">
-                    <h3 className="text-lg font-medium text-gray-900">
-                      Agregar Administrador
-                    </h3>
-                  </div>
-
-                  <div className="px-6 py-4 space-y-4">
-                    {/* Email */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Email del Usuario
-                      </label>
-                      <input
-                        type="email"
-                        value={newAdminData.email}
-                        onChange={(e) => setNewAdminData(prev => ({ ...prev, email: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                        placeholder="usuario@ejemplo.com"
-                      />
-                    </div>
-
-                    {/* Rol */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Rol
-                      </label>
-                      <select
-                        value={newAdminData.role}
-                        onChange={(e) => setNewAdminData(prev => ({ ...prev, role: e.target.value as 'admin' | 'manager' }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                      >
-                        <option value="admin">Administrador</option>
-                        <option value="manager">Gerente</option>
-                      </select>
-                    </div>
-
-                    {/* Permisos */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Permisos
-                      </label>
-                      <div className="space-y-2">
-                        {[
-                          { key: 'manageProducts', label: 'Gestionar Productos' },
-                          { key: 'manageOrders', label: 'Gestionar Pedidos' },
-                          { key: 'viewReports', label: 'Ver Reportes' },
-                          { key: 'editBusiness', label: 'Editar Información de la Tienda' },
-                          { key: 'manageAdmins', label: 'Gestionar Administradores' },
-                        ].map(({ key, label }) => (
-                          <label key={key} className="flex items-center">
-                            <input
-                              type="checkbox"
-                              checked={newAdminData.permissions[key as keyof typeof newAdminData.permissions]}
-                              onChange={(e) => setNewAdminData(prev => ({
-                                ...prev,
-                                permissions: {
-                                  ...prev.permissions,
-                                  [key]: e.target.checked
-                                }
-                              }))}
-                              className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
+                  {/* Imagen de Perfil superpuesta */}
+                  <div className="relative px-4 sm:px-6 pb-4 sm:pb-6">
+                    <div className="flex items-end -mt-12 sm:-mt-16">
+                      <div className="relative">
+                        <div className="w-20 h-20 sm:w-24 sm:h-24 bg-white rounded-full p-1 shadow-lg">
+                          {business.image ? (
+                            <img
+                              src={business.image}
+                              alt={business.name}
+                              className="w-full h-full object-cover rounded-full"
                             />
-                            <span className="ml-2 text-sm text-gray-700">{label}</span>
+                          ) : (
+                            <div className="w-full h-full bg-gray-200 rounded-full flex items-center justify-center">
+                              <i className="bi bi-shop text-gray-400 text-xl sm:text-2xl"></i>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Botón para cambiar imagen de perfil */}
+                        <div className="absolute -bottom-1 -right-1">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleProfileImageUpload}
+                            className="hidden"
+                            id="profile-upload"
+                          />
+                          <label
+                            htmlFor="profile-upload"
+                            className="cursor-pointer bg-red-600 text-white p-1 sm:p-1.5 rounded-full hover:bg-red-700 transition-colors inline-flex items-center justify-center"
+                          >
+                            {uploadingProfile ? (
+                              <i className="bi bi-arrow-clockwise animate-spin text-xs"></i>
+                            ) : (
+                              <i className="bi bi-camera text-xs"></i>
+                            )}
                           </label>
-                        ))}
+                        </div>
+                      </div>
+
+                      <div className="ml-3 sm:ml-4 flex-1 min-w-0">
+                        <h3 className="text-lg sm:text-xl font-bold text-gray-900 truncate">{business.name}</h3>
+                        <p className="text-sm sm:text-base text-gray-600 truncate">@{business.username}</p>
                       </div>
                     </div>
                   </div>
-
-                  <div className="px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
-                    <button
-                      onClick={handleAddAdmin}
-                      disabled={addingAdmin || !newAdminData.email.trim()}
-                      className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
-                    >
-                      {addingAdmin ? (
-                        <>
-                          <i className="bi bi-arrow-clockwise animate-spin me-2"></i>
-                          Agregando...
-                        </>
-                      ) : (
-                        <>
-                          <i className="bi bi-check me-2"></i>
-                          Agregar
-                        </>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => setShowAddAdminModal(false)}
-                      disabled={addingAdmin}
-                      className="w-full sm:w-auto bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        )}
 
-        {/* Reports Tab */}
-        {activeTab === 'reports' && (
-          <CostReports business={business} />
-        )}
+                {/* Información de la Tienda */}
+                <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
+                  {!isEditingProfile ? (
+                    // Vista de solo lectura
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <i className="bi bi-shop me-2"></i>Nombre de la Tienda
+                          </label>
+                          <p className="text-gray-900 text-sm sm:text-base">{business.name}</p>
+                        </div>
 
-        </div>
-      </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <i className="bi bi-at me-2"></i>Usuario
+                          </label>
+                          <p className="text-gray-900 text-sm sm:text-base">@{business.username}</p>
+                        </div>
 
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <i className="bi bi-envelope me-2"></i>Email
+                          </label>
+                          <p className="text-gray-900 text-sm sm:text-base break-all">{business.email}</p>
+                        </div>
 
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <i className="bi bi-telephone me-2"></i>Teléfono
+                          </label>
+                          <p className="text-gray-900 text-sm sm:text-base">{business.phone}</p>
+                        </div>
 
-      {/* Modal de Detalles del Pedido */}
-      {showOrderDetailsModal && selectedOrderDetails && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">
-                  Detalles del Pedido
-                </h2>
-                <button
-                  onClick={() => setShowOrderDetailsModal(false)}
-                  className="text-gray-500 hover:text-gray-700 text-2xl"
-                >
-                  ×
-                </button>
-              </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <i className="bi bi-tags me-2"></i>Categorías
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            {business.categories && business.categories.length > 0 ? (
+                              business.categories.map((category, index) => (
+                                <span key={index} className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs">
+                                  {category}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-gray-500 text-sm">Sin categorías</span>
+                            )}
+                          </div>
+                        </div>
 
-              {/* Información del Cliente */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                  <i className="bi bi-person-fill me-2"></i>
-                  Información del Cliente
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Nombre:</span>
-                    <p className="text-gray-900">{selectedOrderDetails.customer?.name || 'Sin nombre'}</p>
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Teléfono:</span>
-                    <p className="text-gray-900">{selectedOrderDetails.customer?.phone || 'Sin teléfono'}</p>
-                  </div>
-                </div>
-              </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <i className="bi bi-clock me-2"></i>Estado
+                          </label>
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${business.isActive
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-red-100 text-red-800'
+                            }`}>
+                            <i className={`bi ${business.isActive ? 'bi-check-circle' : 'bi-x-circle'} me-1`}></i>
+                            {business.isActive ? 'Activa' : 'Inactiva'}
+                          </span>
+                        </div>
 
-              {/* Información de Entrega */}
-              <div className="mb-6 p-4 bg-blue-50 rounded-lg">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                  <i className="bi bi-truck me-2"></i>
-                  Información de Entrega
-                </h3>
-                <div className="space-y-2">
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Tipo:</span>
-                    <span className={`ml-2 px-2 py-1 rounded text-sm ${
-                      selectedOrderDetails.delivery?.type === 'delivery' 
-                        ? 'bg-blue-100 text-blue-800' 
-                        : 'bg-green-100 text-green-800'
-                    }`}>
-                      {selectedOrderDetails.delivery?.type === 'delivery' ? 'Domicilio' : 'Retiro en tienda'}
-                    </span>
-                  </div>
-                  {selectedOrderDetails.delivery?.type === 'delivery' && (
-                    <div>
-                      <span className="text-sm font-medium text-gray-500">Dirección:</span>
-                      <p className="text-gray-900 mt-1">
-                        {selectedOrderDetails.delivery?.references || (selectedOrderDetails.delivery as any)?.reference || 'Sin referencia'}
-                      </p>
-                    </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <i className="bi bi-geo-alt me-2"></i>Dirección
+                          </label>
+                          <p className="text-gray-900 text-sm sm:text-base">{business.address}</p>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <i className="bi bi-card-text me-2"></i>Descripción
+                          </label>
+                          <p className="text-gray-900 text-sm sm:text-base">{business.description}</p>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <i className="bi bi-building me-2"></i>Referencias de Ubicación
+                          </label>
+                          <p className="text-gray-900 text-sm sm:text-base">{business.references || 'Sin referencias'}</p>
+                        </div>
+
+                        {/* Horario de atención */}
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <i className="bi bi-clock-history me-2"></i>Horario de Atención
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => {
+                              const dayObj = editedBusiness?.schedule?.[day] || { open: '09:00', close: '18:00', isOpen: true };
+                              const label = day.charAt(0).toUpperCase() + day.slice(1);
+                              return (
+                                <div key={day} className="flex items-center gap-2">
+                                  <div className="w-28">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-sm text-gray-700">{label}</span>
+                                      <button type="button" onClick={() => toggleDayOpen(day)} className={`text-xs px-2 py-1 rounded ${dayObj.isOpen ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                        {dayObj.isOpen ? 'Abierto' : 'Cerrado'}
+                                      </button>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <input type="time" value={dayObj.open} onChange={(e) => handleScheduleFieldChange(day, 'open', e.target.value)} className="w-24 px-2 py-1 border rounded text-sm" />
+                                      <span className="text-xs text-gray-400">-</span>
+                                      <input type="time" value={dayObj.close} onChange={(e) => handleScheduleFieldChange(day, 'close', e.target.value)} className="w-24 px-2 py-1 border rounded text-sm" />
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-gray-200 flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
+                        <button
+                          onClick={handleEditProfile}
+                          className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base"
+                        >
+                          <i className="bi bi-pencil me-2"></i>
+                          Editar Información
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    // Vista de edición
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <i className="bi bi-shop me-2"></i>Nombre de la Tienda
+                          </label>
+                          <input
+                            type="text"
+                            value={editedBusiness?.name || ''}
+                            onChange={(e) => handleBusinessFieldChange('name', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <i className="bi bi-at me-2"></i>Usuario
+                          </label>
+                          <input
+                            type="text"
+                            value={editedBusiness?.username || ''}
+                            onChange={(e) => handleBusinessFieldChange('username', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <i className="bi bi-envelope me-2"></i>Email
+                          </label>
+                          <input
+                            type="email"
+                            value={editedBusiness?.email || ''}
+                            onChange={(e) => handleBusinessFieldChange('email', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <i className="bi bi-telephone me-2"></i>Teléfono
+                          </label>
+                          <input
+                            type="tel"
+                            value={editedBusiness?.phone || ''}
+                            onChange={(e) => handleBusinessFieldChange('phone', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <i className="bi bi-tags me-2"></i>Categorías (separadas por comas)
+                          </label>
+                          <input
+                            type="text"
+                            value={editedBusiness?.categories?.join(', ') || ''}
+                            onChange={(e) => handleBusinessFieldChange('categories', e.target.value.split(',').map(c => c.trim()).filter(c => c))}
+                            placeholder="Ej: Comida rápida, Pizza, Italiana"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <i className="bi bi-clock me-2"></i>Estado de la Tienda
+                          </label>
+                          <select
+                            value={editedBusiness?.isActive ? 'true' : 'false'}
+                            onChange={(e) => handleBusinessFieldChange('isActive', e.target.value === 'true')}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
+                          >
+                            <option value="true">Activa</option>
+                            <option value="false">Inactiva</option>
+                          </select>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <i className="bi bi-geo-alt me-2"></i>Dirección
+                          </label>
+                          <input
+                            type="text"
+                            value={editedBusiness?.address || ''}
+                            onChange={(e) => handleBusinessFieldChange('address', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <i className="bi bi-card-text me-2"></i>Descripción
+                          </label>
+                          <textarea
+                            value={editedBusiness?.description || ''}
+                            onChange={(e) => handleBusinessFieldChange('description', e.target.value)}
+                            rows={3}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <i className="bi bi-building me-2"></i>Referencias de Ubicación
+                          </label>
+                          <textarea
+                            value={editedBusiness?.references || ''}
+                            onChange={(e) => handleBusinessFieldChange('references', e.target.value)}
+                            rows={2}
+                            placeholder="Ej: Cerca del centro comercial, junto a la farmacia..."
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
+                          />
+                        </div>
+
+                        {/* Horario de atención */}
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <i className="bi bi-clock-history me-2"></i>Horario de Atención
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => {
+                              const dayObj = editedBusiness?.schedule?.[day] || { open: '09:00', close: '18:00', isOpen: true };
+                              const label = day.charAt(0).toUpperCase() + day.slice(1);
+                              return (
+                                <div key={day} className="flex items-center gap-2">
+                                  <div className="w-28">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-sm text-gray-700">{label}</span>
+                                      <button type="button" onClick={() => toggleDayOpen(day)} className={`text-xs px-2 py-1 rounded ${dayObj.isOpen ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                        {dayObj.isOpen ? 'Abierto' : 'Cerrado'}
+                                      </button>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <input type="time" value={dayObj.open} onChange={(e) => handleScheduleFieldChange(day, 'open', e.target.value)} className="w-24 px-2 py-1 border rounded text-sm" />
+                                      <span className="text-xs text-gray-400">-</span>
+                                      <input type="time" value={dayObj.close} onChange={(e) => handleScheduleFieldChange(day, 'close', e.target.value)} className="w-24 px-2 py-1 border rounded text-sm" />
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-gray-200 flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
+                        <button
+                          onClick={handleSaveProfile}
+                          className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base"
+                        >
+                          <i className="bi bi-check-circle me-2"></i>
+                          Guardar Cambios
+                        </button>
+                        <button
+                          onClick={handleCancelEdit}
+                          className="w-full sm:w-auto bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors text-sm sm:text-base"
+                        >
+                          <i className="bi bi-x-circle me-2"></i>
+                          Cancelar
+                        </button>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
+            )}
 
-              {/* Productos */}
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                  <i className="bi bi-bag-fill me-2"></i>
-                  Productos ({selectedOrderDetails.items?.length || 0})
-                </h3>
-                <div className="space-y-3">
-                  {selectedOrderDetails.items?.map((item: any, index) => (
-                    <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900">
-                          {item.name || item.product?.name || 'Producto'}
-                        </p>
-                        {item.variant && (
-                          <p className="text-sm text-gray-500">Variante: {item.variant}</p>
-                        )}
-                        <p className="text-sm text-gray-500">Cantidad: {item.quantity}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-gray-900">
-                          ${((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          ${(item.price || 0).toFixed(2)} c/u
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Información de Pago */}
-              <div className="mb-6 p-4 bg-green-50 rounded-lg">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                  <i className="bi bi-bank me-2"></i>
-                  Información de Pago
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Método:</span>
-                    <p className="text-gray-900">
-                      {selectedOrderDetails.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Estado:</span>
-                    <span className={`ml-1 px-2 py-1 rounded text-sm ${
-                      selectedOrderDetails.payment?.paymentStatus === 'paid' 
-                        ? 'bg-green-100 text-green-800'
-                        : selectedOrderDetails.payment?.paymentStatus === 'validating'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {selectedOrderDetails.payment?.paymentStatus === 'paid' ? 'Pagado' : 
-                       selectedOrderDetails.payment?.paymentStatus === 'validating' ? 'Validando' : 'Pendiente'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Total:</span>
-                    <p className="text-xl font-bold text-green-600">
-                      ${(selectedOrderDetails.total || 0).toFixed(2)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Estado y Fechas */}
-              <div className="mb-6 p-4 bg-purple-50 rounded-lg">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                  <i className="bi bi-info-circle-fill me-2"></i>
-                  Estado del Pedido
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Estado actual:</span>
-                    <span className={`ml-2 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(selectedOrderDetails.status)}`}>
-                      {selectedOrderDetails.status === 'pending' && '🕐 Pendiente'}
-                      {selectedOrderDetails.status === 'confirmed' && '✅ Confirmado'}
-                      {selectedOrderDetails.status === 'preparing' && '👨‍🍳 Preparando'}
-                      {selectedOrderDetails.status === 'ready' && '🔔 Listo'}
-                      {selectedOrderDetails.status === 'delivered' && '📦 Entregado'}
-                      {selectedOrderDetails.status === 'cancelled' && '❌ Cancelado'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Fecha del pedido:</span>
-                    <p className="text-gray-900">
-                      {formatDate(getOrderDateTime(selectedOrderDetails))} {formatTime(getOrderDateTime(selectedOrderDetails))}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Acciones rápidas */}
-              <div className="flex space-x-3">
-                <button
-                  onClick={() => {
-                    setShowOrderDetailsModal(false)
-                    // Abrir sidebar en modo edición desde detalles
-                    setManualSidebarMode('edit')
-                    setEditingOrderForSidebar(selectedOrderDetails)
-                    setShowManualOrderModal(true)
-                  }}
-                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <i className="bi bi-pencil me-2"></i>
-                  Editar Pedido
-                </button>
-                <button
-                  onClick={() => setShowOrderDetailsModal(false)}
-                  className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Cerrar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de Edición de Método de Pago */}
-      {showEditPaymentModal && paymentEditingOrder && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-md w-full">
-            <div className="p-6">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-900">
-                  <i className="bi bi-credit-card me-2"></i>
-                  Editar Método de Pago
-                </h2>
-                <button
-                  onClick={() => setShowEditPaymentModal(false)}
-                  className="text-gray-500 hover:text-gray-700 text-2xl"
-                >
-                  ×
-                </button>
-              </div>
-
-              {/* Información del pedido */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-600">Pedido de:</p>
-                <p className="text-lg font-semibold text-gray-900">
-                  {paymentEditingOrder.customer?.name || 'Cliente sin nombre'}
-                </p>
-                <p className="text-sm text-gray-600 mt-1">
-                  Total: <span className="font-bold text-emerald-600">
-                    ${(paymentEditingOrder.total || 0).toFixed(2)}
-                  </span>
-                </p>
-              </div>
-
-              {/* Selección de método de pago */}
-              <div className="space-y-4 mb-6">
-                <label className="block text-sm font-medium text-gray-700">
-                  Método de Pago
-                </label>
-                
-                <div className="space-y-3">
-                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      value="cash"
-                      checked={editPaymentData.method === 'cash'}
-                      onChange={(e) => setEditPaymentData({
-                        ...editPaymentData,
-                        method: e.target.value as 'cash',
-                        cashAmount: 0,
-                        transferAmount: 0,
-                        paymentStatus: 'pending'
-                      })}
-                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
-                    />
-                    <span className="ml-3 text-gray-700">
-                      <i className="bi bi-cash me-2 text-green-600"></i>
-                      Efectivo
-                    </span>
-                  </label>
-
-                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      value="transfer"
-                      checked={editPaymentData.method === 'transfer'}
-                      onChange={(e) => setEditPaymentData({
-                        ...editPaymentData,
-                        method: e.target.value as 'transfer',
-                        cashAmount: 0,
-                        transferAmount: 0,
-                        paymentStatus: 'paid'
-                      })}
-                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
-                    />
-                    <span className="ml-3 text-gray-700">
-                      <i className="bi bi-credit-card me-2 text-blue-600"></i>
-                      Transferencia
-                    </span>
-                  </label>
-
-                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      value="mixed"
-                      checked={editPaymentData.method === 'mixed'}
-                      onChange={(e) => setEditPaymentData({
-                        ...editPaymentData,
-                        method: e.target.value as 'mixed',
-                        cashAmount: 0,
-                        transferAmount: 0,
-                        paymentStatus: 'pending'
-                      })}
-                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
-                    />
-                    <span className="ml-3 text-gray-700">
-                      <i className="bi bi-cash-coin me-2 text-yellow-600"></i>
-                      Mixto (Efectivo + Transferencia)
-                    </span>
-                  </label>
-                </div>
-
-                {/* Selector de estado de pago (debajo de Método de Pago) */}
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Estado del Pago
-                  </label>
-                  <select
-                    value={editPaymentData.paymentStatus}
-                    onChange={(e) => setEditPaymentData({
-                      ...editPaymentData,
-                      paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
-                    })}
-                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm bg-white"
+            {/* Administrators Tab */}
+            {activeTab === 'admins' && (
+              <div>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6">
+                  <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 sm:mb-0">
+                    <i className="bi bi-people me-2"></i>Administradores
+                  </h2>
+                  <button
+                    onClick={() => setShowAddAdminModal(true)}
+                    className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base"
                   >
-                    <option value="pending">Pendiente</option>
-                    <option value="validating">Validando</option>
-                    <option value="paid">Pagado</option>
-                  </select>
+                    <i className="bi bi-person-plus me-2"></i>
+                    Agregar Administrador
+                  </button>
                 </div>
 
-                {/* Montos para pago mixto */}
-                {editPaymentData.method === 'mixed' && (
-                  <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                    <h4 className="text-sm font-medium text-gray-900 mb-3">
-                      <i className="bi bi-calculator me-1"></i>
-                      Distribución del Pago
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Efectivo
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          max={paymentEditingOrder.total || 0}
-                          step="0.01"
-                          value={editPaymentData.cashAmount}
-                          onChange={(e) => {
-                            const cashAmount = parseFloat(e.target.value) || 0
-                            const transferAmount = (paymentEditingOrder.total || 0) - cashAmount
-                            setEditPaymentData({
-                              ...editPaymentData,
-                              cashAmount,
-                              transferAmount: Math.max(0, transferAmount)
-                            })
-                          }}
-                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
-                          placeholder="0.00"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Transferencia
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          max={paymentEditingOrder.total || 0}
-                          step="0.01"
-                          value={editPaymentData.transferAmount}
-                          onChange={(e) => {
-                            const transferAmount = parseFloat(e.target.value) || 0
-                            const cashAmount = (paymentEditingOrder.total || 0) - transferAmount
-                            setEditPaymentData({
-                              ...editPaymentData,
-                              transferAmount,
-                              cashAmount: Math.max(0, cashAmount)
-                            })
-                          }}
-                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
-                          placeholder="0.00"
-                        />
+                {/* Lista de administradores */}
+                <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                  <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
+                    <h3 className="text-lg font-medium text-gray-900">
+                      Propietario y Administradores
+                    </h3>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Gestiona quién puede administrar tu tienda
+                    </p>
+                  </div>
+
+                  <div className="divide-y divide-gray-200">
+                    {/* Propietario */}
+                    <div className="px-4 sm:px-6 py-4">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+                        <div className="flex items-center mb-3 sm:mb-0">
+                          <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+                            <i className="bi bi-crown text-red-600"></i>
+                          </div>
+                          <div className="ml-3">
+                            <p className="text-sm font-medium text-gray-900">{business.email}</p>
+                            <p className="text-sm text-gray-500">Propietario</p>
+                          </div>
+                        </div>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                          Todos los permisos
+                        </span>
                       </div>
                     </div>
-                    <div className="mt-2 text-sm text-gray-600">
-                      Total: ${((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)).toFixed(2)} / ${(paymentEditingOrder.total || 0).toFixed(2)}
+
+                    {/* Administradores */}
+                    {business.administrators && business.administrators.length > 0 ? (
+                      business.administrators.map((admin, index) => (
+                        <div key={index} className="px-4 sm:px-6 py-4">
+                          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+                            <div className="flex items-center mb-3 sm:mb-0">
+                              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                <i className="bi bi-person text-blue-600"></i>
+                              </div>
+                              <div className="ml-3">
+                                <p className="text-sm font-medium text-gray-900">{admin.email}</p>
+                                <p className="text-sm text-gray-500 capitalize">{admin.role}</p>
+                              </div>
+                            </div>
+                            <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                {admin.role === 'admin' ? 'Administrador' : 'Gerente'}
+                              </span>
+                              <button
+                                onClick={() => handleRemoveAdmin(admin.email)}
+                                className="text-red-600 hover:text-red-700 text-sm"
+                              >
+                                <i className="bi bi-trash me-1"></i>
+                                Remover
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Permisos */}
+                          <div className="mt-3 sm:ml-13">
+                            <p className="text-xs text-gray-500 mb-2">Permisos:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {admin.permissions.manageProducts && (
+                                <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                                  Productos
+                                </span>
+                              )}
+                              {admin.permissions.manageOrders && (
+                                <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                                  Pedidos
+                                </span>
+                              )}
+                              {admin.permissions.viewReports && (
+                                <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                                  Reportes
+                                </span>
+                              )}
+                              {admin.permissions.editBusiness && (
+                                <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                                  Editar Tienda
+                                </span>
+                              )}
+                              {admin.permissions.manageAdmins && (
+                                <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                                  Administradores
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-4 sm:px-6 py-8 text-center">
+                        <i className="bi bi-people text-gray-400 text-4xl mb-4"></i>
+                        <p className="text-gray-500">No hay administradores adicionales</p>
+                        <p className="text-sm text-gray-400 mt-1">
+                          Agrega administradores para que te ayuden a gestionar tu tienda
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Modal para agregar administrador */}
+                {showAddAdminModal && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg max-w-md w-full max-h-screen overflow-y-auto">
+                      <div className="px-6 py-4 border-b border-gray-200">
+                        <h3 className="text-lg font-medium text-gray-900">
+                          Agregar Administrador
+                        </h3>
+                      </div>
+
+                      <div className="px-6 py-4 space-y-4">
+                        {/* Email */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Email del Usuario
+                          </label>
+                          <input
+                            type="email"
+                            value={newAdminData.email}
+                            onChange={(e) => setNewAdminData(prev => ({ ...prev, email: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                            placeholder="usuario@ejemplo.com"
+                          />
+                        </div>
+
+                        {/* Rol */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Rol
+                          </label>
+                          <select
+                            value={newAdminData.role}
+                            onChange={(e) => setNewAdminData(prev => ({ ...prev, role: e.target.value as 'admin' | 'manager' }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                          >
+                            <option value="admin">Administrador</option>
+                            <option value="manager">Gerente</option>
+                          </select>
+                        </div>
+
+                        {/* Permisos */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Permisos
+                          </label>
+                          <div className="space-y-2">
+                            {[
+                              { key: 'manageProducts', label: 'Gestionar Productos' },
+                              { key: 'manageOrders', label: 'Gestionar Pedidos' },
+                              { key: 'viewReports', label: 'Ver Reportes' },
+                              { key: 'editBusiness', label: 'Editar Información de la Tienda' },
+                              { key: 'manageAdmins', label: 'Gestionar Administradores' },
+                            ].map(({ key, label }) => (
+                              <label key={key} className="flex items-center">
+                                <input
+                                  type="checkbox"
+                                  checked={newAdminData.permissions[key as keyof typeof newAdminData.permissions]}
+                                  onChange={(e) => setNewAdminData(prev => ({
+                                    ...prev,
+                                    permissions: {
+                                      ...prev.permissions,
+                                      [key]: e.target.checked
+                                    }
+                                  }))}
+                                  className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
+                                />
+                                <span className="ml-2 text-sm text-gray-700">{label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
+                        <button
+                          onClick={handleAddAdmin}
+                          disabled={addingAdmin || !newAdminData.email.trim()}
+                          className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                        >
+                          {addingAdmin ? (
+                            <>
+                              <i className="bi bi-arrow-clockwise animate-spin me-2"></i>
+                              Agregando...
+                            </>
+                          ) : (
+                            <>
+                              <i className="bi bi-check me-2"></i>
+                              Agregar
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => setShowAddAdminModal(false)}
+                          disabled={addingAdmin}
+                          className="w-full sm:w-auto bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
+            )}
 
-              {/* Botones de acción */}
-              <div className="flex space-x-3">
-                <button
-                  onClick={handleSavePaymentEdit}
-                  disabled={editPaymentData.method === 'mixed' && 
-                    ((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)) !== (paymentEditingOrder.total || 0)
-                  }
-                  className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
-                >
-                  <i className="bi bi-check-lg me-2"></i>
-                  Guardar Cambios
-                </button>
-                <button
-                  onClick={() => setShowEditPaymentModal(false)}
-                  className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Cancelar
-                </button>
+            {/* Reports Tab */}
+            {activeTab === 'reports' && (
+              <CostReports business={business} />
+            )}
+
+          </div>
+        </div>
+
+
+
+        {/* Modal de Detalles del Pedido */}
+        {showOrderDetailsModal && selectedOrderDetails && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    Detalles del Pedido
+                  </h2>
+                  <button
+                    onClick={() => setShowOrderDetailsModal(false)}
+                    className="text-gray-500 hover:text-gray-700 text-2xl"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {/* Información del Cliente */}
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                    <i className="bi bi-person-fill me-2"></i>
+                    Información del Cliente
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-sm font-medium text-gray-500">Nombre:</span>
+                      <p className="text-gray-900">{selectedOrderDetails.customer?.name || 'Sin nombre'}</p>
+                    </div>
+                    <div>
+                      <span className="text-sm font-medium text-gray-500">Teléfono:</span>
+                      <p className="text-gray-900">{selectedOrderDetails.customer?.phone || 'Sin teléfono'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Información de Entrega */}
+                <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                    <i className="bi bi-truck me-2"></i>
+                    Información de Entrega
+                  </h3>
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-sm font-medium text-gray-500">Tipo:</span>
+                      <span className={`ml-2 px-2 py-1 rounded text-sm ${selectedOrderDetails.delivery?.type === 'delivery'
+                        ? 'bg-blue-100 text-blue-800'
+                        : 'bg-green-100 text-green-800'
+                        }`}>
+                        {selectedOrderDetails.delivery?.type === 'delivery' ? 'Domicilio' : 'Retiro en tienda'}
+                      </span>
+                    </div>
+                    {selectedOrderDetails.delivery?.type === 'delivery' && (
+                      <div>
+                        <span className="text-sm font-medium text-gray-500">Dirección:</span>
+                        <p className="text-gray-900 mt-1">
+                          {selectedOrderDetails.delivery?.references || (selectedOrderDetails.delivery as any)?.reference || 'Sin referencia'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Productos */}
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                    <i className="bi bi-bag-fill me-2"></i>
+                    Productos ({selectedOrderDetails.items?.length || 0})
+                  </h3>
+                  <div className="space-y-3">
+                    {selectedOrderDetails.items?.map((item: any, index) => (
+                      <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            {item.name || item.product?.name || 'Producto'}
+                          </p>
+                          {item.variant && (
+                            <p className="text-sm text-gray-500">Variante: {item.variant}</p>
+                          )}
+                          <p className="text-sm text-gray-500">Cantidad: {item.quantity}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold text-gray-900">
+                            ${((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            ${(item.price || 0).toFixed(2)} c/u
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Información de Pago */}
+                <div className="mb-6 p-4 bg-green-50 rounded-lg">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                    <i className="bi bi-bank me-2"></i>
+                    Información de Pago
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <span className="text-sm font-medium text-gray-500">Método:</span>
+                      <p className="text-gray-900">
+                        {selectedOrderDetails.payment?.method === 'cash' ? 'Efectivo' : 'Transferencia'}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-sm font-medium text-gray-500">Estado:</span>
+                      <span className={`ml-1 px-2 py-1 rounded text-sm ${selectedOrderDetails.payment?.paymentStatus === 'paid'
+                        ? 'bg-green-100 text-green-800'
+                        : selectedOrderDetails.payment?.paymentStatus === 'validating'
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : 'bg-red-100 text-red-800'
+                        }`}>
+                        {selectedOrderDetails.payment?.paymentStatus === 'paid' ? 'Pagado' :
+                          selectedOrderDetails.payment?.paymentStatus === 'validating' ? 'Validando' : 'Pendiente'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-sm font-medium text-gray-500">Total:</span>
+                      <p className="text-xl font-bold text-green-600">
+                        ${(selectedOrderDetails.total || 0).toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Estado y Fechas */}
+                <div className="mb-6 p-4 bg-purple-50 rounded-lg">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                    <i className="bi bi-info-circle-fill me-2"></i>
+                    Estado del Pedido
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-sm font-medium text-gray-500">Estado actual:</span>
+                      <span className={`ml-2 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(selectedOrderDetails.status)}`}>
+                        {selectedOrderDetails.status === 'pending' && '🕐 Pendiente'}
+                        {selectedOrderDetails.status === 'confirmed' && '✅ Confirmado'}
+                        {selectedOrderDetails.status === 'preparing' && '👨‍🍳 Preparando'}
+                        {selectedOrderDetails.status === 'ready' && '🔔 Listo'}
+                        {selectedOrderDetails.status === 'delivered' && '📦 Entregado'}
+                        {selectedOrderDetails.status === 'cancelled' && '❌ Cancelado'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-sm font-medium text-gray-500">Fecha del pedido:</span>
+                      <p className="text-gray-900">
+                        {formatDate(getOrderDateTime(selectedOrderDetails))} {formatTime(getOrderDateTime(selectedOrderDetails))}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Acciones rápidas */}
+                <div className="flex space-x-3">
+                  <button
+                    onClick={() => {
+                      setShowOrderDetailsModal(false)
+                      // Abrir sidebar en modo edición desde detalles
+                      setManualSidebarMode('edit')
+                      setEditingOrderForSidebar(selectedOrderDetails)
+                      setShowManualOrderModal(true)
+                    }}
+                    className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <i className="bi bi-pencil me-2"></i>
+                    Editar Pedido
+                  </button>
+                  <button
+                    onClick={() => setShowOrderDetailsModal(false)}
+                    className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    Cerrar
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-    
+        {/* Modal de Edición de Método de Pago */}
+        {showEditPaymentModal && paymentEditingOrder && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl max-w-md w-full">
+              <div className="p-6">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold text-gray-900">
+                    <i className="bi bi-credit-card me-2"></i>
+                    Editar Método de Pago
+                  </h2>
+                  <button
+                    onClick={() => setShowEditPaymentModal(false)}
+                    className="text-gray-500 hover:text-gray-700 text-2xl"
+                  >
+                    ×
+                  </button>
+                </div>
 
-      {/* Botón flotante para crear pedido */}
-      <button
-        onClick={() => {
-          setManualSidebarMode('create')
-          setEditingOrderForSidebar(null)
-          setShowManualOrderModal(true)
-        }}
-        className="fixed bottom-4 right-4 lg:bottom-6 lg:right-6 bg-red-600 hover:bg-red-700 text-white rounded-full w-12 h-12 lg:w-16 lg:h-16 shadow-lg transition-colors z-50 flex items-center justify-center"
-        title="Crear Pedido"
-      >
-        <i className="bi bi-plus-lg text-lg lg:text-xl"></i>
-      </button>
+                {/* Información del pedido */}
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                  <p className="text-sm text-gray-600">Pedido de:</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {paymentEditingOrder.customer?.name || 'Cliente sin nombre'}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Total: <span className="font-bold text-emerald-600">
+                      ${(paymentEditingOrder.total || 0).toFixed(2)}
+                    </span>
+                  </p>
+                </div>
 
-      {/* Sidebar para crear pedido manual */}
-      <ManualOrderSidebar
-        isOpen={showManualOrderModal}
-        onClose={() => setShowManualOrderModal(false)}
-        business={business}
-        products={products}
-        onOrderCreated={loadOrders}
-        mode={manualSidebarMode}
-        editOrder={editingOrderForSidebar || undefined}
-        onOrderUpdated={loadOrders}
-      />
+                {/* Selección de método de pago */}
+                <div className="space-y-4 mb-6">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Método de Pago
+                  </label>
+
+                  <div className="space-y-3">
+                    <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        value="cash"
+                        checked={editPaymentData.method === 'cash'}
+                        onChange={(e) => setEditPaymentData({
+                          ...editPaymentData,
+                          method: e.target.value as 'cash',
+                          cashAmount: 0,
+                          transferAmount: 0,
+                          paymentStatus: 'pending'
+                        })}
+                        className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                      />
+                      <span className="ml-3 text-gray-700">
+                        <i className="bi bi-cash me-2 text-green-600"></i>
+                        Efectivo
+                      </span>
+                    </label>
+
+                    <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        value="transfer"
+                        checked={editPaymentData.method === 'transfer'}
+                        onChange={(e) => setEditPaymentData({
+                          ...editPaymentData,
+                          method: e.target.value as 'transfer',
+                          cashAmount: 0,
+                          transferAmount: 0,
+                          paymentStatus: 'paid'
+                        })}
+                        className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                      />
+                      <span className="ml-3 text-gray-700">
+                        <i className="bi bi-credit-card me-2 text-blue-600"></i>
+                        Transferencia
+                      </span>
+                    </label>
+
+                    <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        value="mixed"
+                        checked={editPaymentData.method === 'mixed'}
+                        onChange={(e) => setEditPaymentData({
+                          ...editPaymentData,
+                          method: e.target.value as 'mixed',
+                          cashAmount: 0,
+                          transferAmount: 0,
+                          paymentStatus: 'pending'
+                        })}
+                        className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
+                      />
+                      <span className="ml-3 text-gray-700">
+                        <i className="bi bi-cash-coin me-2 text-yellow-600"></i>
+                        Mixto (Efectivo + Transferencia)
+                      </span>
+                    </label>
+                  </div>
+
+                  {/* Selector de estado de pago (debajo de Método de Pago) */}
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Estado del Pago
+                    </label>
+                    <select
+                      value={editPaymentData.paymentStatus}
+                      onChange={(e) => setEditPaymentData({
+                        ...editPaymentData,
+                        paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
+                      })}
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm bg-white"
+                    >
+                      <option value="pending">Pendiente</option>
+                      <option value="validating">Validando</option>
+                      <option value="paid">Pagado</option>
+                    </select>
+                  </div>
+
+                  {/* Montos para pago mixto */}
+                  {editPaymentData.method === 'mixed' && (
+                    <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                      <h4 className="text-sm font-medium text-gray-900 mb-3">
+                        <i className="bi bi-calculator me-1"></i>
+                        Distribución del Pago
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Efectivo
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            max={paymentEditingOrder.total || 0}
+                            step="0.01"
+                            value={editPaymentData.cashAmount}
+                            onChange={(e) => {
+                              const cashAmount = parseFloat(e.target.value) || 0
+                              const transferAmount = (paymentEditingOrder.total || 0) - cashAmount
+                              setEditPaymentData({
+                                ...editPaymentData,
+                                cashAmount,
+                                transferAmount: Math.max(0, transferAmount)
+                              })
+                            }}
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Transferencia
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            max={paymentEditingOrder.total || 0}
+                            step="0.01"
+                            value={editPaymentData.transferAmount}
+                            onChange={(e) => {
+                              const transferAmount = parseFloat(e.target.value) || 0
+                              const cashAmount = (paymentEditingOrder.total || 0) - transferAmount
+                              setEditPaymentData({
+                                ...editPaymentData,
+                                transferAmount,
+                                cashAmount: Math.max(0, cashAmount)
+                              })
+                            }}
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-2 text-sm text-gray-600">
+                        Total: ${((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)).toFixed(2)} / ${(paymentEditingOrder.total || 0).toFixed(2)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Botones de acción */}
+                <div className="flex space-x-3">
+                  <button
+                    onClick={handleSavePaymentEdit}
+                    disabled={editPaymentData.method === 'mixed' &&
+                      ((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)) !== (paymentEditingOrder.total || 0)
+                    }
+                    className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                  >
+                    <i className="bi bi-check-lg me-2"></i>
+                    Guardar Cambios
+                  </button>
+                  <button
+                    onClick={() => setShowEditPaymentModal(false)}
+                    className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+
+
+        {/* Botón flotante para crear pedido */}
+        <button
+          onClick={() => {
+            setManualSidebarMode('create')
+            setEditingOrderForSidebar(null)
+            setShowManualOrderModal(true)
+          }}
+          className="fixed bottom-4 right-4 lg:bottom-6 lg:right-6 bg-red-600 hover:bg-red-700 text-white rounded-full w-12 h-12 lg:w-16 lg:h-16 shadow-lg transition-colors z-50 flex items-center justify-center"
+          title="Crear Pedido"
+        >
+          <i className="bi bi-plus-lg text-lg lg:text-xl"></i>
+        </button>
+
+        {/* Sidebar para crear pedido manual */}
+        <ManualOrderSidebar
+          isOpen={showManualOrderModal}
+          onClose={() => setShowManualOrderModal(false)}
+          business={business}
+          products={products}
+          onOrderCreated={loadOrders}
+          mode={manualSidebarMode}
+          editOrder={editingOrderForSidebar || undefined}
+          onOrderUpdated={loadOrders}
+        />
       </div>
     </div>
   )
