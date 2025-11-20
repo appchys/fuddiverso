@@ -31,7 +31,7 @@ function BusinessStructuredData({ business }: { business: Business }) {
     "hasOnlineOrdering": "True",
     "paymentAccepted": ["Cash", "Credit Card", "Bank Transfer"],
     "currenciesAccepted": "USD",
-    "openingHours": business.schedule ? Object.entries(business.schedule).map(([day, hours]: [string, any]) => 
+    "openingHours": business.schedule ? Object.entries(business.schedule).map(([day, hours]: [string, any]) =>
       hours?.isOpen ? `${day.substring(0, 2).toUpperCase()} ${hours.open}-${hours.close}` : null
     ).filter(Boolean) : [],
     "aggregateRating": {
@@ -77,8 +77,8 @@ function BusinessStructuredData({ business }: { business: Business }) {
 }
 
 // Componente para mostrar variantes de producto
-function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, updateQuantity, businessImage }: { 
-  product: any, 
+function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, updateQuantity, businessImage }: {
+  product: any,
   onAddToCart: (item: any) => void,
   getCartItemQuantity: (id: string) => number,
   updateQuantity: (id: string, quantity: number) => void,
@@ -108,12 +108,12 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
           }}
         />
       </div>
-      
+
       {/* Nombre, descripción y precio */}
       <div className="flex-1 min-w-0 ml-3 sm:ml-4">
         <h4 className="font-medium text-sm sm:text-base text-gray-900 truncate">{product.name}</h4>
         <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2">{product.description}</p>
-        
+
         {/* Precio debajo de la descripción */}
         <div className="mt-1">
           {product.variants && product.variants.length > 0 ? (
@@ -130,17 +130,16 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
           )}
         </div>
       </div>
-      
+
       {/* Botón de agregar */}
       <div className="ml-2 sm:ml-4 flex-shrink-0">
         <button
           onClick={(e) => { e.stopPropagation(); onAddToCart(product) }}
           disabled={!product.isAvailable}
-          className={`flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-lg ${
-            product.isAvailable 
-              ? 'bg-gray-100 hover:bg-gray-200' 
-              : 'bg-gray-100 text-gray-300 cursor-not-allowed'
-          }`}
+          className={`flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-lg ${product.isAvailable
+            ? 'bg-gray-100 hover:bg-gray-200'
+            : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+            }`}
           title={product.isAvailable ? (product.variants?.length ? 'Ver opciones' : 'Agregar al carrito') : 'Agotado'}
         >
           {product.variants?.length ? (
@@ -196,21 +195,21 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
               {/* Imagen cuadrada a la izquierda */}
               <div className="w-24 h-24 sm:w-28 sm:h-28 flex-shrink-0 relative">
                 <div className={`absolute inset-0 rounded-lg animate-pulse bg-gray-200 ${modalImgLoaded ? 'hidden' : 'block'}`}></div>
-                <img 
-                  src={product?.image || businessImage} 
-                  alt={product?.name} 
-                  className="w-full h-full object-cover rounded-lg" 
+                <img
+                  src={product?.image || businessImage}
+                  alt={product?.name}
+                  className="w-full h-full object-cover rounded-lg"
                   loading="lazy"
                   decoding="async"
                   onLoad={() => setModalImgLoaded(true)}
-                  onError={(e) => { 
-                    const target = e.target as HTMLImageElement; 
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
                     if (target.src !== (businessImage || '')) target.src = businessImage || ''
                     setModalImgLoaded(true)
-                  }} 
+                  }}
                 />
               </div>
-              
+
               {/* Descripción a la derecha */}
               {product?.description && (
                 <div className="flex-1 min-w-0">
@@ -228,12 +227,11 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
                 const qty = getCartItemQuantity(uid)
 
                 return (
-                  <div 
-                    key={i} 
-                    onClick={() => setSelectedVariant(variant)} 
-                    className={`w-full p-3 rounded-lg border-2 flex items-center justify-between transition-colors ${
-                      selectedVariant === variant ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-gray-300 cursor-pointer'
-                    }`}
+                  <div
+                    key={i}
+                    onClick={() => setSelectedVariant(variant)}
+                    className={`w-full p-3 rounded-lg border-2 flex items-center justify-between transition-colors ${selectedVariant === variant ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-gray-300 cursor-pointer'
+                      }`}
                   >
                     <div className="flex-1 min-w-0">
                       <h5 className="font-medium text-gray-900 truncate">{variant.name}</h5>
@@ -246,8 +244,8 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
                     <div className="flex-shrink-0 ml-2" onClick={(e) => e.stopPropagation()}>
                       {qty > 0 ? (
                         <div className="flex items-center border rounded-lg overflow-hidden bg-white">
-                          <button 
-                            onClick={() => updateQuantity(uid, qty - 1)} 
+                          <button
+                            onClick={() => updateQuantity(uid, qty - 1)}
                             className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
                           >
                             -
@@ -255,7 +253,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
                           <div className="px-3 py-1 min-w-[30px] text-center">
                             {qty}
                           </div>
-                          <button 
+                          <button
                             onClick={() => updateQuantity(uid, qty + 1)}
                             className="px-3 py-1 bg-red-500 text-white hover:bg-red-600 transition-colors"
                           >
@@ -263,7 +261,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
                           </button>
                         </div>
                       ) : (
-                        <button 
+                        <button
                           onClick={() => {
                             onAddToCart({
                               id: uid,
@@ -278,7 +276,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
                               variantId: variant.id
                             });
                             onClose();
-                          }} 
+                          }}
                           className="flex items-center justify-center w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors"
                           title="Agregar al carrito"
                         >
@@ -344,10 +342,10 @@ function RestaurantContent() {
       // No setLoading(true) aquí para zero-load feel, pero mantén el estado para skeletons
       try {
         console.log('🔍 Loading restaurant data for username:', username)
-        
+
         const businessData = await getBusinessByUsername(username)
         console.log('📊 Business data received:', businessData)
-        
+
         if (!businessData) {
           setError('Restaurante no encontrado')
           return
@@ -376,14 +374,14 @@ function RestaurantContent() {
           console.error('Error handling visit increment:', e)
         }
         console.log('🖼️ Cover image from business:', businessData.coverImage)
-        
+
         const productsData = await getProductsByBusiness(businessData.id)
         console.log('📦 Products data received:', productsData.length, 'products')
-        
+
         // Filtrar solo productos disponibles
         const availableProducts = productsData.filter(product => product.isAvailable)
         console.log('✅ Available products:', availableProducts.length, 'of', productsData.length)
-        
+
         setProducts(availableProducts)
       } catch (err) {
         console.error('Error loading restaurant data:', err)
@@ -487,8 +485,8 @@ function RestaurantContent() {
       )
       showNotification(`Se agregó otra ${product.name} al carrito`)
     } else {
-      newCart = [...cart, { 
-        ...cartItem, 
+      newCart = [...cart, {
+        ...cartItem,
         quantity: 1
       }]
       showNotification(`${product.name} agregado al carrito`)
@@ -512,9 +510,9 @@ function RestaurantContent() {
       )
       showNotification(`Se agregó otra ${product.name} al carrito`)
     } else {
-      newCart = [...cart, { 
-        ...product, 
-        quantity: 1, 
+      newCart = [...cart, {
+        ...product,
+        quantity: 1,
         businessId: business.id,
         businessName: business.name,
         businessImage: business.image
@@ -565,13 +563,13 @@ function RestaurantContent() {
   const updateCartInStorage = (businessId: string, businessCart: any[]) => {
     const savedCarts = localStorage.getItem('carts')
     const allCarts = savedCarts ? JSON.parse(savedCarts) : {}
-    
+
     if (businessCart.length === 0) {
       delete allCarts[businessId]
     } else {
       allCarts[businessId] = businessCart
     }
-    
+
     localStorage.setItem('carts', JSON.stringify(allCarts))
   }
 
@@ -612,14 +610,14 @@ function RestaurantContent() {
   // Función para determinar si la tienda está abierta
   const isStoreOpen = () => {
     if (!business?.schedule) return false;
-    
+
     const now = new Date();
     const currentDay = now.toLocaleDateString('en', { weekday: 'long' }).toLowerCase();
     const currentTime = now.toLocaleTimeString('en-GB', { hour12: false }).slice(0, 5);
-    
+
     const todaySchedule = business.schedule[currentDay];
     if (!todaySchedule || !todaySchedule.isOpen) return false;
-    
+
     return currentTime >= todaySchedule.open && currentTime <= todaySchedule.close;
   };
 
@@ -671,10 +669,10 @@ function RestaurantContent() {
 
   // Agrupar productos por categoría, respetando el orden definido en business.categories
   const productsByCategory: Record<string, Product[]> = {}
-  
+
   // Primero, obtenemos todos los productos disponibles
   const availableProducts = products.filter(product => product.isAvailable)
-  
+
   // Si hay categorías definidas en el negocio, usamos ese orden
   if (business?.categories?.length && !loading) {
     // Creamos las categorías en el orden definido
@@ -684,7 +682,7 @@ function RestaurantContent() {
         productsByCategory[category] = categoryProducts
       }
     })
-    
+
     // Agregamos productos sin categoría a 'Otros' si existen
     const uncategorizedProducts = availableProducts.filter(p => !p.category || !business.categories?.includes(p.category))
     if (uncategorizedProducts.length > 0) {
@@ -705,7 +703,7 @@ function RestaurantContent() {
     <div className="min-h-screen bg-gray-50">
       {/* Structured Data for SEO */}
       {!loading && business && <BusinessStructuredData business={business} />}
-      
+
       {/* Hero Section - Siempre visible, con shimmer si loading */}
       <div className="bg-white shadow-sm">
         {/* Portada con logo superpuesto */}
@@ -751,7 +749,7 @@ function RestaurantContent() {
             )}
           </div>
         </div>
-        
+
         {/* Contenido debajo de la portada */}
         <div className={`max-w-3xl mx-auto px-4 pt-12 sm:pt-14 pb-4 text-center ${loading ? 'opacity-50 animate-pulse' : ''}`}>
           <div className="flex flex-col items-center">
@@ -772,11 +770,10 @@ function RestaurantContent() {
                 {loading ? (
                   <div className="inline-flex items-center px-8 py-0.5 bg-gray-200 rounded-full animate-pulse"></div>
                 ) : (
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                    isStoreOpen() 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-red-100 text-red-800'
-                  }`}>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isStoreOpen()
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-red-100 text-red-800'
+                    }`}>
                     <i className={`bi ${isStoreOpen() ? 'bi-clock' : 'bi-clock-history'} mr-1`}></i>
                     {isStoreOpen() ? 'Abierta' : 'Cerrada'}
                   </span>
@@ -801,7 +798,7 @@ function RestaurantContent() {
         <h2 className={`text-xl sm:text-2xl font-bold ${loading ? 'bg-gray-300 h-8 w-48 rounded animate-pulse mb-6 mx-auto' : 'text-gray-900 mb-6'}`}>
           {!loading ? 'Nuestro Menú' : ''}
         </h2>
-        
+
         {loading ? (
           // Skeleton para categorías y productos
           <div className="space-y-8">
@@ -893,135 +890,133 @@ function RestaurantContent() {
                 )}
               </div>
 
-              {/* Cart Content - VERSIÓN FINAL PREMIUM */}
-<div className="flex-1 overflow-y-auto px-4 pt-4">
-  {cart.length === 0 ? (
-    <div className="flex flex-col items-center justify-center h-full text-center px-4">
-      <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-        <i className="bi bi-cart text-4xl text-gray-400"></i>
-      </div>
-      <h4 className="text-lg font-medium text-gray-900 mb-2">Tu carrito está vacío</h4>
-      <p className="text-gray-500 text-sm">Agrega algunos productos deliciosos para comenzar</p>
-    </div>
-  ) : (
-    <div className="space-y-6 pb-4">
-      {/* === CARRITO AGRUPADO CON IMAGEN Y DISEÑO PREMIUM === */}
-      {(() => {
-        const grouped: Record<string, any[]> = {}
-        
-        cart.forEach(item => {
-          if (item.esPremio) {
-            if (!grouped['___premio_final___']) grouped['___premio_final___'] = []
-            grouped['___premio_final___'].push(item)
-            return
-          }
-          const key = item.productName || item.name
-          if (!grouped[key]) grouped[key] = []
-          grouped[key].push(item)
-        })
-
-        return Object.entries(grouped)
-          .sort(([a]) => (a === '___premio_final___' ? 1 : -1))
-          .map(([productName, items], groupIndex) => {
-            const firstItem = items[0]
-            const isPremio = productName === '___premio_final___'
-
-            return (
-              <div key={productName} className={`${groupIndex > 0 && !isPremio ? 'pt-6 border-t border-gray-200' : ''}`}>
-                {/* Título del producto + imagen (solo si no es premio) */}
-                {!isPremio && (
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 shadow-sm">
-                      <img
-                        src={firstItem.image || business?.image}
-                        alt={productName}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement
-                          if (target.src !== business?.image) target.src = business?.image || ''
-                        }}
-                      />
+              {/* Cart Content - Agrupado por producto */}
+              <div className="flex-1 overflow-y-auto px-4 pt-4">
+                {cart.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center px-4">
+                    <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                      <i className="bi bi-cart text-4xl text-gray-400"></i>
                     </div>
-                    <h3 className="font-bold text-gray-900">{productName}</h3>
+                    <h4 className="text-lg font-medium text-gray-900 mb-2">Tu carrito está vacío</h4>
+                    <p className="text-gray-500 text-sm">Agrega algunos productos deliciosos para comenzar</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4 pb-4">
+                    {(() => {
+                      // Agrupar items por producto
+                      const grouped: Record<string, any[]> = {}
+
+                      cart.forEach(item => {
+                        if (item.esPremio) {
+                          if (!grouped['___premio___']) grouped['___premio___'] = []
+                          grouped['___premio___'].push(item)
+                          return
+                        }
+                        const key = item.productName || item.name
+                        if (!grouped[key]) grouped[key] = []
+                        grouped[key].push(item)
+                      })
+
+                      return Object.entries(grouped)
+                        .sort(([a]) => (a === '___premio___' ? 1 : -1))
+                        .map(([productName, items], groupIndex) => {
+                          const isPremio = productName === '___premio___'
+                          const firstItem = items[0]
+
+                          return (
+                            <div key={productName} className={groupIndex > 0 ? 'pt-4 border-t border-gray-200' : ''}>
+                              {/* Header del producto (solo si no es premio) */}
+                              {!isPremio && (
+                                <div className="flex items-center gap-2 mb-2 px-2">
+                                  <div className="w-8 h-8 rounded-md overflow-hidden bg-gray-100 flex-shrink-0">
+                                    <img
+                                      src={firstItem.image || business?.image}
+                                      alt={productName}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        const target = e.target as HTMLImageElement
+                                        if (target.src !== business?.image) target.src = business?.image || ''
+                                      }}
+                                    />
+                                  </div>
+                                  <h4 className="font-semibold text-sm text-gray-900">{productName}</h4>
+                                </div>
+                              )}
+
+                              {/* Items del producto */}
+                              <div className="space-y-2">
+                                {items.map((item) => (
+                                  <div
+                                    key={item.id}
+                                    className={`flex items-center gap-2 p-3 rounded-lg transition-all ${item.esPremio
+                                      ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300'
+                                      : 'bg-white border border-gray-200 hover:shadow-sm'
+                                      }`}
+                                  >
+                                    {/* Nombre de variante o producto */}
+                                    <div className="flex-1 min-w-0">
+                                      <p className={`font-medium text-sm leading-tight line-clamp-2 ${item.esPremio ? 'text-amber-900' : 'text-gray-900'
+                                        }`}>
+                                        {item.esPremio ? item.name : (item.variantName || item.name)}
+                                      </p>
+                                      {item.esPremio && (
+                                        <span className="inline-block mt-1 text-xs bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-bold">
+                                          🎁 Premio
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Cantidad */}
+                                    {!item.esPremio ? (
+                                      <div className="flex items-center border rounded-lg overflow-hidden bg-white flex-shrink-0">
+                                        <button
+                                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                                          className="px-1.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+                                        >
+                                          −
+                                        </button>
+                                        <div className="px-2 py-1 min-w-[32px] text-center font-medium text-sm">
+                                          {item.quantity}
+                                        </div>
+                                        <button
+                                          onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                                          className="px-1.5 py-1 bg-red-500 text-white hover:bg-red-600 transition-colors"
+                                        >
+                                          +
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="px-2 py-1 text-sm font-medium text-amber-900 flex-shrink-0">
+                                        x1
+                                      </div>
+                                    )}
+
+                                    {/* Subtotal */}
+                                    <div className={`font-bold text-sm min-w-[50px] text-right flex-shrink-0 ${item.price === 0 ? 'text-green-600' : 'text-gray-900'
+                                      }`}>
+                                      {item.price === 0 ? 'GRATIS' : `$${(item.price * item.quantity).toFixed(2)}`}
+                                    </div>
+
+                                    {/* Eliminar */}
+                                    <button
+                                      onClick={() => removeFromCart(item.id)}
+                                      className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition flex-shrink-0"
+                                      title="Eliminar"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })
+                    })()}
                   </div>
                 )}
-
-                {/* Variantes del producto */}
-                <div className="space-y-3 ml-15"> {/* ml-15 = ml-[60px] para alinear con la imagen */}
-                  {items.map((item) => (
-                    <div
-                      key={item.id}
-                      className={`relative rounded-2xl p-4 transition-all ${
-                        item.esPremio
-                          ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300 shadow-lg'
-                          : 'bg-white border border-gray-200 shadow-sm hover:shadow-md'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        {/* Nombre variante + etiqueta premio */}
-                        <div className="flex-1 min-w-0">
-                          <p className={`font-semibold text-base leading-tight ${
-                            item.esPremio ? 'text-amber-900' : 'text-gray-900'
-                          }`}>
-                            {item.esPremio ? item.name : (item.variantName || item.name)}
-                          </p>
-                          {item.esPremio && (
-                            <span className="inline-block mt-1.5 text-xs bg-amber-200 text-amber-900 px-3 py-1 rounded-full font-bold">
-                              ¡Premio Especial! 🎁
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Controles cantidad + precio */}
-                        <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            {!item.esPremio && (
-                              <div className="flex items-center gap-2 mb-2">
-                                <button
-                                  onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                                  className="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition"
-                                >
-                                  <span className="text-lg">−</span>
-                                </button>
-                                <span className="w-10 text-center font-bold text-gray-900">
-                                  {item.quantity}
-                                </span>
-                                <button
-                                  onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                                  className="w-9 h-9 rounded-full bg-red-500 text-white hover:bg-red-600 flex items-center justify-center transition"
-                                >
-                                  <span className="text-lg">+</span>
-                                </button>
-                              </div>
-                            )}
-                            <div className={`font-bold text-lg ${
-                              item.price === 0 ? 'text-green-600' : 'text-gray-900'
-                            }`}>
-                              {item.price === 0 ? 'GRATIS' : `$${(item.price * item.quantity).toFixed(2)}`}
-                            </div>
-                          </div>
-
-                          {/* Botón eliminar */}
-                          <button
-                            onClick={() => removeFromCart(item.id)}
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
-                          >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </div>
-            )
-          })
-      })()}
-    </div>
-  )}
-</div>
 
               {/* Footer con resumen y botón de checkout */}
               {cart.length > 0 && (
@@ -1043,17 +1038,17 @@ function RestaurantContent() {
                       </div>
                     </div>
                   </div>
-                  
+
                   {/* Botón de checkout o agregar más */}
                   {cartTotal > 0 ? (
                     <Link
-  href={`/checkout?businessId=${business!.id}`}  // Agrega ! para non-null assertion, ya que business existe aquí
-  className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white py-4 rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-200 flex items-center justify-center font-semibold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-  onClick={() => setIsCartOpen(false)}
->
-  <i className="bi bi-cart mr-2 text-xl"></i>
-  Continuar con el pedido
-</Link>
+                      href={`/checkout?businessId=${business!.id}`}  // Agrega ! para non-null assertion, ya que business existe aquí
+                      className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white py-4 rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-200 flex items-center justify-center font-semibold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                      onClick={() => setIsCartOpen(false)}
+                    >
+                      <i className="bi bi-cart mr-2 text-xl"></i>
+                      Continuar con el pedido
+                    </Link>
                   ) : (
                     <button
                       onClick={() => setIsCartOpen(false)}
@@ -1063,7 +1058,7 @@ function RestaurantContent() {
                       Agrega más productos
                     </button>
                   )}
-                  
+
                   {/* Texto informativo */}
                   <p className="text-xs text-gray-500 text-center">
                     Los costos de envío se calcularán en el siguiente paso
@@ -1101,9 +1096,8 @@ function RestaurantContent() {
       {/* Notificación temporal */}
       {notification.show && (
         <div className="fixed top-20 right-4 z-50 animate-pulse">
-          <div className={`rounded-lg px-4 py-3 shadow-lg text-white font-medium ${
-            notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
-          }`}>
+          <div className={`rounded-lg px-4 py-3 shadow-lg text-white font-medium ${notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+            }`}>
             <div className="flex items-center space-x-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
