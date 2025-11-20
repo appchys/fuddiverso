@@ -43,7 +43,7 @@ function LocationMap({ latlong, height = "96px" }: { latlong: string; height?: s
 
   return (
     <div className={`w-full rounded-lg overflow-hidden border border-gray-200 shadow-sm relative`} style={{ height, width: height }}>
-      <img 
+      <img
         src={staticMapUrl}
         alt={`Mapa de ubicación ${coordinates.lat}, ${coordinates.lng}`}
         className="w-full h-full object-cover"
@@ -54,11 +54,11 @@ function LocationMap({ latlong, height = "96px" }: { latlong: string; height?: s
 }
 
 // Componente para subir comprobante de transferencia
-function TransferReceiptUploader({ 
-  onReceiptUpload, 
-  uploadedImageUrl, 
-  isUploading 
-}: { 
+function TransferReceiptUploader({
+  onReceiptUpload,
+  uploadedImageUrl,
+  isUploading
+}: {
   onReceiptUpload: (imageUrl: string) => void;
   uploadedImageUrl: string | null;
   isUploading: boolean;
@@ -102,15 +102,15 @@ function TransferReceiptUploader({
       const timestamp = Date.now()
       const fileName = `comprobantes/${timestamp}_${file.name}`
       const storageRef = ref(storage, fileName)
-      
+
       await uploadBytes(storageRef, file)
       const downloadUrl = await getDownloadURL(storageRef)
-      
+
       // Limpiar preview local y usar URL de Firebase
       URL.revokeObjectURL(previewUrl)
       setPreviewImage(downloadUrl)
       onReceiptUpload(downloadUrl)
-      
+
     } catch (error) {
       console.error('Error uploading image:', error)
       setError('Error al subir la imagen. Intenta nuevamente.')
@@ -159,7 +159,7 @@ function TransferReceiptUploader({
       <label className="block text-sm font-medium text-gray-700 mb-2">
         Comprobante de Transferencia *
       </label>
-      
+
       <input
         type="file"
         ref={fileInputRef}
@@ -169,47 +169,79 @@ function TransferReceiptUploader({
       />
       {!previewImage ? (
         <div
-          className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
-            dragActive ? 'border-red-500 bg-red-50' : 'border-gray-300 hover:border-gray-400'
-          }`}
+          className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${dragActive ? 'border-red-500 bg-red-50' : 'border-gray-300 hover:border-gray-400'
+            }`}
           onDragEnter={handleDrag}
           onDragOver={handleDrag}
           onDragLeave={handleDrag}
           onDrop={handleDrop}
         >
-          <p className="text-sm text-gray-600">Arrastra aquí tu comprobante o haz clic para seleccionar un archivo</p>
-          <div className="mt-4">
-            <button 
-              type="button" 
+          <div className="flex flex-col items-center">
+            <svg className="w-12 h-12 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+            <p className="text-sm text-gray-600 mb-2">Arrastra aquí tu comprobante</p>
+            <p className="text-xs text-gray-500 mb-4">o haz clic para seleccionar</p>
+            <button
+              type="button"
               onClick={(e) => {
                 e.preventDefault();
                 fileInputRef.current?.click();
-              }} 
-              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+              }}
+              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium"
             >
+              <i className="bi bi-upload mr-2"></i>
               Seleccionar Archivo
             </button>
+            <p className="text-xs text-gray-400 mt-3">JPG, PNG o WEBP (máx. 5MB)</p>
           </div>
         </div>
       ) : (
-        <div className="flex items-center justify-between">
-          <div className="flex-1">
-            <p className="text-sm text-gray-700">Comprobante cargado</p>
+        <div className="space-y-3">
+          {/* Vista previa de la imagen */}
+          <div className="relative rounded-lg overflow-hidden border-2 border-green-500 bg-green-50">
+            <img
+              src={previewImage}
+              alt="Comprobante de pago"
+              className="w-full h-48 object-contain bg-white"
+            />
+            <div className="absolute top-2 right-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => window.open(previewImage, '_blank')}
+                className="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
+                title="Ver imagen completa"
+              >
+                <i className="bi bi-arrows-fullscreen text-gray-700"></i>
+              </button>
+              <button
+                type="button"
+                onClick={removeImage}
+                className="p-2 bg-white rounded-full shadow-lg hover:bg-red-50 transition-colors"
+                title="Eliminar imagen"
+              >
+                <i className="bi bi-trash text-red-600"></i>
+              </button>
+            </div>
           </div>
-          <button type="button" onClick={() => window.open(previewImage, '_blank')} className="text-xs text-blue-600 hover:text-blue-800 flex items-center">
-            <i className="bi bi-eye mr-1"></i>
-            Ver imagen completa
-          </button>
+
+          {/* Información del comprobante */}
+          <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
+            <div className="flex items-center gap-2">
+              <i className="bi bi-check-circle-fill text-green-600 text-lg"></i>
+              <span className="text-sm font-medium text-green-800">Comprobante cargado exitosamente</span>
+            </div>
+          </div>
         </div>
       )}
-      
+
       {error && (
         <p className="text-red-500 text-xs mt-2 flex items-center">
           <i className="bi bi-exclamation-triangle mr-1"></i>
           {error}
         </p>
       )}
-      
+
       {isUploading && (
         <div className="mt-3 flex items-center text-sm text-gray-600">
           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500 mr-2"></div>
@@ -472,7 +504,7 @@ function CheckoutContent() {
 
     try {
       console.log('💾 Guardando nueva ubicación:', newLocationData);
-      
+
       // Guardar en Firebase usando la nueva función
       const locationId = await createClientLocation({
         id_cliente: clientFound.id,
@@ -498,7 +530,7 @@ function CheckoutContent() {
       setClientLocations(prev => [...prev, newLocation]);
       handleLocationSelect(newLocation);
       closeLocationModal();
-      
+
       // Mostrar mensaje de éxito
       alert('🎉 Ubicación guardada exitosamente');
     } catch (error) {
@@ -541,7 +573,7 @@ function CheckoutContent() {
 
     // Normalizar el número de teléfono antes de validar y buscar
     const normalizedPhone = normalizeEcuadorianPhone(phone);
-    
+
     if (!validateEcuadorianPhone(normalizedPhone)) {
       setClientFound(null);
       setShowNameField(false);
@@ -565,7 +597,7 @@ function CheckoutContent() {
           phone: normalizedPhone // Actualizar con el número normalizado
         }));
         setShowNameField(!client.pinHash);
-        
+
         // Cargar las ubicaciones del cliente
         setLoadingLocations(true);
         try {
@@ -573,8 +605,8 @@ function CheckoutContent() {
           setClientLocations(locations);
           // Seleccionar automáticamente la primera ubicación si existe
           if (locations.length > 0) {
-        // No seleccionar automáticamente la primera ubicación para que el usuario elija explícitamente
-        // handleLocationSelect(locations[0]);
+            // No seleccionar automáticamente la primera ubicación para que el usuario elija explícitamente
+            // handleLocationSelect(locations[0]);
           }
         } catch (error) {
           console.error('Error loading client locations:', error);
@@ -623,7 +655,7 @@ function CheckoutContent() {
         }
 
         // Refrescar estado local del cliente encontrado
-  setClientFound((prev: any) => prev ? { ...prev, nombres: customerData.name.trim() } : prev)
+        setClientFound((prev: any) => prev ? { ...prev, nombres: customerData.name.trim() } : prev)
         setShowNameField(false)
         // Ensure phone is normalized in customerData
         setCustomerData(prev => ({ ...prev, phone: normalizedPhone }))
@@ -771,18 +803,18 @@ function CheckoutContent() {
       setCalculatingTariff(true)
     }
     setSelectedLocation(location)
-    
+
     // Si la ubicación tiene coordenadas, calcular tarifa automáticamente
     if (location.latlong) {
       try {
         const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
         if (!isNaN(lat) && !isNaN(lng)) {
           const calculatedFee = await calculateDeliveryFee({ lat, lng })
-          
+
           // Actualizar la tarifa en la ubicación seleccionada
           const updatedLocation = { ...location, tarifa: calculatedFee.toString() }
           setSelectedLocation(updatedLocation)
-          
+
           // Actualizar datos de entrega
           setDeliveryData(prev => ({
             ...prev,
@@ -790,7 +822,7 @@ function CheckoutContent() {
             references: `${location.sector} - ${location.latlong}`,
             tarifa: calculatedFee.toString()
           }));
-          
+
           closeLocationModal()
           return
         }
@@ -800,7 +832,7 @@ function CheckoutContent() {
         setCalculatingTariff(false)
       }
     }
-    
+
     // Si no se pudo calcular automáticamente, usar tarifa existente
     setDeliveryData(prev => ({
       ...prev,
@@ -808,7 +840,7 @@ function CheckoutContent() {
       references: `${location.sector} - ${location.latlong}`,
       tarifa: location.tarifa
     }));
-    
+
     closeLocationModal()
   }
 
@@ -817,7 +849,7 @@ function CheckoutContent() {
   useEffect(() => {
     // Cargar datos del negocio y carrito desde localStorage
     const businessIdFromQuery = searchParams.get('businessId')
-    
+
     // Si no hay businessId en la query, redirigir
     if (!businessIdFromQuery) {
       router.push('/')
@@ -853,7 +885,7 @@ function CheckoutContent() {
         phone: user.celular || ''
       }));
       setShowNameField(false);
-      
+
       // Cargar las ubicaciones del usuario
       const loadUserLocations = async () => {
         setLoadingLocations(true);
@@ -871,7 +903,7 @@ function CheckoutContent() {
           setLoadingLocations(false);
         }
       };
-      
+
       loadUserLocations();
     }
   }, [searchParams, router, user])
@@ -992,8 +1024,8 @@ function CheckoutContent() {
 
     // Paso 4: Validar pago (ahora el paso final es 4, se removió el paso de confirmación)
     if (maxStep >= 4 && paymentData.method) {
-      if (paymentData.method === 'cash' || 
-          (paymentData.method === 'transfer' && paymentData.selectedBank)) {
+      if (paymentData.method === 'cash' ||
+        (paymentData.method === 'transfer' && paymentData.selectedBank)) {
         maxStep = 4;
       }
     }
@@ -1114,7 +1146,7 @@ function CheckoutContent() {
         const now = new Date();
         const scheduledDateTime = new Date(`${timingData.scheduledDate}T${timingData.scheduledTime}`);
         const minScheduledTime = new Date(now.getTime() + 29 * 60 * 1000); // 29 minutos para dar un pequeño margen
-        
+
         if (scheduledDateTime < minScheduledTime) {
           alert('La hora programada debe ser al menos 30 minutos después de la hora actual');
           setLoading(false);
@@ -1125,26 +1157,26 @@ function CheckoutContent() {
 
       // Calcular tiempo de entrega
       let scheduledTime, scheduledDate;
-      
+
       if (timingData.type === 'immediate') {
         // Para inmediato: fecha y hora actuales + 30 minutos
         const now = new Date();
         const deliveryTime = new Date(now.getTime() + 30 * 60 * 1000);
-        
+
         // Asegurarse de que la hora esté en formato de 24h con ceros a la izquierda
         const hours = String(deliveryTime.getHours()).padStart(2, '0');
         const minutes = String(deliveryTime.getMinutes()).padStart(2, '0');
-        
+
         scheduledDate = Timestamp.fromDate(deliveryTime);
         scheduledTime = `${hours}:${minutes}`; // Formato HH:MM
       } else {
         // Para programado: combinar fecha y hora en la zona horaria local
         const [year, month, day] = timingData.scheduledDate.split('-').map(Number);
         const [hours, minutes] = timingData.scheduledTime.split(':').map(Number);
-        
+
         // Crear fecha en la zona horaria local
         const localDate = new Date(year, month - 1, day, hours, minutes);
-        
+
         // Convertir a Timestamp (Firestore usa UTC internamente)
         scheduledDate = Timestamp.fromDate(localDate);
         scheduledTime = timingData.scheduledTime;
@@ -1183,7 +1215,8 @@ function CheckoutContent() {
         payment: {
           method: (paymentData.method || 'cash') as 'cash' | 'transfer' | 'mixed',
           selectedBank: paymentData.method === 'transfer' ? paymentData.selectedBank : '',
-          paymentStatus: (paymentData.method === 'transfer' ? 'pending' : undefined) as 'pending' | 'validating' | 'paid' | undefined
+          paymentStatus: (paymentData.method === 'transfer' ? 'pending' : undefined) as 'pending' | 'validating' | 'paid' | undefined,
+          receiptImageUrl: paymentData.receiptImageUrl || ''
         },
         total,
         subtotal,
@@ -1197,7 +1230,7 @@ function CheckoutContent() {
       };
 
       const orderId = await createOrder(orderData);
-      
+
       // Limpiar carrito específico de este negocio
       const businessId = searchParams.get('businessId')
       if (businessId) {
@@ -1212,7 +1245,7 @@ function CheckoutContent() {
           }
         }
       }
-      
+
       // Redirigir a la página de estado del pedido con la ruta /o/[orderId]
       router.push(`/o/${orderId}`)
     } catch (error) {
@@ -1237,22 +1270,22 @@ function CheckoutContent() {
   }
 
   // No mostrar nada si el carrito está vacío, a menos que se esté procesando una orden
-    if (cartItems.length === 0 && !isProcessingOrder) {
-      return (
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-gray-900 mb-4">Tu carrito está vacío</h1>
-            <p className="text-gray-600 mb-6">Agrega algunos productos antes de proceder al checkout</p>
-            <Link
-              href="/"
-              className="inline-block bg-red-500 text-white px-6 py-3 rounded-lg hover:bg-red-600"
-            >
-              Volver a inicio
-            </Link>
-          </div>
+  if (cartItems.length === 0 && !isProcessingOrder) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">Tu carrito está vacío</h1>
+          <p className="text-gray-600 mb-6">Agrega algunos productos antes de proceder al checkout</p>
+          <Link
+            href="/"
+            className="inline-block bg-red-500 text-white px-6 py-3 rounded-lg hover:bg-red-600"
+          >
+            Volver a inicio
+          </Link>
         </div>
-      );
-    }
+      </div>
+    );
+  }
   // Determinar si la ubicación seleccionada está fuera de cobertura (tarifa nula o 0)
   const selectedLocationOutsideCoverage = !!selectedLocation && !calculatingTariff && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0);
 
@@ -1263,15 +1296,14 @@ function CheckoutContent() {
         <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 mb-4 sm:mb-6">
           <div className="flex flex-col items-center gap-4">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Checkout</h1>
-            
+
             {/* Progress Steps with Icons */}
             <div className="flex items-center justify-between w-full max-w-2xl">
               {/* Step 1 - Cliente */}
               <div className="flex flex-col items-center flex-1">
                 <button
                   onClick={() => setCurrentStep(1)}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all hover:scale-110 ${
-                      step1Complete ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600 hover:bg-gray-400'
+                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all hover:scale-110 ${step1Complete ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600 hover:bg-gray-400'
                     }`}
                 >
                   <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -1288,9 +1320,8 @@ function CheckoutContent() {
                 <button
                   onClick={() => currentStep >= 2 && setCurrentStep(2)}
                   disabled={currentStep < 2}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${
-                    step2Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                  }`}
+                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${step2Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                    }`}
                 >
                   {deliveryData.type === 'pickup' ? (
                     /* Store icon when pickup */
@@ -1316,9 +1347,8 @@ function CheckoutContent() {
                 <button
                   onClick={() => currentStep >= 3 && setCurrentStep(3)}
                   disabled={currentStep < 3}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${
-                    step3Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                  }`}
+                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${step3Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                    }`}
                 >
                   {/* Clock icon: lightning for immediate, clock for scheduled */}
                   {timingData.type === 'immediate' ? (
@@ -1343,9 +1373,8 @@ function CheckoutContent() {
                 <button
                   onClick={() => currentStep >= 4 && setCurrentStep(4)}
                   disabled={currentStep < 4}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${
-                    step4Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                  }`}
+                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${step4Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                    }`}
                 >
                   {/* Payment icon: cash, transfer, or mixed */}
                   {paymentData.method === 'transfer' ? (
@@ -1380,7 +1409,7 @@ function CheckoutContent() {
               {currentStep >= 1 && (
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900 mb-6">Datos del Cliente</h2>
-                  
+
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1418,7 +1447,7 @@ function CheckoutContent() {
                             value={customerData.phone}
                             onChange={(e) => {
                               const phone = e.target.value;
-                              setCustomerData({...customerData, phone});
+                              setCustomerData({ ...customerData, phone });
                               handlePhoneSearch(phone);
                             }}
                             onBlur={(e) => {
@@ -1426,12 +1455,11 @@ function CheckoutContent() {
                               const phone = e.target.value;
                               const normalizedPhone = normalizeEcuadorianPhone(phone);
                               if (validateEcuadorianPhone(normalizedPhone)) {
-                                setCustomerData({...customerData, phone: normalizedPhone});
+                                setCustomerData({ ...customerData, phone: normalizedPhone });
                               }
                             }}
-                            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                              errors.phone ? 'border-red-500' : 'border-gray-300'
-                            }`}
+                            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.phone ? 'border-red-500' : 'border-gray-300'
+                              }`}
                             placeholder="Ej: +593 95 903 6708 o 0959036708"
                           />
                           {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone}</p>}
@@ -1478,7 +1506,7 @@ function CheckoutContent() {
                                 type="text"
                                 required
                                 value={customerData.name}
-                                onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
+                                onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
                                 className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
                                 placeholder="Juan Pérez"
                               />
@@ -1506,7 +1534,7 @@ function CheckoutContent() {
                               type="text"
                               required
                               value={customerData.name}
-                              onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
+                              onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
                               className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
                               placeholder="Juan Pérez"
                             />
@@ -1545,18 +1573,17 @@ function CheckoutContent() {
                               // Al cambiar a pickup, limpiamos la ubicación seleccionada
                               setSelectedLocation(null);
                               setDeliveryData(prev => ({
-                                ...prev, 
+                                ...prev,
                                 type: 'pickup',
                                 address: '',
                                 references: '',
                                 tarifa: '0'
                               }));
                             }}
-                            className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                              deliveryData.type === 'pickup'
-                                ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                : 'border-gray-300 hover:border-gray-400'
-                            }`}
+                            className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${deliveryData.type === 'pickup'
+                              ? 'border-blue-500 bg-blue-50 text-blue-700'
+                              : 'border-gray-300 hover:border-gray-400'
+                              }`}
                           >
                             <i className="bi bi-shop text-lg"></i>
                             <span className="text-xs font-medium">Recoger en tienda</span>
@@ -1567,16 +1594,15 @@ function CheckoutContent() {
                             onClick={() => {
                               // Al cambiar a delivery, mantenemos la dirección pero reseteamos la tarifa
                               setDeliveryData(prev => ({
-                                ...prev, 
+                                ...prev,
                                 type: 'delivery',
                                 tarifa: '0' // Reseteamos la tarifa
                               }));
                             }}
-                            className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                              deliveryData.type === 'delivery'
-                                ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                : 'border-gray-300 hover:border-gray-400'
-                            }`}
+                            className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${deliveryData.type === 'delivery'
+                              ? 'border-blue-500 bg-blue-50 text-blue-700'
+                              : 'border-gray-300 hover:border-gray-400'
+                              }`}
                           >
                             <i className="bi bi-scooter text-lg"></i>
                             <span className="text-xs font-medium">Delivery</span>
@@ -1605,14 +1631,14 @@ function CheckoutContent() {
                                           <LocationMap latlong={selectedLocation.latlong} height="80px" />
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                                <div className="font-medium text-sm mb-1">{selectedLocation.referencia}</div>
-                                                <div className="text-xs text-gray-500">Tarifa: ${selectedLocation.tarifa}</div>
-                                                {selectedLocationOutsideCoverage && (
-                                                  <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-                                                    <i className="bi bi-exclamation-triangle mr-2"></i>
-                                                    Esta ubicación está fuera de las zonas de cobertura y no será posible realizar delivery a esta dirección.
-                                                  </div>
-                                                )}
+                                          <div className="font-medium text-sm mb-1">{selectedLocation.referencia}</div>
+                                          <div className="text-xs text-gray-500">Tarifa: ${selectedLocation.tarifa}</div>
+                                          {selectedLocationOutsideCoverage && (
+                                            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+                                              <i className="bi bi-exclamation-triangle mr-2"></i>
+                                              Esta ubicación está fuera de las zonas de cobertura y no será posible realizar delivery a esta dirección.
+                                            </div>
+                                          )}
                                         </div>
                                         <button type="button" onClick={openLocationModal} className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center flex-shrink-0">
                                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1673,11 +1699,10 @@ function CheckoutContent() {
                           // avanzar fluidamente al paso de pago
                           setCurrentStep(4)
                         }}
-                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                          timingData.type === 'immediate'
-                            ? 'border-orange-500 bg-orange-50 text-orange-700'
-                            : 'border-gray-300 hover:border-gray-400'
-                        }`}
+                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${timingData.type === 'immediate'
+                          ? 'border-orange-500 bg-orange-50 text-orange-700'
+                          : 'border-gray-300 hover:border-gray-400'
+                          }`}
                       >
                         <i className="bi bi-lightning-fill text-lg"></i>
                         <span className="text-xs font-medium">Inmediato</span>
@@ -1697,11 +1722,10 @@ function CheckoutContent() {
                           // avanzar al paso de pago para que la sección aparezca sin más acciones
                           setCurrentStep(4)
                         }}
-                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                          timingData.type === 'scheduled'
-                            ? 'border-orange-500 bg-orange-50 text-orange-700'
-                            : 'border-gray-300 hover:border-gray-400'
-                        }`}
+                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${timingData.type === 'scheduled'
+                          ? 'border-orange-500 bg-orange-50 text-orange-700'
+                          : 'border-gray-300 hover:border-gray-400'
+                          }`}
                       >
                         <i className="bi bi-calendar2-event text-lg"></i>
                         <span className="text-xs font-medium">Programado</span>
@@ -1718,7 +1742,7 @@ function CheckoutContent() {
                         <input
                           type="date"
                           value={timingData.scheduledDate}
-                          onChange={(e) => setTimingData({...timingData, scheduledDate: e.target.value})}
+                          onChange={(e) => setTimingData({ ...timingData, scheduledDate: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                           min={new Date().toISOString().split('T')[0]}
                         />
@@ -1730,7 +1754,7 @@ function CheckoutContent() {
                         <input
                           type="time"
                           value={timingData.scheduledTime}
-                          onChange={(e) => setTimingData({...timingData, scheduledTime: e.target.value})}
+                          onChange={(e) => setTimingData({ ...timingData, scheduledTime: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                         />
                       </div>
@@ -1749,11 +1773,10 @@ function CheckoutContent() {
                       <button
                         type="button"
                         onClick={() => setPaymentData(prev => ({ ...prev, method: 'cash', cashAmount: 0, transferAmount: 0 }))}
-                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                          paymentData.method === 'cash'
-                            ? 'border-green-500 bg-green-50 text-green-700'
-                            : 'border-gray-300 hover:border-gray-400'
-                        }`}
+                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${paymentData.method === 'cash'
+                          ? 'border-green-500 bg-green-50 text-green-700'
+                          : 'border-gray-300 hover:border-gray-400'
+                          }`}
                       >
                         <i className="bi bi-cash text-lg"></i>
                         <span className="text-xs font-medium">Efectivo</span>
@@ -1762,11 +1785,10 @@ function CheckoutContent() {
                       <button
                         type="button"
                         onClick={() => setPaymentData(prev => ({ ...prev, method: 'transfer', cashAmount: 0, transferAmount: 0 }))}
-                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                          paymentData.method === 'transfer'
-                            ? 'border-blue-500 bg-blue-50 text-blue-700'
-                            : 'border-gray-300 hover:border-gray-400'
-                        }`}
+                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${paymentData.method === 'transfer'
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-300 hover:border-gray-400'
+                          }`}
                       >
                         <i className="bi bi-bank text-lg"></i>
                         <span className="text-xs font-medium">Transferencia</span>
@@ -1789,7 +1811,7 @@ function CheckoutContent() {
                   {paymentData.method === 'transfer' && (
                     <div className="mt-6 bg-gray-50 p-4 rounded-lg">
                       <h3 className="font-medium mb-4">💳 Datos para realizar la transferencia</h3>
-                      
+
                       {/* Selector de banco */}
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1797,7 +1819,7 @@ function CheckoutContent() {
                         </label>
                         <select
                           value={paymentData.selectedBank}
-                          onChange={(e) => setPaymentData({...paymentData, selectedBank: e.target.value})}
+                          onChange={(e) => setPaymentData({ ...paymentData, selectedBank: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                         >
                           <option value="">Selecciona un banco</option>
@@ -1818,7 +1840,7 @@ function CheckoutContent() {
                       {paymentData.selectedBank && (
                         <div className="bg-white p-4 rounded-lg border">
                           <h4 className="font-semibold mb-3">Datos de la cuenta:</h4>
-                          
+
                           {paymentData.selectedBank === 'pichincha' && (
                             <div className="text-sm space-y-2">
                               <p><strong>🟡 Banco Pichincha</strong></p>
@@ -1827,7 +1849,7 @@ function CheckoutContent() {
                               <p><strong>Cédula:</strong> 0929057636</p>
                             </div>
                           )}
-                          
+
                           {paymentData.selectedBank === 'pacifico' && (
                             <div className="text-sm space-y-2">
                               <p><strong>🔵 Banco Pacifico</strong></p>
@@ -1836,7 +1858,7 @@ function CheckoutContent() {
                               <p><strong>Cédula:</strong> 0929057636</p>
                             </div>
                           )}
-                          
+
                           {paymentData.selectedBank === 'guayaquil' && (
                             <div className="text-sm space-y-2">
                               <p><strong>🩷 Banco Guayaquil</strong></p>
@@ -1845,7 +1867,7 @@ function CheckoutContent() {
                               <p><strong>Cédula:</strong> 0929057636</p>
                             </div>
                           )}
-                          
+
                           {paymentData.selectedBank === 'produbanco' && (
                             <div className="text-sm space-y-2">
                               <p><strong>🟢 Banco Produbanco</strong></p>
@@ -1854,7 +1876,7 @@ function CheckoutContent() {
                               <p><strong>Cédula:</strong> 0940482169</p>
                             </div>
                           )}
-                          
+
                           <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
                             <p className="text-sm text-yellow-800">
                               <strong>Importante:</strong> Realiza la transferencia por el monto exacto de ${total.toFixed(2)} y sube el comprobante aquí.
@@ -1879,37 +1901,6 @@ function CheckoutContent() {
                           {errors.receiptImage}
                         </p>
                       )}
-
-                      {/* Estado del pago - Solo mostrar, no editable para el cliente */}
-                      {paymentData.method === 'transfer' && (
-                        <div className="mt-4">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Estado del Pago
-                          </label>
-                          <div className="bg-gray-50 p-3 rounded-lg border">
-                            <div className="flex items-center">
-                              {paymentData.paymentStatus === 'pending' && (
-                                <span className="text-sm text-red-600">
-                                  <i className="bi bi-clock mr-1"></i>
-                                  Por cobrar
-                                </span>
-                              )}
-                              {paymentData.paymentStatus === 'validating' && (
-                                <span className="text-sm text-yellow-600">
-                                  <i className="bi bi-search mr-1"></i>
-                                  Validando pago
-                                </span>
-                              )}
-                              {paymentData.paymentStatus === 'paid' && (
-                                <span className="text-sm text-green-600">
-                                  <i className="bi bi-check-circle mr-1"></i>
-                                  Pagado
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
@@ -1924,16 +1915,15 @@ function CheckoutContent() {
             {/* Order Summary */}
             <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
               <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-3 sm:mb-4">Resumen del Pedido</h3>
-              
+
               <div className="space-y-2 sm:space-y-3">
                 {cartItems.map((item: any, index: number) => (
-                  <div 
-                    key={index} 
-                    className={`flex justify-between items-center gap-2 p-2 rounded-lg transition-all ${
-                      item.esPremio 
-                        ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300 shadow-sm' 
-                        : ''
-                    }`}
+                  <div
+                    key={index}
+                    className={`flex justify-between items-center gap-2 p-2 rounded-lg transition-all ${item.esPremio
+                      ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300 shadow-sm'
+                      : ''
+                      }`}
                   >
                     <div className="flex-1 min-w-0">
                       {item.variantName ? (
@@ -1968,13 +1958,13 @@ function CheckoutContent() {
                   <p className="text-sm text-gray-600">Subtotal</p>
                   <p className="text-sm text-gray-600">${subtotal.toFixed(2)}</p>
                 </div>
-                
+
                 {/* Tarifa de envío - siempre mostrar */}
                 <div className="flex justify-between items-center">
                   <p className="text-sm text-gray-600">Envío</p>
                   <p className="text-sm text-gray-600">${deliveryCost.toFixed(2)}</p>
                 </div>
-                
+
                 {/* Total final */}
                 <div className="flex justify-between items-center pt-2 border-t">
                   <p className="text-base sm:text-lg font-bold">Total</p>
@@ -2000,11 +1990,10 @@ function CheckoutContent() {
                   type="button"
                   onClick={handleSubmit}
                   disabled={!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage)}
-                  className={`w-full sm:w-auto px-6 py-3 rounded-lg text-white font-medium ${
-                    !readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage)
-                      ? 'bg-gray-400 cursor-not-allowed'
-                      : 'bg-green-500 hover:bg-green-600'
-                  }`}
+                  className={`w-full sm:w-auto px-6 py-3 rounded-lg text-white font-medium ${!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage)
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-green-500 hover:bg-green-600'
+                    }`}
                 >
                   {loading ? 'Procesando...' : (readyToConfirm ? 'Confirmar pedido' : 'Completa los pasos')}
                 </button>
@@ -2040,11 +2029,10 @@ function CheckoutContent() {
                     {clientLocations.map((location) => (
                       <div
                         key={location.id}
-                        className={`border rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md ${
-                          selectedLocation?.id === location.id
-                            ? 'border-red-500 bg-red-50 shadow-md'
-                            : 'border-gray-300 hover:bg-gray-50 active:bg-gray-100'
-                        }`}
+                        className={`border rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md ${selectedLocation?.id === location.id
+                          ? 'border-red-500 bg-red-50 shadow-md'
+                          : 'border-gray-300 hover:bg-gray-50 active:bg-gray-100'
+                          }`}
                         onClick={() => {
                           handleLocationSelect(location);
                           closeLocationModal();
@@ -2056,7 +2044,7 @@ function CheckoutContent() {
                           <div className="flex-shrink-0">
                             <LocationMap latlong={location.latlong} height="80px" />
                           </div>
-                          
+
                           {/* Información de la ubicación - A la derecha */}
                           <div className="flex-1 min-w-0">
                             <div className="font-medium text-sm mb-1 text-gray-900">
