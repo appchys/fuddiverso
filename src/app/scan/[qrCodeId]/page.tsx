@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { scanQRCode, getQRCodeById } from '@/lib/database'
 import { QRCode } from '@/types'
-import ClientLoginModal from '@/components/ClientLoginModal'
+import SimplePhoneLoginModal from '@/components/SimplePhoneLoginModal'
 import { useAuth } from '@/contexts/AuthContext'
 
 export default function ScanQRPage() {
@@ -12,7 +12,7 @@ export default function ScanQRPage() {
   const router = useRouter()
   const qrCodeId = params.qrCodeId as string
   const { user } = useAuth()
-  
+
   const [loading, setLoading] = useState(true)
   const [qrCode, setQrCode] = useState<QRCode | null>(null)
   const [showLoginModal, setShowLoginModal] = useState(false)
@@ -30,7 +30,7 @@ export default function ScanQRPage() {
       const code = await getQRCodeById(qrCodeId)
       console.log('QR code loaded:', code)
       setQrCode(code)
-      
+
       if (!code) {
         console.log('QR code not found')
         setLoading(false)
@@ -40,7 +40,7 @@ export default function ScanQRPage() {
         })
         return
       }
-      
+
       if (!code.isActive) {
         console.log('QR code is not active')
         setLoading(false)
@@ -50,7 +50,7 @@ export default function ScanQRPage() {
         })
         return
       }
-      
+
       // Verificar si ya está logueado (primero en contexto, luego en localStorage)
       if (user && user.celular) {
         console.log('User from context:', user.celular)
@@ -59,7 +59,7 @@ export default function ScanQRPage() {
       } else {
         const storedPhone = localStorage.getItem('loginPhone')
         console.log('Stored phone:', storedPhone)
-        
+
         if (storedPhone) {
           setLoading(false)
           await handleScan(storedPhone)
@@ -86,16 +86,16 @@ export default function ScanQRPage() {
 
   const handleScan = async (phone: string) => {
     if (!qrCode) return
-    
+
     setProcessing(true)
     try {
       // Usar el teléfono como userId temporal
       // En producción, deberías tener un sistema de autenticación real
       const userId = phone
-      
+
       const scanResult = await scanQRCode(userId, qrCodeId)
       setResult(scanResult)
-      
+
       if (scanResult.success) {
         // Redirigir a la página de colección después de 3 segundos
         setTimeout(() => {
@@ -131,27 +131,23 @@ export default function ScanQRPage() {
       <div className="max-w-md w-full">
         {/* Resultado */}
         {result && (
-          <div className={`bg-white rounded-lg shadow-xl p-8 text-center ${
-            result.success ? 'border-4 border-green-500' : 'border-4 border-red-500'
-          }`}>
-            <div className={`w-20 h-20 rounded-full mx-auto mb-4 flex items-center justify-center ${
-              result.success ? 'bg-green-100' : 'bg-red-100'
+          <div className={`bg-white rounded-lg shadow-xl p-8 text-center ${result.success ? 'border-4 border-green-500' : 'border-4 border-red-500'
             }`}>
-              <i className={`bi ${
-                result.success ? 'bi-check-circle-fill text-green-600' : 'bi-x-circle-fill text-red-600'
-              } text-5xl`}></i>
+            <div className={`w-20 h-20 rounded-full mx-auto mb-4 flex items-center justify-center ${result.success ? 'bg-green-100' : 'bg-red-100'
+              }`}>
+              <i className={`bi ${result.success ? 'bi-check-circle-fill text-green-600' : 'bi-x-circle-fill text-red-600'
+                } text-5xl`}></i>
             </div>
-            
-            <h2 className={`text-2xl font-bold mb-2 ${
-              result.success ? 'text-green-800' : 'text-red-800'
-            }`}>
+
+            <h2 className={`text-2xl font-bold mb-2 ${result.success ? 'text-green-800' : 'text-red-800'
+              }`}>
               {result.success ? '¡Éxito!' : 'Oops!'}
             </h2>
-            
+
             <p className="text-gray-700 mb-6">
               {result.message}
             </p>
-            
+
             {result.success ? (
               <div className="space-y-3">
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4">
@@ -185,8 +181,8 @@ export default function ScanQRPage() {
         )}
       </div>
 
-      {/* Modal de Login con ClientLoginModal */}
-      <ClientLoginModal
+      {/* Modal de Login simplificado - solo teléfono */}
+      <SimplePhoneLoginModal
         isOpen={showLoginModal && !result}
         onClose={() => router.push('/')}
         onLoginSuccess={handleLoginSuccess}
