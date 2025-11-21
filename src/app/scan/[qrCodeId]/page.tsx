@@ -97,10 +97,10 @@ export default function ScanQRPage() {
       setResult(scanResult)
 
       if (scanResult.success) {
-        // Redirigir a la página de colección después de 3 segundos
+        // Redirigir a la página de colección después de mostrar el mensaje
         setTimeout(() => {
           router.push('/collection')
-        }, 3000)
+        }, 1500)
       }
     } catch (error) {
       console.error('Error scanning QR:', error)
@@ -152,7 +152,7 @@ export default function ScanQRPage() {
               <div className="space-y-3">
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                   <p className="text-sm text-green-800">
-                    Serás redirigido a tu colección en unos segundos...
+                    Redirigiendo a tu colección...
                   </p>
                 </div>
                 <button

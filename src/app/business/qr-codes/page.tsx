@@ -280,6 +280,50 @@ export default function QRCodesManagementPage() {
     }, 250)
   }
 
+  const handleCopyLink = (qrCodeId: string) => {
+    const baseUrl = window.location.origin
+    const scanUrl = `${baseUrl}/scan/${qrCodeId}`
+
+    // Intentar usar la API moderna de clipboard
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(scanUrl).then(() => {
+        alert('¡Link copiado al portapapeles!')
+      }).catch(err => {
+        console.error('Error al copiar el link:', err)
+        // Intentar método alternativo si falla
+        fallbackCopyToClipboard(scanUrl)
+      })
+    } else {
+      // Método alternativo para navegadores que no soportan clipboard API
+      fallbackCopyToClipboard(scanUrl)
+    }
+  }
+
+  const fallbackCopyToClipboard = (text: string) => {
+    const textArea = document.createElement('textarea')
+    textArea.value = text
+    textArea.style.position = 'fixed'
+    textArea.style.left = '-999999px'
+    textArea.style.top = '-999999px'
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+
+    try {
+      const successful = document.execCommand('copy')
+      if (successful) {
+        alert('¡Link copiado al portapapeles!')
+      } else {
+        alert('No se pudo copiar el link. Por favor, cópialo manualmente: ' + text)
+      }
+    } catch (err) {
+      console.error('Error al copiar:', err)
+      alert('No se pudo copiar el link. Por favor, cópialo manualmente: ' + text)
+    }
+
+    document.body.removeChild(textArea)
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -382,6 +426,16 @@ export default function QRCodesManagementPage() {
                         >
                           <i className="bi bi-printer me-2"></i>
                           Imprimir
+                        </button>
+                        <button
+                          onClick={() => {
+                            handleCopyLink(qrCode.id)
+                            setOpenMenuId(null)
+                          }}
+                          className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center text-sm text-gray-700"
+                        >
+                          <i className="bi bi-link-45deg me-2"></i>
+                          Copiar link
                         </button>
                         <button
                           onClick={() => {
