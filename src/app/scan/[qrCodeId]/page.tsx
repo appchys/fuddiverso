@@ -54,15 +54,21 @@ export default function ScanQRPage() {
       // Verificar si ya está logueado (primero en contexto, luego en localStorage)
       if (user && user.celular) {
         console.log('User from context:', user.celular)
+        console.log('Calling handleScan from context user')
         setLoading(false)
-        await handleScan(user.celular)
+        await handleScan(user.celular, code)
+        console.log('handleScan completed (from context)')
       } else {
         const storedPhone = localStorage.getItem('loginPhone')
         console.log('Stored phone:', storedPhone)
+        console.log('Stored phone type:', typeof storedPhone)
+        console.log('Stored phone truthy?:', !!storedPhone)
 
         if (storedPhone) {
+          console.log('Calling handleScan from stored phone')
           setLoading(false)
-          await handleScan(storedPhone)
+          await handleScan(storedPhone, code)
+          console.log('handleScan completed (from localStorage)')
         } else {
           console.log('No stored phone, showing login modal')
           setLoading(false)
@@ -81,26 +87,43 @@ export default function ScanQRPage() {
 
   const handleLoginSuccess = async (client: any) => {
     // Procesar escaneo con el teléfono del cliente
-    await handleScan(client.celular)
+    await handleScan(client.celular, qrCode)
   }
 
-  const handleScan = async (phone: string) => {
-    if (!qrCode) return
+  const handleScan = async (phone: string, code: QRCode | null = qrCode) => {
+    console.log('=== handleScan called ===')
+    console.log('Phone:', phone)
+    console.log('QR Code:', code)
 
+    if (!code) {
+      console.log('ERROR: No QR code loaded, returning')
+      return
+    }
+
+    console.log('Setting processing to true')
     setProcessing(true)
+
     try {
       // Usar el teléfono como userId temporal
       // En producción, deberías tener un sistema de autenticación real
       const userId = phone
+      console.log('Calling scanQRCode with userId:', userId, 'qrCodeId:', qrCodeId)
 
       const scanResult = await scanQRCode(userId, qrCodeId)
+      console.log('Scan result received:', scanResult)
+
       setResult(scanResult)
+      console.log('Result state updated')
 
       if (scanResult.success) {
+        console.log('Scan successful, scheduling redirect to /collection in 1.5s')
         // Redirigir a la página de colección después de mostrar el mensaje
         setTimeout(() => {
+          console.log('Redirecting to /collection now')
           router.push('/collection')
         }, 1500)
+      } else {
+        console.log('Scan failed:', scanResult.message)
       }
     } catch (error) {
       console.error('Error scanning QR:', error)
@@ -109,6 +132,7 @@ export default function ScanQRPage() {
         message: 'Error al procesar el código QR'
       })
     } finally {
+      console.log('Setting processing to false')
       setProcessing(false)
     }
   }
