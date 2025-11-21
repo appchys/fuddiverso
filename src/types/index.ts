@@ -187,6 +187,7 @@ export interface QRCode {
   name: string
   points: number
   image?: string
+  color?: string // Color de fondo personalizable en formato hexadecimal
   isActive: boolean
   businessId: string
   createdAt: Date
