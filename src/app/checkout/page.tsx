@@ -982,8 +982,8 @@ function CheckoutContent() {
         if (!paymentData.selectedBank) {
           newErrors.selectedBank = 'Selecciona un banco para la transferencia'
         }
-        if (!paymentData.receiptImageUrl && paymentData.paymentStatus !== 'pending') {
-          newErrors.receiptImage = 'Sube el comprobante de transferencia o marca como "Por cobrar"'
+        if (!paymentData.receiptImageUrl) {
+          newErrors.receiptImage = 'Sube el comprobante de transferencia para continuar'
         }
       }
     }
@@ -1064,7 +1064,7 @@ function CheckoutContent() {
   const step4Complete = (() => {
     if (!paymentData.method) return false;
     if (paymentData.method === 'cash') return true;
-    if (paymentData.method === 'transfer') return Boolean(paymentData.selectedBank);
+    if (paymentData.method === 'transfer') return Boolean(paymentData.selectedBank && paymentData.receiptImageUrl);
     if (paymentData.method === 'mixed') return true;
     return false;
   })();
@@ -1095,7 +1095,7 @@ function CheckoutContent() {
     // Paso 4: pago
     if (!paymentData.method) return false;
     if (paymentData.method === 'transfer') {
-      if (!paymentData.selectedBank) return false;
+      if (!paymentData.selectedBank || !paymentData.receiptImageUrl) return false;
     }
 
     return true;
@@ -1114,6 +1114,17 @@ function CheckoutContent() {
       setCurrentStep(currentStep - 1)
     }
   }
+
+  // Función para desplazamiento suave a un paso específico
+  const scrollToStep = (stepNumber: number) => {
+    const element = document.getElementById(`step-${stepNumber}`);
+    if (element) {
+      // Ajuste de offset para el header fijo si existiera, o simplemente un margen superior
+      const yOffset = -100;
+      const y = element.getBoundingClientRect().top + window.pageYOffset + yOffset;
+      window.scrollTo({ top: y, behavior: 'smooth' });
+    }
+  };
 
   const handleSubmit = async () => {
     if (!validateStep(currentStep)) return
@@ -1302,7 +1313,7 @@ function CheckoutContent() {
               {/* Step 1 - Cliente */}
               <div className="flex flex-col items-center flex-1">
                 <button
-                  onClick={() => setCurrentStep(1)}
+                  onClick={() => scrollToStep(1)}
                   className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all hover:scale-110 ${step1Complete ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600 hover:bg-gray-400'
                     }`}
                 >
@@ -1318,7 +1329,7 @@ function CheckoutContent() {
               {/* Step 2 - Entrega */}
               <div className="flex flex-col items-center flex-1">
                 <button
-                  onClick={() => currentStep >= 2 && setCurrentStep(2)}
+                  onClick={() => currentStep >= 2 && scrollToStep(2)}
                   disabled={currentStep < 2}
                   className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${step2Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
                     }`}
@@ -1345,7 +1356,7 @@ function CheckoutContent() {
               {/* Step 3 - Hora (replacing Horario) */}
               <div className="flex flex-col items-center flex-1">
                 <button
-                  onClick={() => currentStep >= 3 && setCurrentStep(3)}
+                  onClick={() => currentStep >= 3 && scrollToStep(3)}
                   disabled={currentStep < 3}
                   className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${step3Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
                     }`}
@@ -1371,7 +1382,7 @@ function CheckoutContent() {
               {/* Step 4 - Pago (renamed) */}
               <div className="flex flex-col items-center flex-1">
                 <button
-                  onClick={() => currentStep >= 4 && setCurrentStep(4)}
+                  onClick={() => currentStep >= 4 && scrollToStep(4)}
                   disabled={currentStep < 4}
                   className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${step4Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
                     }`}
@@ -1407,7 +1418,7 @@ function CheckoutContent() {
 
               {/* Step 1: Customer Data */}
               {currentStep >= 1 && (
-                <div>
+                <div id="step-1">
                   <h2 className="text-2xl font-bold text-gray-900 mb-6">Datos del Cliente</h2>
 
                   <div className="space-y-4">
@@ -1560,7 +1571,7 @@ function CheckoutContent() {
 
               {/* Step 2: Delivery */}
               {currentStep >= 2 && (
-                <div>
+                <div id="step-2">
                   {/* Mostrar selección solo si hay sesión iniciada */}
                   {user && (
                     <>
@@ -1598,6 +1609,10 @@ function CheckoutContent() {
                                 type: 'delivery',
                                 tarifa: '0' // Reseteamos la tarifa
                               }));
+                              // Si no hay ubicación seleccionada, abrir el modal automáticamente
+                              if (!selectedLocation) {
+                                openLocationModal()
+                              }
                             }}
                             className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${deliveryData.type === 'delivery'
                               ? 'border-blue-500 bg-blue-50 text-blue-700'
@@ -1648,16 +1663,20 @@ function CheckoutContent() {
                                       </div>
                                     </div>
                                   ) : (
-                                    <div className="flex items-center space-x-2">
-                                      <div className="flex-1 p-3 border border-gray-300 rounded-lg bg-gray-50">
-                                        <div className="font-medium text-sm mb-1">Ninguna ubicación seleccionada</div>
-                                      </div>
-                                      <button type="button" onClick={openLocationModal} className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center">
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                    <button
+                                      type="button"
+                                      onClick={openLocationModal}
+                                      className="w-full p-4 border-2 border-dashed border-red-300 rounded-lg bg-red-50 hover:bg-red-100 transition-colors flex flex-col items-center justify-center group"
+                                    >
+                                      <div className="bg-white p-3 rounded-full shadow-sm mb-2 group-hover:scale-110 transition-transform">
+                                        <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                                         </svg>
-                                      </button>
-                                    </div>
+                                      </div>
+                                      <span className="text-red-700 font-medium">Seleccionar Ubicación de Entrega</span>
+                                      <span className="text-xs text-red-500 mt-1">Haz clic aquí para elegir dónde recibir tu pedido</span>
+                                    </button>
                                   )}
                                 </div>
                               )}
@@ -1687,7 +1706,7 @@ function CheckoutContent() {
 
               {/* Step 3: Timing */}
               {currentStep >= 3 && (
-                <div>
+                <div id="step-3">
                   <h2 className="text-2xl font-bold text-gray-900 mb-6">¿Cuándo deseas recibir tu pedido?</h2>
 
                   <div className="space-y-4 mb-6">
@@ -1765,7 +1784,7 @@ function CheckoutContent() {
 
               {/* Step 4: Payment */}
               {currentStep >= 4 && (
-                <div>
+                <div id="step-4">
                   <h2 className="text-2xl font-bold text-gray-900 mb-6">Método de Pago</h2>
 
                   <div className="space-y-4">
