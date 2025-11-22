@@ -11,11 +11,11 @@ interface ProgressTrackerProps {
   onRewardClaimed: () => void
 }
 
-export default function ProgressTracker({ 
-  qrCodes, 
-  progress, 
+export default function ProgressTracker({
+  qrCodes,
+  progress,
   userId,
-  onRewardClaimed 
+  onRewardClaimed
 }: ProgressTrackerProps) {
   const [claiming, setClaiming] = useState(false)
   const [claimMessage, setClaimMessage] = useState('')
@@ -26,14 +26,14 @@ export default function ProgressTracker({
 
   const handleClaimReward = async () => {
     if (!progress?.businessId) return
-    
+
     setClaiming(true)
     setClaimMessage('')
-    
+
     try {
       const result = await claimReward(userId, progress.businessId)
       setClaimMessage(result.message)
-      
+
       if (result.success) {
         setTimeout(() => {
           onRewardClaimed()
@@ -56,14 +56,14 @@ export default function ProgressTracker({
             {scannedCount}/{totalCodes}
           </span>
         </div>
-        
+
         <div className="w-full bg-gray-200 rounded-full h-4 mb-2">
           <div
             className="bg-gradient-to-r from-red-500 to-red-600 h-4 rounded-full transition-all duration-500"
             style={{ width: `${progressPercentage}%` }}
           ></div>
         </div>
-        
+
         <p className="text-sm text-gray-600 text-center">
           {progress?.completed
             ? '¡Colección completada!'
@@ -74,45 +74,60 @@ export default function ProgressTracker({
       {/* Lista de códigos */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <h3 className="text-lg font-bold text-gray-800 mb-4">Códigos QR</h3>
-        
-        <div className="space-y-3">
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           {qrCodes.map((qrCode, index) => {
             const isScanned = progress?.scannedCodes.includes(qrCode.id)
-            
+
             return (
               <div
                 key={qrCode.id}
-                className={`flex items-center justify-between p-4 rounded-lg border-2 transition-all ${
-                  isScanned
-                    ? 'bg-green-50 border-green-500'
-                    : 'bg-gray-50 border-gray-200'
-                }`}
+                className={`relative flex flex-col items-center p-4 rounded-xl border-2 transition-all ${isScanned
+                    ? 'bg-white border-green-500 shadow-md'
+                    : 'bg-gray-50 border-gray-200 opacity-75'
+                  }`}
               >
-                <div className="flex items-center space-x-4">
-                  <div
-                    className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                      isScanned
-                        ? 'bg-green-500 text-white'
-                        : 'bg-gray-300 text-gray-600'
-                    }`}
-                  >
-                    {isScanned ? (
-                      <i className="bi bi-check-lg text-2xl"></i>
-                    ) : (
-                      <span className="font-bold">{index + 1}</span>
-                    )}
-                  </div>
-                  
-                  <div>
-                    <h4 className="font-semibold text-gray-800">{qrCode.name}</h4>
-                    <p className="text-sm text-gray-600">
-                      {qrCode.points} puntos
-                    </p>
-                  </div>
+                {/* Badge de número */}
+                <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isScanned ? 'bg-green-500 text-white' : 'bg-gray-300 text-gray-600'
+                  }`}>
+                  {index + 1}
                 </div>
-                
-                {isScanned && (
-                  <i className="bi bi-check-circle-fill text-2xl text-green-500"></i>
+
+                {/* Imagen */}
+                <div className={`w-24 h-24 mb-3 rounded-full overflow-hidden border-4 ${isScanned ? 'border-green-100' : 'border-gray-200'
+                  }`}>
+                  {qrCode.image ? (
+                    <img
+                      src={qrCode.image}
+                      alt={qrCode.name}
+                      className={`w-full h-full object-cover ${!isScanned ? 'grayscale' : ''}`}
+                    />
+                  ) : (
+                    <div className={`w-full h-full flex items-center justify-center bg-gray-100 ${!isScanned ? 'grayscale' : ''}`}>
+                      <i className="bi bi-qr-code text-3xl text-gray-400"></i>
+                    </div>
+                  )}
+                </div>
+
+                {/* Info */}
+                <h4 className="font-bold text-gray-800 text-center text-sm mb-1 line-clamp-1">
+                  {qrCode.name}
+                </h4>
+                <p className="text-xs text-gray-500 font-medium">
+                  {qrCode.points} {qrCode.points === 1 ? 'punto' : 'puntos'}
+                </p>
+
+                {/* Indicador de estado */}
+                {isScanned ? (
+                  <div className="mt-2 flex items-center text-green-600 text-xs font-bold">
+                    <i className="bi bi-check-circle-fill me-1"></i>
+                    Conseguido
+                  </div>
+                ) : (
+                  <div className="mt-2 flex items-center text-gray-400 text-xs font-medium">
+                    <i className="bi bi-lock-fill me-1"></i>
+                    Pendiente
+                  </div>
                 )}
               </div>
             )
@@ -130,7 +145,7 @@ export default function ProgressTracker({
               Completaste la colección de códigos QR
             </p>
           </div>
-          
+
           {!progress.rewardClaimed ? (
             <>
               {claimMessage && (
@@ -138,7 +153,7 @@ export default function ProgressTracker({
                   <p className="text-center text-sm">{claimMessage}</p>
                 </div>
               )}
-              
+
               <button
                 onClick={handleClaimReward}
                 disabled={claiming}
