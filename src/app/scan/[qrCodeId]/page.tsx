@@ -187,12 +187,21 @@ export default function ScanQRPage() {
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => router.push('/')}
-                className="w-full bg-gray-600 text-white py-3 rounded-lg font-medium hover:bg-gray-700 transition-colors"
-              >
-                Volver al inicio
-              </button>
+              result.message === 'Ya escaneaste este código anteriormente' ? (
+                <button
+                  onClick={() => router.push('/collection')}
+                  className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                >
+                  Ver mi colección
+                </button>
+              ) : (
+                <button
+                  onClick={() => router.push('/')}
+                  className="w-full bg-gray-600 text-white py-3 rounded-lg font-medium hover:bg-gray-700 transition-colors"
+                >
+                  Volver al inicio
+                </button>
+              )
             )}
           </div>
         )}

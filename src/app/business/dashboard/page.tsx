@@ -2797,6 +2797,17 @@ export default function BusinessDashboard() {
                 <span className="font-medium">Reportes de Costos</span>
               </button>
 
+              <button
+                onClick={() => {
+                  router.push('/business/qr-codes')
+                  setSidebarOpen(false)
+                }}
+                className="w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
+              >
+                <i className="bi bi-qr-code me-3 text-lg"></i>
+                <span className="font-medium">Códigos QR</span>
+              </button>
+
               {/* Botón de Notificaciones - solo si no es iOS y necesita acción */}
               {!isIOS && needsUserAction && (
                 <button
@@ -2810,8 +2821,6 @@ export default function BusinessDashboard() {
             </nav>
           </div>
         </div>
-
-        {/* Main Content */}
         <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
           <div className="mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
 
