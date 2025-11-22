@@ -30,7 +30,7 @@ export default function CollectionPage() {
     } else {
       // Si no, verificar localStorage
       const storedPhone = localStorage.getItem('loginPhone')
-      
+
       if (storedPhone) {
         setUserId(storedPhone)
         const defaultBusinessId = '0FeNtdYThoTRMPJ6qaS7' // Reemplazar con el ID real
@@ -57,7 +57,7 @@ export default function CollectionPage() {
         getQRCodesByBusiness(bizId),
         getUserQRProgress(uid, bizId)
       ])
-      
+
       setQrCodes(codes)
       setProgress(userProgress)
     } catch (error) {
@@ -101,7 +101,7 @@ export default function CollectionPage() {
             <i className="bi bi-arrow-left me-2"></i>
             Volver
           </button>
-          
+
           <div className="text-center">
             <i className="bi bi-collection-fill text-5xl mb-3"></i>
             <h1 className="text-3xl font-bold mb-2">Colección QR</h1>
@@ -157,7 +157,7 @@ export default function CollectionPage() {
                 ¿Cómo funciona?
               </h4>
               <ul className="text-sm text-blue-800 space-y-1">
-                <li>• Busca los códigos QR en el establecimiento</li>
+                <li>• Busca los códigos QR en cada orden</li>
                 <li>• Escanea cada código una sola vez</li>
                 <li>• Completa los 5 códigos para desbloquear tu recompensa</li>
                 <li>• Reclama tu premio cuando completes la colección</li>

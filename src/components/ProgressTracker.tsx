@@ -83,8 +83,8 @@ export default function ProgressTracker({
               <div
                 key={qrCode.id}
                 className={`relative flex flex-col items-center p-4 rounded-xl border-2 transition-all ${isScanned
-                    ? 'bg-white border-green-500 shadow-md'
-                    : 'bg-gray-50 border-gray-200 opacity-75'
+                  ? 'bg-white border-green-500 shadow-md'
+                  : 'bg-gray-50 border-gray-200 opacity-75'
                   }`}
               >
                 {/* Badge de número */}
