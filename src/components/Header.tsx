@@ -12,7 +12,7 @@ import ClientLoginModal from '@/components/ClientLoginModal'
 
 // Componente para mostrar carritos activos
 function CartIndicator() {
-  const [activeCarts, setActiveCarts] = useState<{[key: string]: any[]}>({})
+  const [activeCarts, setActiveCarts] = useState<{ [key: string]: any[] }>({})
   const [showDropdown, setShowDropdown] = useState(false)
 
   useEffect(() => {
@@ -22,7 +22,7 @@ function CartIndicator() {
         try {
           const allCarts = JSON.parse(cartsData)
           // Filtrar solo carritos que tienen productos
-          const filteredCarts: {[key: string]: any[]} = {}
+          const filteredCarts: { [key: string]: any[] } = {}
           Object.entries(allCarts).forEach(([businessId, cart]: [string, any]) => {
             if (Array.isArray(cart) && cart.length > 0) {
               filteredCarts[businessId] = cart
@@ -36,14 +36,14 @@ function CartIndicator() {
     }
 
     loadCarts()
-    
+
     // Escuchar cambios en localStorage
     const handleStorageChange = () => loadCarts()
     window.addEventListener('storage', handleStorageChange)
-    
+
     // También verificar cada segundo para cambios locales
     const interval = setInterval(loadCarts, 1000)
-    
+
     return () => {
       window.removeEventListener('storage', handleStorageChange)
       clearInterval(interval)
@@ -51,7 +51,7 @@ function CartIndicator() {
   }, [])
 
   const activeCartsCount = Object.keys(activeCarts).length
-  const totalItems = Object.values(activeCarts).reduce((total, cart) => 
+  const totalItems = Object.values(activeCarts).reduce((total, cart) =>
     total + cart.reduce((sum, item) => sum + item.quantity, 0), 0
   )
 
@@ -97,14 +97,14 @@ function CartIndicator() {
             <h3 className="font-semibold text-gray-900">Carritos Activos</h3>
             <p className="text-sm text-gray-600">{activeCartsCount} {activeCartsCount === 1 ? 'tienda' : 'tiendas'}</p>
           </div>
-          
+
           <div className="divide-y">
             {Object.entries(activeCarts).map(([businessId, cart]) => {
               const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
               const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
               const businessName = cart[0]?.businessName || 'Tienda'
               const logo = cart[0]?.businessImage || '/default-restaurant-og.svg'
-              
+
               return (
                 <div key={businessId} className="p-3 hover:bg-gray-50">
                   <div className="flex items-center justify-between mb-2">
@@ -289,7 +289,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
               )}
               {/* Indicador de carritos activos */}
               <CartIndicator />
-              
+
               {user ? (
                 <div className="relative">
                   <button
@@ -301,8 +301,8 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                     <div className="relative w-9 h-9">
                       {/* Imagen de perfil - solo se muestra si hay photoURL */}
                       {user.photoURL && (
-                        <img 
-                          src={user.photoURL} 
+                        <img
+                          src={user.photoURL}
                           alt={user.nombres || 'Usuario'}
                           className="w-full h-full rounded-full object-cover"
                           onError={(e) => {
@@ -315,14 +315,14 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                         />
                       )}
                       {/* Iniciales - siempre presentes pero ocultas si hay imagen */}
-                      <div 
+                      <div
                         className={`absolute inset-0 rounded-full flex items-center justify-center text-white font-medium ${user.photoURL ? 'hidden' : 'flex'}`}
                         style={{ backgroundColor: user.photoURL ? 'transparent' : '#f97316' }}
                       >
                         {getInitials(user.nombres || 'Usuario')}
                       </div>
                     </div>
-                    
+
                     {/* Nombre del usuario (oculto en móviles) */}
                     <span className="text-gray-700 text-sm font-medium hidden sm:block">
                       {user.nombres || 'Usuario'}
@@ -337,7 +337,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                         <p className="text-sm font-medium text-gray-900">{user.nombres}</p>
                         <p className="text-sm text-gray-500">{user.celular}</p>
                       </div>
-                      
+
                       <Link
                         href="/profile"
                         onClick={() => {
@@ -348,7 +348,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                         <i className="bi bi-person mr-2"></i>
                         Mi Perfil
                       </Link>
-                      
+
                       <Link
                         href="/my-orders"
                         onClick={() => {
@@ -359,7 +359,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                         <i className="bi bi-bag mr-2"></i>
                         Mis Pedidos
                       </Link>
-                      
+
                       <Link
                         href="/my-locations"
                         onClick={() => {
@@ -370,7 +370,18 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                         <i className="bi bi-geo-alt mr-2"></i>
                         Mis Ubicaciones
                       </Link>
-                      
+
+                      <Link
+                        href="/collection"
+                        onClick={() => {
+                          setShowDropdown(false)
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                      >
+                        <i className="bi bi-collection mr-2"></i>
+                        Mis Stickers
+                      </Link>
+
                       <div className="border-t">
                         <button
                           onClick={handleLogout}
@@ -385,7 +396,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                 </div>
               ) : (
                 <div className="flex items-center">
-                  <button 
+                  <button
                     onClick={() => setShowLoginModal(true)}
                     className="w-9 h-9 flex items-center justify-center bg-gray-200 text-gray-600 rounded-full hover:bg-gray-300 transition-colors"
                     title="Iniciar Sesión"
