@@ -3875,6 +3875,7 @@ export default function BusinessDashboard() {
         )}
 
         {/* Modal de Edición de Método de Pago */}
+
         {showEditPaymentModal && paymentEditingOrder && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl max-w-md w-full">
@@ -3894,16 +3895,41 @@ export default function BusinessDashboard() {
                 </div>
 
                 {/* Información del pedido */}
-                <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-600">Pedido de:</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {paymentEditingOrder.customer?.name || 'Cliente sin nombre'}
-                  </p>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Total: <span className="font-bold text-emerald-600">
-                      ${(paymentEditingOrder.total || 0).toFixed(2)}
-                    </span>
-                  </p>
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg flex justify-between items-start">
+                  <div>
+                    <p className="text-sm text-gray-600">Pedido de:</p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {paymentEditingOrder.customer?.name || 'Cliente sin nombre'}
+                    </p>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Total: <span className="font-bold text-emerald-600">
+                        ${(paymentEditingOrder.total || 0).toFixed(2)}
+                      </span>
+                    </p>
+                  </div>
+
+                  {/* Mostrar comprobante si existe */}
+                  {paymentEditingOrder.payment?.receiptImageUrl && (
+                    <div className="ml-4">
+                      <p className="text-xs text-gray-500 mb-1 text-center">Comprobante</p>
+                      <a
+                        href={paymentEditingOrder.payment.receiptImageUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block relative group"
+                        title="Ver comprobante completo"
+                      >
+                        <img
+                          src={paymentEditingOrder.payment.receiptImageUrl}
+                          alt="Comprobante de pago"
+                          className="w-24 h-24 object-cover rounded-lg border border-gray-200 shadow-sm hover:opacity-90 transition-opacity"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all rounded-lg">
+                          <i className="bi bi-zoom-in text-white opacity-0 group-hover:opacity-100 drop-shadow-md"></i>
+                        </div>
+                      </a>
+                    </div>
+                  )}
                 </div>
 
                 {/* Selección de método de pago */}
@@ -4077,10 +4103,11 @@ export default function BusinessDashboard() {
                     Cancelar
                   </button>
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
+              </div >
+            </div >
+          </div >
+        )
+        }
 
 
 
@@ -4108,7 +4135,7 @@ export default function BusinessDashboard() {
           editOrder={editingOrderForSidebar || undefined}
           onOrderUpdated={loadOrders}
         />
-      </div>
-    </div>
+      </div >
+    </div >
   )
 }
