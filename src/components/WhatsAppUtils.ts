@@ -125,7 +125,8 @@ export const sendWhatsAppToDelivery = async (
         }
     } else {
         message += `*Tipo de entrega*\n`
-        message += `🏪 Retiro en tienda\n\n`
+        message += `🏪 Retiro en tienda\n`
+        message += `${orderType}\n\n`
     }
 
     message += `*Detalle del pedido*\n`
