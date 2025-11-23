@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
 import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient } from '@/lib/database'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
+import { storage } from '@/lib/firebase'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+
 
 interface Client {
   id: string
@@ -20,6 +23,7 @@ interface ClientLocation {
   referencia: string
   sector: string
   tarifa: string
+  photo?: string
 }
 
 interface OrderItem {
@@ -102,7 +106,7 @@ export default function ManualOrderSidebar({
   const [creatingClient, setCreatingClient] = useState(false)
   const [updatingClient, setUpdatingClient] = useState(false)
   const [creatingOrder, setCreatingOrder] = useState(false)
-  
+
   // Estados para modal de variantes
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<Product | null>(null)
   const [isVariantModalOpen, setIsVariantModalOpen] = useState(false)
@@ -114,11 +118,13 @@ export default function ManualOrderSidebar({
     referencia: '',
     tarifa: '1',
     googleMapsLink: '',
-    latlong: ''
+    latlong: '',
+    photo: ''
   })
   const [creatingLocation, setCreatingLocation] = useState(false)
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null)
-  
+  const [locationImageFile, setLocationImageFile] = useState<File | null>(null)
+  const [locationImagePreview, setLocationImagePreview] = useState<string>('')
   // Estados para modal de deliveries
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
 
@@ -144,7 +150,7 @@ export default function ManualOrderSidebar({
       try {
         const deliveries = await getDeliveriesByStatus('activo')
         setAvailableDeliveries(deliveries)
-        
+
         // Seleccionar automáticamente a Sergio Alvarado como delivery predeterminado
         const defaultDelivery = deliveries.find(d => d.celular === '0978697867')
         if (defaultDelivery) {
@@ -154,7 +160,7 @@ export default function ManualOrderSidebar({
         console.error('Error loading deliveries:', error)
       }
     }
-    
+
     if (isOpen && business?.id) {
       loadDeliveries()
     }
@@ -253,19 +259,19 @@ export default function ManualOrderSidebar({
       const phoneToLoad = eo.customer?.phone || ''
       if (phoneToLoad) {
         setLoadingClientLocations(true)
-        ;(async () => {
-          try {
-            const client = await searchClientByPhone(phoneToLoad)
-            if (client) {
-              const locations = await getClientLocations(client.id)
-              setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
+          ; (async () => {
+            try {
+              const client = await searchClientByPhone(phoneToLoad)
+              if (client) {
+                const locations = await getClientLocations(client.id)
+                setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
+              }
+            } catch (e) {
+              console.error('Error loading client locations for edit:', e)
+            } finally {
+              setLoadingClientLocations(false)
             }
-          } catch (e) {
-            console.error('Error loading client locations for edit:', e)
-          } finally {
-            setLoadingClientLocations(false)
-          }
-        })()
+          })()
       }
     } catch (e) {
       console.error('Error pre-filling edit order:', e)
@@ -281,14 +287,14 @@ export default function ManualOrderSidebar({
     // Si no hay categorías definidas en el negocio, obtenerlas de los productos
     const categorySet = new Set<string>();
     const result: string[] = [];
-    
+
     products.forEach(product => {
       if (product.category && !categorySet.has(product.category)) {
         categorySet.add(product.category);
         result.push(product.category);
       }
     });
-    
+
     return result;
   }
 
@@ -310,10 +316,10 @@ export default function ManualOrderSidebar({
   const getInitialScheduledDateTime = () => {
     const now = new Date()
     const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000) // +1 hora
-    
+
     const date = now.toISOString().split('T')[0] // Formato YYYY-MM-DD
     const time = oneHourLater.toTimeString().slice(0, 5) // Formato HH:MM
-    
+
     return { date, time }
   }
 
@@ -321,14 +327,14 @@ export default function ManualOrderSidebar({
   const normalizePhone = (phone: string): string => {
     // Remover todos los espacios, guiones y paréntesis
     let cleanPhone = phone.replace(/[\s\-\(\)]/g, '')
-    
+
     // Si empieza con +593, convertir a formato nacional
     if (cleanPhone.startsWith('+593')) {
       cleanPhone = '0' + cleanPhone.substring(4)
     } else if (cleanPhone.startsWith('593')) {
       cleanPhone = '0' + cleanPhone.substring(3)
     }
-    
+
     return cleanPhone
   }
 
@@ -357,14 +363,14 @@ export default function ManualOrderSidebar({
   const handlePhoneSearch = async (phone: string) => {
     const normalizedPhone = normalizePhone(phone)
     setManualOrderData(prev => ({ ...prev, customerPhone: normalizedPhone }))
-    
+
     if (normalizedPhone.length < 10) {
       setClientFound(false)
-      setManualOrderData(prev => ({ 
-        ...prev, 
-        customerName: '', 
-        customerLocations: [], 
-        selectedLocation: null 
+      setManualOrderData(prev => ({
+        ...prev,
+        customerName: '',
+        customerLocations: [],
+        selectedLocation: null
       }))
       return
     }
@@ -380,7 +386,7 @@ export default function ManualOrderSidebar({
         if (client) {
           setClientFound(true)
           setManualOrderData(prev => ({ ...prev, customerName: client.nombres }))
-          
+
           // Cargar ubicaciones del cliente
           setLoadingClientLocations(true)
           try {
@@ -394,11 +400,11 @@ export default function ManualOrderSidebar({
         } else {
           setClientFound(false)
           setShowCreateClient(true)
-          setManualOrderData(prev => ({ 
-            ...prev, 
-            customerName: '', 
-            customerLocations: [], 
-            selectedLocation: null 
+          setManualOrderData(prev => ({
+            ...prev,
+            customerName: '',
+            customerLocations: [],
+            selectedLocation: null
           }))
         }
       } catch (error) {
@@ -440,7 +446,7 @@ export default function ManualOrderSidebar({
     setUpdatingClient(true)
     try {
       const nombres = editingClient.nombres.trim()
-      
+
       // Verificar si el teléfono ya existe para otro cliente
       if (celular !== manualOrderData.customerPhone) {
         const existingClient = await searchClientByPhone(celular)
@@ -448,23 +454,23 @@ export default function ManualOrderSidebar({
           return
         }
       }
-      
+
       // Actualizar el cliente en la base de datos
-      await updateClient(editingClient.id, { 
+      await updateClient(editingClient.id, {
         nombres,
-        celular 
+        celular
       })
-      
+
       // Actualizar los datos en el estado
       setManualOrderData(prev => ({
         ...prev,
         customerName: nombres,
         customerPhone: celular
       }))
-      
+
       // Actualizar también el estado del cliente editado
       setEditingClient(prev => prev ? { ...prev, nombres } : null)
-      
+
       setShowEditClient(false)
     } catch (error) {
       console.error('Error actualizando cliente:', error)
@@ -484,11 +490,11 @@ export default function ManualOrderSidebar({
         nombres: manualOrderData.customerName,
         fecha_de_registro: new Date().toISOString()
       }
-      
+
       await createClient(clientData)
       setClientFound(true)
       setShowCreateClient(false)
-      
+
       // Recargar el cliente después de crearlo para obtener el ID
       const client = await searchClientByPhone(manualOrderData.customerPhone)
       if (client) {
@@ -542,7 +548,7 @@ export default function ManualOrderSidebar({
     const normalized = normalizeLatLong(coords);
     const coordPattern = /^-?\d{1,3}\.?\d*,-?\d{1,3}\.?\d*$/;
     if (!coordPattern.test(normalized)) return false;
-    
+
     // Validar rangos de latitud (-90 a 90) y longitud (-180 a 180)
     const [lat, lng] = normalized.split(',').map(Number);
     return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
@@ -583,7 +589,7 @@ export default function ManualOrderSidebar({
   // Función para manejar cambio en enlace de Google Maps
   const handleGoogleMapsLinkChange = (link: string) => {
     setNewLocationData(prev => ({ ...prev, googleMapsLink: link }));
-    
+
     if (link.trim()) {
       // Verificar si es un Plus Code
       if (isPlusCode(link)) {
@@ -593,22 +599,22 @@ export default function ManualOrderSidebar({
           return;
         }
         if (plusCode) {
-          setNewLocationData(prev => ({ 
-            ...prev, 
+          setNewLocationData(prev => ({
+            ...prev,
             latlong: `pluscode:${plusCode}`,
             referencia: link.replace(plusCode, '').trim() || prev.referencia
           }));
           return;
         }
       }
-      
+
       // Si no es un Plus Code, intentar extraer coordenadas
       const coordinates = extractCoordinatesFromGoogleMaps(link);
       if (coordinates) {
         // Normalizar antes de setear
-        setNewLocationData(prev => ({ 
-          ...prev, 
-          latlong: normalizeLatLong(coordinates) 
+        setNewLocationData(prev => ({
+          ...prev,
+          latlong: normalizeLatLong(coordinates)
         }));
       }
     }
@@ -644,12 +650,24 @@ export default function ManualOrderSidebar({
     setCreatingLocation(true);
     try {
       const clientId = client.id;
+
+      // Subir imagen si existe
+      let photoUrl = '';
+      if (locationImageFile) {
+        const timestamp = Date.now();
+        const fileName = `locations/${clientId}_${timestamp}_${locationImageFile.name}`;
+        const storageRef = ref(storage, fileName);
+        await uploadBytes(storageRef, locationImageFile);
+        photoUrl = await getDownloadURL(storageRef);
+      }
+
       const newLocationResponse = await createClientLocation({
         id_cliente: clientId,
         latlong: newLocationData.latlong.trim(),
         referencia: newLocationData.referencia.trim(),
         tarifa: newLocationData.tarifa,
-        sector: 'Sin especificar'
+        sector: 'Sin especificar',
+        ...(photoUrl && { photo: photoUrl })
       });
 
       // Recargar ubicaciones del cliente
@@ -657,8 +675,8 @@ export default function ManualOrderSidebar({
       setManualOrderData(prev => ({ ...prev, customerLocations: locations }));
 
       // Seleccionar automáticamente la nueva ubicación creada
-      const newLocation = locations.find(loc => 
-        loc.latlong === newLocationData.latlong.trim() && 
+      const newLocation = locations.find(loc =>
+        loc.latlong === newLocationData.latlong.trim() &&
         loc.referencia === newLocationData.referencia.trim()
       );
       if (newLocation) {
@@ -671,8 +689,11 @@ export default function ManualOrderSidebar({
         referencia: '',
         tarifa: '1',
         googleMapsLink: '',
-        latlong: ''
+        latlong: '',
+        photo: ''
       });
+      setLocationImageFile(null);
+      setLocationImagePreview('');
       setShowNewLocationForm(false);
       setShowLocationModal(false);
     } catch (error) {
@@ -689,8 +710,13 @@ export default function ManualOrderSidebar({
       referencia: location.referencia || '',
       tarifa: location.tarifa || '1',
       googleMapsLink: '',
-      latlong: location.latlong || ''
+      latlong: location.latlong || '',
+      photo: location.photo || ''
     })
+    // Si hay una foto existente, mostrarla en el preview
+    if (location.photo) {
+      setLocationImagePreview(location.photo)
+    }
     setShowNewLocationForm(true)
   }
 
@@ -716,6 +742,23 @@ export default function ManualOrderSidebar({
 
     setCreatingLocation(true)
     try {
+      // Buscar el cliente para obtener su ID (necesario para subir imagen)
+      const client = await searchClientByPhone(manualOrderData.customerPhone);
+      if (!client) {
+        alert('No se encontró el cliente');
+        return;
+      }
+
+      // Subir imagen si existe un nuevo archivo
+      let photoUrl = newLocationData.photo; // Mantener la URL existente por defecto
+      if (locationImageFile) {
+        const timestamp = Date.now();
+        const fileName = `locations/${client.id}_${timestamp}_${locationImageFile.name}`;
+        const storageRef = ref(storage, fileName);
+        await uploadBytes(storageRef, locationImageFile);
+        photoUrl = await getDownloadURL(storageRef);
+      }
+
       const updatePayload: any = {
         referencia: newLocationData.referencia.trim(),
         tarifa: newLocationData.tarifa,
@@ -730,10 +773,14 @@ export default function ManualOrderSidebar({
         updatePayload.latlong = ''
       }
 
+      // Incluir photo si existe
+      if (photoUrl) {
+        updatePayload.photo = photoUrl;
+      }
+
       await updateLocation(editingLocationId, updatePayload)
 
       // Recargar ubicaciones
-      const client = await searchClientByPhone(manualOrderData.customerPhone)
       if (client) {
         const locations = await getClientLocations(client.id)
         setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
@@ -741,7 +788,9 @@ export default function ManualOrderSidebar({
 
       setEditingLocationId(null)
       setShowNewLocationForm(false)
-      setNewLocationData({ referencia: '', tarifa: '1', googleMapsLink: '', latlong: '' })
+      setNewLocationData({ referencia: '', tarifa: '1', googleMapsLink: '', latlong: '', photo: '' })
+      setLocationImageFile(null)
+      setLocationImagePreview('')
     } catch (error) {
       console.error('Error actualizando ubicación:', error)
     } finally {
@@ -774,7 +823,7 @@ export default function ManualOrderSidebar({
   const addProductToOrder = (product: Product, variant?: ProductVariant) => {
     const price = variant ? variant.price : product.price
     const variantName = variant ? variant.name : undefined
-    
+
     const newItem: OrderItem = {
       name: variant ? variant.name : product.name,
       price: price,
@@ -800,7 +849,7 @@ export default function ManualOrderSidebar({
 
     const updatedProducts = [...manualOrderData.selectedProducts]
     updatedProducts[index].quantity = quantity
-    
+
     setManualOrderData(prev => ({
       ...prev,
       selectedProducts: updatedProducts
@@ -890,7 +939,7 @@ export default function ManualOrderSidebar({
             scheduledDate: manualOrderData.scheduledDate ? (() => {
               const [year, month, day] = manualOrderData.scheduledDate.split('-').map(Number);
               const [hours, minutes] = manualOrderData.scheduledTime ? manualOrderData.scheduledTime.split(':').map(Number) : [0, 0];
-              return { 
+              return {
                 seconds: Math.floor(new Date(year, month - 1, day, hours, minutes).getTime() / 1000),
                 nanoseconds: 0
               };
@@ -988,7 +1037,7 @@ export default function ManualOrderSidebar({
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={handleCancel}></div>
-      
+
       <div className="absolute right-0 top-0 h-full w-full max-w-lg bg-white shadow-xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
@@ -1050,7 +1099,7 @@ export default function ManualOrderSidebar({
 
             {/* Resultado de búsqueda */}
             {clientFound ? (
-              <div 
+              <div
                 className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md hover:bg-green-100 cursor-pointer transition-colors"
                 onClick={handleEditClient}
               >
@@ -1076,17 +1125,16 @@ export default function ManualOrderSidebar({
             ) : null}
 
             <h3 className="text-sm font-medium text-black mb-3">Productos</h3>
-            
+
             {/* Filtro de categorías */}
             <div className="mb-3">
               <div className="flex gap-2 text-xs overflow-x-auto scrollbar-hide whitespace-nowrap pb-2">
                 <button
                   onClick={() => setSelectedCategory('all')}
-                  className={`px-2 py-1 rounded transition-colors flex-shrink-0 ${
-                    selectedCategory === 'all'
-                      ? 'text-blue-600 font-medium'
-                      : 'text-gray-600 hover:text-gray-800'
-                  }`}
+                  className={`px-2 py-1 rounded transition-colors flex-shrink-0 ${selectedCategory === 'all'
+                    ? 'text-blue-600 font-medium'
+                    : 'text-gray-600 hover:text-gray-800'
+                    }`}
                 >
                   Todos
                 </button>
@@ -1094,22 +1142,21 @@ export default function ManualOrderSidebar({
                   <button
                     key={category}
                     onClick={() => setSelectedCategory(category)}
-                    className={`px-2 py-1 rounded transition-colors flex-shrink-0 ${
-                      selectedCategory === category
-                        ? 'text-blue-600 font-medium'
-                        : 'text-gray-600 hover:text-gray-800'
-                    }`}
+                    className={`px-2 py-1 rounded transition-colors flex-shrink-0 ${selectedCategory === category
+                      ? 'text-blue-600 font-medium'
+                      : 'text-gray-600 hover:text-gray-800'
+                      }`}
                   >
                     {category}
                   </button>
                 ))}
               </div>
             </div>
-            
+
             <div className="grid grid-cols-4 gap-1 max-h-50 overflow-y-auto">
               {getFilteredProducts().filter(p => p.isAvailable).map((product) => (
-                <div 
-                  key={product.id} 
+                <div
+                  key={product.id}
                   className="aspect-square p-1 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col"
                   onClick={() => {
                     if (product.variants && product.variants.length > 0) {
@@ -1134,7 +1181,7 @@ export default function ManualOrderSidebar({
                       </div>
                     )}
                   </div>
-                  
+
                   <div className="flex-1 flex flex-col justify-center text-center">
                     <p className="text-xs font-medium leading-tight mb-1 line-clamp-2">{product.name}</p>
                     {product.variants && product.variants.length > 0 ? (
@@ -1194,24 +1241,22 @@ export default function ManualOrderSidebar({
               <button
                 type="button"
                 onClick={() => setManualOrderData(prev => ({ ...prev, deliveryType: 'pickup' }))}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                  manualOrderData.deliveryType === 'pickup'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.deliveryType === 'pickup'
+                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                  : 'border-gray-300 hover:border-gray-400'
+                  }`}
               >
                 <i className="bi bi-shop text-lg"></i>
                 <span className="text-xs font-medium">Recoger en tienda</span>
               </button>
-              
+
               <button
                 type="button"
                 onClick={handleDeliverySelect}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                  manualOrderData.deliveryType === 'delivery'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.deliveryType === 'delivery'
+                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                  : 'border-gray-300 hover:border-gray-400'
+                  }`}
               >
                 <i className="bi bi-scooter text-lg"></i>
                 <span className="text-xs font-medium">Delivery</span>
@@ -1223,11 +1268,11 @@ export default function ManualOrderSidebar({
           {manualOrderData.deliveryType === 'delivery' && (
             <div className="mb-6">
               <h3 className="text-sm font-medium text-black mb-3">Ubicación</h3>
-              
+
               {(!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10) ? (
                 <p className="text-sm text-gray-500">Ingresa un número de teléfono válido para gestionar ubicaciones</p>
               ) : manualOrderData.selectedLocation ? (
-                <div 
+                <div
                   className="p-3 bg-green-50 border border-green-200 rounded-md mb-3 relative cursor-pointer hover:bg-green-100 transition-colors"
                   onClick={() => setShowLocationModal(true)}
                 >
@@ -1241,7 +1286,7 @@ export default function ManualOrderSidebar({
                       <i className="bi bi-chevron-down"></i>
                     </div>
                   </div>
-                  
+
                   {/* Mapa estático de la ubicación seleccionada */}
                   {manualOrderData.selectedLocation.latlong && (
                     <div className="w-full h-[76px] bg-gray-200 rounded-md overflow-hidden relative">
@@ -1270,7 +1315,7 @@ export default function ManualOrderSidebar({
               ) : (
                 <p className="text-sm text-gray-500 mb-3">No hay ubicación seleccionada</p>
               )}
-              
+
               {!manualOrderData.selectedLocation && (
                 <button
                   onClick={() => setShowLocationModal(true)}
@@ -1288,9 +1333,9 @@ export default function ManualOrderSidebar({
           {manualOrderData.deliveryType === 'delivery' && (
             <div className="mb-6">
               <h3 className="text-sm font-medium text-black mb-3">Asignar delivery</h3>
-              
+
               {manualOrderData.selectedDelivery ? (
-                <div 
+                <div
                   className="p-3 bg-blue-50 border border-blue-200 rounded-md mb-3 relative cursor-pointer hover:bg-blue-100 transition-colors"
                   onClick={() => setShowDeliveryModal(true)}
                 >
@@ -1319,12 +1364,12 @@ export default function ManualOrderSidebar({
                         </div>
                       </div>
                     )}
-                    
+
                     <div className="flex-1">
                       <p className="text-sm font-medium text-blue-800">{manualOrderData.selectedDelivery.nombres}</p>
                       <p className="text-xs text-blue-600">{manualOrderData.selectedDelivery.celular}</p>
                     </div>
-                    
+
                     <div className="text-blue-600 flex-shrink-0">
                       <i className="bi bi-chevron-down"></i>
                     </div>
@@ -1348,54 +1393,51 @@ export default function ManualOrderSidebar({
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => setManualOrderData(prev => ({ 
-                  ...prev, 
+                onClick={() => setManualOrderData(prev => ({
+                  ...prev,
                   paymentMethod: 'cash',
                   cashAmount: 0,
                   transferAmount: 0
                 }))}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                  manualOrderData.paymentMethod === 'cash'
-                    ? 'border-green-500 bg-green-50 text-green-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.paymentMethod === 'cash'
+                  ? 'border-green-500 bg-green-50 text-green-700'
+                  : 'border-gray-300 hover:border-gray-400'
+                  }`}
               >
                 <i className="bi bi-cash text-lg"></i>
                 <span className="text-xs font-medium">Efectivo</span>
               </button>
-              
+
               <button
                 type="button"
-                onClick={() => setManualOrderData(prev => ({ 
-                  ...prev, 
+                onClick={() => setManualOrderData(prev => ({
+                  ...prev,
                   paymentMethod: 'transfer',
                   paymentStatus: mode === 'create' ? 'paid' : prev.paymentStatus,
                   cashAmount: 0,
                   transferAmount: 0
                 }))}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                  manualOrderData.paymentMethod === 'transfer'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.paymentMethod === 'transfer'
+                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                  : 'border-gray-300 hover:border-gray-400'
+                  }`}
               >
                 <i className="bi bi-bank text-lg"></i>
                 <span className="text-xs font-medium">Transferencia</span>
               </button>
-              
+
               <button
                 type="button"
-                onClick={() => setManualOrderData(prev => ({ 
-                  ...prev, 
+                onClick={() => setManualOrderData(prev => ({
+                  ...prev,
                   paymentMethod: 'mixed',
                   cashAmount: prev.total / 2,
                   transferAmount: prev.total / 2
                 }))}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                  manualOrderData.paymentMethod === 'mixed'
-                    ? 'border-purple-500 bg-purple-50 text-purple-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.paymentMethod === 'mixed'
+                  ? 'border-purple-500 bg-purple-50 text-purple-700'
+                  : 'border-gray-300 hover:border-gray-400'
+                  }`}
               >
                 <i className="bi bi-cash-coin text-lg"></i>
                 <span className="text-xs font-medium">Mixto</span>
@@ -1474,7 +1516,7 @@ export default function ManualOrderSidebar({
                     <span>Suma:</span>
                     <span className={
                       Math.abs((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0) - manualOrderData.total) < 0.01
-                        ? 'text-green-600' 
+                        ? 'text-green-600'
                         : 'text-red-600'
                     }>
                       ${((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0)).toFixed(2)}
@@ -1492,38 +1534,36 @@ export default function ManualOrderSidebar({
               <button
                 type="button"
                 onClick={() => setManualOrderData(prev => ({ ...prev, timingType: 'immediate' }))}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                  manualOrderData.timingType === 'immediate'
-                    ? 'border-orange-500 bg-orange-50 text-orange-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.timingType === 'immediate'
+                  ? 'border-orange-500 bg-orange-50 text-orange-700'
+                  : 'border-gray-300 hover:border-gray-400'
+                  }`}
               >
                 <i className="bi bi-lightning-fill text-lg"></i>
                 <span className="text-xs font-medium">Inmediato</span>
               </button>
-              
+
               <button
                 type="button"
                 onClick={() => {
                   const { date, time } = getInitialScheduledDateTime()
-                  setManualOrderData(prev => ({ 
-                    ...prev, 
+                  setManualOrderData(prev => ({
+                    ...prev,
                     timingType: 'scheduled',
                     scheduledDate: date,
                     scheduledTime: time
                   }))
                 }}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${
-                  manualOrderData.timingType === 'scheduled'
-                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.timingType === 'scheduled'
+                  ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                  : 'border-gray-300 hover:border-gray-400'
+                  }`}
               >
                 <i className="bi bi-calendar-event text-lg"></i>
                 <span className="text-xs font-medium">Programado</span>
               </button>
             </div>
-            
+
             {manualOrderData.timingType === 'scheduled' && (
               <div className="space-y-2">
                 <div>
@@ -1597,9 +1637,9 @@ export default function ManualOrderSidebar({
             <button
               onClick={handleSubmitOrder}
               disabled={
-                !manualOrderData.customerPhone || 
-                !manualOrderData.customerName || 
-                manualOrderData.selectedProducts.length === 0 || 
+                !manualOrderData.customerPhone ||
+                !manualOrderData.customerName ||
+                manualOrderData.selectedProducts.length === 0 ||
                 !manualOrderData.deliveryType ||
                 (manualOrderData.deliveryType === 'delivery' && !manualOrderData.selectedLocation) ||
                 (manualOrderData.paymentMethod === 'mixed' && Math.abs((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0) - manualOrderData.total) >= 0.01) ||
@@ -1615,12 +1655,12 @@ export default function ManualOrderSidebar({
 
         {/* Modal de variantes */}
         {isVariantModalOpen && selectedProductForVariants && (
-/* ... */
+          /* ... */
           <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
             <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4">
               <h3 className="text-lg font-semibold mb-4">Seleccionar variante</h3>
               <p className="text-sm text-gray-600 mb-4">{selectedProductForVariants.name}</p>
-              
+
               <div className="space-y-3 mb-6">
                 {selectedProductForVariants.variants?.map((variant) => (
                   <button
@@ -1673,8 +1713,11 @@ export default function ManualOrderSidebar({
                     referencia: '',
                     tarifa: '1',
                     googleMapsLink: '',
-                    latlong: ''
+                    latlong: '',
+                    photo: ''
                   });
+                  setLocationImageFile(null);
+                  setLocationImagePreview('');
                 }}
                 className="text-gray-500 hover:text-gray-700"
               >
@@ -1705,12 +1748,23 @@ export default function ManualOrderSidebar({
                           }}
                           className="mr-3 mt-1 flex-shrink-0"
                         />
-                        
+
                         {/* Mapa estático */}
                         {location.latlong && (
-                          <div className="w-16 h-16 mr-3 flex-shrink-0 bg-gray-200 rounded-md overflow-hidden relative">
+                          <a
+                            href={
+                              location.latlong.startsWith('pluscode:')
+                                ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location.latlong.replace('pluscode:', ''))}`
+                                : `https://www.google.com/maps/search/?api=1&query=${location.latlong}`
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-16 h-16 mr-3 flex-shrink-0 bg-gray-200 rounded-md overflow-hidden relative block hover:opacity-80 transition-opacity"
+                            title="Abrir en Google Maps"
+                          >
                             <img
-                              src={`https://maps.googleapis.com/maps/api/staticmap?center=${location.latlong}&zoom=15&size=64x64&maptype=roadmap&markers=color:red%7C${location.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
+                              src={`https://maps.googleapis.com/maps/api/staticmap?center=${location.latlong}&zoom=13&size=64x64&maptype=roadmap&markers=color:red%7C${location.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
                               alt="Ubicación en mapa"
                               className="w-full h-full object-cover"
                               onError={(e) => {
@@ -1729,9 +1783,20 @@ export default function ManualOrderSidebar({
                             <div className="map-fallback absolute inset-0 hidden w-full h-full flex items-center justify-center bg-gray-200">
                               <i className="bi bi-geo-alt text-gray-400 text-lg"></i>
                             </div>
+                          </a>
+                        )}
+
+                        {/* Foto de ubicación */}
+                        {location.photo && (
+                          <div className="w-16 h-16 mr-3 flex-shrink-0 bg-gray-200 rounded-md overflow-hidden relative">
+                            <img
+                              src={location.photo}
+                              alt="Foto de ubicación"
+                              className="w-full h-full object-cover"
+                            />
                           </div>
                         )}
-                        
+
                         <div className="flex-1">
                           <p className="text-sm font-medium text-gray-900">{location.referencia}</p>
                           <p className="text-xs text-gray-500">Tarifa: ${parseFloat(location.tarifa)}</p>
@@ -1783,7 +1848,7 @@ export default function ManualOrderSidebar({
               /* Formulario para nueva ubicación */
               <div>
                 <h4 className="text-md font-medium mb-4">Crear nueva ubicación</h4>
-                
+
                 <div className="space-y-4">
                   {/* Referencia */}
                   <div>
@@ -1878,7 +1943,7 @@ export default function ManualOrderSidebar({
                           </div>
                         )}
                       </div>
-                      
+
                       {/* Mostrar el código Plus en un campo de solo lectura si está disponible */}
                       {newLocationData.latlong.startsWith('pluscode:') && (
                         <div className="mt-2">
@@ -1907,6 +1972,51 @@ export default function ManualOrderSidebar({
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
+
+                  {/* Foto de referencia */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Foto de referencia (opcional)
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setLocationImageFile(file);
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setLocationImagePreview(reader.result as string);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    {locationImagePreview && (
+                      <div className="mt-3">
+                        <p className="text-sm text-gray-600 mb-2">Vista previa:</p>
+                        <div className="relative w-full h-48 bg-gray-100 rounded-md overflow-hidden">
+                          <img
+                            src={locationImagePreview}
+                            alt="Vista previa"
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            onClick={() => {
+                              setLocationImageFile(null);
+                              setLocationImagePreview('');
+                            }}
+                            className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors"
+                            type="button"
+                          >
+                            <i className="bi bi-x text-lg"></i>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Botones del formulario */}
@@ -1918,15 +2028,18 @@ export default function ManualOrderSidebar({
                         referencia: '',
                         tarifa: '1',
                         googleMapsLink: '',
-                        latlong: ''
+                        latlong: '',
+                        photo: ''
                       });
+                      setLocationImageFile(null);
+                      setLocationImagePreview('');
                     }}
                     className="flex-1 bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 transition-colors"
                     disabled={creatingLocation}
                   >
                     Volver
                   </button>
-                  
+
                   <button
                     onClick={() => editingLocationId ? handleSaveEditedLocation() : handleCreateLocation()}
                     disabled={creatingLocation || !newLocationData.referencia.trim()}
@@ -1972,11 +2085,10 @@ export default function ManualOrderSidebar({
                   setManualOrderData(prev => ({ ...prev, selectedDelivery: null }));
                   setShowDeliveryModal(false);
                 }}
-                className={`w-full p-3 rounded-lg border-2 transition-all flex items-center space-x-3 ${
-                  !manualOrderData.selectedDelivery
-                    ? 'border-gray-500 bg-gray-50'
-                    : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
-                }`}
+                className={`w-full p-3 rounded-lg border-2 transition-all flex items-center space-x-3 ${!manualOrderData.selectedDelivery
+                  ? 'border-gray-500 bg-gray-50'
+                  : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
               >
                 <div className="w-12 h-12 flex-shrink-0 rounded-full bg-gray-200 flex items-center justify-center">
                   <i className="bi bi-clock text-gray-400 text-lg"></i>
@@ -1998,11 +2110,10 @@ export default function ManualOrderSidebar({
                     setManualOrderData(prev => ({ ...prev, selectedDelivery: delivery }));
                     setShowDeliveryModal(false);
                   }}
-                  className={`w-full p-3 rounded-lg border-2 transition-all flex items-center space-x-3 ${
-                    manualOrderData.selectedDelivery?.id === delivery.id
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
-                  }`}
+                  className={`w-full p-3 rounded-lg border-2 transition-all flex items-center space-x-3 ${manualOrderData.selectedDelivery?.id === delivery.id
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                    }`}
                 >
                   {/* Foto del delivery */}
                   <div className="w-12 h-12 flex-shrink-0 rounded-full overflow-hidden bg-gray-200 relative">
@@ -2034,12 +2145,12 @@ export default function ManualOrderSidebar({
                       </div>
                     )}
                   </div>
-                  
+
                   <div className="flex-1 text-left">
                     <p className="text-sm font-medium text-gray-900">{delivery.nombres}</p>
                     <p className="text-xs text-gray-500">{delivery.celular}</p>
                   </div>
-                  
+
                   {manualOrderData.selectedDelivery?.id === delivery.id && (
                     <i className="bi bi-check-circle text-blue-500"></i>
                   )}

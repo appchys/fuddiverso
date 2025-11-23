@@ -61,6 +61,7 @@ export interface ClientLocation {
   sector: string
   tarifa: string
   latlong: string
+  photo?: string
 }
 
 export interface CoverageZone {

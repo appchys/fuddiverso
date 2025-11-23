@@ -1,16 +1,16 @@
-import { 
-  collection, 
-  doc, 
-  addDoc, 
-  getDoc, 
-  getDocs, 
-  updateDoc, 
-  deleteDoc, 
+import {
+  collection,
+  doc,
+  addDoc,
+  getDoc,
+  getDocs,
+  updateDoc,
+  deleteDoc,
   setDoc,
-  query, 
-  where, 
+  query,
+  where,
   limit,
-  orderBy, 
+  orderBy,
   serverTimestamp,
   increment as firestoreIncrement,
   Timestamp,
@@ -18,17 +18,17 @@ import {
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
-import { 
-  signInWithRedirect, 
-  getRedirectResult, 
+import {
+  signInWithRedirect,
+  getRedirectResult,
   UserCredential,
   GoogleAuthProvider,
   signInWithPopup
 } from 'firebase/auth'
-import { 
-  Business, 
-  Product, 
-  Order, 
+import {
+  Business,
+  Product,
+  Order,
   CoverageZone,
   Delivery,
   QRCode,
@@ -81,7 +81,7 @@ export async function getExpensesByBusiness(
       // Convertir fechas a string YYYY-MM-DD para comparar con el campo date
       const startStr = startDate.toISOString().split('T')[0]
       const endStr = endDate.toISOString().split('T')[0]
-      
+
       // Si es el mismo día, buscamos exactamente esa fecha
       if (startStr === endStr) {
         q = query(
@@ -148,11 +148,11 @@ function cleanObject(obj: any): any {
   if (obj === null || obj === undefined) {
     return null
   }
-  
+
   if (Array.isArray(obj)) {
     return obj.map(cleanObject).filter(item => item !== null && item !== undefined)
   }
-  
+
   if (typeof obj === 'object') {
     const cleaned: any = {}
     for (const [key, value] of Object.entries(obj)) {
@@ -162,7 +162,7 @@ function cleanObject(obj: any): any {
     }
     return cleaned
   }
-  
+
   return obj
 }
 
@@ -179,26 +179,26 @@ function formatDateDDMMYYYY(d?: Date | string) {
 export async function createBusiness(businessData: Omit<Business, 'id' | 'createdAt'>) {
   try {
     console.log('🔄 Attempting to create business:', businessData);
-    
+
     // Validar datos requeridos
     if (!businessData.name || !businessData.email || !businessData.phone || !businessData.address) {
       throw new Error('Faltan datos requeridos: nombre, email, teléfono y dirección son obligatorios.');
     }
-    
+
     // Filtrar valores undefined antes de enviar a Firestore
     const cleanBusinessData = cleanObject(businessData)
-    
+
     const docRef = await addDoc(collection(db, 'businesses'), {
       ...cleanBusinessData,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
-    
+
     console.log('✅ Business created successfully with ID:', docRef.id);
     return docRef.id;
   } catch (error: any) {
     console.error('❌ Error creating business:', error);
-    
+
     // Proporcionar mensajes de error más específicos
     if (error.code === 'permission-denied') {
       throw new Error('No tienes permisos para crear un negocio. Verifica las reglas de Firestore.');
@@ -209,7 +209,7 @@ export async function createBusiness(businessData: Omit<Business, 'id' | 'create
     } else if (error.code === 'unauthenticated') {
       throw new Error('No estás autenticado. Inicia sesión primero.');
     }
-    
+
     throw new Error(`Error al crear el negocio: ${error.message || error}`);
   }
 }
@@ -254,7 +254,7 @@ export async function createBusinessFromForm(formData: {
     isActive: true,
     updatedAt: new Date()
   };
-  
+
   return await createBusiness(businessData);
 }
 
@@ -262,7 +262,7 @@ export async function getBusiness(businessId: string): Promise<Business | null> 
   try {
     const docRef = doc(db, 'businesses', businessId)
     const docSnap = await getDoc(docRef)
-    
+
     if (docSnap.exists()) {
       return {
         id: docSnap.id,
@@ -280,17 +280,17 @@ export async function getBusiness(businessId: string): Promise<Business | null> 
 export async function getBusinessByOwner(ownerId: string): Promise<Business | null> {
   try {
     console.log('🔍 Searching for business with ownerId:', ownerId);
-    
+
     const q = query(
-      collection(db, 'businesses'), 
+      collection(db, 'businesses'),
       where('ownerId', '==', ownerId),
       limit(1)
     )
     const querySnapshot = await getDocs(q)
-    
+
     console.log('📊 Query result is empty:', querySnapshot.empty);
     console.log('📊 Query size:', querySnapshot.size);
-    
+
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0]
       const businessData = {
@@ -298,11 +298,11 @@ export async function getBusinessByOwner(ownerId: string): Promise<Business | nu
         ...doc.data(),
         createdAt: toSafeDate(doc.data().createdAt)
       } as Business
-      
+
       console.log('✅ Found business:', businessData.name, 'ID:', businessData.id);
       return businessData
     }
-    
+
     console.log('❌ No business found for ownerId:', ownerId);
     return null
   } catch (error) {
@@ -329,7 +329,7 @@ export async function updateBusiness(businessId: string, data: Partial<Business>
   try {
     // Filtrar valores undefined antes de enviar a Firestore
     const cleanData = cleanObject(data)
-    
+
     const docRef = doc(db, 'businesses', businessId)
     await updateDoc(docRef, cleanData)
   } catch (error) {
@@ -340,8 +340,8 @@ export async function updateBusiness(businessId: string, data: Partial<Business>
 
 // Funciones para administradores de negocios
 export async function addBusinessAdministrator(
-  businessId: string, 
-  adminEmail: string, 
+  businessId: string,
+  adminEmail: string,
   role: 'admin' | 'manager',
   permissions: any,
   addedByUid: string
@@ -356,30 +356,30 @@ export async function addBusinessAdministrator(
       addedBy: addedByUid,
       permissions
     }
-    
+
     const businessRef = doc(db, 'businesses', businessId)
     const businessDoc = await getDoc(businessRef)
-    
+
     if (!businessDoc.exists()) {
       throw new Error('Negocio no encontrado')
     }
-    
+
     const businessData = businessDoc.data() as Business
     const currentAdmins = businessData.administrators || []
-    
+
     // Verificar si el admin ya existe
     const existingAdmin = currentAdmins.find(admin => admin.email === adminEmail)
     if (existingAdmin) {
       throw new Error('Este usuario ya es administrador del negocio')
     }
-    
+
     // Agregar el nuevo administrador
     const updatedAdmins = [...currentAdmins, newAdmin]
-    await updateDoc(businessRef, { 
+    await updateDoc(businessRef, {
       administrators: updatedAdmins,
       updatedAt: serverTimestamp() // Solo usar serverTimestamp en campos top-level
     })
-    
+
     return true
   } catch (error) {
     console.error('Error adding administrator:', error)
@@ -391,18 +391,18 @@ export async function removeBusinessAdministrator(businessId: string, adminEmail
   try {
     const businessRef = doc(db, 'businesses', businessId)
     const businessDoc = await getDoc(businessRef)
-    
+
     if (!businessDoc.exists()) {
       throw new Error('Negocio no encontrado')
     }
-    
+
     const businessData = businessDoc.data() as Business
     const currentAdmins = businessData.administrators || []
-    
+
     // Filtrar el administrador a remover
     const updatedAdmins = currentAdmins.filter(admin => admin.email !== adminEmail)
     await updateDoc(businessRef, { administrators: updatedAdmins })
-    
+
     return true
   } catch (error) {
     console.error('Error removing administrator:', error)
@@ -411,30 +411,30 @@ export async function removeBusinessAdministrator(businessId: string, adminEmail
 }
 
 export async function updateAdministratorPermissions(
-  businessId: string, 
-  adminEmail: string, 
+  businessId: string,
+  adminEmail: string,
   newPermissions: any
 ) {
   try {
     const businessRef = doc(db, 'businesses', businessId)
     const businessDoc = await getDoc(businessRef)
-    
+
     if (!businessDoc.exists()) {
       throw new Error('Negocio no encontrado')
     }
-    
+
     const businessData = businessDoc.data() as Business
     const currentAdmins = businessData.administrators || []
-    
+
     // Actualizar permisos del administrador
-    const updatedAdmins = currentAdmins.map(admin => 
-      admin.email === adminEmail 
+    const updatedAdmins = currentAdmins.map(admin =>
+      admin.email === adminEmail
         ? { ...admin, permissions: newPermissions }
         : admin
     )
-    
+
     await updateDoc(businessRef, { administrators: updatedAdmins })
-    
+
     return true
   } catch (error) {
     console.error('Error updating permissions:', error)
@@ -447,25 +447,25 @@ export async function transferBusinessOwnership(businessId: string, newOwnerEmai
     // Esta función requeriría verificaciones adicionales de seguridad
     const businessRef = doc(db, 'businesses', businessId)
     const businessDoc = await getDoc(businessRef)
-    
+
     if (!businessDoc.exists()) {
       throw new Error('Negocio no encontrado')
     }
-    
+
     const businessData = businessDoc.data() as Business
-    
+
     // Verificar que el usuario actual es el propietario
     if (businessData.ownerId !== currentOwnerUid) {
       throw new Error('Solo el propietario puede transferir el negocio')
     }
-    
+
     // Aquí se necesitaría obtener el UID del nuevo propietario desde su email
     // Por ahora solo actualizamos el email hasta implementar la búsqueda de usuarios
-    await updateDoc(businessRef, { 
+    await updateDoc(businessRef, {
       email: newOwnerEmail,
       updatedAt: serverTimestamp()
     })
-    
+
     return true
   } catch (error) {
     console.error('Error transferring ownership:', error)
@@ -478,7 +478,7 @@ export async function createProduct(productData: Omit<Product, 'id' | 'createdAt
   try {
     // Filtrar valores undefined antes de enviar a Firestore
     const cleanProductData = cleanObject(productData)
-    
+
     const docRef = await addDoc(collection(db, 'products'), {
       ...cleanProductData,
       createdAt: serverTimestamp()
@@ -493,7 +493,7 @@ export async function createProduct(productData: Omit<Product, 'id' | 'createdAt
 export async function getProductsByBusiness(businessId: string): Promise<Product[]> {
   try {
     const q = query(
-      collection(db, 'products'), 
+      collection(db, 'products'),
       where('businessId', '==', businessId),
       orderBy('createdAt', 'desc')
     )
@@ -513,7 +513,7 @@ export async function updateProduct(productId: string, data: Partial<Product>) {
   try {
     // Filtrar valores undefined antes de enviar a Firestore
     const cleanData = cleanObject(data)
-    
+
     const docRef = doc(db, 'products', productId)
     await updateDoc(docRef, cleanData)
   } catch (error) {
@@ -537,7 +537,7 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
   try {
     // Filtrar valores undefined antes de enviar a Firestore
     const cleanOrderData = cleanObject(orderData)
-    
+
     // Asegurarnos que siempre tenga la estructura correcta
     const standardizedOrder = {
       ...cleanOrderData,
@@ -584,7 +584,7 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
 export async function getOrdersByBusiness(businessId: string): Promise<Order[]> {
   try {
     const q = query(
-      collection(db, 'orders'), 
+      collection(db, 'orders'),
       where('businessId', '==', businessId),
       where('status', '!=', 'cancelled')
       // Temporalmente comentado hasta crear el índice
@@ -596,7 +596,7 @@ export async function getOrdersByBusiness(businessId: string): Promise<Order[]> 
       ...doc.data(),
       createdAt: parseCreatedAt(doc.data().createdAt)
     })) as Order[]
-    
+
     // Ordenar en JavaScript como alternativa temporal
     return orders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
   } catch (error) {
@@ -610,27 +610,27 @@ function parseCreatedAt(createdAt: any): Date {
   if (!createdAt) {
     return new Date()
   }
-  
+
   // Si es un Timestamp de Firestore
   if (createdAt && typeof createdAt.toDate === 'function') {
     return createdAt.toDate()
   }
-  
+
   // Si es una cadena de fecha
   if (typeof createdAt === 'string') {
     return new Date(createdAt)
   }
-  
+
   // Si ya es un objeto Date
   if (createdAt instanceof Date) {
     return createdAt
   }
-  
+
   // Si es un objeto con seconds (Timestamp serializado)
   if (createdAt && createdAt.seconds) {
     return new Date(createdAt.seconds * 1000)
   }
-  
+
   // Fallback
   return new Date()
 }
@@ -647,7 +647,7 @@ export async function getAllOrders(): Promise<Order[]> {
       ...doc.data(),
       createdAt: parseCreatedAt(doc.data().createdAt)
     })) as Order[]
-    
+
     return orders
   } catch (error) {
     console.error('Error getting all orders:', error)
@@ -659,7 +659,7 @@ export async function getAllOrders(): Promise<Order[]> {
         ...doc.data(),
         createdAt: parseCreatedAt(doc.data().createdAt)
       })) as Order[]
-      
+
       // Ordenar en JavaScript
       return orders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
     } catch (fallbackError) {
@@ -704,7 +704,7 @@ export async function getOrder(orderId: string): Promise<Order | null> {
   try {
     const docRef = doc(db, 'orders', orderId)
     const docSnap = await getDoc(docRef)
-    
+
     if (docSnap.exists()) {
       return {
         id: docSnap.id,
@@ -801,22 +801,22 @@ export async function searchBusinesses(searchTerm: string, category?: string): P
       ...doc.data(),
       createdAt: toSafeDate(doc.data().createdAt)
     })) as Business[]
-    
+
     // Filtrar por categoría
     if (category && category !== 'all') {
-      businesses = businesses.filter(business => 
+      businesses = businesses.filter(business =>
         business.categories && business.categories.includes(category)
       )
     }
-    
+
     // Filtrar por término de búsqueda
     if (searchTerm) {
-      businesses = businesses.filter(business => 
+      businesses = businesses.filter(business =>
         business.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         business.description.toLowerCase().includes(searchTerm.toLowerCase())
       )
     }
-    
+
     return businesses
   } catch (error) {
     console.error('Error searching businesses:', error)
@@ -829,26 +829,26 @@ export async function addCategoryToBusiness(businessId: string, categoryName: st
   try {
     const businessRef = doc(db, 'businesses', businessId)
     const businessSnap = await getDoc(businessRef)
-    
+
     if (!businessSnap.exists()) {
       throw new Error('Negocio no encontrado')
     }
-    
+
     const businessData = businessSnap.data() as Business
     const currentCategories = businessData.categories || []
-    
+
     // Evitar categorías duplicadas
     if (currentCategories.includes(categoryName)) {
       throw new Error('Esta categoría ya existe')
     }
-    
+
     const updatedCategories = [...currentCategories, categoryName]
-    
+
     await updateDoc(businessRef, {
       categories: updatedCategories,
       updatedAt: serverTimestamp()
     })
-    
+
     return updatedCategories
   } catch (error) {
     console.error('Error adding category:', error)
@@ -860,21 +860,21 @@ export async function removeCategoryFromBusiness(businessId: string, categoryNam
   try {
     const businessRef = doc(db, 'businesses', businessId)
     const businessSnap = await getDoc(businessRef)
-    
+
     if (!businessSnap.exists()) {
       throw new Error('Negocio no encontrado')
     }
-    
+
     const businessData = businessSnap.data() as Business
     const currentCategories = businessData.categories || []
-    
+
     const updatedCategories = currentCategories.filter(cat => cat !== categoryName)
-    
+
     await updateDoc(businessRef, {
       categories: updatedCategories,
       updatedAt: serverTimestamp()
     })
-    
+
     return updatedCategories
   } catch (error) {
     console.error('Error removing category:', error)
@@ -886,11 +886,11 @@ export async function getBusinessCategories(businessId: string): Promise<string[
   try {
     const businessRef = doc(db, 'businesses', businessId)
     const businessSnap = await getDoc(businessRef)
-    
+
     if (!businessSnap.exists()) {
       return []
     }
-    
+
     const businessData = businessSnap.data() as Business
     return businessData.categories || []
   } catch (error) {
@@ -915,24 +915,24 @@ export async function handleGoogleRedirectResult() {
   try {
     console.log('🔍 Getting redirect result...');
     const result = await getRedirectResult(auth);
-    
+
     if (result?.user) {
       console.log('✅ Redirect result found for user:', result.user.email);
       console.log('🆔 User UID from redirect:', result.user.uid);
-      
+
       // Verificar acceso completo del usuario (propietario o administrador)
       console.log('🔍 Checking user business access...');
       const businessAccess = await getUserBusinessAccess(
-        result.user.email || '', 
+        result.user.email || '',
         result.user.uid
       );
-      
+
       console.log('🏢 Business access result:', {
         owned: businessAccess.ownedBusinesses.length,
         admin: businessAccess.adminBusinesses.length,
         hasAccess: businessAccess.hasAccess
       });
-      
+
       // Determinar businessId preferido (primero propias, luego como admin)
       let preferredBusinessId = null;
       if (businessAccess.ownedBusinesses.length > 0) {
@@ -940,7 +940,7 @@ export async function handleGoogleRedirectResult() {
       } else if (businessAccess.adminBusinesses.length > 0) {
         preferredBusinessId = businessAccess.adminBusinesses[0].id;
       }
-      
+
       return {
         user: result.user,
         hasBusinessProfile: businessAccess.ownedBusinesses.length > 0,
@@ -954,14 +954,14 @@ export async function handleGoogleRedirectResult() {
       console.log('ℹ️ No redirect result found');
       return null;
     }
-    
+
   } catch (error: any) {
     // Si el error es porque no hay redirect result, no es realmente un error
     if (error.code === 'auth/no-auth-event') {
       console.log('ℹ️ No auth event found (normal if not coming from redirect)');
       return null;
     }
-    
+
     console.error('❌ Error handling Google redirect result:', error);
     throw new Error(`Error al procesar resultado de Google: ${error.message}`)
   }
@@ -1035,6 +1035,7 @@ export interface ClientLocation {
   sector: string;
   tarifa: string;
   latlong: string;
+  photo?: string;
 }
 
 // Nueva función para obtener un negocio por su username
@@ -1075,7 +1076,7 @@ export async function getBusinessByUsername(username: string): Promise<Business 
         createdAt: toSafeDate(businessData.createdAt),
         updatedAt: toSafeDate(businessData.updatedAt)
       };
-      
+
       console.log('✅ Business found:', business);
       return business;
     }
@@ -1109,7 +1110,8 @@ export async function getClientLocations(clientId: string): Promise<ClientLocati
         referencia: locationData.referencia || '',
         sector: locationData.sector || '',
         tarifa: locationData.tarifa || '',
-        latlong: locationData.latlong || ''
+        latlong: locationData.latlong || '',
+        photo: locationData.photo || ''
       });
     });
 
@@ -1216,7 +1218,7 @@ export async function registerClientForgotPin(clientId: string) {
   try {
     console.log('📝 Registering forgot PIN event for client:', clientId)
     const clientRef = doc(db, 'clients', clientId)
-    await updateDoc(clientRef, { 
+    await updateDoc(clientRef, {
       forgotPinCount: firestoreIncrement(1),
       lastForgotPinAt: serverTimestamp()
     })
@@ -1270,14 +1272,14 @@ export async function updateClient(clientId: string, clientData: { celular?: str
 
     const clientRef = doc(db, 'clients', clientId);
     const updateData: any = {};
-    
+
     if (clientData.celular) updateData.celular = clientData.celular;
     if (clientData.nombres) updateData.nombres = clientData.nombres;
     if (clientData.email !== undefined) updateData.email = clientData.email;
-    
+
     await updateDoc(clientRef, updateData);
     console.log('✅ Client updated successfully');
-    
+
     return true;
   } catch (error) {
     console.error('❌ Error updating client:', error);
@@ -1321,9 +1323,9 @@ export async function getLocationsByClient(clientPhone: string): Promise<ClientL
       collection(db, 'clients'),
       where('celular', '==', clientPhone)
     );
-    
+
     const clientSnapshot = await getDocs(clientQuery);
-    
+
     if (clientSnapshot.empty) {
       console.log('❌ No client found with phone:', clientPhone);
       return [];
@@ -1378,24 +1380,24 @@ export async function updateLocation(locationId: string, locationData: Partial<C
 }
 
 // Función para crear nueva ubicación de cliente
-export async function createClientLocation(locationData: { id_cliente: string, latlong: string, referencia: string, tarifa: string, sector: string }): Promise<string> {
+export async function createClientLocation(locationData: { id_cliente: string, latlong: string, referencia: string, tarifa: string, sector: string, photo?: string }): Promise<string> {
   try {
     console.log('📍 Creating new client location:', locationData);
-    
+
     // Si id_cliente parece ser un número de teléfono, necesitamos convertirlo al ID real
     let clientId = locationData.id_cliente;
-    
+
     // Si parece ser un número de celular, buscar el ID real del cliente
     if (locationData.id_cliente.length > 8 && /^\d+$/.test(locationData.id_cliente)) {
       console.log('🔍 Converting phone number to client ID:', locationData.id_cliente);
-      
+
       const clientQuery = query(
         collection(db, 'clients'),
         where('celular', '==', locationData.id_cliente)
       );
-      
+
       const clientSnapshot = await getDocs(clientQuery);
-      
+
       if (!clientSnapshot.empty) {
         const clientDoc = clientSnapshot.docs[0];
         clientId = clientDoc.data().id;
@@ -1405,13 +1407,14 @@ export async function createClientLocation(locationData: { id_cliente: string, l
         throw new Error('Cliente no encontrado');
       }
     }
-    
+
     const cleanedData = cleanObject({
       id_cliente: clientId,
       latlong: locationData.latlong,
       referencia: locationData.referencia,
       tarifa: locationData.tarifa,
       sector: locationData.sector || 'Sin especificar',
+      ...(locationData.photo && { photo: locationData.photo }),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
@@ -1523,7 +1526,7 @@ export async function getVisitsForBusiness(businessId: string): Promise<number> 
 export async function getBusinessesByAdministrator(userEmail: string): Promise<Business[]> {
   try {
     console.log('🔍 Checking if user is administrator:', userEmail);
-    
+
     const q = query(
       collection(db, 'businesses'),
       where('administrators', 'array-contains-any', [
@@ -1535,16 +1538,16 @@ export async function getBusinessesByAdministrator(userEmail: string): Promise<B
     // necesitamos obtener todas las tiendas y filtrar manualmente
     const allBusinessesQuery = query(collection(db, 'businesses'));
     const querySnapshot = await getDocs(allBusinessesQuery);
-    
+
     const adminBusinesses: Business[] = [];
-    
+
     querySnapshot.docs.forEach(doc => {
       const businessData = doc.data();
       const administrators = businessData.administrators || [];
-      
+
       // Verificar si el usuario es administrador
       const isAdmin = administrators.some((admin: any) => admin.email === userEmail);
-      
+
       if (isAdmin) {
         adminBusinesses.push({
           id: doc.id,
@@ -1586,21 +1589,21 @@ export async function getUserBusinessAccess(userEmail: string, userId: string): 
 }> {
   try {
     console.log('🔍 Checking user business access for:', userEmail, userId);
-    
+
     // Verificar tiendas como propietario
     const ownedBusinesses = await getBusinessesByOwner(userId);
-    
+
     // Verificar tiendas como administrador
     const adminBusinesses = await getBusinessesByAdministrator(userEmail);
-    
+
     const hasAccess = ownedBusinesses.length > 0 || adminBusinesses.length > 0;
-    
+
     console.log('✅ User business access:', {
       owned: ownedBusinesses.length,
       admin: adminBusinesses.length,
       hasAccess
     });
-    
+
     return {
       ownedBusinesses,
       adminBusinesses,
@@ -1636,7 +1639,7 @@ export async function getCoverageZones(businessId?: string): Promise<CoverageZon
 
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      
+
       // Helper function to safely convert dates
       const convertToDate = (dateField: any): Date => {
         if (!dateField) return new Date();
@@ -1651,7 +1654,7 @@ export async function getCoverageZones(businessId?: string): Promise<CoverageZon
         }
         return new Date();
       };
-      
+
       zones.push({
         id: doc.id,
         name: data.name || '',
@@ -1734,7 +1737,7 @@ export function isPointInPolygon(point: { lat: number; lng: number }, polygon: {
 export async function getDeliveryFeeForLocation(location: { lat: number; lng: number }, businessId?: string): Promise<number> {
   try {
     const zones = await getCoverageZones(businessId);
-    
+
     // Buscar en zonas específicas del negocio primero, luego en zonas globales
     for (const zone of zones) {
       if (zone.isActive && isPointInPolygon(location, zone.polygon)) {
@@ -1796,10 +1799,10 @@ export async function getAllDeliveries(): Promise<Delivery[]> {
       collection(db, 'deliveries'),
       orderBy('createdAt', 'desc')
     )
-    
+
     const querySnapshot = await getDocs(q)
     const deliveries: Delivery[] = []
-    
+
     querySnapshot.forEach((doc) => {
       const data = doc.data()
       deliveries.push({
@@ -1813,7 +1816,7 @@ export async function getAllDeliveries(): Promise<Delivery[]> {
         uid: data.uid
       })
     })
-    
+
     return deliveries
   } catch (error) {
     console.error('Error getting deliveries:', error)
@@ -1828,7 +1831,7 @@ export async function getDeliveryById(deliveryId: string): Promise<Delivery | nu
   try {
     const docRef = doc(db, 'deliveries', deliveryId)
     const docSnap = await getDoc(docRef)
-    
+
     if (docSnap.exists()) {
       const data = docSnap.data()
       return {
@@ -1842,7 +1845,7 @@ export async function getDeliveryById(deliveryId: string): Promise<Delivery | nu
         uid: data.uid
       }
     }
-    
+
     return null
   } catch (error) {
     console.error('Error getting delivery by ID:', error)
@@ -1860,10 +1863,10 @@ export async function updateDelivery(deliveryId: string, updates: Partial<Delive
       ...updates,
       updatedAt: serverTimestamp()
     }
-    
+
     // Remover el ID del objeto de actualización si existe
     delete updateData.id
-    
+
     await updateDoc(docRef, updateData)
     console.log('Delivery updated successfully')
   } catch (error) {
@@ -1881,7 +1884,7 @@ export async function toggleDeliveryStatus(deliveryId: string): Promise<void> {
     if (!delivery) {
       throw new Error('Delivery not found')
     }
-    
+
     const newStatus = delivery.estado === 'activo' ? 'inactivo' : 'activo'
     await updateDelivery(deliveryId, { estado: newStatus })
     console.log(`Delivery status changed to: ${newStatus}`)
@@ -1915,10 +1918,10 @@ export async function getDeliveriesByStatus(estado: 'activo' | 'inactivo'): Prom
       where('estado', '==', estado),
       orderBy('createdAt', 'desc')
     )
-    
+
     const querySnapshot = await getDocs(q)
     const deliveries: Delivery[] = []
-    
+
     querySnapshot.forEach((doc) => {
       const data = doc.data()
       deliveries.push({
@@ -1932,7 +1935,7 @@ export async function getDeliveriesByStatus(estado: 'activo' | 'inactivo'): Prom
         uid: data.uid
       })
     })
-    
+
     return deliveries
   } catch (error) {
     // En caso de errores (p. ej. permisos), devolver lista vacía para que la UI
@@ -1952,16 +1955,16 @@ export async function getDeliveryByEmail(email: string): Promise<Delivery | null
       where('email', '==', email),
       limit(1)
     )
-    
+
     const querySnapshot = await getDocs(q)
-    
+
     if (querySnapshot.empty) {
       return null
     }
-    
+
     const doc = querySnapshot.docs[0]
     const data = doc.data()
-    
+
     return {
       id: doc.id,
       nombres: data.nombres || '',
@@ -1984,7 +1987,7 @@ export async function getDeliveryByEmail(email: string): Promise<Delivery | null
 export async function getOrdersByDelivery(deliveryId: string): Promise<Order[]> {
   try {
     console.log('[getOrdersByDelivery] Buscando pedidos para deliveryId:', deliveryId)
-    
+
     // Primero intentar con orderBy (requiere índice compuesto)
     let q = query(
       collection(db, 'orders'),
@@ -1992,7 +1995,7 @@ export async function getOrdersByDelivery(deliveryId: string): Promise<Order[]> 
       where('status', '!=', 'cancelled'),
       orderBy('createdAt', 'desc')
     )
-    
+
     let querySnapshot
     try {
       querySnapshot = await getDocs(q)
@@ -2006,14 +2009,14 @@ export async function getOrdersByDelivery(deliveryId: string): Promise<Order[]> 
       )
       querySnapshot = await getDocs(q)
     }
-    
+
     console.log('[getOrdersByDelivery] Documentos encontrados:', querySnapshot.size)
-    
+
     const orders: Order[] = []
-    
+
     querySnapshot.forEach((doc) => {
       const data = doc.data()
-      
+
       // Función helper para convertir fechas de manera segura
       const toDate = (field: any): Date => {
         if (!field) return new Date()
@@ -2025,7 +2028,7 @@ export async function getOrdersByDelivery(deliveryId: string): Promise<Order[]> 
         if (typeof field === 'number') return new Date(field)
         return new Date()
       }
-      
+
       orders.push({
         id: doc.id,
         businessId: data.businessId,
@@ -2042,10 +2045,10 @@ export async function getOrdersByDelivery(deliveryId: string): Promise<Order[]> 
         createdByAdmin: data.createdByAdmin
       })
     })
-    
+
     // Ordenar en memoria si no se pudo hacer en la consulta
     orders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    
+
     return orders
   } catch (error) {
     console.error('Error getting orders by delivery:', error)
@@ -2088,7 +2091,7 @@ export async function getIngredientLibrary(businessId: string): Promise<Ingredie
     const libraryRef = collection(db, 'businesses', businessId, 'ingredientLibrary')
     const q = query(libraryRef, orderBy('name', 'asc'))
     const snapshot = await getDocs(q)
-    
+
     const ingredients: IngredientLibraryItem[] = []
     snapshot.forEach((doc) => {
       const data = doc.data()
@@ -2100,7 +2103,7 @@ export async function getIngredientLibrary(businessId: string): Promise<Ingredie
         usageCount: data.usageCount || 0
       })
     })
-    
+
     return ingredients
   } catch (error) {
     console.error('Error getting ingredient library:', error)
@@ -2112,17 +2115,17 @@ export async function getIngredientLibrary(businessId: string): Promise<Ingredie
  * Agregar o actualizar un ingrediente en la biblioteca
  */
 export async function addOrUpdateIngredientInLibrary(
-  businessId: string, 
-  name: string, 
+  businessId: string,
+  name: string,
   unitCost: number
 ): Promise<void> {
   try {
     const libraryRef = collection(db, 'businesses', businessId, 'ingredientLibrary')
-    
+
     // Buscar si ya existe un ingrediente con ese nombre (case-insensitive)
     const q = query(libraryRef, where('name', '==', name.trim()))
     const snapshot = await getDocs(q)
-    
+
     if (snapshot.empty) {
       // Crear nuevo ingrediente
       await addDoc(libraryRef, {
@@ -2164,8 +2167,8 @@ export async function deleteIngredientFromLibrary(businessId: string, ingredient
  * Actualizar el costo de un ingrediente en la biblioteca
  */
 export async function updateIngredientCostInLibrary(
-  businessId: string, 
-  ingredientId: string, 
+  businessId: string,
+  ingredientId: string,
   newCost: number
 ): Promise<void> {
   try {
@@ -2233,24 +2236,24 @@ export async function calculateCostReport(
     )
 
     const ordersSnapshot = await getDocs(q)
-    
+
     // Obtener todos los productos del negocio
     const productsSnapshot = await getDocs(
       query(collection(db, 'products'), where('businessId', '==', businessId))
     )
-    
+
     const productsMap = new Map<string, any>()
     productsSnapshot.forEach(doc => {
       productsMap.set(doc.id, { id: doc.id, ...doc.data() })
     })
-    
+
     // Estructuras para acumular datos
     const ingredientConsumptionMap = new Map<string, IngredientConsumption>()
     const productSalesMap = new Map<string, any>()
     let totalRevenue = 0
     let totalOrders = 0
     let totalShippingCost = 0
-    
+
     // Helper para obtener la fecha de referencia de una orden
     const toDateSafe = (d: any) => {
       if (!d) return new Date(0)
@@ -2281,21 +2284,21 @@ export async function calculateCostReport(
 
       totalOrders++
       totalRevenue += order.total || 0
-      
+
       // Calcular costo de envío para esta orden
       if (order.delivery?.type === 'delivery') {
         totalShippingCost += order.delivery?.deliveryCost || 0
       }
-      
+
       // Procesar cada item de la orden
       order.items?.forEach((item: any) => {
         const product = productsMap.get(item.productId)
         if (!product) return
-        
+
         const quantity = item.quantity || 1
         const variantName = item.variant || item.name
         const productKey = `${product.name}${variantName ? ` - ${variantName}` : ''}`
-        
+
         // Acumular ventas por producto
         if (!productSalesMap.has(productKey)) {
           productSalesMap.set(productKey, {
@@ -2307,36 +2310,36 @@ export async function calculateCostReport(
             profit: 0
           })
         }
-        
+
         const productSale = productSalesMap.get(productKey)
         productSale.quantitySold += quantity
         productSale.revenue += (item.price || 0) * quantity
-        
+
         // Determinar qué ingredientes usar (variante o producto base)
         let ingredientsToUse: any[] = []
-        
+
         if (item.variant && product.variants) {
           // Buscar la variante específica
-          const variant = product.variants.find((v: any) => 
+          const variant = product.variants.find((v: any) =>
             v.name === item.variant || v.name === variantName
           )
           if (variant?.ingredients) {
             ingredientsToUse = variant.ingredients
           }
         }
-        
+
         // Si no hay ingredientes de variante, usar los del producto base
         if (ingredientsToUse.length === 0 && product.ingredients) {
           ingredientsToUse = product.ingredients
         }
-        
+
         // Procesar ingredientes
         ingredientsToUse.forEach((ingredient: any) => {
           const ingredientName = ingredient.name
           const quantityUsed = ingredient.quantity * quantity
           const unitCost = ingredient.unitCost || 0
           const totalCost = quantityUsed * unitCost
-          
+
           // Acumular consumo de ingredientes
           if (!ingredientConsumptionMap.has(ingredientName)) {
             ingredientConsumptionMap.set(ingredientName, {
@@ -2347,7 +2350,7 @@ export async function calculateCostReport(
               usedInProducts: []
             })
           }
-          
+
           const consumption = ingredientConsumptionMap.get(ingredientName)!
           consumption.totalQuantity += quantityUsed
           consumption.totalCost += totalCost
@@ -2357,30 +2360,30 @@ export async function calculateCostReport(
             quantitySold: quantity,
             ingredientQuantityUsed: quantityUsed
           })
-          
+
           // Acumular costo en el producto
           productSale.cost += totalCost
         })
-        
+
         // Calcular profit del producto
         productSale.profit = productSale.revenue - productSale.cost
       })
     })
-    
+
     // Convertir maps a arrays y ordenar
     const ingredientConsumption = Array.from(ingredientConsumptionMap.values())
       .sort((a, b) => b.totalCost - a.totalCost)
-    
+
     const topSellingProducts = Array.from(productSalesMap.values())
       .sort((a, b) => b.quantitySold - a.quantitySold)
-    
+
     const totalIngredientCost = ingredientConsumption.reduce(
       (sum, ing) => sum + ing.totalCost, 0
     )
-    
+
     const profitAmount = totalRevenue - totalIngredientCost
     const profitMargin = totalRevenue > 0 ? (profitAmount / totalRevenue) * 100 : 0
-    
+
     return {
       startDate,
       endDate,
@@ -2442,12 +2445,12 @@ export async function saveBusinessRating(
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-    
+
     const docRef = await addDoc(ratingsRef, ratingData);
-    
+
     // Update business rating stats
     await updateBusinessRatingStats(businessId);
-    
+
     return docRef.id;
   } catch (error) {
     console.error('Error saving rating:', error);
@@ -2463,10 +2466,10 @@ async function updateBusinessRatingStats(businessId: string): Promise<void> {
     const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
     const q = query(ratingsRef);
     const snapshot = await getDocs(q);
-    
+
     let totalRating = 0;
     let ratingCount = 0;
-    
+
     snapshot.forEach((doc) => {
       const data = doc.data();
       if (data.rating) {
@@ -2474,9 +2477,9 @@ async function updateBusinessRatingStats(businessId: string): Promise<void> {
         ratingCount++;
       }
     });
-    
+
     const averageRating = ratingCount > 0 ? totalRating / ratingCount : 0;
-    
+
     // Update business document with new rating stats
     const businessRef = doc(db, 'businesses', businessId);
     await updateDoc(businessRef, {
@@ -2504,7 +2507,7 @@ export async function getBusinessRatings(
       orderBy('createdAt', 'desc'),
       limit(limitCount)
     );
-    
+
     const snapshot = await getDocs(q);
     return snapshot.docs.map(doc => ({
       id: doc.id,
@@ -2526,17 +2529,17 @@ export async function hasOrderBeenRated(orderId: string): Promise<boolean> {
     // maintain a separate collection for all ratings with an orderId index
     const businessesRef = collection(db, 'businesses');
     const businessesSnapshot = await getDocs(businessesRef);
-    
+
     for (const businessDoc of businessesSnapshot.docs) {
       const ratingsRef = collection(db, 'businesses', businessDoc.id, 'ratings');
       const q = query(ratingsRef, where('orderId', '==', orderId), limit(1));
       const snapshot = await getCountFromServer(q);
-      
+
       if (snapshot.data().count > 0) {
         return true;
       }
     }
-    
+
     return false;
   } catch (error) {
     console.error('Error checking if order has been rated:', error);
@@ -2618,11 +2621,11 @@ export async function getQRCodeById(qrCodeId: string): Promise<QRCode | null> {
   try {
     const docRef = doc(db, 'qrCodes', qrCodeId)
     const docSnap = await getDoc(docRef)
-    
+
     if (!docSnap.exists()) {
       return null
     }
-    
+
     return {
       id: docSnap.id,
       ...docSnap.data(),
@@ -2647,11 +2650,11 @@ export async function getUserQRProgress(userId: string, businessId: string): Pro
       limit(1)
     )
     const snapshot = await getDocs(q)
-    
+
     if (snapshot.empty) {
       return null
     }
-    
+
     const doc = snapshot.docs[0]
     return {
       userId: doc.data().userId,
@@ -2680,24 +2683,24 @@ export async function scanQRCode(userId: string, qrCodeId: string): Promise<{
   try {
     // Verificar que el código QR existe y está activo
     const qrCode = await getQRCodeById(qrCodeId)
-    
+
     if (!qrCode) {
       return {
         success: false,
         message: 'Código QR no válido'
       }
     }
-    
+
     if (!qrCode.isActive) {
       return {
         success: false,
         message: 'Este código QR ya no está activo'
       }
     }
-    
+
     // Obtener o crear progreso del usuario
     let progress = await getUserQRProgress(userId, qrCode.businessId)
-    
+
     if (!progress) {
       // Crear nuevo progreso
       const progressData = {
@@ -2709,9 +2712,9 @@ export async function scanQRCode(userId: string, qrCodeId: string): Promise<{
         rewardClaimed: false,
         createdAt: serverTimestamp()
       }
-      
+
       await addDoc(collection(db, 'userQRProgress'), progressData)
-      
+
       progress = {
         userId,
         businessId: qrCode.businessId,
@@ -2721,14 +2724,14 @@ export async function scanQRCode(userId: string, qrCodeId: string): Promise<{
         rewardClaimed: false,
         createdAt: new Date()
       }
-      
+
       return {
         success: true,
         message: `¡Código escaneado! (1/5)`,
         progress
       }
     }
-    
+
     // Verificar si ya escaneó este código
     if (progress.scannedCodes.includes(qrCodeId)) {
       return {
@@ -2736,11 +2739,11 @@ export async function scanQRCode(userId: string, qrCodeId: string): Promise<{
         message: 'Ya escaneaste este código anteriormente'
       }
     }
-    
+
     // Agregar código a la lista de escaneados
     const updatedScannedCodes = [...progress.scannedCodes, qrCodeId]
     const isCompleted = updatedScannedCodes.length >= 5
-    
+
     // Actualizar progreso
     const q = query(
       collection(db, 'userQRProgress'),
@@ -2749,7 +2752,7 @@ export async function scanQRCode(userId: string, qrCodeId: string): Promise<{
       limit(1)
     )
     const snapshot = await getDocs(q)
-    
+
     if (!snapshot.empty) {
       const docRef = snapshot.docs[0].ref
       await updateDoc(docRef, {
@@ -2759,7 +2762,7 @@ export async function scanQRCode(userId: string, qrCodeId: string): Promise<{
         updatedAt: serverTimestamp()
       })
     }
-    
+
     const updatedProgress: UserQRProgress = {
       ...progress,
       scannedCodes: updatedScannedCodes,
@@ -2767,11 +2770,11 @@ export async function scanQRCode(userId: string, qrCodeId: string): Promise<{
       lastScanned: new Date(),
       updatedAt: new Date()
     }
-    
+
     return {
       success: true,
-      message: isCompleted 
-        ? '¡Felicidades! Completaste la colección' 
+      message: isCompleted
+        ? '¡Felicidades! Completaste la colección'
         : `¡Código escaneado! (${updatedScannedCodes.length}/5)`,
       progress: updatedProgress
     }
@@ -2793,28 +2796,28 @@ export async function claimReward(userId: string, businessId: string): Promise<{
 }> {
   try {
     const progress = await getUserQRProgress(userId, businessId)
-    
+
     if (!progress) {
       return {
         success: false,
         message: 'No tienes progreso registrado'
       }
     }
-    
+
     if (!progress.completed) {
       return {
         success: false,
         message: 'Aún no has completado la colección'
       }
     }
-    
+
     if (progress.rewardClaimed) {
       return {
         success: false,
         message: 'Ya reclamaste tu recompensa'
       }
     }
-    
+
     // Actualizar estado de recompensa
     const q = query(
       collection(db, 'userQRProgress'),
@@ -2823,7 +2826,7 @@ export async function claimReward(userId: string, businessId: string): Promise<{
       limit(1)
     )
     const snapshot = await getDocs(q)
-    
+
     if (!snapshot.empty) {
       const docRef = snapshot.docs[0].ref
       await updateDoc(docRef, {
@@ -2831,7 +2834,7 @@ export async function claimReward(userId: string, businessId: string): Promise<{
         updatedAt: serverTimestamp()
       })
     }
-    
+
     return {
       success: true,
       message: '¡Recompensa reclamada exitosamente!'
