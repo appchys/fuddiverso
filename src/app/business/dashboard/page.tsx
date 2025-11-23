@@ -12,6 +12,7 @@ import { usePushNotifications } from '@/hooks/usePushNotifications'
 import ManualOrderSidebar from '@/components/ManualOrderSidebar'
 import ProductManagement from '@/components/ProductManagement'
 import CostReports from '@/components/CostReports'
+import { sendWhatsAppToDelivery, sendWhatsAppToCustomer } from '@/components/WhatsAppUtils'
 import {
   getBusiness,
   getProductsByBusiness,
@@ -774,227 +775,30 @@ export default function BusinessDashboard() {
     setCollapsedCategories(newCollapsed)
   }
 
-  // Función unificada para enviar mensajes de WhatsApp
+  // Wrappers para usar funciones de WhatsAppUtils
   const handleSendWhatsApp = async (order: Order) => {
-    // Solo avanzar el estado si no está en estado 'ready' (Listo)
-    if (order.status !== 'ready') {
-      const nextStatus = getNextStatus(order.status);
-      if (nextStatus) {
-        try {
-          await handleStatusChange(order.id, nextStatus);
-          // Actualizar el estado local de la orden para reflejar el cambio
-          const updatedOrder = { ...order, status: nextStatus };
-          setOrders(prevOrders =>
-            prevOrders.map(o => o.id === order.id ? updatedOrder : o)
-          );
-          order = updatedOrder; // Actualizar la referencia local
-        } catch (error) {
-          console.error('Error al avanzar el estado del pedido:', error);
-          // Continuar con el envío del WhatsApp aunque falle el cambio de estado
-        }
-      }
-    }
+    const updateLocalOrder = (updatedOrder: Order) => {
+      setOrders(prevOrders =>
+        prevOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o)
+      );
+    };
 
-    let phone = ''
-    let title = ''
+    await sendWhatsAppToDelivery(
+      order,
+      availableDeliveries,
+      business,
+      handleStatusChange,
+      updateLocalOrder
+    );
+  };
 
-    if (order.delivery.type === 'delivery') {
-      // Para delivery, enviar al delivery asignado
-      const assignedDeliveryId = order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery
-      if (!assignedDeliveryId) {
-        alert('Este pedido no tiene un delivery asignado')
-        return
-      }
-
-      const delivery = availableDeliveries.find(d => d.id === assignedDeliveryId)
-      if (!delivery) {
-        alert('No se encontró la información del delivery')
-        return
-      }
-
-      phone = delivery.celular
-      title = 'Enviar mensaje de WhatsApp al delivery'
-    } else {
-      // Para retiro, enviar al número de la tienda
-      if (!business?.phone) {
-        alert('No se encontró el número de teléfono de la tienda')
-        return
-      }
-
-      phone = business.phone
-      title = 'Enviar mensaje de WhatsApp a la tienda'
-    }
-
-    // Construir el mensaje de WhatsApp
-    const customerName = order.customer?.name || 'Cliente sin nombre'
-    const customerPhone = order.customer?.phone || 'Sin teléfono'
-    const references = order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'
-
-    // Crear enlace de Google Maps si hay coordenadas o Plus Code (solo para delivery)
-    let locationLink = ''
-    if (order.delivery.type === 'delivery') {
-      if (order.delivery?.latlong) {
-        const cleanCoords = order.delivery.latlong.replace(/\s+/g, '')
-        // Verificar si es un Plus Code
-        if (cleanCoords.startsWith('pluscode:')) {
-          const plusCode = cleanCoords.replace('pluscode:', '')
-          // Usar el formato de lugar para mejor compatibilidad con WhatsApp
-          locationLink = `https://www.google.com/maps/place/${encodeURIComponent(plusCode)}`
-        } else if (cleanCoords.includes(',')) {
-          // Es una coordenada tradicional
-          locationLink = `https://www.google.com/maps/place/${cleanCoords}`
-        } else {
-          // Si no es ninguno de los anteriores, intentar como búsqueda directa
-          locationLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`
-        }
-      } else if (order.delivery?.mapLocation) {
-        // Para compatibilidad con mapLocation existente
-        locationLink = `https://www.google.com/maps/place/${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}`
-      }
-    }
-
-    // Construir lista de productos con cantidades entre paréntesis
-    const productsList = order.items?.map((item: any) =>
-      `(${item.quantity || 1}) ${item.variant || item.name || item.product?.name || 'Producto'}`
-    ).join('\n') || 'Sin productos'
-
-    // Calcular totales
-    const deliveryCost = order.delivery.type === 'delivery' ? (order.delivery?.deliveryCost || 1) : 0
-    const subtotal = order.total - deliveryCost
-    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' :
-      order.payment?.method === 'transfer' ? 'Transferencia' :
-        order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
-
-    // Determinar el tipo de pedido (Inmediato o Programado)
-    const orderType = order.timing?.type === 'scheduled'
-      ? `⏰ Programado para las ${order.timing?.scheduledTime || ''}`
-      : '⚡ Inmediato';
-
-    // Construir mensaje
-    let message = `*Datos del cliente*\n`
-    message += `Cliente: ${customerName}\n`
-    message += `Celular: ${customerPhone}\n\n`
-
-    if (order.delivery.type === 'delivery') {
-      message += `*Detalles de la entrega*\n`
-      message += `${orderType}\n`
-      message += `Referencias: ${references}\n`
-      if (locationLink) {
-        message += `Ubicación: ${locationLink}\n\n`
-      } else {
-        message += `\n`
-      }
-    } else {
-      message += `*Tipo de entrega*\n`
-      message += `🏪 Retiro en tienda\n\n`
-    }
-
-    message += `*Detalle del pedido*\n`
-    message += `${productsList}\n\n`
-
-    message += `*Detalles del pago*\n`
-    message += `Valor del pedido: $${subtotal.toFixed(2)}\n`
-
-    if (order.delivery.type === 'delivery') {
-      message += `Envío: $${deliveryCost.toFixed(2)}\n\n`
-    }
-
-    message += `Forma de pago: ${paymentMethod}\n`
-
-    // Mostrar detalles de pago mixto si aplica
-    if (order.payment?.method === 'mixed') {
-      const payment = order.payment as any
-      if (payment.cashAmount && payment.transferAmount) {
-        message += `- Efectivo: $${payment.cashAmount.toFixed(2)}\n`
-        message += `- Transferencia: $${payment.transferAmount.toFixed(2)}\n\n`
-      }
-    }
-
-    // Solo mostrar "Total a cobrar" si es efectivo o pago mixto
-    if (order.payment?.method === 'cash' || order.payment?.method === 'mixed') {
-      message += `Total a cobrar: $${order.total.toFixed(2)}`
-    }
-
-    // Limpiar el número de teléfono (quitar espacios, guiones, etc.)
-    const cleanPhone = phone.replace(/\D/g, '')
-
-    // Crear enlace de WhatsApp
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}&text=${encodeURIComponent(message)}`
-
-    // Abrir WhatsApp Web
-    window.open(whatsappUrl, '_blank')
-  }
-
-  // Función para manejar el envío de WhatsApp y avanzar el estado
   const handleSendWhatsAppAndAdvance = async (order: Order) => {
     await handleSendWhatsApp(order);
   };
 
-  // Enviar Whatsapp al cliente (número del cliente)
   const handleSendWhatsAppToCustomer = (order: Order) => {
-    const customerPhoneRaw = order.customer?.phone || ''
-    const customerName = order.customer?.name || 'Cliente'
-
-    if (!customerPhoneRaw) {
-      alert('No se encontró el número del cliente')
-      return
-    }
-
-    // Normalizar y limpiar número
-    const cleanPhone = customerPhoneRaw.replace(/\D/g, '')
-    if (!cleanPhone) {
-      alert('Número de cliente inválido')
-      return
-    }
-
-    // Construir breve mensaje con detalles del pedido
-    const productsList = order.items?.map((item: any) => `${item.quantity} x ${item.variant || item.name || item.product?.name || 'Producto'}`).join('\n') || 'Sin productos'
-    const deliveryInfo = order.delivery?.type === 'delivery' ? `${order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}` : 'Retiro en tienda'
-    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
-
-    // Calcular subtotal (total de productos sin envío)
-    const subtotal = order.total - (order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0)
-
-    // Determinar el tipo de pedido (Inmediato o Programado)
-    const orderType = order.timing?.type === 'scheduled'
-      ? `⏰ Programado para las ${order.timing?.scheduledTime || ''}`
-      : '⚡ Inmediato';
-
-    // Construir mensaje en texto plano y luego aplicar encodeURIComponent al final
-    let message = 'Tu pedido está en preparación!\n\n';
-    message += `*Dirección:*\n${deliveryInfo}\n\n`;
-    message += `*Tipo de entrega:*\n${orderType}\n\n`;
-    message += `Detalle del pedido:\n${productsList}\n\n`;
-    message += `Subtotal: $${subtotal.toFixed(2)}\n`;
-    if (order.delivery?.type === 'delivery') {
-      message += `Envío: $${(order.delivery?.deliveryCost || 0).toFixed(2)}\n`;
-    }
-
-    message += '\n';
-
-    // Solo mostrar total si es pago en efectivo
-    if (order.payment?.method === 'cash' || order.payment?.method === 'mixed') {
-      message += `*Total:* $${(order.total || 0).toFixed(2)}\n\n`;
-    }
-
-    message += `Forma de pago: ${paymentMethod}\n`;
-
-    // Agregar enlace público a la orden
-    try {
-      const origin = typeof window !== 'undefined' ? window.location.origin : '';
-      if (origin && order.id) {
-        const orderUrl = `${origin}/o/${encodeURIComponent(order.id)}`;
-        message += `\nVer tu orden: ${orderUrl}`;
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    // Armar URL y abrir (encodeURIComponent del mensaje)
-    const waPhone = `593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}`
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(message)}`
-    window.open(whatsappUrl, '_blank')
-  }
+    sendWhatsAppToCustomer(order);
+  };
 
 
 
