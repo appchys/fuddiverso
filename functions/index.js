@@ -1,0 +1,240 @@
+/**
+ * Cloud Functions para Fuddiverso
+ * - Enviar email cuando se crea una nueva orden
+ * - Notificaciones de cambios de estado
+ */
+
+const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const admin = require('firebase-admin');
+const nodemailer = require('nodemailer');
+
+admin.initializeApp();
+
+// Configurar el transportador de email
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER || 'appchys.ec@gmail.com',
+    pass: process.env.EMAIL_PASS || 'oukz zreo izmi clul'
+  }
+});
+
+/**
+ * Cloud Function: Enviar email cuando se crea una nueva orden
+ * Se ejecuta cuando se crea un documento en la colección 'orders'
+ */
+exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+  
+  const order = snap.data();
+  const orderId = event.params.orderId;
+
+  try {
+    console.log(`📧 Procesando email para orden: ${orderId}`);
+
+    // Obtener email del negocio desde Firestore
+    let businessEmail = 'info@fuddi.shop';
+    if (order.businessId) {
+      try {
+        const businessDoc = await admin.firestore().collection('businesses').doc(order.businessId).get();
+        if (businessDoc.exists && businessDoc.data().email) {
+          businessEmail = businessDoc.data().email;
+        }
+      } catch (e) {
+        console.warn('⚠️ No se pudo obtener el email del negocio:', e.message);
+      }
+    }
+
+    // Obtener datos del cliente desde la colección 'clients' usando su ID
+    let customerName = order.customer?.name || 'Cliente no especificado';
+    let customerPhone = order.customer?.phone || 'No registrado';
+    
+    if (order.customer?.id) {
+      try {
+        const clientDoc = await admin.firestore().collection('clients').doc(order.customer.id).get();
+        if (clientDoc.exists) {
+          const clientData = clientDoc.data();
+          customerName = clientData.nombres || customerName;
+          customerPhone = clientData.celular || customerPhone;
+        }
+      } catch (e) {
+        console.warn('⚠️ No se pudo obtener los datos del cliente:', e.message);
+      }
+    }
+
+    // Información de entrega
+    let deliveryInfo = 'No aplica (retiro en tienda)';
+    let mapHtml = '';
+    
+    if (order.delivery?.type === 'delivery') {
+      deliveryInfo = order.delivery?.references || 'Dirección no especificada';
+      
+      if (order.delivery?.latlong) {
+        // Parsear latlong si viene en formato "lat,lng"
+        const [lat, lng] = order.delivery.latlong.split(',').map(s => s.trim());
+        if (lat && lng) {
+          const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=17&size=400x200&markers=color:red%7C${lat},${lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
+          const mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+          mapHtml = `
+            <div style="margin-top: 16px;">
+              <a href="${mapsLink}" target="_blank" style="text-decoration:none;">
+                <img src="${staticMapUrl}" alt="Ver ubicación" style="border-radius:8px;border:1px solid #ddd;max-width:100%;display:block;">
+                <p style="text-align:center;color:#aa1918;margin:8px 0 0 0;font-weight:bold;">📍 Abrir en Google Maps</p>
+              </a>
+            </div>
+          `;
+        }
+      }
+    }
+
+    // Generar HTML de productos
+    let productsHtml = '<ul style="padding-left:20px;">';
+    let itemCount = 0;
+    if (Array.isArray(order.items)) {
+      order.items.forEach(item => {
+        const itemTotal = (item.price * item.quantity).toFixed(2);
+        const variant = item.variant || '';
+        productsHtml += `
+          <li style="margin-bottom:8px;">
+            <strong>${item.name}</strong>${variant ? ` (${variant})` : ''}
+            <br/>
+            <small>Cantidad: ${item.quantity} × $${item.price.toFixed(2)} = $${itemTotal}</small>
+          </li>
+        `;
+        itemCount++;
+      });
+    }
+    productsHtml += '</ul>';
+
+    // Información de pago
+    const paymentMethod = order.payment?.method || 'No especificado';
+    const paymentStatus = order.payment?.paymentStatus || 'pending';
+    let paymentStatusText = '';
+    
+    if (paymentStatus === 'pending') paymentStatusText = '⏳ Pendiente';
+    else if (paymentStatus === 'paid') paymentStatusText = '✅ Pagado';
+    else if (paymentStatus === 'validating') paymentStatusText = '⏱️ Validando';
+
+    // Detalles de costo
+    const subtotal = order.subtotal || order.total || 0;
+    const deliveryCost = order.delivery?.deliveryCost || 0;
+    const total = order.total || 0;
+
+    // Generar HTML del email
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+        <div style="background-color: #aa1918; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
+          <h1 style="margin: 0; font-size: 24px;">¡Nuevo Pedido Recibido!</h1>
+          <p style="margin: 8px 0 0 0; opacity: 0.9;">Pedido #${orderId.substring(0, 8).toUpperCase()}</p>
+        </div>
+
+        <div style="background-color: #f9f9f9; padding: 24px; border: 1px solid #ddd; border-radius: 0 0 8px 8px;">
+          
+          <h3 style="color: #aa1918; margin-top: 0;">👤 Datos del Cliente</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee;"><strong>Nombre:</strong></td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee;">${customerName}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee;"><strong>WhatsApp:</strong></td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee;">
+                <a href="https://wa.me/593${customerPhone.replace(/^0/, '')}" style="color: #aa1918; text-decoration: none;">
+                  ${customerPhone}
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0;"><strong>Dirección:</strong></td>
+              <td style="padding: 8px 0;">${deliveryInfo}</td>
+            </tr>
+          </table>
+          ${mapHtml}
+
+          <h3 style="color: #aa1918; margin-top: 20px;">📦 Productos (${itemCount})</h3>
+          ${productsHtml}
+
+          <h3 style="color: #aa1918; margin-top: 20px;">💰 Resumen de Pago</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee;">Subtotal:</td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">$${subtotal.toFixed(2)}</td>
+            </tr>
+            ${deliveryCost > 0 ? `
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee;">Envío:</td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">$${deliveryCost.toFixed(2)}</td>
+            </tr>
+            ` : ''}
+            <tr>
+              <td style="padding: 8px 0;"><strong>Total:</strong></td>
+              <td style="padding: 8px 0; text-align: right;"><strong style="font-size: 16px; color: #aa1918;">$${total.toFixed(2)}</strong></td>
+            </tr>
+          </table>
+
+          <h3 style="color: #aa1918; margin-top: 20px;">💳 Método de Pago</h3>
+          <p style="margin: 8px 0;">
+            <strong>Método:</strong> ${paymentMethod.toUpperCase()}<br/>
+            <strong>Estado:</strong> ${paymentStatusText}
+          </p>
+
+          <h3 style="color: #aa1918; margin-top: 20px;">⏰ Información de Entrega</h3>
+          <p style="margin: 8px 0;">
+            <strong>Tipo:</strong> ${order.delivery?.type === 'delivery' ? '🚚 Envío a domicilio' : '🏪 Retiro en tienda'}<br/>
+            ${order.timing?.type === 'scheduled' ? `
+              <strong>Hora:</strong> ${order.timing?.scheduledTime || 'No especificada'}<br/>
+              <strong>Fecha:</strong> ${order.timing?.scheduledDate ? new Date(order.timing.scheduledDate._seconds * 1000).toLocaleDateString('es-EC') : 'Hoy'}
+            ` : '<strong>Entrega:</strong> Lo antes posible'}
+          </p>
+
+          <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+          
+          <p style="font-size: 12px; color: #666; margin: 0;">
+            <strong>Nota:</strong> Revisa tu panel de administración en 
+            <a href="https://fuddi.shop/business/dashboard" style="color: #aa1918;">Fuddi Dashboard</a>
+            para más opciones y confirmar este pedido.
+          </p>
+        </div>
+
+        <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #999;">
+          <p>Este es un email automático. No responder a este correo.</p>
+        </div>
+      </div>
+    `;
+
+    // Enviar email
+    const mailOptions = {
+      from: 'pedidos@fuddi.shop',
+      to: businessEmail,
+      subject: `🔔 ¡Nuevo pedido de ${customerName}! - Fuddi`,
+      html: htmlContent
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Email enviado correctamente a: ${businessEmail}`);
+
+  } catch (error) {
+    console.error(`❌ Error enviando email para orden ${orderId}:`, error);
+  }
+});
+
+/**
+ * Cloud Function: Notificar cambio de estado de orden (opcional)
+ * Se ejecuta cuando se actualiza un documento en la colección 'orders'
+ */
+exports.onOrderStatusChange = onDocumentUpdated("orders/{orderId}", async (event) => {
+  const beforeData = event.data.before.data();
+  const afterData = event.data.after.data();
+
+  // Solo procesar si cambió el estado
+  if (beforeData.status === afterData.status) {
+    return;
+  }
+
+  const orderId = event.params.orderId;
+  console.log(`📌 Orden ${orderId}: Estado cambió de "${beforeData.status}" a "${afterData.status}"`);
+
+  // Aquí puedes agregar más lógica si necesitas notificaciones de cambio de estado
+  // Por ejemplo: enviar email al cliente o actualizar un dashboard en tiempo real
+});
