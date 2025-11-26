@@ -57,11 +57,13 @@ function LocationMap({ latlong, height = "96px" }: { latlong: string; height?: s
 function TransferReceiptUploader({
   onReceiptUpload,
   uploadedImageUrl,
-  isUploading
+  isUploading,
+  clientId
 }: {
   onReceiptUpload: (imageUrl: string) => void;
   uploadedImageUrl: string | null;
   isUploading: boolean;
+  clientId: string;
 }) {
   const [dragActive, setDragActive] = useState(false)
   const [previewImage, setPreviewImage] = useState<string | null>(uploadedImageUrl)
@@ -98,9 +100,9 @@ function TransferReceiptUploader({
       const previewUrl = URL.createObjectURL(file)
       setPreviewImage(previewUrl)
 
-      // Subir a Firebase Storage
+      // Subir a Firebase Storage siguiendo la estructura: comprobantes/{clientId}/{timestamp}_{filename}
       const timestamp = Date.now()
-      const fileName = `comprobantes/${timestamp}_${file.name}`
+      const fileName = `comprobantes/${clientId}/${timestamp}_${file.name}`
       const storageRef = ref(storage, fileName)
 
       await uploadBytes(storageRef, file)
@@ -1910,11 +1912,12 @@ function CheckoutContent() {
                       )}
 
                       {/* Componente para subir comprobante - SIEMPRE VISIBLE */}
-                      {paymentData.selectedBank && (
+                      {paymentData.selectedBank && clientFound && (
                         <TransferReceiptUploader
                           onReceiptUpload={handleReceiptUpload}
                           uploadedImageUrl={paymentData.receiptImageUrl || null}
                           isUploading={uploadingReceipt}
+                          clientId={clientFound.id}
                         />
                       )}
 

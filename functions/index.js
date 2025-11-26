@@ -26,7 +26,7 @@ const transporter = nodemailer.createTransport({
 exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => {
   const snap = event.data;
   if (!snap) return;
-  
+
   const order = snap.data();
   const orderId = event.params.orderId;
 
@@ -49,7 +49,7 @@ exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => 
     // Obtener datos del cliente desde la colección 'clients' usando su ID
     let customerName = order.customer?.name || 'Cliente no especificado';
     let customerPhone = order.customer?.phone || 'No registrado';
-    
+
     if (order.customer?.id) {
       try {
         const clientDoc = await admin.firestore().collection('clients').doc(order.customer.id).get();
@@ -66,10 +66,10 @@ exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => 
     // Información de entrega
     let deliveryInfo = 'No aplica (retiro en tienda)';
     let mapHtml = '';
-    
+
     if (order.delivery?.type === 'delivery') {
       deliveryInfo = order.delivery?.references || 'Dirección no especificada';
-      
+
       if (order.delivery?.latlong) {
         // Parsear latlong si viene en formato "lat,lng"
         const [lat, lng] = order.delivery.latlong.split(',').map(s => s.trim());
@@ -111,15 +111,44 @@ exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => 
     const paymentMethod = order.payment?.method || 'No especificado';
     const paymentStatus = order.payment?.paymentStatus || 'pending';
     let paymentStatusText = '';
-    
+
     if (paymentStatus === 'pending') paymentStatusText = '⏳ Pendiente';
     else if (paymentStatus === 'paid') paymentStatusText = '✅ Pagado';
     else if (paymentStatus === 'validating') paymentStatusText = '⏱️ Validando';
 
+    let paymentDetailsHtml = '';
+    if (paymentMethod === 'mixed') {
+      const cash = order.payment?.cashAmount || 0;
+      const transfer = order.payment?.transferAmount || 0;
+      paymentDetailsHtml = `
+        <br/><small style="color: #666;">
+          💵 Efectivo: $${cash.toFixed(2)}<br/>
+          🏦 Transferencia: $${transfer.toFixed(2)}
+        </small>
+      `;
+    }
+
     // Detalles de costo
-    const subtotal = order.subtotal || order.total || 0;
-    const deliveryCost = order.delivery?.deliveryCost || 0;
+    const subtotal = order.subtotal || 0;
     const total = order.total || 0;
+    // Calcular envío si no viene explícito (Total - Subtotal)
+    let deliveryCost = order.delivery?.deliveryCost;
+    if (deliveryCost === undefined) {
+      deliveryCost = Math.max(0, total - subtotal);
+    }
+
+    // Formatear fecha programada
+    let scheduledDateStr = 'Hoy';
+    if (order.timing?.scheduledDate) {
+      const dateObj = order.timing.scheduledDate;
+      // Manejar tanto Timestamp de Firestore como objeto con seconds
+      const seconds = dateObj.seconds || dateObj._seconds;
+      if (seconds) {
+        scheduledDateStr = new Date(seconds * 1000).toLocaleDateString('es-EC', {
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        });
+      }
+    }
 
     // Generar HTML del email
     const htmlContent = `
@@ -127,6 +156,7 @@ exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => 
         <div style="background-color: #aa1918; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
           <h1 style="margin: 0; font-size: 24px;">¡Nuevo Pedido Recibido!</h1>
           <p style="margin: 8px 0 0 0; opacity: 0.9;">Pedido #${orderId.substring(0, 8).toUpperCase()}</p>
+          ${order.createdByAdmin ? '<span style="background:rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-top: 4px; display: inline-block;">Creado por Admin</span>' : ''}
         </div>
 
         <div style="background-color: #f9f9f9; padding: 24px; border: 1px solid #ddd; border-radius: 0 0 8px 8px;">
@@ -161,7 +191,7 @@ exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => 
               <td style="padding: 8px 0; border-bottom: 1px solid #eee;">Subtotal:</td>
               <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">$${subtotal.toFixed(2)}</td>
             </tr>
-            ${deliveryCost > 0 ? `
+            ${deliveryCost > 0.01 ? `
             <tr>
               <td style="padding: 8px 0; border-bottom: 1px solid #eee;">Envío:</td>
               <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">$${deliveryCost.toFixed(2)}</td>
@@ -175,7 +205,7 @@ exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => 
 
           <h3 style="color: #aa1918; margin-top: 20px;">💳 Método de Pago</h3>
           <p style="margin: 8px 0;">
-            <strong>Método:</strong> ${paymentMethod.toUpperCase()}<br/>
+            <strong>Método:</strong> ${paymentMethod.toUpperCase()}${paymentDetailsHtml}<br/>
             <strong>Estado:</strong> ${paymentStatusText}
           </p>
 
@@ -184,7 +214,7 @@ exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => 
             <strong>Tipo:</strong> ${order.delivery?.type === 'delivery' ? '🚚 Envío a domicilio' : '🏪 Retiro en tienda'}<br/>
             ${order.timing?.type === 'scheduled' ? `
               <strong>Hora:</strong> ${order.timing?.scheduledTime || 'No especificada'}<br/>
-              <strong>Fecha:</strong> ${order.timing?.scheduledDate ? new Date(order.timing.scheduledDate._seconds * 1000).toLocaleDateString('es-EC') : 'Hoy'}
+              <strong>Fecha:</strong> ${scheduledDateStr}
             ` : '<strong>Entrega:</strong> Lo antes posible'}
           </p>
 
@@ -203,11 +233,20 @@ exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => 
       </div>
     `;
 
+    // Determinar el ícono según el tipo de tiempo (inmediato o programado)
+    const isScheduled = order.timing?.type === 'scheduled';
+    const timeIcon = isScheduled ? '⏰' : '⚡';
+
+    // Definir el asunto del correo según quién creó la orden
+    const subject = order.createdByAdmin
+      ? `🔔 ¡Nuevo pedido de ${customerName}! - Fuddi`
+      : `${timeIcon} ${customerName} ha hecho un pedido! - Fuddi`;
+
     // Enviar email
     const mailOptions = {
       from: 'pedidos@fuddi.shop',
       to: businessEmail,
-      subject: `🔔 ¡Nuevo pedido de ${customerName}! - Fuddi`,
+      subject: subject,
       html: htmlContent
     };
 
