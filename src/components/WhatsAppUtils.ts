@@ -231,3 +231,72 @@ export const sendWhatsAppToCustomer = (order: Order) => {
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(message)}`
     window.open(whatsappUrl, '_blank')
 }
+
+// Enviar mensaje a la tienda solicitando comprobante
+export const sendOrderToStore = (order: Order, business: Business) => {
+    // Número fijo solicitado
+    const fixedPhone = '0985985684'
+
+    const customerName = order.customer?.name || 'Cliente'
+    const productsList = order.items?.map((item: any) => `(${item.quantity}) ${item.variant || item.name || item.product?.name || 'Producto'}`).join('\n') || 'Sin productos'
+    const total = order.total?.toFixed(2) || '0.00'
+    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : 'Otro'
+
+    // Lógica de ubicación (reutilizada de sendWhatsAppToDelivery)
+    let locationLink = ''
+    if (order.delivery.type === 'delivery') {
+        if (order.delivery?.latlong) {
+            const cleanCoords = order.delivery.latlong.replace(/\s+/g, '')
+            if (cleanCoords.startsWith('pluscode:')) {
+                const plusCode = cleanCoords.replace('pluscode:', '')
+                locationLink = `https://www.google.com/maps/place/${encodeURIComponent(plusCode)}`
+            } else if (cleanCoords.includes(',')) {
+                locationLink = `https://www.google.com/maps/place/${cleanCoords}`
+            } else {
+                locationLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`
+            }
+        } else if (order.delivery?.mapLocation) {
+            locationLink = `https://www.google.com/maps/place/${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}`
+        }
+    }
+
+    const orderType = order.timing?.type === 'scheduled'
+        ? `⏰ Programado para las ${order.timing?.scheduledTime || ''}`
+        : '⚡ Inmediato';
+
+    const references = order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'
+
+    // Construir mensaje con el formato solicitado
+    let message = `*Hola ${business.name}, he realizado un pedido!*\n\n`
+    message += `*Nombres:* ${customerName}\n\n`
+
+    message += `*Detalles de la entrega*\n`
+    message += `${orderType}\n`
+    message += `Referencias: ${references}\n`
+    if (locationLink) {
+        message += `Ubicación: ${locationLink}\n\n`
+    } else {
+        message += `\n`
+    }
+
+    message += `*Detalle del pedido*\n`
+    message += `${productsList}\n\n`
+
+    message += `*Total* $${total}\n`
+    message += `*Forma de pago:* ${paymentMethod}\n\n`
+
+    // Agregar enlace a la orden
+    try {
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        if (origin && order.id) {
+            const orderUrl = `${origin}/o/${encodeURIComponent(order.id)}`;
+            message += `${orderUrl}`;
+        }
+    } catch (e) {
+        // ignore
+    }
+
+    const waPhone = `593${fixedPhone.startsWith('0') ? fixedPhone.slice(1) : fixedPhone}`
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(message)}`
+    window.open(whatsappUrl, '_blank')
+}
