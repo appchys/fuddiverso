@@ -35,47 +35,6 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   const [loading, setLoading] = useState(true)
   const audioRef = useRef<HTMLAudioElement>(null)
   const lastProcessedNotificationIdRef = useRef<string | null>(null)
-  
-  // Clave para localStorage para tracking de notificaciones ya mostradas
-  const notificationTrackerKey = `notificationTracker_${businessId}`
-
-  // Función para obtener IDs ya procesados desde localStorage
-  const getProcessedIds = (): Set<string> => {
-    try {
-      const stored = localStorage.getItem(notificationTrackerKey)
-      return stored ? new Set(JSON.parse(stored)) : new Set()
-    } catch {
-      return new Set()
-    }
-  }
-
-  // Función para guardar un ID como procesado
-  const markAsProcessed = (id: string) => {
-    try {
-      const processed = getProcessedIds()
-      processed.add(id)
-      localStorage.setItem(notificationTrackerKey, JSON.stringify(Array.from(processed)))
-    } catch {
-      // Ignorar errores de localStorage
-    }
-  }
-
-  // Función para limpiar el tracker periódicamente (después de 24 horas)
-  const cleanOldTrackedIds = () => {
-    try {
-      const lastCleanup = localStorage.getItem(`${notificationTrackerKey}_lastCleanup`)
-      const now = Date.now()
-      const oneDayMs = 24 * 60 * 60 * 1000
-
-      if (!lastCleanup || now - parseInt(lastCleanup) > oneDayMs) {
-        // Limpiar el tracker
-        localStorage.removeItem(notificationTrackerKey)
-        localStorage.setItem(`${notificationTrackerKey}_lastCleanup`, now.toString())
-      }
-    } catch {
-      // Ignorar errores
-    }
-  }
 
   // Funci\u00f3n para reproducir un sonido de notificaci\u00f3n usando Web Audio API
   const playNotificationSound = () => {
@@ -91,7 +50,7 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
       }
 
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
-      
+
       // Reanudar el contexto de audio si está en estado suspendido
       if (audioContext.state === 'suspended') {
         audioContext.resume().catch(() => {
@@ -191,108 +150,7 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
     }
   }, [businessId])
 
-  // Escuchar nuevas órdenes creadas por clientes
-  useEffect(() => {
-    if (!businessId) return
 
-    // Limpiar IDs antiguos solo una vez al montar el componente
-    cleanOldTrackedIds()
-
-    let unsubscribe: (() => void) | null = null
-    let isMounted = true
-
-    try {
-      const q = query(
-        collection(db, 'orders'),
-        where('businessId', '==', businessId),
-        where('createdByAdmin', '==', false),
-        orderBy('createdAt', 'desc')
-      )
-
-      unsubscribe = onSnapshot(q, (snapshot) => {
-        if (!isMounted) return
-
-        const processedIds = getProcessedIds()
-        
-        snapshot.docChanges().forEach((change) => {
-          if (change.type === 'added') {
-            const order = { id: change.doc.id, ...change.doc.data() } as Order
-
-            // Solo procesar si no lo hemos procesado antes
-            if (!processedIds.has(order.id)) {
-              markAsProcessed(order.id)
-
-              // Crear notificación
-              createOrderNotification(order)
-
-              // Mostrar notificación del navegador
-              if ('Notification' in window && Notification.permission === 'granted') {
-                try {
-                  new Notification(`Nueva orden #${order.id.slice(0, 6)}`, {
-                    body: `${order.customer?.name} ha creado una nueva orden`,
-                    tag: `order-${order.id}`,
-                  })
-                } catch (error) {
-                  console.debug('Error showing browser notification:', error)
-                }
-              }
-
-              // Llamar callback si existe
-              if (onNewOrder) {
-                onNewOrder(order)
-              }
-            }
-          }
-        })
-      }, (error) => {
-        if ((error as any).code === 'permission-denied') {
-          console.debug('No permission to read orders (expected if user not authenticated)')
-        } else {
-          console.error('Error listening to new orders:', error)
-        }
-      })
-    } catch (error) {
-      console.error('Error setting up order listener:', error)
-    }
-
-    return () => {
-      isMounted = false
-      if (unsubscribe) {
-        unsubscribe()
-      }
-    }
-  }, [businessId])
-
-  // Crear notificación en Firestore de forma directa (sin API)
-  const createOrderNotification = async (order: Order) => {
-    try {
-      console.log('[createOrderNotification] Creando notificación para orden:', order.id)
-      
-      // Guardar directamente en Firestore usando el SDK cliente
-      const notificationsRef = collection(db, 'businesses', businessId, 'notifications')
-      
-      const notifData = {
-        orderId: order.id,
-        type: 'new_order' as const,
-        title: `Nueva orden #${order.id.slice(0, 6)}`,
-        message: `${order.customer?.name} ha creado una nueva orden`,
-        read: false,
-        orderData: {
-          id: order.id,
-          customer: order.customer,
-          items: order.items,
-          total: order.total,
-          status: order.status
-        },
-        createdAt: serverTimestamp()
-      }
-
-      const docRef = await addDoc(notificationsRef, notifData)
-      console.log('[createOrderNotification] Notificación guardada con ID:', docRef.id)
-    } catch (error) {
-      console.error('[createOrderNotification] Error saving notification:', error)
-    }
-  }
 
   // Marcar notificación como leída
   const markAsRead = async (notificationId: string) => {
@@ -320,7 +178,7 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   return (
     <div className="relative">
       {/* Elemento de audio silencioso para reproducir el sonido de notificación */}
-      <audio 
+      <audio
         ref={audioRef}
         preload="auto"
         crossOrigin="anonymous"
@@ -383,9 +241,8 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
                 <div
                   key={notif.id}
                   onClick={() => !notif.read && markAsRead(notif.id)}
-                  className={`p-4 border-b cursor-pointer transition-colors hover:bg-gray-50 ${
-                    notif.read ? 'bg-white' : 'bg-blue-50'
-                  }`}
+                  className={`p-4 border-b cursor-pointer transition-colors hover:bg-gray-50 ${notif.read ? 'bg-white' : 'bg-blue-50'
+                    }`}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -399,9 +256,8 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
                         {notif.type === 'rating' && (
                           <span className="mr-2 text-lg">⭐</span>
                         )}
-                        <h4 className={`font-semibold text-sm ${
-                          notif.read ? 'text-gray-700' : 'text-gray-900'
-                        }`}>
+                        <h4 className={`font-semibold text-sm ${notif.read ? 'text-gray-700' : 'text-gray-900'
+                          }`}>
                           {notif.title}
                         </h4>
                       </div>

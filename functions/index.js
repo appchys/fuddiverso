@@ -277,3 +277,57 @@ exports.onOrderStatusChange = onDocumentUpdated("orders/{orderId}", async (event
   // Aquí puedes agregar más lógica si necesitas notificaciones de cambio de estado
   // Por ejemplo: enviar email al cliente o actualizar un dashboard en tiempo real
 });
+
+/**
+ * Cloud Function: Crear notificación en el panel cuando llega una nueva orden
+ * Se ejecuta cuando se crea un documento en la colección 'orders'
+ */
+exports.createOrderNotification = onDocumentCreated("orders/{orderId}", async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+
+  const order = snap.data();
+  const orderId = event.params.orderId;
+
+  // Ignorar órdenes creadas por administradores (opcional, según lógica de negocio)
+  if (order.createdByAdmin) {
+    console.log(`ℹ️ Orden ${orderId} creada por admin, omitiendo notificación.`);
+    return;
+  }
+
+  if (!order.businessId) {
+    console.warn(`⚠️ Orden ${orderId} no tiene businessId, no se puede crear notificación.`);
+    return;
+  }
+
+  try {
+    console.log(`🔔 Creando notificación para orden: ${orderId} en negocio: ${order.businessId}`);
+
+    const notificationData = {
+      orderId: orderId,
+      type: 'new_order',
+      title: `Nueva orden #${orderId.slice(0, 6)}`,
+      message: `${order.customer?.name || 'Cliente'} ha creado una nueva orden`,
+      read: false,
+      orderData: {
+        id: orderId,
+        customer: order.customer,
+        items: order.items,
+        total: order.total,
+        status: order.status
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    await admin.firestore()
+      .collection('businesses')
+      .doc(order.businessId)
+      .collection('notifications')
+      .add(notificationData);
+
+    console.log(`✅ Notificación creada exitosamente para orden ${orderId}`);
+
+  } catch (error) {
+    console.error(`❌ Error creando notificación para orden ${orderId}:`, error);
+  }
+});
