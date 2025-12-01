@@ -34,6 +34,7 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   const [showDropdown, setShowDropdown] = useState(false)
   const [loading, setLoading] = useState(true)
   const audioRef = useRef<HTMLAudioElement>(null)
+  const lastProcessedNotificationIdRef = useRef<string | null>(null)
   
   // Clave para localStorage para tracking de notificaciones ya mostradas
   const notificationTrackerKey = `notificationTracker_${businessId}`
@@ -148,14 +149,31 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const notifs: Notification[] = []
+        let hasNewNotification = false
+
         snapshot.forEach((doc) => {
-          notifs.push({
+          const notif = {
             id: doc.id,
             ...doc.data()
-          } as Notification)
+          } as Notification
+          notifs.push(notif)
+
+          // Detectar si es una notificación nueva (la primera que no hemos visto)
+          if (!lastProcessedNotificationIdRef.current && notif.id !== lastProcessedNotificationIdRef.current) {
+            hasNewNotification = true
+            lastProcessedNotificationIdRef.current = notif.id
+          }
         })
+
         setNotifications(notifs)
         setLoading(false)
+
+        // Reproducir sonido solo si hay una notificación completamente nueva
+        if (hasNewNotification && audioRef.current) {
+          audioRef.current.play().catch(() => {
+            // El navegador puede bloquear reproducción automática
+          })
+        }
       }, (error) => {
         // Solo loguear errores de permisos, no warnings
         if ((error as any).code === 'permission-denied') {
@@ -177,8 +195,11 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   useEffect(() => {
     if (!businessId) return
 
-    // Limpiar IDs antiguos al iniciar
+    // Limpiar IDs antiguos solo una vez al montar el componente
     cleanOldTrackedIds()
+
+    let unsubscribe: (() => void) | null = null
+    let isMounted = true
 
     try {
       const q = query(
@@ -188,7 +209,9 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
         orderBy('createdAt', 'desc')
       )
 
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      unsubscribe = onSnapshot(q, (snapshot) => {
+        if (!isMounted) return
+
         const processedIds = getProcessedIds()
         
         snapshot.docChanges().forEach((change) => {
@@ -201,13 +224,6 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
 
               // Crear notificación
               createOrderNotification(order)
-
-              // Reproducir sonido (solo si se puede)
-              if (audioRef.current) {
-                audioRef.current.play().catch(() => {
-                  // El navegador puede bloquear reproducción automática
-                })
-              }
 
               // Mostrar notificación del navegador
               if ('Notification' in window && Notification.permission === 'granted') {
@@ -235,12 +251,17 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
           console.error('Error listening to new orders:', error)
         }
       })
-
-      return () => unsubscribe()
     } catch (error) {
       console.error('Error setting up order listener:', error)
     }
-  }, [businessId, onNewOrder])
+
+    return () => {
+      isMounted = false
+      if (unsubscribe) {
+        unsubscribe()
+      }
+    }
+  }, [businessId])
 
   // Crear notificación en Firestore de forma directa (sin API)
   const createOrderNotification = async (order: Order) => {
