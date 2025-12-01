@@ -39,9 +39,7 @@ service cloud.firestore {
           // Validar que el rating sea un número entre 1 y 5
           request.resource.data.rating is number &&
           request.resource.data.rating >= 1 &&
-          request.resource.data.rating <= 5 &&
-          // Asegurarse de que el businessId en la ruta coincida con el negocio
-          request.resource.data.businessId == document
+          request.resource.data.rating <= 5
         );
         
         // No permitir actualizaciones ni eliminaciones

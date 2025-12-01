@@ -8,7 +8,7 @@ import { Order } from '@/types'
 interface Notification {
   id: string
   orderId?: string
-  type: 'new_order' | 'order_status_change' | 'qr_scan'
+  type: 'new_order' | 'order_status_change' | 'qr_scan' | 'rating'
   title: string
   message: string
   createdAt: any
@@ -18,6 +18,10 @@ interface Notification {
   scannedCount?: number
   isCompleted?: boolean
   userId?: string
+  rating?: number
+  review?: string
+  clientName?: string
+  clientPhone?: string
 }
 
 interface NotificationsBellProps {
@@ -320,9 +324,9 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
 
       {/* Dropdown de notificaciones */}
       {showDropdown && (
-        <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-96 overflow-hidden flex flex-col">
+        <div className="fixed md:absolute inset-0 md:inset-auto md:right-0 md:mt-2 md:w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-96 overflow-hidden flex flex-col md:rounded-lg">
           {/* Header */}
-          <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+          <div className="p-4 border-b bg-gray-50 flex justify-between items-center sticky top-0">
             <h3 className="font-semibold text-gray-900">Notificaciones</h3>
             {unreadCount > 0 && (
               <button
@@ -332,6 +336,13 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
                 Marcar todas como leídas
               </button>
             )}
+            {/* Botón cerrar solo en mobile */}
+            <button
+              onClick={() => setShowDropdown(false)}
+              className="md:hidden ml-2 text-gray-500 hover:text-gray-700"
+            >
+              <i className="bi bi-x-lg text-lg"></i>
+            </button>
           </div>
 
           {/* Contenido */}
@@ -364,6 +375,9 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
                         {notif.type === 'qr_scan' && (
                           <i className={`bi text-blue-600 mr-2 ${notif.isCompleted ? 'bi-check-circle-fill text-green-600' : 'bi-qr-code'}`}></i>
                         )}
+                        {notif.type === 'rating' && (
+                          <span className="mr-2 text-lg">⭐</span>
+                        )}
                         <h4 className={`font-semibold text-sm ${
                           notif.read ? 'text-gray-700' : 'text-gray-900'
                         }`}>
@@ -386,6 +400,15 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
                           {notif.qrCodeName && <p><strong>Código:</strong> {notif.qrCodeName}</p>}
                           {notif.scannedCount !== undefined && <p><strong>Progreso:</strong> {notif.scannedCount}/5</p>}
                           {notif.isCompleted && <p className="text-green-600"><strong>✓ Colección completada</strong></p>}
+                        </div>
+                      )}
+
+                      {/* Detalles de la calificación si está disponible */}
+                      {notif.type === 'rating' && (
+                        <div className="mt-2 text-xs text-gray-500 space-y-1">
+                          {notif.clientName && <p><strong>Cliente:</strong> {notif.clientName}</p>}
+                          {notif.rating && <p><strong>Calificación:</strong> {'⭐'.repeat(notif.rating)} ({notif.rating}/5)</p>}
+                          {notif.review && <p><strong>Comentario:</strong> "{notif.review}"</p>}
                         </div>
                       )}
 

@@ -2909,3 +2909,41 @@ export async function claimReward(userId: string, businessId: string): Promise<{
     }
   }
 }
+
+/**
+ * Crear notificación de calificación/reseña
+ */
+export async function createRatingNotification(
+  businessId: string,
+  orderId: string,
+  rating: number,
+  review: string,
+  clientName: string,
+  clientPhone?: string
+): Promise<void> {
+  try {
+    console.log('[createRatingNotification] Creando notificación de calificación')
+
+    const notificationData = {
+      type: 'rating' as const,
+      orderId,
+      rating,
+      review,
+      clientName,
+      clientPhone: clientPhone || '',
+      title: `Nueva calificación: ⭐ ${rating}/5`,
+      message: `${clientName} ha dejado una calificación de ${rating}/5${review ? ` con comentario: "${review}"` : ''}`,
+      read: false,
+      createdAt: serverTimestamp()
+    }
+
+    // Guardar directamente en Firestore usando el SDK cliente
+    const notificationsRef = collection(db, 'businesses', businessId, 'notifications')
+    const docRef = await addDoc(notificationsRef, notificationData)
+    
+    console.log('[createRatingNotification] Notificación guardada con ID:', docRef.id)
+  } catch (error) {
+    console.error('[createRatingNotification] Error saving rating notification:', error)
+    // No fallar si la notificación no se guarda
+  }
+}

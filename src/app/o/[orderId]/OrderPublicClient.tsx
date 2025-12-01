@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getOrder, getBusiness, getDelivery, saveBusinessRating, hasOrderBeenRated, updateOrderStatus } from '@/lib/database'
+import { getOrder, getBusiness, getDelivery, saveBusinessRating, hasOrderBeenRated, updateOrderStatus, createRatingNotification } from '@/lib/database'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 import { sendOrderToStore } from '@/components/WhatsAppUtils'
 
@@ -72,6 +72,17 @@ export default function OrderPublicClient({ orderId }: Props) {
           email: clientEmail.trim() || undefined
         }
       );
+
+      // Crear notificación para el negocio
+      await createRatingNotification(
+        order.businessId,
+        orderId,
+        rating,
+        review,
+        clientNameToUse,
+        clientPhone
+      );
+
       setReviewSubmitted(true);
       setOrderRated(true);
     } catch (error) {
