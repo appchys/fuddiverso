@@ -8,7 +8,57 @@ export const getNextStatus = (status: Order['status']): Order['status'] | null =
     if (idx >= flow.length - 1) return null
     return flow[idx + 1]
 }
+// Helper para formatear la fecha programada
+const formatScheduledDate = (timing: Order['timing']): string => {
+    if (timing?.type !== 'scheduled') return '⚡ Inmediato';
 
+    const time = timing.scheduledTime || '';
+
+    // Si no hay fecha, mantener comportamiento anterior
+    if (!timing.scheduledDate) {
+        return `⏰ Programado para las ${time}`;
+    }
+
+    let date: Date;
+    const rawDate = timing.scheduledDate as any;
+
+    // Manejar diferentes formatos de fecha
+    if (typeof rawDate.toDate === 'function') {
+        // Firestore Timestamp instance
+        date = rawDate.toDate();
+    } else if (rawDate.seconds !== undefined) {
+        // Firestore Timestamp plain object (serialized)
+        date = new Date(rawDate.seconds * 1000);
+    } else if (rawDate instanceof Date) {
+        // Native Date object
+        date = rawDate;
+    } else {
+        // Fallback (string o timestamp numérico)
+        date = new Date(rawDate);
+    }
+
+    // Verificar si la fecha es válida
+    if (isNaN(date.getTime())) {
+        return `⏰ Programado para las ${time}`;
+    }
+
+    const now = new Date();
+    // Normalizar a inicio del día para comparación
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+    if (checkDate.getTime() === today.getTime()) {
+        return `⏰ Programado para hoy a las ${time}`;
+    } else if (checkDate.getTime() === tomorrow.getTime()) {
+        return `⏰ Programado para mañana a las ${time}`;
+    } else {
+        const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+        return `⏰ Programado para:\n${date.getDate()} de ${months[date.getMonth()]} a las ${time}`;
+    }
+}
 // Función unificada para enviar mensajes de WhatsApp al delivery o tienda
 export const sendWhatsAppToDelivery = async (
     order: Order,
@@ -105,9 +155,7 @@ export const sendWhatsAppToDelivery = async (
             order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
 
     // Determinar el tipo de pedido (Inmediato o Programado)
-    const orderType = order.timing?.type === 'scheduled'
-        ? `⏰ Programado para las ${order.timing?.scheduledTime || ''}`
-        : '⚡ Inmediato';
+    const orderType = formatScheduledDate(order.timing);
 
     // Construir mensaje
     let message = `*Datos del cliente*\n`
@@ -192,12 +240,13 @@ export const sendWhatsAppToCustomer = (order: Order) => {
     const subtotal = order.total - (order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0)
 
     // Determinar el tipo de pedido (Inmediato o Programado)
-    const orderType = order.timing?.type === 'scheduled'
-        ? `⏰ Programado para las ${order.timing?.scheduledTime || ''}`
-        : '⚡ Inmediato';
+    const orderType = formatScheduledDate(order.timing);
 
     // Construir mensaje en texto plano y luego aplicar encodeURIComponent al final
-    let message = 'Tu pedido está en preparación!\n\n';
+    const initialMessage = order.timing?.type === 'scheduled'
+        ? 'Tu pedido está agendado!'
+        : 'Tu pedido está en preparación!';
+    let message = `${initialMessage}\n\n`;
     message += `*Dirección:*\n${deliveryInfo}\n\n`;
     message += `*Tipo de entrega:*\n${orderType}\n\n`;
     message += `Detalle del pedido:\n${productsList}\n\n`;
@@ -260,9 +309,7 @@ export const sendOrderToStore = (order: Order, business: Business) => {
         }
     }
 
-    const orderType = order.timing?.type === 'scheduled'
-        ? `⏰ Programado para las ${order.timing?.scheduledTime || ''}`
-        : '⚡ Inmediato';
+    const orderType = formatScheduledDate(order.timing);
 
     const references = order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'
 
