@@ -2,9 +2,19 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // Permitir lectura pública de negocios y productos
-    match /businesses/{document} {
+    match /businesses/{businessId} {
       allow read: if true;
       allow write: if request.auth != null;
+      
+      // Subcolección de notificaciones
+      match /notifications/{notificationId} {
+        // Lectura: usuarios autenticados del negocio
+        allow read: if request.auth != null;
+        // Escritura: sin autenticación (Cloud Function o frontend)
+        allow create, update: if true;
+        // Eliminación no permitida
+        allow delete: if false;
+      }
       
       // Subcolección de biblioteca de ingredientes
       match /ingredientLibrary/{ingredientId} {

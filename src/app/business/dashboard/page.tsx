@@ -12,6 +12,7 @@ import { usePushNotifications } from '@/hooks/usePushNotifications'
 import ManualOrderSidebar from '@/components/ManualOrderSidebar'
 import ProductManagement from '@/components/ProductManagement'
 import CostReports from '@/components/CostReports'
+import NotificationsBell from '@/components/NotificationsBell'
 import { sendWhatsAppToDelivery, sendWhatsAppToCustomer } from '@/components/WhatsAppUtils'
 import {
   getBusiness,
@@ -798,6 +799,12 @@ export default function BusinessDashboard() {
 
   const handleSendWhatsAppToCustomer = (order: Order) => {
     sendWhatsAppToCustomer(order);
+  };
+
+  // Manejo de nuevas órdenes creadas por clientes
+  const handleNewOrder = (newOrder: Order) => {
+    // Recargar órdenes para que aparezca en el dashboard
+    loadOrders()
   };
 
 
@@ -2363,6 +2370,14 @@ export default function BusinessDashboard() {
             </div>
 
             <div className="flex items-center space-x-2 sm:space-x-4">
+              {/* Campana de notificaciones */}
+              {selectedBusinessId && (
+                <NotificationsBell 
+                  businessId={selectedBusinessId}
+                  onNewOrder={handleNewOrder}
+                />
+              )}
+
               {/* Selector de Tiendas con imagen */}
               <div className="relative business-dropdown-container">
                 <button
