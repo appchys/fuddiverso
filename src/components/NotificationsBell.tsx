@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { db } from '@/lib/firebase'
-import { collection, query, where, orderBy, onSnapshot, updateDoc, doc } from 'firebase/firestore'
+import { collection, query, where, orderBy, onSnapshot, updateDoc, doc, addDoc, serverTimestamp } from 'firebase/firestore'
 import { Order } from '@/types'
 
 interface Notification {
@@ -30,7 +30,47 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   const [showDropdown, setShowDropdown] = useState(false)
   const [loading, setLoading] = useState(true)
   const audioRef = useRef<HTMLAudioElement>(null)
-  const hasPlayedRef = useRef<Set<string>>(new Set())
+  
+  // Clave para localStorage para tracking de notificaciones ya mostradas
+  const notificationTrackerKey = `notificationTracker_${businessId}`
+
+  // Función para obtener IDs ya procesados desde localStorage
+  const getProcessedIds = (): Set<string> => {
+    try {
+      const stored = localStorage.getItem(notificationTrackerKey)
+      return stored ? new Set(JSON.parse(stored)) : new Set()
+    } catch {
+      return new Set()
+    }
+  }
+
+  // Función para guardar un ID como procesado
+  const markAsProcessed = (id: string) => {
+    try {
+      const processed = getProcessedIds()
+      processed.add(id)
+      localStorage.setItem(notificationTrackerKey, JSON.stringify(Array.from(processed)))
+    } catch {
+      // Ignorar errores de localStorage
+    }
+  }
+
+  // Función para limpiar el tracker periódicamente (después de 24 horas)
+  const cleanOldTrackedIds = () => {
+    try {
+      const lastCleanup = localStorage.getItem(`${notificationTrackerKey}_lastCleanup`)
+      const now = Date.now()
+      const oneDayMs = 24 * 60 * 60 * 1000
+
+      if (!lastCleanup || now - parseInt(lastCleanup) > oneDayMs) {
+        // Limpiar el tracker
+        localStorage.removeItem(notificationTrackerKey)
+        localStorage.setItem(`${notificationTrackerKey}_lastCleanup`, now.toString())
+      }
+    } catch {
+      // Ignorar errores
+    }
+  }
 
   // Funci\u00f3n para reproducir un sonido de notificaci\u00f3n usando Web Audio API
   const playNotificationSound = () => {
@@ -133,6 +173,9 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   useEffect(() => {
     if (!businessId) return
 
+    // Limpiar IDs antiguos al iniciar
+    cleanOldTrackedIds()
+
     try {
       const q = query(
         collection(db, 'orders'),
@@ -142,13 +185,15 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
       )
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
+        const processedIds = getProcessedIds()
+        
         snapshot.docChanges().forEach((change) => {
           if (change.type === 'added') {
             const order = { id: change.doc.id, ...change.doc.data() } as Order
 
-            // Solo procesar si no lo hemos visto antes
-            if (!hasPlayedRef.current.has(order.id)) {
-              hasPlayedRef.current.add(order.id)
+            // Solo procesar si no lo hemos procesado antes
+            if (!processedIds.has(order.id)) {
+              markAsProcessed(order.id)
 
               // Crear notificación
               createOrderNotification(order)
@@ -193,16 +238,19 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
     }
   }, [businessId, onNewOrder])
 
-  // Crear notificación en Firestore
+  // Crear notificación en Firestore de forma directa (sin API)
   const createOrderNotification = async (order: Order) => {
     try {
-      // Agregar a la subcolección de notificaciones
+      console.log('[createOrderNotification] Creando notificación para orden:', order.id)
+      
+      // Guardar directamente en Firestore usando el SDK cliente
+      const notificationsRef = collection(db, 'businesses', businessId, 'notifications')
+      
       const notifData = {
         orderId: order.id,
         type: 'new_order' as const,
         title: `Nueva orden #${order.id.slice(0, 6)}`,
         message: `${order.customer?.name} ha creado una nueva orden`,
-        createdAt: new Date(),
         read: false,
         orderData: {
           id: order.id,
@@ -210,20 +258,14 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
           items: order.items,
           total: order.total,
           status: order.status
-        }
+        },
+        createdAt: serverTimestamp()
       }
 
-      // Guardar en Firestore
-      await fetch('/api/notifications', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          businessId,
-          ...notifData
-        })
-      }).catch(err => console.error('Error saving notification:', err))
+      const docRef = await addDoc(notificationsRef, notifData)
+      console.log('[createOrderNotification] Notificación guardada con ID:', docRef.id)
     } catch (error) {
-      console.error('Error creating notification:', error)
+      console.error('[createOrderNotification] Error saving notification:', error)
     }
   }
 

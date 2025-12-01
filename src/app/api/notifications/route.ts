@@ -2,22 +2,52 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getFirestore, collection, addDoc, Timestamp } from 'firebase/firestore'
 import { initializeApp, cert } from 'firebase-admin/app'
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore'
+import * as fs from 'fs'
+import * as path from 'path'
 
 // Inicializar Firebase Admin si aún no está inicializado
 let adminDb: any
 try {
-  const serviceAccount = JSON.parse(
-    process.env.FIREBASE_SERVICE_ACCOUNT_KEY || '{}'
-  )
-  
-  if (serviceAccount.type) {
+  let serviceAccount: any = null
+
+  // Primero intentar desde la variable de entorno
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+    try {
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
+      console.log('[Firebase Admin] Credenciales cargadas desde variable de entorno')
+    } catch (e) {
+      console.warn('[Firebase Admin] Error al parsear JSON desde .env:', e)
+    }
+  }
+
+  // Si no funcionó, intentar leer desde el archivo
+  if (!serviceAccount) {
+    try {
+      const credentialsPath = path.join(
+        process.cwd(),
+        'multitienda-69778-firebase-adminsdk-fbsvc-496524456f.json'
+      )
+      if (fs.existsSync(credentialsPath)) {
+        const credentials = fs.readFileSync(credentialsPath, 'utf-8')
+        serviceAccount = JSON.parse(credentials)
+        console.log('[Firebase Admin] Credenciales cargadas desde archivo')
+      }
+    } catch (e) {
+      console.warn('[Firebase Admin] Error al leer archivo de credenciales:', e)
+    }
+  }
+
+  if (serviceAccount && serviceAccount.type) {
     const adminApp = initializeApp({
       credential: cert(serviceAccount)
     }, 'notifications')
     adminDb = getAdminFirestore(adminApp)
+    console.log('[Firebase Admin] Firebase Admin inicializado exitosamente')
+  } else {
+    console.warn('[Firebase Admin] No se pudo cargar serviceAccount')
   }
 } catch (error) {
-  console.error('Error initializing Firebase Admin:', error)
+  console.error('[Firebase Admin] Error initializing Firebase Admin:', error)
 }
 
 export async function POST(request: NextRequest) {
@@ -38,7 +68,10 @@ export async function POST(request: NextRequest) {
       isCompleted
     } = data
 
+    console.log('[POST /api/notifications] Recibiendo notificación:', { businessId, type, title })
+
     if (!businessId) {
+      console.warn('[POST /api/notifications] businessId es requerido')
       return NextResponse.json(
         { error: 'businessId is required' },
         { status: 400 }
@@ -66,22 +99,30 @@ export async function POST(request: NextRequest) {
         notification.isCompleted = isCompleted || false
       }
 
+      console.log('[POST /api/notifications] Guardando notificación en Firestore:', {
+        businessId,
+        type,
+        path: `businesses/${businessId}/notifications`
+      })
+
       await adminDb.collection('businesses').doc(businessId)
         .collection('notifications').add(notification)
+
+      console.log('[POST /api/notifications] Notificación guardada exitosamente')
 
       return NextResponse.json(
         { success: true, message: 'Notification saved' },
         { status: 201 }
       )
     } else {
-      console.warn('Firebase Admin not initialized, notification not saved to database')
+      console.warn('[POST /api/notifications] Firebase Admin no inicializado')
       return NextResponse.json(
         { success: true, message: 'Notification processed (not saved to DB)' },
         { status: 201 }
       )
     }
   } catch (error) {
-    console.error('Error saving notification:', error)
+    console.error('[POST /api/notifications] Error saving notification:', error)
     return NextResponse.json(
       { error: 'Failed to save notification' },
       { status: 500 }

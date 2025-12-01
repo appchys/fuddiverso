@@ -2684,8 +2684,9 @@ async function createQRScanNotification(
   isCompleted: boolean
 ): Promise<void> {
   try {
+    console.log('[createQRScanNotification] Creando notificación de escaneo de QR')
+
     const notificationData = {
-      businessId,
       type: 'qr_scan' as const,
       userId,
       qrCodeId,
@@ -2699,20 +2700,16 @@ async function createQRScanNotification(
         ? `Un cliente ha completado toda la colección (5/5 códigos)`
         : `Un cliente escaneó "${qrCodeName}" (${scannedCount}/5)`,
       read: false,
-      createdAt: new Date()
+      createdAt: serverTimestamp()
     }
 
-    // Guardar en Firebase vía API
-    await fetch('/api/notifications', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(notificationData)
-    }).catch(err => {
-      console.error('Error saving QR scan notification:', err)
-      // No fallar el escaneo si la notificación no se guarda
-    })
+    // Guardar directamente en Firestore usando el SDK cliente
+    const notificationsRef = collection(db, 'businesses', businessId, 'notifications')
+    const docRef = await addDoc(notificationsRef, notificationData)
+    
+    console.log('[createQRScanNotification] Notificación guardada con ID:', docRef.id)
   } catch (error) {
-    console.error('Error creating QR scan notification:', error)
+    console.error('[createQRScanNotification] Error saving QR scan notification:', error)
     // No fallar el escaneo si hay error en notificación
   }
 }
