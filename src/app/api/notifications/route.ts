@@ -23,7 +23,20 @@ try {
 export async function POST(request: NextRequest) {
   try {
     const data = await request.json()
-    const { businessId, orderId, type, title, message, orderData } = data
+    const { 
+      businessId, 
+      orderId, 
+      type, 
+      title, 
+      message, 
+      orderData,
+      // Nuevos campos para notificaciones QR
+      qrCodeId,
+      qrCodeName,
+      userId,
+      scannedCount,
+      isCompleted
+    } = data
 
     if (!businessId) {
       return NextResponse.json(
@@ -34,14 +47,7 @@ export async function POST(request: NextRequest) {
 
     // Guardar en Firestore usando Firebase Admin SDK
     if (adminDb) {
-      const notificationsRef = collection(
-        adminDb,
-        'businesses',
-        businessId,
-        'notifications'
-      )
-
-      const notification = {
+      const notification: any = {
         orderId: orderId || null,
         type: type || 'new_order',
         title,
@@ -49,6 +55,15 @@ export async function POST(request: NextRequest) {
         orderData: orderData || {},
         read: false,
         createdAt: Timestamp.now()
+      }
+
+      // Agregar campos específicos para notificaciones QR
+      if (type === 'qr_scan') {
+        notification.qrCodeId = qrCodeId || null
+        notification.qrCodeName = qrCodeName || null
+        notification.userId = userId || null
+        notification.scannedCount = scannedCount || 0
+        notification.isCompleted = isCompleted || false
       }
 
       await adminDb.collection('businesses').doc(businessId)
@@ -100,7 +115,7 @@ export async function GET(request: NextRequest) {
         .limit(50)
         .get()
 
-      const notifications = snapshot.docs.map(doc => ({
+      const notifications = snapshot.docs.map((doc: any) => ({
         id: doc.id,
         ...doc.data()
       }))

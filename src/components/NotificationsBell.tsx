@@ -7,13 +7,17 @@ import { Order } from '@/types'
 
 interface Notification {
   id: string
-  orderId: string
-  type: 'new_order' | 'order_status_change'
+  orderId?: string
+  type: 'new_order' | 'order_status_change' | 'qr_scan'
   title: string
   message: string
   createdAt: any
   read: boolean
   orderData?: Partial<Order>
+  qrCodeName?: string
+  scannedCount?: number
+  isCompleted?: boolean
+  userId?: string
 }
 
 interface NotificationsBellProps {
@@ -27,7 +31,6 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   const [loading, setLoading] = useState(true)
   const audioRef = useRef<HTMLAudioElement>(null)
   const hasPlayedRef = useRef<Set<string>>(new Set())
-  const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Funci\u00f3n para reproducir un sonido de notificaci\u00f3n usando Web Audio API
   const playNotificationSound = () => {
@@ -43,7 +46,7 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
       }
 
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
-
+      
       // Reanudar el contexto de audio si está en estado suspendido
       if (audioContext.state === 'suspended') {
         audioContext.resume().catch(() => {
@@ -193,7 +196,7 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   // Crear notificación en Firestore
   const createOrderNotification = async (order: Order) => {
     try {
-      // Agregar a la subcolección de notificaciones usando el SDK de cliente
+      // Agregar a la subcolección de notificaciones
       const notifData = {
         orderId: order.id,
         type: 'new_order' as const,
@@ -210,12 +213,15 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
         }
       }
 
-      // Guardar directamente en Firestore usando el SDK de cliente
-      const { addDoc } = await import('firebase/firestore')
-      await addDoc(
-        collection(db, 'businesses', businessId, 'notifications'),
-        notifData
-      )
+      // Guardar en Firestore
+      await fetch('/api/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessId,
+          ...notifData
+        })
+      }).catch(err => console.error('Error saving notification:', err))
     } catch (error) {
       console.error('Error creating notification:', error)
     }
@@ -247,7 +253,7 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   return (
     <div className="relative">
       {/* Elemento de audio silencioso para reproducir el sonido de notificación */}
-      <audio
+      <audio 
         ref={audioRef}
         preload="auto"
         crossOrigin="anonymous"
@@ -272,7 +278,7 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
 
       {/* Dropdown de notificaciones */}
       {showDropdown && (
-        <div ref={dropdownRef} className="fixed md:absolute inset-x-0 md:inset-x-auto md:right-0 mt-2 mx-2 md:mx-0 md:w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-96 overflow-hidden flex flex-col">
+        <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-96 overflow-hidden flex flex-col">
           {/* Header */}
           <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
             <h3 className="font-semibold text-gray-900">Notificaciones</h3>
@@ -303,8 +309,9 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
                 <div
                   key={notif.id}
                   onClick={() => !notif.read && markAsRead(notif.id)}
-                  className={`p-4 border-b cursor-pointer transition-colors hover:bg-gray-50 ${notif.read ? 'bg-white' : 'bg-blue-50'
-                    }`}
+                  className={`p-4 border-b cursor-pointer transition-colors hover:bg-gray-50 ${
+                    notif.read ? 'bg-white' : 'bg-blue-50'
+                  }`}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -312,8 +319,12 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
                         {notif.type === 'new_order' && (
                           <i className="bi bi-bag-check text-green-600 mr-2"></i>
                         )}
-                        <h4 className={`font-semibold text-sm ${notif.read ? 'text-gray-700' : 'text-gray-900'
-                          }`}>
+                        {notif.type === 'qr_scan' && (
+                          <i className={`bi text-blue-600 mr-2 ${notif.isCompleted ? 'bi-check-circle-fill text-green-600' : 'bi-qr-code'}`}></i>
+                        )}
+                        <h4 className={`font-semibold text-sm ${
+                          notif.read ? 'text-gray-700' : 'text-gray-900'
+                        }`}>
                           {notif.title}
                         </h4>
                       </div>
@@ -324,6 +335,15 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
                         <div className="mt-2 text-xs text-gray-500 space-y-1">
                           <p><strong>Total:</strong> ${notif.orderData.total?.toFixed(2)}</p>
                           <p><strong>Productos:</strong> {notif.orderData.items?.length || 0}</p>
+                        </div>
+                      )}
+
+                      {/* Detalles del QR si está disponible */}
+                      {notif.type === 'qr_scan' && (
+                        <div className="mt-2 text-xs text-gray-500 space-y-1">
+                          {notif.qrCodeName && <p><strong>Código:</strong> {notif.qrCodeName}</p>}
+                          {notif.scannedCount !== undefined && <p><strong>Progreso:</strong> {notif.scannedCount}/5</p>}
+                          {notif.isCompleted && <p className="text-green-600"><strong>✓ Colección completada</strong></p>}
                         </div>
                       )}
 

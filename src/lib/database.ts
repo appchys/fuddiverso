@@ -2673,6 +2673,51 @@ export async function getUserQRProgress(userId: string, businessId: string): Pro
 }
 
 /**
+ * Crear notificación de escaneo de QR
+ */
+async function createQRScanNotification(
+  businessId: string,
+  userId: string,
+  qrCodeId: string,
+  qrCodeName: string,
+  scannedCount: number,
+  isCompleted: boolean
+): Promise<void> {
+  try {
+    const notificationData = {
+      businessId,
+      type: 'qr_scan' as const,
+      userId,
+      qrCodeId,
+      qrCodeName,
+      scannedCount,
+      isCompleted,
+      title: isCompleted
+        ? `Cliente completó la colección`
+        : `Cliente escaneó QR: ${qrCodeName}`,
+      message: isCompleted
+        ? `Un cliente ha completado toda la colección (5/5 códigos)`
+        : `Un cliente escaneó "${qrCodeName}" (${scannedCount}/5)`,
+      read: false,
+      createdAt: new Date()
+    }
+
+    // Guardar en Firebase vía API
+    await fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(notificationData)
+    }).catch(err => {
+      console.error('Error saving QR scan notification:', err)
+      // No fallar el escaneo si la notificación no se guarda
+    })
+  } catch (error) {
+    console.error('Error creating QR scan notification:', error)
+    // No fallar el escaneo si hay error en notificación
+  }
+}
+
+/**
  * Escanear un código QR
  */
 export async function scanQRCode(userId: string, qrCodeId: string): Promise<{
@@ -2725,6 +2770,16 @@ export async function scanQRCode(userId: string, qrCodeId: string): Promise<{
         createdAt: new Date()
       }
 
+      // Crear notificación de escaneo
+      await createQRScanNotification(
+        qrCode.businessId,
+        userId,
+        qrCodeId,
+        qrCode.name,
+        1,
+        false
+      )
+
       return {
         success: true,
         message: `¡Código escaneado! (1/5)`,
@@ -2770,6 +2825,16 @@ export async function scanQRCode(userId: string, qrCodeId: string): Promise<{
       lastScanned: new Date(),
       updatedAt: new Date()
     }
+
+    // Crear notificación de escaneo
+    await createQRScanNotification(
+      qrCode.businessId,
+      userId,
+      qrCodeId,
+      qrCode.name,
+      updatedScannedCodes.length,
+      isCompleted
+    )
 
     return {
       success: true,
