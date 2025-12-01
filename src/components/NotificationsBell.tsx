@@ -36,12 +36,12 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   const audioRef = useRef<HTMLAudioElement>(null)
   const lastProcessedNotificationIdRef = useRef<string | null>(null)
 
-  // Funci\u00f3n para reproducir un sonido de notificaci\u00f3n usando Web Audio API
+  // Función para reproducir un sonido de notificación usando Web Audio API
   const playNotificationSound = () => {
     try {
-      // Verificar que el usuario ha interactuado con la p\u00e1gina
+      // Verificar que el usuario ha interactuado con la página
       if ((document as any).hidden) {
-        return // No reproducir si la pesta\u00f1a est\u00e1 oculta
+        return // No reproducir si la pestaña está oculta
       }
 
       // Solo intentar crear AudioContext si es seguro
@@ -70,7 +70,7 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
       osc2.connect(gain)
       gain.connect(audioContext.destination)
 
-      // Establecer volumen bajo
+      // Establecer volumen bajo para no molestar
       gain.gain.setValueAtTime(0.1, now)
 
       // Primer tono (800 Hz, 100ms)
@@ -90,86 +90,140 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
       // Silenciar después del sonido
       gain.gain.setValueAtTime(0.1, now + 0.2)
       gain.gain.setValueAtTime(0, now + 0.21)
+
+      console.log('[NotificationsBell] Sonido de notificación reproducido')
     } catch (error) {
       // Silenciosamente fallar si Web Audio API no está disponible
-      // No loguear, ya que esto es esperado en navegadores/contextos donde no está permitido
+      console.debug('[NotificationsBell] No se pudo reproducir sonido:', error)
     }
   }
 
-  // Reproducir sonido cuando hay nueva notificación
+  // Escuchar notificaciones en tiempo real desde Firebase
   useEffect(() => {
     if (!businessId) return
 
+    let unsubscribe: (() => void) | null = null
+
     try {
+      // Query ordenadas por fecha más reciente primero
       const q = query(
         collection(db, 'businesses', businessId, 'notifications'),
         orderBy('createdAt', 'desc')
       )
 
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const notifs: Notification[] = []
-        let hasNewNotification = false
+      // Listener en tiempo real - cualquier cambio en Firebase se refleja aquí
+      unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const notifs: Notification[] = []
+          let hasNewNotification = false
 
-        snapshot.forEach((doc) => {
-          const notif = {
-            id: doc.id,
-            ...doc.data()
-          } as Notification
-          notifs.push(notif)
+          snapshot.forEach((doc) => {
+            const data = doc.data()
+            const notif: Notification = {
+              id: doc.id,
+              ...data,
+              // Asegurar que el campo read existe
+              read: data.read ?? false,
+              createdAt: data.createdAt
+            } as Notification
 
-          // Detectar si es una notificación nueva (la primera que no hemos visto)
-          if (!lastProcessedNotificationIdRef.current && notif.id !== lastProcessedNotificationIdRef.current) {
-            hasNewNotification = true
-            lastProcessedNotificationIdRef.current = notif.id
-          }
-        })
+            notifs.push(notif)
 
-        setNotifications(notifs)
-        setLoading(false)
-
-        // Reproducir sonido solo si hay una notificación completamente nueva
-        if (hasNewNotification && audioRef.current) {
-          audioRef.current.play().catch(() => {
-            // El navegador puede bloquear reproducción automática
+            // Detectar si es una notificación nueva (no hemos visto este ID antes)
+            if (
+              notif.id !== lastProcessedNotificationIdRef.current &&
+              !lastProcessedNotificationIdRef.current
+            ) {
+              hasNewNotification = true
+              lastProcessedNotificationIdRef.current = notif.id
+            }
           })
-        }
-      }, (error) => {
-        // Solo loguear errores de permisos, no warnings
-        if ((error as any).code === 'permission-denied') {
-          console.debug('No permission to read notifications (expected if user not authenticated)')
-        } else {
-          console.error('Error listening to notifications:', error)
-        }
-        setLoading(false)
-      })
 
-      return () => unsubscribe()
+          // Actualizar estado con notificaciones de Firebase
+          setNotifications(notifs)
+          setLoading(false)
+
+          // Reproducir sonido solo si hay una notificación completamente nueva
+          if (hasNewNotification) {
+            playNotificationSound()
+          }
+        },
+        (error) => {
+          // Solo loguear errores importantes
+          if ((error as any).code === 'permission-denied') {
+            console.debug(
+              'No permission to read notifications (expected if user not authenticated)'
+            )
+          } else {
+            console.error('Error listening to notifications:', error)
+          }
+          setLoading(false)
+        }
+      )
     } catch (error) {
       console.error('Error setting up notification listener:', error)
       setLoading(false)
+    }
+
+    // Cleanup: desuscribirse cuando el componente se desmonta
+    return () => {
+      if (unsubscribe) {
+        unsubscribe()
+      }
     }
   }, [businessId])
 
 
 
-  // Marcar notificación como leída
+  // Marcar notificación como leída (se sincroniza en Firebase)
   const markAsRead = async (notificationId: string) => {
     try {
-      const notifRef = doc(db, 'businesses', businessId, 'notifications', notificationId)
-      await updateDoc(notifRef, { read: true })
+      // Actualizar en Firebase de inmediato
+      const notifRef = doc(
+        db,
+        'businesses',
+        businessId,
+        'notifications',
+        notificationId
+      )
+
+      // Usar updateDoc para actualizar solo el campo read
+      // El listener onSnapshot detectará este cambio automáticamente
+      await updateDoc(notifRef, {
+        read: true
+      })
+
+      console.log(`[NotificationsBell] Notificación ${notificationId} marcada como leída`)
     } catch (error) {
-      console.error('Error marking notification as read:', error)
+      console.error(
+        `[NotificationsBell] Error marking notification ${notificationId} as read:`,
+        error
+      )
+      // No mostrar error al usuario, continuamos normalmente
     }
   }
 
-  // Marcar todas como leídas
+  // Marcar todas como leídas (se sincroniza en Firebase)
   const markAllAsRead = async () => {
     try {
-      for (const notif of notifications.filter(n => !n.read)) {
-        await markAsRead(notif.id)
+      const unreadNotifications = notifications.filter((n) => !n.read)
+
+      if (unreadNotifications.length === 0) {
+        return // Nada que hacer
       }
+
+      // Ejecutar todas las actualizaciones en paralelo para mayor rapidez
+      const updatePromises = unreadNotifications.map((notif) => markAsRead(notif.id))
+
+      await Promise.all(updatePromises)
+
+      console.log(
+        `[NotificationsBell] ${unreadNotifications.length} notificaciones marcadas como leídas`
+      )
     } catch (error) {
-      console.error('Error marking all as read:', error)
+      console.error('[NotificationsBell] Error marking all as read:', error)
+      // No mostrar error al usuario, continuamos normalmente
     }
   }
 
@@ -240,9 +294,15 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
               {notifications.map((notif) => (
                 <div
                   key={notif.id}
-                  onClick={() => !notif.read && markAsRead(notif.id)}
-                  className={`p-4 border-b cursor-pointer transition-colors hover:bg-gray-50 ${notif.read ? 'bg-white' : 'bg-blue-50'
-                    }`}
+                  onClick={() => {
+                    // Solo marcar como leído si aún no lo está
+                    if (!notif.read) {
+                      markAsRead(notif.id)
+                    }
+                  }}
+                  className={`p-4 border-b cursor-pointer transition-colors hover:bg-gray-50 ${
+                    notif.read ? 'bg-white' : 'bg-blue-50'
+                  }`}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
