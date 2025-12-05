@@ -20,9 +20,10 @@ interface QRScannerStats {
 interface QRStatisticsProps {
   businessId: string
   qrCodes: QRCode[]
+  initialTab?: 'overview' | 'scans' | 'users'
 }
 
-export default function QRStatistics({ businessId, qrCodes }: QRStatisticsProps) {
+export default function QRStatistics({ businessId, qrCodes, initialTab = 'overview' }: QRStatisticsProps) {
   const [loading, setLoading] = useState(true)
   const [scanStats, setScanStats] = useState<{ [key: string]: number }>({})
   const [topScanners, setTopScanners] = useState<QRScannerStats[]>([])
@@ -33,7 +34,7 @@ export default function QRStatistics({ businessId, qrCodes }: QRStatisticsProps)
     usersCompleted: 0,
     completionRate: 0
   })
-  const [activeTab, setActiveTab] = useState<'overview' | 'scans' | 'users'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'scans' | 'users'>(initialTab)
 
   useEffect(() => {
     loadStatistics()

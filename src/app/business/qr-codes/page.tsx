@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
 import { getQRCodesByBusiness, createQRCode, updateQRCode, deleteQRCode, uploadImage } from '@/lib/database'
@@ -11,11 +11,13 @@ import QRStatistics from '@/components/QRStatistics'
 
 export default function QRCodesManagementPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [qrCodes, setQrCodes] = useState<QRCode[]>([])
   const [businessId, setBusinessId] = useState<string>('')
   const [generating, setGenerating] = useState(false)
   const [qrImages, setQrImages] = useState<{ [key: string]: string }>({})
+  const [activeTab, setActiveTab] = useState<'overview' | 'scans' | 'users'>('overview')
 
   // Estado para el modal de generación/edición
   const [showModal, setShowModal] = useState(false)
@@ -46,6 +48,14 @@ export default function QRCodesManagementPage() {
 
     return () => unsubscribe()
   }, [router])
+
+  // Leer el parámetro 'tab' de la URL cuando cambia
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab === 'users' || tab === 'scans' || tab === 'overview') {
+      setActiveTab(tab)
+    }
+  }, [searchParams])
 
   const loadQRCodes = useCallback(async (bizId: string) => {
     try {
@@ -544,7 +554,7 @@ export default function QRCodesManagementPage() {
               <i className="bi bi-graph-up me-2 text-red-600"></i>
               Estadísticas de Códigos QR
             </h2>
-            <QRStatistics businessId={businessId} qrCodes={qrCodes} />
+            <QRStatistics businessId={businessId} qrCodes={qrCodes} initialTab={activeTab} />
           </div>
         )}
       </div>

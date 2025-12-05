@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { db } from '@/lib/firebase'
 import { collection, query, where, orderBy, onSnapshot, updateDoc, doc, addDoc, serverTimestamp } from 'firebase/firestore'
 import { Order } from '@/types'
@@ -30,6 +31,7 @@ interface NotificationsBellProps {
 }
 
 export default function NotificationsBell({ businessId, onNewOrder }: NotificationsBellProps) {
+  const router = useRouter()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -227,6 +229,20 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
     }
   }
 
+  // Manejar clic en notificación
+  const handleNotificationClick = async (notif: Notification) => {
+    // Marcar como leída si aún no lo está
+    if (!notif.read) {
+      await markAsRead(notif.id)
+    }
+
+    // Si es una notificación de QR, navegar a la página de estadísticas
+    if (notif.type === 'qr_scan') {
+      setShowDropdown(false)
+      router.push(`/business/qr-codes?tab=users`)
+    }
+  }
+
   const unreadCount = notifications.filter(n => !n.read).length
 
   return (
@@ -257,7 +273,7 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
 
       {/* Dropdown de notificaciones */}
       {showDropdown && (
-        <div className="fixed md:absolute inset-0 md:inset-auto md:right-0 md:mt-2 md:w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-96 overflow-hidden flex flex-col md:rounded-lg">
+        <div className="fixed md:absolute inset-0 md:inset-auto md:right-0 md:mt-2 md:w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50 md:max-h-screen md:overflow-hidden flex flex-col md:rounded-lg">
           {/* Header */}
           <div className="p-4 border-b bg-gray-50 flex justify-between items-center sticky top-0">
             <h3 className="font-semibold text-gray-900">Notificaciones</h3>
@@ -294,12 +310,7 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
               {notifications.map((notif) => (
                 <div
                   key={notif.id}
-                  onClick={() => {
-                    // Solo marcar como leído si aún no lo está
-                    if (!notif.read) {
-                      markAsRead(notif.id)
-                    }
-                  }}
+                  onClick={() => handleNotificationClick(notif)}
                   className={`p-4 border-b cursor-pointer transition-colors hover:bg-gray-50 ${
                     notif.read ? 'bg-white' : 'bg-blue-50'
                   }`}
