@@ -18,6 +18,7 @@ import {
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
+import { normalizeEcuadorianPhone } from './validation'
 import {
   signInWithRedirect,
   getRedirectResult,
@@ -2945,5 +2946,169 @@ export async function createRatingNotification(
   } catch (error) {
     console.error('[createRatingNotification] Error saving rating notification:', error)
     // No fallar si la notificación no se guarda
+  }
+}
+
+/**
+ * Obtener estadísticas de escaneos por código QR
+ * Retorna la cantidad de escaneos para cada código
+ */
+export async function getQRScanStatistics(businessId: string): Promise<{
+  [qrCodeId: string]: number
+}> {
+  try {
+    const userProgressQuery = query(
+      collection(db, 'userQRProgress'),
+      where('businessId', '==', businessId)
+    )
+
+    const snapshot = await getDocs(userProgressQuery)
+    const scanStats: { [qrCodeId: string]: number } = {}
+
+    // Contar cuántas veces se escaneó cada código
+    snapshot.forEach((doc) => {
+      const progress = doc.data() as UserQRProgress
+      if (progress.scannedCodes && Array.isArray(progress.scannedCodes)) {
+        progress.scannedCodes.forEach((codeId) => {
+          scanStats[codeId] = (scanStats[codeId] || 0) + 1
+        })
+      }
+    })
+
+    return scanStats
+  } catch (error) {
+    console.error('[getQRScanStatistics] Error getting scan statistics:', error)
+    return {}
+  }
+}
+
+/**
+ * Obtener usuarios con más escaneos
+ * Retorna una lista ordenada de usuarios que más códigos han escaneado
+ * Incluye el nombre del cliente obtenido de la colección 'clients'
+ */
+export async function getTopQRScanners(
+  businessId: string,
+  topLimit: number = 10
+): Promise<
+  Array<{
+    userId: string
+    userName?: string
+    scannedCount: number
+    scannedCodes: string[]
+    completed: boolean
+    lastScanned?: Date | Timestamp
+  }>
+> {
+  try {
+    const userProgressQuery = query(
+      collection(db, 'userQRProgress'),
+      where('businessId', '==', businessId)
+    )
+
+    const snapshot = await getDocs(userProgressQuery)
+    const topScanners = snapshot.docs
+      .map((doc) => {
+        const progress = doc.data() as UserQRProgress
+        return {
+          userId: progress.userId,
+          scannedCount: progress.scannedCodes?.length || 0,
+          scannedCodes: progress.scannedCodes || [],
+          completed: progress.completed,
+          lastScanned: progress.lastScanned
+        }
+      })
+      .sort((a, b) => b.scannedCount - a.scannedCount)
+      .slice(0, topLimit)
+
+    // Obtener nombres de los clientes
+    const scannersWithNames = await Promise.all(
+      topScanners.map(async (scanner) => {
+        try {
+          // Normalizar el celular para buscar (puede venir en diferentes formatos)
+          const normalizedPhone = normalizeEcuadorianPhone(scanner.userId)
+          
+          // Buscar el cliente por celular (userId es el celular)
+          const clientQuery = query(
+            collection(db, 'clients'),
+            where('celular', '==', normalizedPhone),
+            limit(1)
+          )
+          const clientSnapshot = await getDocs(clientQuery)
+
+          let userName: string | undefined
+
+          if (!clientSnapshot.empty) {
+            const clientData = clientSnapshot.docs[0].data()
+            userName = clientData.nombres || undefined
+          }
+
+          return {
+            ...scanner,
+            userName
+          }
+        } catch (error) {
+          console.error(`Error getting client name for ${scanner.userId}:`, error)
+          return scanner
+        }
+      })
+    )
+
+    return scannersWithNames
+  } catch (error) {
+    console.error('[getTopQRScanners] Error getting top scanners:', error)
+    return []
+  }
+}
+
+/**
+ * Obtener información detallada de estadísticas
+ * Incluye total de usuarios, promedio de escaneos, etc.
+ */
+export async function getQRStatisticsDetail(businessId: string): Promise<{
+  totalUsers: number
+  totalScans: number
+  averageScansPerUser: number
+  usersCompleted: number
+  completionRate: number
+}> {
+  try {
+    const userProgressQuery = query(
+      collection(db, 'userQRProgress'),
+      where('businessId', '==', businessId)
+    )
+
+    const snapshot = await getDocs(userProgressQuery)
+    let totalScans = 0
+    let usersCompleted = 0
+
+    snapshot.forEach((doc) => {
+      const progress = doc.data() as UserQRProgress
+      totalScans += progress.scannedCodes?.length || 0
+      if (progress.completed) {
+        usersCompleted++
+      }
+    })
+
+    const totalUsers = snapshot.size
+    const averageScansPerUser = totalUsers > 0 ? totalScans / totalUsers : 0
+    const completionRate = totalUsers > 0 ? (usersCompleted / totalUsers) * 100 : 0
+
+    return {
+      totalUsers,
+      totalScans,
+      averageScansPerUser,
+      usersCompleted,
+      completionRate
+    }
+  } catch (error) {
+    console.error('[getQRStatisticsDetail] Error getting statistics detail:', error)
+    return {
+      totalUsers: 0,
+      totalScans: 0,
+      averageScansPerUser: 0,
+      usersCompleted: 0,
+      completionRate: 0
+    }
   }
 }

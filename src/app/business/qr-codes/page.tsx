@@ -7,6 +7,7 @@ import { auth } from '@/lib/firebase'
 import { getQRCodesByBusiness, createQRCode, updateQRCode, deleteQRCode, uploadImage } from '@/lib/database'
 import { QRCode } from '@/types'
 import QRCodeLib from 'qrcode'
+import QRStatistics from '@/components/QRStatistics'
 
 export default function QRCodesManagementPage() {
   const router = useRouter()
@@ -533,6 +534,17 @@ export default function QRCodesManagementPage() {
               <li>• Cada cliente solo puede escanear cada código una vez</li>
               <li>• Al completar la colección, el cliente puede reclamar su recompensa</li>
             </ul>
+          </div>
+        )}
+
+        {/* Estadísticas de QR */}
+        {qrCodes.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+              <i className="bi bi-graph-up me-2 text-red-600"></i>
+              Estadísticas de Códigos QR
+            </h2>
+            <QRStatistics businessId={businessId} qrCodes={qrCodes} />
           </div>
         )}
       </div>
