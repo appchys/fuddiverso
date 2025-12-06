@@ -3,6 +3,7 @@ import './globals.css'
 import 'bootstrap-icons/font/bootstrap-icons.css'
 import { AuthProvider } from '@/contexts/AuthContext'
 import LayoutWrapper from '@/components/LayoutWrapper'
+import { Analytics } from "@vercel/analytics/next"
 
 export const metadata: Metadata = {
   title: 'fuddi.shop - Delivery de Comida',
