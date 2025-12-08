@@ -345,9 +345,18 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
                       {/* Detalles del QR si está disponible */}
                       {notif.type === 'qr_scan' && (
                         <div className="mt-2 text-xs text-gray-500 space-y-1">
-                          {notif.qrCodeName && <p><strong>Código:</strong> {notif.qrCodeName}</p>}
-                          {notif.scannedCount !== undefined && <p><strong>Progreso:</strong> {notif.scannedCount}/5</p>}
-                          {notif.isCompleted && <p className="text-green-600"><strong>✓ Colección completada</strong></p>}
+                          {notif.scannedCount !== undefined && (
+                            <p>
+                              <i className="bi bi-check-circle me-1"></i>
+                              <strong>{notif.scannedCount}</strong> de <strong>5</strong> códigos
+                            </p>
+                          )}
+                          {notif.isCompleted && (
+                            <p className="text-green-600 font-medium">
+                              <i className="bi bi-star-fill me-1"></i>
+                              ¡Colección completada!
+                            </p>
+                          )}
                         </div>
                       )}
 

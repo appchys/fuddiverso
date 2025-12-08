@@ -2687,19 +2687,37 @@ async function createQRScanNotification(
   try {
     console.log('[createQRScanNotification] Creando notificación de escaneo de QR')
 
+    // Obtener el nombre del cliente normalizando el teléfono
+    let clientName = 'Cliente'
+    try {
+      const normalizedPhone = normalizeEcuadorianPhone(userId)
+      const clientsRef = collection(db, 'clients')
+      const q = query(clientsRef, where('celular', '==', normalizedPhone), limit(1))
+      const clientSnapshot = await getDocs(q)
+      
+      if (!clientSnapshot.empty) {
+        const clientData = clientSnapshot.docs[0].data()
+        clientName = clientData.nombres || 'Cliente'
+      }
+    } catch (error) {
+      console.debug('[createQRScanNotification] Error obteniendo nombre del cliente:', error)
+      // Continuar con nombre genérico si hay error
+    }
+
     const notificationData = {
       type: 'qr_scan' as const,
       userId,
       qrCodeId,
       qrCodeName,
+      clientName,
       scannedCount,
       isCompleted,
       title: isCompleted
-        ? `Cliente completó la colección`
-        : `Cliente escaneó QR: ${qrCodeName}`,
+        ? `¡${clientName} completó la colección!`
+        : `${clientName} escaneó un código`,
       message: isCompleted
-        ? `Un cliente ha completado toda la colección (5/5 códigos)`
-        : `Un cliente escaneó "${qrCodeName}" (${scannedCount}/5)`,
+        ? `Ha completado todos los 5 códigos de la colección`
+        : `Escaneó "${qrCodeName}" (${scannedCount}/5 códigos)`,
       read: false,
       createdAt: serverTimestamp()
     }
