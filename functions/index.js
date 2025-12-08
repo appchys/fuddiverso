@@ -303,11 +303,13 @@ exports.createOrderNotification = onDocumentCreated("orders/{orderId}", async (e
   try {
     console.log(`🔔 Creando notificación para orden: ${orderId} en negocio: ${order.businessId}`);
 
+    const customerName = order.customer?.name || 'Cliente';
+    
     const notificationData = {
       orderId: orderId,
       type: 'new_order',
-      title: `Nueva orden #${orderId.slice(0, 6)}`,
-      message: `${order.customer?.name || 'Cliente'} ha creado una nueva orden`,
+      title: `${customerName} ha realizado un pedido`,
+      message: `Orden #${orderId.slice(0, 6)} - Total: $${order.total?.toFixed(2) || '0.00'}`,
       read: false,
       orderData: {
         id: orderId,

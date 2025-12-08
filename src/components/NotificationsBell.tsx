@@ -335,10 +335,26 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
                       <p className="text-sm text-gray-600 mt-1">{notif.message}</p>
 
                       {/* Detalles de la orden si está disponible */}
-                      {notif.orderData && (
-                        <div className="mt-2 text-xs text-gray-500 space-y-1">
-                          <p><strong>Total:</strong> ${notif.orderData.total?.toFixed(2)}</p>
-                          <p><strong>Productos:</strong> {notif.orderData.items?.length || 0}</p>
+                      {notif.orderData && notif.type === 'new_order' && (
+                        <div className="mt-2 text-xs text-gray-600 space-y-1">
+                          {notif.orderData.items && notif.orderData.items.length > 0 && (
+                            <div>
+                              <p className="font-semibold text-gray-700 mb-1">
+                                <i className="bi bi-list me-1"></i>
+                                Elementos:
+                              </p>
+                              <ul className="ml-4 space-y-0.5">
+                                {notif.orderData.items.map((item: any, idx: number) => (
+                                  <li key={idx} className="text-gray-600">
+                                    • {item.name} x{item.quantity} - ${(item.price * item.quantity).toFixed(2)}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          <p className="border-t pt-1 mt-1 font-semibold text-gray-700">
+                            <strong>Total:</strong> ${notif.orderData.total?.toFixed(2)}
+                          </p>
                         </div>
                       )}
 
