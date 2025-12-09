@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import Head from 'next/head'
 import { getProduct, getBusinessByProduct, getProductsByBusiness } from '@/lib/database'
 import type { Product, Business } from '@/types/index'
 
@@ -161,38 +162,42 @@ export default function ProductPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header simple */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <Link
-              href={business ? `/restaurants/${business.username}` : '/'}
-              className="flex items-center text-red-600 hover:text-red-700 transition-colors"
-            >
-              <i className="bi bi-chevron-left mr-1"></i>
-              <span className="font-medium">Atrás</span>
-            </Link>
-            {business && (
-              <h1 className="text-xl font-bold text-gray-900">{business.name}</h1>
-            )}
-            <div className="w-20"></div>
-          </div>
-        </div>
-      </header>
+      {/* Meta tags dinámicos para compartir */}
+      <Head>
+        <title>{product?.name || 'Producto'} - fuddi.shop</title>
+        <meta name="description" content={product?.description || 'Descubre este producto en fuddi.shop'} />
+
+        {/* Open Graph / Facebook */}
+        <meta property="og:type" content="product" />
+        <meta property="og:title" content={product?.name || 'Producto'} />
+        <meta property="og:description" content={product?.description || 'Descubre este producto en fuddi.shop'} />
+        <meta property="og:image" content={product?.image || ''} />
+        <meta property="og:url" content={`https://fuddi.shop/p/${productId}`} />
+
+        {/* Twitter */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={product?.name || 'Producto'} />
+        <meta name="twitter:description" content={product?.description || 'Descubre este producto en fuddi.shop'} />
+        <meta name="twitter:image" content={product?.image || ''} />
+
+        {/* WhatsApp específico */}
+        <meta property="og:site_name" content="fuddi.shop" />
+        <meta property="og:locale" content="es_ES" />
+      </Head>
 
       {/* Contenido del producto */}
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Imagen del producto */}
-          <div className="flex items-center justify-center bg-white rounded-lg overflow-hidden shadow-sm">
+          <div className="w-full aspect-square bg-white rounded-lg overflow-hidden shadow-sm">
             {product.image ? (
               <img
                 src={product.image}
                 alt={product.name}
-                className="w-full h-auto object-cover"
+                className="w-full h-full object-cover"
               />
             ) : (
-              <div className="w-full aspect-square flex items-center justify-center bg-gray-100">
+              <div className="w-full h-full flex items-center justify-center bg-gray-100">
                 <i className="bi bi-image text-6xl text-gray-300"></i>
               </div>
             )}

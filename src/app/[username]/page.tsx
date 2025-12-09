@@ -111,62 +111,20 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
   }
 
   return (
-    <div onClick={handleCardClick} className="bg-white rounded-lg shadow-sm overflow-hidden cursor-pointer hover:bg-gray-50 transition flex items-center p-3 border-b border-gray-100">
-      {/* Imagen cuadrada */}
-      <div className="w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100 relative">
-        <div className={`absolute inset-0 animate-pulse bg-gray-200 ${imgLoaded ? 'hidden' : 'block'}`}></div>
-        <img
-          src={product.image || businessImage}
-          alt={product.name}
-          className="w-full h-full object-cover"
-          loading="lazy"
-          decoding="async"
-          onLoad={() => setImgLoaded(true)}
-          onError={(e) => {
-            const target = e.target as HTMLImageElement;
-            if (target.src !== (businessImage || '')) {
-              target.src = businessImage || '';
-            }
-            setImgLoaded(true)
-          }}
-        />
-      </div>
-
-      {/* Nombre, descripción y precio */}
-      <div className="flex-1 min-w-0 ml-3 sm:ml-4">
-        <h4 className="font-medium text-sm sm:text-base text-gray-900 truncate">{product.name}</h4>
-        <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2">{product.description}</p>
-
-        {/* Precio debajo de la descripción */}
-        <div className="mt-1">
-          {product.variants && product.variants.length > 0 ? (
-            <div className="flex items-center">
-              <span className="text-xs text-gray-500 mr-1">Desde</span>
-              <span className="text-sm sm:text-base font-bold text-red-500">
-                ${Math.min(...product.variants.filter((v: any) => v.isAvailable).map((v: any) => v.price)).toFixed(2)}
-              </span>
-            </div>
-          ) : (
-            <span className="text-sm sm:text-base font-bold text-red-500">
-              ${product.price.toFixed(2)}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Botones de acción */}
-      <div className="ml-2 sm:ml-4 flex-shrink-0 flex items-center gap-2">
-        {/* Botón de copiar link */}
+    <div onClick={handleCardClick} className="bg-white rounded-lg shadow-sm overflow-hidden cursor-pointer hover:bg-gray-50 transition flex items-center p-3 border-b border-gray-100 relative">
+      {/* Botones de acción - esquina superior derecha */}
+      <div className="absolute top-0 right-2 z-10 flex flex-col gap-0">
+        {/* Botón de compartir */}
         <button
           onClick={handleCopyProductLink}
           disabled={!product.isAvailable}
-          className={`flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg transition-colors ${product.isAvailable
-            ? 'bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-700'
-            : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+          className={`transition-colors ${product.isAvailable
+            ? 'text-gray-500 hover:text-gray-700'
+            : 'text-gray-300 cursor-not-allowed'
             }`}
-          title="Copiar enlace del producto"
+          title="Compartir producto"
         >
-          <i className="bi bi-link-45deg text-sm"></i>
+          <i className="bi bi-share text-xs"></i>
         </button>
 
         {/* Botón de agregar/ver variantes */}
@@ -189,6 +147,48 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
             </svg>
           )}
         </button>
+      </div>
+
+      {/* Imagen cuadrada */}
+      <div className="w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100 relative">
+        <div className={`absolute inset-0 animate-pulse bg-gray-200 ${imgLoaded ? 'hidden' : 'block'}`}></div>
+        <img
+          src={product.image || businessImage}
+          alt={product.name}
+          className="w-full h-full object-cover"
+          loading="lazy"
+          decoding="async"
+          onLoad={() => setImgLoaded(true)}
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            if (target.src !== (businessImage || '')) {
+              target.src = businessImage || '';
+            }
+            setImgLoaded(true)
+          }}
+        />
+      </div>
+
+      {/* Nombre, descripción y precio */}
+      <div className="flex-1 min-w-0 ml-3 sm:ml-4 pr-6">
+        <h4 className="font-medium text-sm sm:text-base text-gray-900 truncate">{product.name}</h4>
+        <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2">{product.description}</p>
+
+        {/* Precio debajo de la descripción */}
+        <div className="mt-1">
+          {product.variants && product.variants.length > 0 ? (
+            <div className="flex items-center">
+              <span className="text-xs text-gray-500 mr-1">Desde</span>
+              <span className="text-sm sm:text-base font-bold text-red-500">
+                ${Math.min(...product.variants.filter((v: any) => v.isAvailable).map((v: any) => v.price)).toFixed(2)}
+              </span>
+            </div>
+          ) : (
+            <span className="text-sm sm:text-base font-bold text-red-500">
+              ${product.price.toFixed(2)}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
