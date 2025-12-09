@@ -539,38 +539,81 @@ export default function ManualOrderSidebar({
 
   // Función para normalizar coordenadas (eliminar espacios, convertir comas decimales a puntos)
   const normalizeLatLong = (coords: string): string => {
-    // Primero, eliminar espacios alrededor de la coma separadora
-    let normalized = coords.trim().replace(/\s*,\s*/, ',');
+    console.log('🔧 normalizeLatLong - Input:', coords);
     
-    // Convertir comas decimales (,) a puntos (.) para que JavaScript pueda parsear correctamente
-    // Esto maneja formatos como: -1,8732619, -79,9795561
-    // Dividimos por coma, reemplazamos comas internas por puntos, y rejuntamos
-    const parts = normalized.split(',');
-    if (parts.length === 2) {
-      // Reemplazar comas dentro de los números por puntos
-      const lat = parts[0].replace(/,/g, '.');
-      const lng = parts[1].replace(/,/g, '.');
-      normalized = `${lat},${lng}`;
+    // Primero, trim y eliminar espacios después de comas
+    let normalized = coords.trim();
+    console.log('   Después de trim:', normalized);
+    
+    // El problema: -1,8732619, -79,9795561 tiene 3 comas:
+    // - Una como separador decimal de lat
+    // - Una para separar lat y lng
+    // - Una como separador decimal de lng
+    // Necesitamos identificar cuál es la coma separadora (generalmente después del número completo)
+    
+    // Estrategia: buscar la coma que tiene un espacio después o que está entre dos números
+    // y tiene números antes y después
+    const commaPositions = [];
+    for (let i = 0; i < normalized.length; i++) {
+      if (normalized[i] === ',') {
+        commaPositions.push(i);
+      }
+    }
+    console.log('   Posiciones de comas:', commaPositions);
+    
+    // Si hay exactamente 3 comas (decimal lat, separador, decimal lng)
+    if (commaPositions.length === 3) {
+      // La coma separadora es la del medio
+      const separatorIndex = commaPositions[1];
+      const lat = normalized.substring(0, separatorIndex).replace(/,/g, '.');
+      const lng = normalized.substring(separatorIndex + 1).replace(/,/g, '.');
+      normalized = `${lat.trim()},${lng.trim()}`;
+      console.log('   3 comas detectadas - Lat:', lat, 'Lng:', lng);
+    } 
+    // Si hay exactamente 1 coma (solo separador, sin decimales)
+    else if (commaPositions.length === 1) {
+      // Ya está bien, solo eliminar espacios alrededor de la coma
+      normalized = normalized.replace(/\s*,\s*/, ',');
+      console.log('   1 coma detectada - OK');
+    }
+    // Si hay 2 comas - podría ser ambiguo, intentamos lo mejor
+    else if (commaPositions.length === 2) {
+      // Asumir que la primera es la coma del lat, la segunda es el separador
+      // Pero esto es ambiguo, así que intentaremos detectar
+      normalized = normalized.replace(/\s+/g, ''); // Remover todos los espacios
+      console.log('   2 comas detectadas');
     }
     
+    console.log('   Output normalizado:', normalized);
     return normalized;
   }
 
   // Función para validar coordenadas tradicionales (lat,lng)
   // Soporta formatos como: 1.123456,79.654321 o 1,123456,79,654321
   const validateCoordinates = (coords: string): boolean => {
+    console.log('✓ validateCoordinates - Input:', coords);
     if (!coords) return false;
     const normalized = normalizeLatLong(coords);
+    console.log('  Normalizado:', normalized);
     
     // Patrón que acepta puntos O comas como separadores decimales
     // Antes de normalizar: -1,8732619, -79,9795561
     // Después de normalizar: -1.8732619,-79.9795561
     const coordPattern = /^-?\d{1,3}\.?\d*,-?\d{1,3}\.?\d*$/;
-    if (!coordPattern.test(normalized)) return false;
+    const patternMatch = coordPattern.test(normalized);
+    console.log('  ¿Cumple patrón?:', patternMatch, '- Patrón:', coordPattern);
+    
+    if (!patternMatch) {
+      console.log('  ❌ No cumple patrón');
+      return false;
+    }
 
     // Validar rangos de latitud (-90 a 90) y longitud (-180 a 180)
     const [lat, lng] = normalized.split(',').map(Number);
-    return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+    console.log('  Lat:', lat, 'Lng:', lng);
+    const isValid = lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+    console.log('  ¿Rango válido?:', isValid);
+    return isValid;
   };
 
   // Función para verificar si un texto es un Plus Code
@@ -607,17 +650,21 @@ export default function ManualOrderSidebar({
 
   // Función para manejar cambio en enlace de Google Maps
   const handleGoogleMapsLinkChange = (link: string) => {
+    console.log('📍 handleGoogleMapsLinkChange - Input:', link);
     setNewLocationData(prev => ({ ...prev, googleMapsLink: link }));
 
     if (link.trim()) {
       // Verificar si es un Plus Code
+      console.log('🔍 Verificando si es Plus Code...');
       if (isPlusCode(link)) {
+        console.log('✅ Es Plus Code');
         const plusCode = extractPlusCode(link);
         if (!plusCode) {
-          // Mostrar mensaje de error si el Plus Code no es válido
+          console.log('❌ Plus Code inválido');
           return;
         }
         if (plusCode) {
+          console.log('✅ Plus Code válido:', plusCode);
           setNewLocationData(prev => ({
             ...prev,
             latlong: `pluscode:${plusCode}`,
@@ -627,14 +674,36 @@ export default function ManualOrderSidebar({
         }
       }
 
-      // Si no es un Plus Code, intentar extraer coordenadas
+      // Si no es un Plus Code, intentar extraer coordenadas de un enlace
+      console.log('🔍 Intentando extraer de enlace de Google Maps...');
       const coordinates = extractCoordinatesFromGoogleMaps(link);
+      console.log('📌 Coordenadas extraídas:', coordinates);
       if (coordinates) {
-        // Normalizar antes de setear
+        const normalized = normalizeLatLong(coordinates);
+        console.log('✅ Coordenadas normalizadas:', normalized);
         setNewLocationData(prev => ({
           ...prev,
-          latlong: normalizeLatLong(coordinates)
+          latlong: normalized
         }));
+        return;
+      }
+
+      // Si no es un enlace válido, verificar si es una coordenada directa
+      console.log('🔍 Verificando si es coordenada directa...');
+      console.log('   Input sin normalizar:', link);
+      const normalized = normalizeLatLong(link);
+      console.log('   Input normalizado:', normalized);
+      const isValid = validateCoordinates(link);
+      console.log('   ¿Es válida?:', isValid);
+      if (isValid) {
+        const finalLatLong = normalizeLatLong(link);
+        console.log('✅ Coordenada directa válida:', finalLatLong);
+        setNewLocationData(prev => ({
+          ...prev,
+          latlong: finalLatLong
+        }));
+      } else {
+        console.log('❌ No es una coordenada válida');
       }
     }
   };
