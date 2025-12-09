@@ -533,6 +533,41 @@ export async function deleteProduct(productId: string) {
   }
 }
 
+// Obtener un producto por su ID
+export async function getProduct(productId: string): Promise<Product | null> {
+  try {
+    const docRef = doc(db, 'products', productId)
+    const docSnap = await getDoc(docRef)
+
+    if (!docSnap.exists()) {
+      return null
+    }
+
+    return {
+      id: docSnap.id,
+      ...docSnap.data()
+    } as Product
+  } catch (error) {
+    console.error('Error getting product:', error)
+    return null
+  }
+}
+
+// Obtener el negocio que contiene un producto
+export async function getBusinessByProduct(productId: string): Promise<Business | null> {
+  try {
+    const product = await getProduct(productId)
+    if (!product || !product.businessId) {
+      return null
+    }
+
+    return await getBusiness(product.businessId)
+  } catch (error) {
+    console.error('Error getting business by product:', error)
+    return null
+  }
+}
+
 // Funciones para Pedidos
 export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
   try {

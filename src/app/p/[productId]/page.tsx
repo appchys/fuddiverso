@@ -1,0 +1,393 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useParams } from 'next/navigation'
+import Link from 'next/link'
+import { getProduct, getBusinessByProduct, getProductsByBusiness } from '@/lib/database'
+import type { Product, Business } from '@/types/index'
+
+export default function ProductPage() {
+  const params = useParams()
+  const productId = params.productId as string
+  
+  const [product, setProduct] = useState<Product | null>(null)
+  const [business, setBusiness] = useState<Business | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [selectedVariant, setSelectedVariant] = useState<string | null>(null)
+  const [quantity, setQuantity] = useState(1)
+  const [error, setError] = useState<string | null>(null)
+  const [relatedProducts, setRelatedProducts] = useState<Product[]>([])
+  const [carouselIndex, setCarouselIndex] = useState(0)
+
+  useEffect(() => {
+    const loadProduct = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+
+        // Obtener el producto
+        const productData = await getProduct(productId)
+        if (!productData) {
+          setError('Producto no encontrado')
+          setLoading(false)
+          return
+        }
+
+        setProduct(productData)
+
+        // Obtener el negocio del producto
+        const businessData = await getBusinessByProduct(productId)
+        if (businessData) {
+          setBusiness(businessData)
+          
+          // Obtener otros productos de la tienda
+          const allProducts = await getProductsByBusiness(businessData.id)
+          // Filtrar para excluir el producto actual y tomar máximo 10
+          const otherProducts = allProducts
+            .filter(p => p.id !== productId)
+            .slice(0, 10)
+          setRelatedProducts(otherProducts)
+        }
+
+        // Seleccionar la primera variante por defecto si existen variantes
+        if (productData.variants && productData.variants.length > 0) {
+          setSelectedVariant(productData.variants[0].name)
+        }
+      } catch (error) {
+        console.error('Error loading product:', error)
+        setError('Error al cargar el producto')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    if (productId) {
+      loadProduct()
+    }
+  }, [productId])
+
+  const handleAddToCart = () => {
+    if (!product) return
+
+    try {
+      // Obtener el carrito actual del localStorage
+      const cartsData = localStorage.getItem('carts')
+      const allCarts = cartsData ? JSON.parse(cartsData) : {}
+
+      // Asumimos que el producto pertenece a un negocio (necesitaríamos obtenerlo)
+      // Por ahora usamos un ID genérico
+      const businessIdForCart = business?.id || 'unknown'
+
+      // Obtener o crear el carrito para este negocio
+      const currentCart = allCarts[businessIdForCart] || []
+
+      // Crear clave única para el item (considerando variante)
+      const itemKey = selectedVariant ? `${product.id}-${selectedVariant}` : product.id
+
+      // Buscar si el item ya existe en el carrito
+      const existingItemIndex = currentCart.findIndex((item: any) => {
+        const cartItemKey = item.variant ? `${item.id}-${item.variant}` : item.id
+        return cartItemKey === itemKey
+      })
+
+      if (existingItemIndex >= 0) {
+        // Incrementar cantidad del item existente
+        currentCart[existingItemIndex].quantity += quantity
+      } else {
+        // Agregar nuevo item al carrito
+        const variantData = selectedVariant && product.variants
+          ? product.variants.find(v => v.name === selectedVariant)
+          : null
+
+        currentCart.push({
+          id: product.id,
+          productName: product.name,
+          variantName: selectedVariant || null,
+          name: selectedVariant ? `${product.name} - ${selectedVariant}` : product.name,
+          price: variantData ? variantData.price : product.price,
+          quantity,
+          image: product.image,
+          category: product.category,
+          variant: selectedVariant || null
+        })
+      }
+
+      // Guardar carrito actualizado
+      allCarts[businessIdForCart] = currentCart
+      localStorage.setItem('carts', JSON.stringify(allCarts))
+
+      // Mostrar confirmación
+      alert(`${product.name}${selectedVariant ? ` - ${selectedVariant}` : ''} agregado al carrito`)
+
+      // Resetear cantidad
+      setQuantity(1)
+    } catch (error) {
+      console.error('Error adding to cart:', error)
+      alert('Error al agregar al carrito')
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mb-4"></div>
+          <p className="text-gray-600">Cargando producto...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !product) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <i className="bi bi-exclamation-circle text-6xl text-red-500 mb-4 block"></i>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            {error || 'Producto no encontrado'}
+          </h1>
+          <p className="text-gray-600 mb-6">
+            El producto que buscas no existe o ha sido eliminado.
+          </p>
+          <Link
+            href="/"
+            className="inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+          >
+            Volver al inicio
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header simple */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
+            <Link
+              href={business ? `/restaurants/${business.username}` : '/'}
+              className="flex items-center text-red-600 hover:text-red-700 transition-colors"
+            >
+              <i className="bi bi-chevron-left mr-1"></i>
+              <span className="font-medium">Atrás</span>
+            </Link>
+            {business && (
+              <h1 className="text-xl font-bold text-gray-900">{business.name}</h1>
+            )}
+            <div className="w-20"></div>
+          </div>
+        </div>
+      </header>
+
+      {/* Contenido del producto */}
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Imagen del producto */}
+          <div className="flex items-center justify-center bg-white rounded-lg overflow-hidden shadow-sm">
+            {product.image ? (
+              <img
+                src={product.image}
+                alt={product.name}
+                className="w-full h-auto object-cover"
+              />
+            ) : (
+              <div className="w-full aspect-square flex items-center justify-center bg-gray-100">
+                <i className="bi bi-image text-6xl text-gray-300"></i>
+              </div>
+            )}
+          </div>
+
+          {/* Información del producto */}
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            {/* Categoría y nombre */}
+            <div className="mb-4">
+              {product.category && (
+                <p className="text-sm text-gray-500 mb-2">{product.category}</p>
+              )}
+              <h1 className="text-3xl font-bold text-gray-900">{product.name}</h1>
+            </div>
+
+            {/* Descripción */}
+            {product.description && (
+              <p className="text-gray-600 mb-6 leading-relaxed">
+                {product.description}
+              </p>
+            )}
+
+            {/* Variantes */}
+            {product.variants && product.variants.length > 0 && (
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-900 mb-3">
+                  Selecciona una opción:
+                </label>
+                <div className="space-y-2">
+                  {product.variants.map((variant) => (
+                    <button
+                      key={variant.name}
+                      onClick={() => setSelectedVariant(variant.name)}
+                      className={`w-full flex items-center justify-between p-3 rounded-lg border-2 transition-colors ${
+                        selectedVariant === variant.name
+                          ? 'border-red-500 bg-red-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <span className="font-medium text-gray-900">{variant.name}</span>
+                      <span className="text-lg font-semibold text-red-600">
+                        ${variant.price.toFixed(2)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Precio (si no hay variantes) */}
+            {(!product.variants || product.variants.length === 0) && (
+              <div className="mb-6">
+                <p className="text-4xl font-bold text-red-600">
+                  ${product.price.toFixed(2)}
+                </p>
+              </div>
+            )}
+
+            {/* Cantidad */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-900 mb-3">
+                Cantidad:
+              </label>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                  className="w-10 h-10 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <i className="bi bi-dash"></i>
+                </button>
+                <input
+                  type="number"
+                  value={quantity}
+                  onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-16 text-center border border-gray-300 rounded-lg py-2 px-3 focus:ring-red-500 focus:border-red-500"
+                  min="1"
+                />
+                <button
+                  onClick={() => setQuantity(quantity + 1)}
+                  className="w-10 h-10 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <i className="bi bi-plus"></i>
+                </button>
+              </div>
+            </div>
+
+            {/* Botón agregar al carrito */}
+            <button
+              onClick={handleAddToCart}
+              className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+            >
+              <i className="bi bi-bag-plus"></i>
+              <span>Agregar al carrito</span>
+            </button>
+
+            {/* Disponibilidad */}
+            <div className="mt-6 p-3 bg-gray-50 rounded-lg">
+              <p className={`text-sm font-medium ${product.isAvailable ? 'text-green-600' : 'text-red-600'}`}>
+                {product.isAvailable ? '✓ Disponible' : '✗ No disponible'}
+              </p>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* Carrusel de productos relacionados */}
+      {relatedProducts.length > 0 && (
+        <section className="bg-white border-t mt-12">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Otros productos de {business?.name}</h2>
+            
+            {/* Carrusel */}
+            <div className="relative">
+              {/* Contenedor del carrusel */}
+              <div className="overflow-hidden">
+                <div
+                  className="flex transition-transform duration-300 ease-in-out"
+                  style={{
+                    transform: `translateX(-${carouselIndex * (100 / Math.min(4, relatedProducts.length))}%)`
+                  }}
+                >
+                  {relatedProducts.map((prod) => (
+                    <div
+                      key={prod.id}
+                      className="flex-shrink-0"
+                      style={{
+                        width: `${100 / Math.min(4, relatedProducts.length)}%`
+                      }}
+                    >
+                      <Link
+                        href={`/p/${prod.id}`}
+                        className="block p-4 h-full"
+                      >
+                        <div className="bg-gray-100 rounded-lg overflow-hidden h-48 mb-3 flex items-center justify-center">
+                          {prod.image ? (
+                            <img
+                              src={prod.image}
+                              alt={prod.name}
+                              className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                            />
+                          ) : (
+                            <i className="bi bi-image text-4xl text-gray-300"></i>
+                          )}
+                        </div>
+                        <h3 className="font-semibold text-gray-900 text-sm mb-1 line-clamp-2 hover:text-red-600 transition-colors">
+                          {prod.name}
+                        </h3>
+                        <p className="text-red-600 font-bold text-lg">
+                          ${prod.price.toFixed(2)}
+                        </p>
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Botones de navegación */}
+              {relatedProducts.length > 4 && (
+                <>
+                  <button
+                    onClick={() => setCarouselIndex(Math.max(0, carouselIndex - 1))}
+                    disabled={carouselIndex === 0}
+                    className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-12 w-10 h-10 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white rounded-full flex items-center justify-center transition-colors z-10"
+                  >
+                    <i className="bi bi-chevron-left"></i>
+                  </button>
+                  <button
+                    onClick={() => setCarouselIndex(Math.min(relatedProducts.length - 4, carouselIndex + 1))}
+                    disabled={carouselIndex >= relatedProducts.length - 4}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-12 w-10 h-10 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white rounded-full flex items-center justify-center transition-colors z-10"
+                  >
+                    <i className="bi bi-chevron-right"></i>
+                  </button>
+                </>
+              )}
+
+              {/* Indicadores de posición */}
+              {relatedProducts.length > 4 && (
+                <div className="flex justify-center gap-2 mt-6">
+                  {Array.from({ length: Math.ceil(relatedProducts.length / 4) }).map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setCarouselIndex(idx)}
+                      className={`w-2 h-2 rounded-full transition-colors ${
+                        carouselIndex === idx ? 'bg-red-600' : 'bg-gray-300'
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}

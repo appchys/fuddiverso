@@ -77,15 +77,38 @@ function BusinessStructuredData({ business }: { business: Business }) {
 }
 
 // Componente para mostrar variantes de producto
-function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, updateQuantity, businessImage }: {
+function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, updateQuantity, businessImage, businessUsername }: {
   product: any,
   onAddToCart: (item: any) => void,
   getCartItemQuantity: (id: string) => number,
   updateQuantity: (id: string, quantity: number) => void,
-  businessImage?: string
+  businessImage?: string,
+  businessUsername?: string
 }) {
   const [imgLoaded, setImgLoaded] = useState(false)
   const handleCardClick = () => onAddToCart(product)
+
+  const handleCopyProductLink = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const productUrl = `${window.location.origin}/p/${product.id}`
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(productUrl)
+      } else {
+        const textArea = document.createElement('textarea')
+        textArea.value = productUrl
+        textArea.style.position = 'fixed'
+        textArea.style.opacity = '0'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+      }
+    } catch (err) {
+      console.error('Error al copiar enlace:', err)
+    }
+  }
 
   return (
     <div onClick={handleCardClick} className="bg-white rounded-lg shadow-sm overflow-hidden cursor-pointer hover:bg-gray-50 transition flex items-center p-3 border-b border-gray-100">
@@ -131,8 +154,22 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
         </div>
       </div>
 
-      {/* Botón de agregar */}
-      <div className="ml-2 sm:ml-4 flex-shrink-0">
+      {/* Botones de acción */}
+      <div className="ml-2 sm:ml-4 flex-shrink-0 flex items-center gap-2">
+        {/* Botón de copiar link */}
+        <button
+          onClick={handleCopyProductLink}
+          disabled={!product.isAvailable}
+          className={`flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg transition-colors ${product.isAvailable
+            ? 'bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-700'
+            : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+            }`}
+          title="Copiar enlace del producto"
+        >
+          <i className="bi bi-link-45deg text-sm"></i>
+        </button>
+
+        {/* Botón de agregar/ver variantes */}
         <button
           onClick={(e) => { e.stopPropagation(); onAddToCart(product) }}
           disabled={!product.isAvailable}
@@ -830,6 +867,7 @@ function RestaurantContent() {
                     getCartItemQuantity={getCartItemQuantity}
                     updateQuantity={updateQuantity}
                     businessImage={business?.image}
+                    businessUsername={business?.username}
                   />
                 ))}
               </div>
