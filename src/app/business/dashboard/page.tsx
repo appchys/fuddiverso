@@ -2343,175 +2343,9 @@ export default function BusinessDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-3 sm:py-4">
-            <div className="flex items-center space-x-3">
-              {/* Botón de menú móvil */}
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
-              >
-                <i className="bi bi-list text-xl"></i>
-              </button>
-
-              <button
-                onClick={() => {
-                  setActiveTab('orders');
-                  setOrdersSubTab('today');
-                }}
-                className="text-xl sm:text-2xl font-bold text-red-600 hover:text-red-700 transition-colors"
-              >
-                Fuddi
-              </button>
-              <span className="hidden sm:inline text-gray-600">Dashboard</span>
-            </div>
-
-            <div className="flex items-center space-x-2 sm:space-x-4">
-              {/* Campana de notificaciones */}
-              {selectedBusinessId && (
-                <NotificationsBell 
-                  businessId={selectedBusinessId}
-                  onNewOrder={handleNewOrder}
-                />
-              )}
-
-              {/* Selector de Tiendas con imagen */}
-              <div className="relative business-dropdown-container">
-                <button
-                  onClick={() => setShowBusinessDropdown(!showBusinessDropdown)}
-                  className="flex items-center space-x-2 sm:space-x-3 bg-gray-50 hover:bg-gray-100 px-2 sm:px-3 py-2 rounded-lg transition-colors"
-                >
-                  {/* Imagen de perfil de la tienda */}
-                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
-                    {business?.image ? (
-                      <img
-                        src={business.image}
-                        alt={business.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <i className="bi bi-shop text-gray-400 text-xs sm:text-sm"></i>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="hidden sm:flex items-center space-x-2">
-                    <div className="flex flex-col">
-                      <span className="text-gray-700 font-medium">
-                        {business?.name || 'Cargando...'}
-                      </span>
-                      {userRole && (
-                        <span className="text-xs text-gray-500">
-                          {userRole === 'owner' ? 'Propietario' :
-                            userRole === 'admin' ? 'Administrador' : 'Gerente'}
-                        </span>
-                      )}
-                    </div>
-                    <i className={`bi bi-chevron-down text-gray-500 text-xs transition-transform ${showBusinessDropdown ? 'rotate-180' : ''
-                      }`}></i>
-                  </div>
-
-                  {/* Solo flecha en móvil */}
-                  <i className={`sm:hidden bi bi-chevron-down text-gray-500 text-xs transition-transform ${showBusinessDropdown ? 'rotate-180' : ''
-                    }`}></i>
-                </button>
-
-                {/* Dropdown */}
-                {showBusinessDropdown && (
-                  <div className="absolute right-0 mt-2 w-64 sm:w-72 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-10">
-                    {/* Tiendas existentes */}
-                    {businesses.map((biz) => {
-                      // Determinar el rol del usuario en esta tienda
-                      const user = auth.currentUser;
-                      const isOwner = user && biz.ownerId === user.uid;
-                      const adminRole = biz.administrators?.find(
-                        admin => admin.email === user?.email
-                      );
-                      const role = isOwner ? 'owner' : (adminRole?.role || 'admin');
-
-                      return (
-                        <button
-                          key={biz.id}
-                          onClick={() => handleBusinessChange(biz.id)}
-                          className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${selectedBusinessId === biz.id ? 'bg-red-50 border-r-2 border-red-500' : ''
-                            }`}
-                        >
-                          <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
-                            {biz.image ? (
-                              <img
-                                src={biz.image}
-                                alt={biz.name}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center">
-                                <i className="bi bi-shop text-gray-400 text-sm"></i>
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-gray-900 truncate">{biz.name}</p>
-                            <div className="flex items-center space-x-2">
-                              <p className="text-sm text-gray-500 truncate">@{biz.username}</p>
-                              <span className={`text-xs px-2 py-0.5 rounded-full ${role === 'owner'
-                                ? 'bg-red-100 text-red-700'
-                                : 'bg-blue-100 text-blue-700'
-                                }`}>
-                                {role === 'owner' ? 'Propietario' :
-                                  role === 'admin' ? 'Admin' : 'Gerente'}
-                              </span>
-                            </div>
-                          </div>
-                          {selectedBusinessId === biz.id && (
-                            <i className="bi bi-check-circle-fill text-red-500 flex-shrink-0"></i>
-                          )}
-                        </button>
-                      );
-                    })}
-
-                    {/* Separador */}
-                    {businesses.length > 0 && (
-                      <hr className="my-2 border-gray-200" />
-                    )}
-
-                    {/* Crear nueva tienda */}
-                    <button
-                      onClick={() => {
-                        setShowBusinessDropdown(false);
-                        router.push('/business/register');
-                      }}
-                      className="w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors text-red-600"
-                    >
-                      <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                        <i className="bi bi-plus text-red-600"></i>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-medium">Crear Nueva Tienda</p>
-                        <p className="text-sm text-gray-500">Agregar otra tienda</p>
-                      </div>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <button
-                onClick={handleLogout}
-                className="p-2 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                title="Cerrar sesión"
-              >
-                <i className="bi bi-box-arrow-right text-lg"></i>
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Layout con Sidebar */}
-      <div className="flex h-screen">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Layout con Sidebar - sin header aquí */}
+      <div className="flex flex-1 overflow-hidden">
         {/* Overlay solo en móvil */}
         {sidebarOpen && (
           <div
@@ -2641,6 +2475,183 @@ export default function BusinessDashboard() {
           </div>
         </div>
         <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
+          {/* Header - ahora dentro del contenedor scrollable */}
+          <header className="bg-white shadow-sm border-b sticky top-0 z-10">
+            <div className="px-4 sm:px-6 lg:px-8">
+              <div className="flex justify-between items-center py-3 sm:py-4">
+                <div className="flex items-center space-x-3">
+                  {/* Botón de menú móvil */}
+                  <button
+                    onClick={() => setSidebarOpen(!sidebarOpen)}
+                    className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+                  >
+                    <i className="bi bi-list text-xl"></i>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setActiveTab('orders');
+                      setOrdersSubTab('today');
+                    }}
+                    className="text-xl sm:text-2xl font-bold text-red-600 hover:text-red-700 transition-colors"
+                  >
+                    Fuddi
+                  </button>
+                  <span className="hidden sm:inline text-gray-600">Dashboard</span>
+                </div>
+
+                <div className="flex items-center space-x-2 sm:space-x-4">
+                  {/* Campana de notificaciones */}
+                  {selectedBusinessId && (
+                    <NotificationsBell 
+                      businessId={selectedBusinessId}
+                      onNewOrder={handleNewOrder}
+                    />
+                  )}
+
+                  {/* Selector de Tiendas con imagen */}
+                  <div className="relative business-dropdown-container">
+                    <button
+                      onClick={() => setShowBusinessDropdown(!showBusinessDropdown)}
+                      className="flex items-center space-x-2 sm:space-x-3 bg-gray-50 hover:bg-gray-100 px-2 sm:px-3 py-2 rounded-lg transition-colors"
+                    >
+                      {/* Imagen de perfil de la tienda */}
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
+                        {business?.image ? (
+                          <img
+                            src={business.image}
+                            alt={business.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <i className="bi bi-shop text-gray-400 text-xs sm:text-sm"></i>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="hidden sm:flex items-center space-x-2">
+                        <div className="flex flex-col">
+                          <span className="text-gray-700 font-medium">
+                            {business?.name || 'Cargando...'}
+                          </span>
+                          {userRole && (
+                            <span className="text-xs text-gray-500">
+                              {userRole === 'owner' ? 'Propietario' :
+                                userRole === 'admin' ? 'Administrador' : 'Gerente'}
+                            </span>
+                          )}
+                        </div>
+                        <i className={`bi bi-chevron-down text-gray-500 text-xs transition-transform ${showBusinessDropdown ? 'rotate-180' : ''
+                          }`}></i>
+                      </div>
+
+                      {/* Solo flecha en móvil */}
+                      <i className={`sm:hidden bi bi-chevron-down text-gray-500 text-xs transition-transform ${showBusinessDropdown ? 'rotate-180' : ''
+                        }`}></i>
+                    </button>
+
+                    {/* Dropdown */}
+                    {showBusinessDropdown && (
+                      <div className="absolute right-0 mt-2 w-64 sm:w-72 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-20">
+                        {/* Tiendas existentes */}
+                        {businesses.map((biz) => {
+                          // Determinar el rol del usuario en esta tienda
+                          const user = auth.currentUser;
+                          const isOwner = user && biz.ownerId === user.uid;
+                          const adminRole = biz.administrators?.find(
+                            admin => admin.email === user?.email
+                          );
+                          const role = isOwner ? 'owner' : (adminRole?.role || 'admin');
+
+                          return (
+                            <button
+                              key={biz.id}
+                              onClick={() => handleBusinessChange(biz.id)}
+                              className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${selectedBusinessId === biz.id ? 'bg-red-50 border-r-2 border-red-500' : ''
+                                }`}
+                            >
+                              <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
+                                {biz.image ? (
+                                  <img
+                                    src={biz.image}
+                                    alt={biz.name}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <i className="bi bi-shop text-gray-400 text-sm"></i>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-gray-900 truncate">{biz.name}</p>
+                                <div className="flex items-center space-x-2">
+                                  <p className="text-sm text-gray-500 truncate">@{biz.username}</p>
+                                  <span className={`text-xs px-2 py-0.5 rounded-full ${role === 'owner'
+                                    ? 'bg-red-100 text-red-700'
+                                    : 'bg-blue-100 text-blue-700'
+                                    }`}>
+                                    {role === 'owner' ? 'Propietario' :
+                                      role === 'admin' ? 'Admin' : 'Gerente'}
+                                  </span>
+                                </div>
+                              </div>
+                              {selectedBusinessId === biz.id && (
+                                <i className="bi bi-check-circle-fill text-red-500 flex-shrink-0"></i>
+                              )}
+                            </button>
+                          );
+                        })}
+
+                        {/* Separador */}
+                        {businesses.length > 0 && (
+                          <hr className="my-2 border-gray-200" />
+                        )}
+
+                        {/* Crear nueva tienda */}
+                        <button
+                          onClick={() => {
+                            setShowBusinessDropdown(false);
+                            router.push('/business/register');
+                          }}
+                          className="w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors text-red-600"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                            <i className="bi bi-plus text-red-600"></i>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium">Crear Nueva Tienda</p>
+                            <p className="text-sm text-gray-500">Agregar otra tienda</p>
+                          </div>
+                        </button>
+
+                        {/* Separador antes de logout */}
+                        <hr className="my-2 border-gray-200" />
+
+                        {/* Logout */}
+                        <button
+                          onClick={() => {
+                            setShowBusinessDropdown(false);
+                            handleLogout();
+                          }}
+                          className="w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-red-50 transition-colors text-red-600"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                            <i className="bi bi-box-arrow-right text-red-600"></i>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium">Cerrar Sesión</p>
+                          </div>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </header>
+
           <div className="mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
 
             {/* Orders Tab */}
