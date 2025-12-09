@@ -9,7 +9,7 @@ import type { Product, Business } from '@/types/index'
 export default function ProductPage() {
   const params = useParams()
   const productId = params.productId as string
-  
+
   const [product, setProduct] = useState<Product | null>(null)
   const [business, setBusiness] = useState<Business | null>(null)
   const [loading, setLoading] = useState(true)
@@ -17,7 +17,6 @@ export default function ProductPage() {
   const [quantity, setQuantity] = useState(1)
   const [error, setError] = useState<string | null>(null)
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([])
-  const [carouselIndex, setCarouselIndex] = useState(0)
 
   useEffect(() => {
     const loadProduct = async () => {
@@ -39,12 +38,12 @@ export default function ProductPage() {
         const businessData = await getBusinessByProduct(productId)
         if (businessData) {
           setBusiness(businessData)
-          
+
           // Obtener otros productos de la tienda
           const allProducts = await getProductsByBusiness(businessData.id)
-          // Filtrar para excluir el producto actual y tomar máximo 10
+          // Filtrar para excluir el producto actual, solo disponibles, y tomar máximo 10
           const otherProducts = allProducts
-            .filter(p => p.id !== productId)
+            .filter(p => p.id !== productId && p.isAvailable)
             .slice(0, 10)
           setRelatedProducts(otherProducts)
         }
@@ -227,11 +226,10 @@ export default function ProductPage() {
                     <button
                       key={variant.name}
                       onClick={() => setSelectedVariant(variant.name)}
-                      className={`w-full flex items-center justify-between p-3 rounded-lg border-2 transition-colors ${
-                        selectedVariant === variant.name
-                          ? 'border-red-500 bg-red-50'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
+                      className={`w-full flex items-center justify-between p-3 rounded-lg border-2 transition-colors ${selectedVariant === variant.name
+                        ? 'border-red-500 bg-red-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                        }`}
                     >
                       <span className="font-medium text-gray-900">{variant.name}</span>
                       <span className="text-lg font-semibold text-red-600">
@@ -302,86 +300,63 @@ export default function ProductPage() {
       {/* Carrusel de productos relacionados */}
       {relatedProducts.length > 0 && (
         <section className="bg-white border-t mt-12">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Otros productos de {business?.name}</h2>
-            
-            {/* Carrusel */}
+          <div className="max-w-7xl mx-auto py-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6 px-4 sm:px-6 lg:px-8">
+              Otros productos de {business?.name}
+            </h2>
+
+            {/* Carrusel deslizable horizontal */}
             <div className="relative">
-              {/* Contenedor del carrusel */}
-              <div className="overflow-hidden">
-                <div
-                  className="flex transition-transform duration-300 ease-in-out"
-                  style={{
-                    transform: `translateX(-${carouselIndex * (100 / Math.min(4, relatedProducts.length))}%)`
-                  }}
-                >
-                  {relatedProducts.map((prod) => (
-                    <div
-                      key={prod.id}
-                      className="flex-shrink-0"
-                      style={{
-                        width: `${100 / Math.min(4, relatedProducts.length)}%`
-                      }}
-                    >
-                      <Link
-                        href={`/p/${prod.id}`}
-                        className="block p-4 h-full"
-                      >
-                        <div className="bg-gray-100 rounded-lg overflow-hidden h-48 mb-3 flex items-center justify-center">
-                          {prod.image ? (
-                            <img
-                              src={prod.image}
-                              alt={prod.name}
-                              className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                            />
-                          ) : (
+              <div
+                className="flex gap-4 overflow-x-auto snap-x snap-mandatory scrollbar-hide px-4 sm:px-6 lg:px-8 pb-4"
+                style={{
+                  scrollbarWidth: 'none',
+                  msOverflowStyle: 'none',
+                  WebkitOverflowScrolling: 'touch'
+                }}
+              >
+                {relatedProducts.map((prod) => (
+                  <Link
+                    key={prod.id}
+                    href={`/p/${prod.id}`}
+                    className="group flex-shrink-0 snap-start w-[160px] sm:w-[200px]"
+                  >
+                    <div className="bg-white rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-300 h-full">
+                      {/* Contenedor de imagen con aspect ratio fijo */}
+                      <div className="relative w-full aspect-square bg-gray-100 overflow-hidden">
+                        {prod.image ? (
+                          <img
+                            src={prod.image}
+                            alt={prod.name}
+                            className="absolute inset-0 w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-300"
+                          />
+                        ) : (
+                          <div className="absolute inset-0 flex items-center justify-center">
                             <i className="bi bi-image text-4xl text-gray-300"></i>
-                          )}
-                        </div>
-                        <h3 className="font-semibold text-gray-900 text-sm mb-1 line-clamp-2 hover:text-red-600 transition-colors">
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Información del producto */}
+                      <div className="p-3">
+                        <h3 className="font-semibold text-gray-900 text-sm mb-2 line-clamp-2 group-hover:text-red-600 transition-colors min-h-[2.5rem]">
                           {prod.name}
                         </h3>
-                        <p className="text-red-600 font-bold text-lg">
+                        <p className="text-red-600 font-bold text-base">
                           ${prod.price.toFixed(2)}
                         </p>
-                      </Link>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  </Link>
+                ))}
               </div>
 
-              {/* Botones de navegación */}
-              {relatedProducts.length > 4 && (
-                <>
-                  <button
-                    onClick={() => setCarouselIndex(Math.max(0, carouselIndex - 1))}
-                    disabled={carouselIndex === 0}
-                    className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-12 w-10 h-10 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white rounded-full flex items-center justify-center transition-colors z-10"
-                  >
-                    <i className="bi bi-chevron-left"></i>
-                  </button>
-                  <button
-                    onClick={() => setCarouselIndex(Math.min(relatedProducts.length - 4, carouselIndex + 1))}
-                    disabled={carouselIndex >= relatedProducts.length - 4}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-12 w-10 h-10 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white rounded-full flex items-center justify-center transition-colors z-10"
-                  >
-                    <i className="bi bi-chevron-right"></i>
-                  </button>
-                </>
-              )}
-
-              {/* Indicadores de posición */}
-              {relatedProducts.length > 4 && (
-                <div className="flex justify-center gap-2 mt-6">
-                  {Array.from({ length: Math.ceil(relatedProducts.length / 4) }).map((_, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setCarouselIndex(idx)}
-                      className={`w-2 h-2 rounded-full transition-colors ${
-                        carouselIndex === idx ? 'bg-red-600' : 'bg-gray-300'
-                      }`}
-                    />
-                  ))}
+              {/* Indicador de deslizamiento */}
+              {relatedProducts.length > 2 && (
+                <div className="absolute right-0 top-0 bottom-4 w-16 pointer-events-none bg-gradient-to-l from-white via-white/80 to-transparent flex items-center justify-end pr-2">
+                  <div className="animate-pulse">
+                    <i className="bi bi-chevron-right text-2xl text-gray-400"></i>
+                  </div>
                 </div>
               )}
             </div>
