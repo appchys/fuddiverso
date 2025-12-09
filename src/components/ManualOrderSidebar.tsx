@@ -537,15 +537,34 @@ export default function ManualOrderSidebar({
     }
   };
 
-  // Función para normalizar coordenadas (eliminar espacios alrededor de la coma)
+  // Función para normalizar coordenadas (eliminar espacios, convertir comas decimales a puntos)
   const normalizeLatLong = (coords: string): string => {
-    return coords.trim().replace(/\s*,\s*/, ',');
+    // Primero, eliminar espacios alrededor de la coma separadora
+    let normalized = coords.trim().replace(/\s*,\s*/, ',');
+    
+    // Convertir comas decimales (,) a puntos (.) para que JavaScript pueda parsear correctamente
+    // Esto maneja formatos como: -1,8732619, -79,9795561
+    // Dividimos por coma, reemplazamos comas internas por puntos, y rejuntamos
+    const parts = normalized.split(',');
+    if (parts.length === 2) {
+      // Reemplazar comas dentro de los números por puntos
+      const lat = parts[0].replace(/,/g, '.');
+      const lng = parts[1].replace(/,/g, '.');
+      normalized = `${lat},${lng}`;
+    }
+    
+    return normalized;
   }
 
   // Función para validar coordenadas tradicionales (lat,lng)
+  // Soporta formatos como: 1.123456,79.654321 o 1,123456,79,654321
   const validateCoordinates = (coords: string): boolean => {
     if (!coords) return false;
     const normalized = normalizeLatLong(coords);
+    
+    // Patrón que acepta puntos O comas como separadores decimales
+    // Antes de normalizar: -1,8732619, -79,9795561
+    // Después de normalizar: -1.8732619,-79.9795561
     const coordPattern = /^-?\d{1,3}\.?\d*,-?\d{1,3}\.?\d*$/;
     if (!coordPattern.test(normalized)) return false;
 
