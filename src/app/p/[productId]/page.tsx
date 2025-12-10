@@ -17,6 +17,8 @@ export default function ProductPage() {
   const [quantity, setQuantity] = useState(1)
   const [error, setError] = useState<string | null>(null)
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([])
+  const [cart, setCart] = useState<any[]>([])
+  const [isCartOpen, setIsCartOpen] = useState(false)
 
   useEffect(() => {
     const loadProduct = async () => {
@@ -64,6 +66,34 @@ export default function ProductPage() {
       loadProduct()
     }
   }, [productId])
+
+  // Cargar carrito específico de esta tienda desde localStorage
+  useEffect(() => {
+    if (business?.id) {
+      const loadCart = () => {
+        const savedCarts = localStorage.getItem('carts')
+        if (savedCarts) {
+          const allCarts = JSON.parse(savedCarts)
+          const businessCart = allCarts[business.id] || []
+          setCart(businessCart)
+        }
+      }
+
+      loadCart()
+
+      // Escuchar cambios en localStorage
+      const handleStorageChange = () => loadCart()
+      window.addEventListener('storage', handleStorageChange)
+
+      // También verificar cada segundo para cambios locales
+      const interval = setInterval(loadCart, 1000)
+
+      return () => {
+        window.removeEventListener('storage', handleStorageChange)
+        clearInterval(interval)
+      }
+    }
+  }, [business?.id])
 
   // Actualizar meta tags dinámicamente cuando se carga el producto
   useEffect(() => {
@@ -165,6 +195,48 @@ export default function ProductPage() {
       alert('Error al agregar al carrito')
     }
   }
+
+  const removeFromCart = (productId: string) => {
+    if (!business?.id) return
+
+    const newCart = cart.filter(item => item.id !== productId)
+    setCart(newCart)
+    updateCartInStorage(business.id, newCart)
+  }
+
+  const updateQuantity = (productId: string, quantity: number) => {
+    if (!business?.id) return
+
+    if (quantity <= 0) {
+      removeFromCart(productId)
+      return
+    }
+
+    const newCart = cart.map(item =>
+      item.id === productId
+        ? { ...item, quantity }
+        : item
+    )
+
+    setCart(newCart)
+    updateCartInStorage(business.id, newCart)
+  }
+
+  const updateCartInStorage = (businessId: string, businessCart: any[]) => {
+    const savedCarts = localStorage.getItem('carts')
+    const allCarts = savedCarts ? JSON.parse(savedCarts) : {}
+
+    if (businessCart.length === 0) {
+      delete allCarts[businessId]
+    } else {
+      allCarts[businessId] = businessCart
+    }
+
+    localStorage.setItem('carts', JSON.stringify(allCarts))
+  }
+
+  const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+  const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
 
   if (loading) {
     return (
@@ -383,6 +455,204 @@ export default function ProductPage() {
             </div>
           </div>
         </section>
+      )}
+
+      {/* Floating Cart Button */}
+      {cart.length > 0 && business && (
+        <div className="fixed bottom-6 right-6 z-40">
+          <button
+            onClick={() => setIsCartOpen(true)}
+            className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-full shadow-2xl hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 group"
+          >
+            <div className="flex items-center px-4 py-3 space-x-2">
+              <div className="relative">
+                <i className="bi bi-cart text-xl"></i>
+                <span className="absolute -top-2 -right-2 bg-yellow-400 text-red-900 rounded-full w-5 h-5 text-xs font-bold flex items-center justify-center animate-pulse">
+                  {cartItemsCount}
+                </span>
+              </div>
+              <div className="hidden sm:block text-left">
+                <div className="text-sm font-semibold leading-none">
+                  ${cartTotal.toFixed(2)}
+                </div>
+                <div className="text-xs text-red-100 leading-none mt-0.5">Ver carrito</div>
+              </div>
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* Cart Sidebar */}
+      {isCartOpen && (
+        <div className="fixed inset-0 z-50 overflow-hidden">
+          <div className="absolute inset-0 bg-black bg-opacity-50 transition-all duration-300" onClick={() => setIsCartOpen(false)} />
+          <div className="absolute right-0 top-0 h-full w-full sm:w-96 bg-white shadow-2xl">
+            <div className="flex flex-col h-full">
+              {/* Header */}
+              <div className="p-4 bg-gradient-to-r from-red-500 to-red-600 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold">Tu Pedido</h3>
+                    <p className="text-red-100 text-sm">{business?.name}</p>
+                  </div>
+                  <button
+                    onClick={() => setIsCartOpen(false)}
+                    className="p-2 hover:bg-red-600 rounded-lg transition-colors"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                {cart.length > 0 && (
+                  <div className="mt-2 text-sm text-red-100">
+                    {cartItemsCount} {cartItemsCount === 1 ? 'producto' : 'productos'}
+                  </div>
+                )}
+              </div>
+
+              {/* Cart Content */}
+              <div className="flex-1 overflow-y-auto px-4 pt-4">
+                {cart.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center px-4">
+                    <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                      <i className="bi bi-cart text-4xl text-gray-400"></i>
+                    </div>
+                    <h4 className="text-lg font-medium text-gray-900 mb-2">Tu carrito está vacío</h4>
+                    <p className="text-gray-500 text-sm">Agrega algunos productos para comenzar</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4 pb-4">
+                    {(() => {
+                      // Agrupar items por producto
+                      const grouped: Record<string, any[]> = {}
+
+                      cart.forEach(item => {
+                        const key = item.productName || item.name
+                        if (!grouped[key]) grouped[key] = []
+                        grouped[key].push(item)
+                      })
+
+                      return Object.entries(grouped).map(([productName, items], groupIndex) => {
+                        const firstItem = items[0]
+
+                        return (
+                          <div key={productName} className={groupIndex > 0 ? 'pt-4 border-t border-gray-200' : ''}>
+                            {/* Header del producto */}
+                            <div className="flex items-center gap-2 mb-2 px-2">
+                              <div className="w-8 h-8 rounded-md overflow-hidden bg-gray-100 flex-shrink-0">
+                                <img
+                                  src={firstItem.image || business?.image}
+                                  alt={productName}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement
+                                    if (target.src !== business?.image) target.src = business?.image || ''
+                                  }}
+                                />
+                              </div>
+                              <h4 className="font-semibold text-sm text-gray-900">{productName}</h4>
+                            </div>
+
+                            {/* Items del producto */}
+                            <div className="space-y-2">
+                              {items.map((item) => (
+                                <div
+                                  key={item.id}
+                                  className="flex items-center gap-2 p-3 rounded-lg transition-all bg-white border border-gray-200 hover:shadow-sm"
+                                >
+                                  {/* Nombre de variante o producto */}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-medium text-sm leading-tight line-clamp-2 text-gray-900">
+                                      {item.variantName || item.name}
+                                    </p>
+                                  </div>
+
+                                  {/* Cantidad */}
+                                  <div className="flex items-center border rounded-lg overflow-hidden bg-white flex-shrink-0">
+                                    <button
+                                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                                      className="px-1.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+                                    >
+                                      −
+                                    </button>
+                                    <div className="px-2 py-1 min-w-[32px] text-center font-medium text-sm">
+                                      {item.quantity}
+                                    </div>
+                                    <button
+                                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                                      className="px-1.5 py-1 bg-red-500 text-white hover:bg-red-600 transition-colors"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+
+                                  {/* Subtotal */}
+                                  <div className="font-bold text-sm min-w-[50px] text-right flex-shrink-0 text-gray-900">
+                                    ${(item.price * item.quantity).toFixed(2)}
+                                  </div>
+
+                                  {/* Eliminar */}
+                                  <button
+                                    onClick={() => removeFromCart(item.id)}
+                                    className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition flex-shrink-0"
+                                    title="Eliminar"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer con resumen y botón de checkout */}
+              {cart.length > 0 && (
+                <div className="border-t bg-white p-4 space-y-4">
+                  {/* Resumen del pedido */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Subtotal ({cartItemsCount} productos)</span>
+                      <span className="font-medium">${cartTotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Envío</span>
+                      <span className="text-gray-500">A calcular</span>
+                    </div>
+                    <div className="border-t pt-2">
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold text-gray-900">Total</span>
+                        <span className="font-bold text-xl text-red-600">${cartTotal.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Botón de checkout */}
+                  <Link
+                    href={`/checkout?businessId=${business!.id}`}
+                    className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white py-4 rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-200 flex items-center justify-center font-semibold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                    onClick={() => setIsCartOpen(false)}
+                  >
+                    <i className="bi bi-cart mr-2 text-xl"></i>
+                    Continuar con el pedido
+                  </Link>
+
+                  {/* Texto informativo */}
+                  <p className="text-xs text-gray-500 text-center">
+                    Los costos de envío se calcularán en el siguiente paso
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
