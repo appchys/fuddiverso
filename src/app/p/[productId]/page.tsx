@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import Head from 'next/head'
 import { getProduct, getBusinessByProduct, getProductsByBusiness } from '@/lib/database'
 import type { Product, Business } from '@/types/index'
 
@@ -65,6 +64,46 @@ export default function ProductPage() {
       loadProduct()
     }
   }, [productId])
+
+  // Actualizar meta tags dinámicamente cuando se carga el producto
+  useEffect(() => {
+    if (product) {
+      // Actualizar título
+      document.title = `${product.name} - fuddi.shop`
+
+      // Función helper para actualizar o crear meta tags
+      const updateMetaTag = (property: string, content: string, isProperty = true) => {
+        const attribute = isProperty ? 'property' : 'name'
+        let element = document.querySelector(`meta[${attribute}="${property}"]`)
+
+        if (!element) {
+          element = document.createElement('meta')
+          element.setAttribute(attribute, property)
+          document.head.appendChild(element)
+        }
+
+        element.setAttribute('content', content)
+      }
+
+      // Meta tags básicos
+      updateMetaTag('description', product.description || 'Descubre este producto en fuddi.shop', false)
+
+      // Open Graph
+      updateMetaTag('og:type', 'product')
+      updateMetaTag('og:title', product.name)
+      updateMetaTag('og:description', product.description || 'Descubre este producto en fuddi.shop')
+      updateMetaTag('og:image', product.image || '')
+      updateMetaTag('og:url', `https://fuddi.shop/p/${productId}`)
+      updateMetaTag('og:site_name', 'fuddi.shop')
+      updateMetaTag('og:locale', 'es_ES')
+
+      // Twitter
+      updateMetaTag('twitter:card', 'summary_large_image', false)
+      updateMetaTag('twitter:title', product.name, false)
+      updateMetaTag('twitter:description', product.description || 'Descubre este producto en fuddi.shop', false)
+      updateMetaTag('twitter:image', product.image || '', false)
+    }
+  }, [product, productId])
 
   const handleAddToCart = () => {
     if (!product) return
@@ -162,29 +201,6 @@ export default function ProductPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Meta tags dinámicos para compartir */}
-      <Head>
-        <title>{product?.name || 'Producto'} - fuddi.shop</title>
-        <meta name="description" content={product?.description || 'Descubre este producto en fuddi.shop'} />
-
-        {/* Open Graph / Facebook */}
-        <meta property="og:type" content="product" />
-        <meta property="og:title" content={product?.name || 'Producto'} />
-        <meta property="og:description" content={product?.description || 'Descubre este producto en fuddi.shop'} />
-        <meta property="og:image" content={product?.image || ''} />
-        <meta property="og:url" content={`https://fuddi.shop/p/${productId}`} />
-
-        {/* Twitter */}
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content={product?.name || 'Producto'} />
-        <meta name="twitter:description" content={product?.description || 'Descubre este producto en fuddi.shop'} />
-        <meta name="twitter:image" content={product?.image || ''} />
-
-        {/* WhatsApp específico */}
-        <meta property="og:site_name" content="fuddi.shop" />
-        <meta property="og:locale" content="es_ES" />
-      </Head>
-
       {/* Contenido del producto */}
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
