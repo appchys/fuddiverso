@@ -321,10 +321,16 @@ export default function ProductPageByUsername() {
             </div>
 
             {product.description && (
-              <p className="text-gray-600 mb-6 leading-relaxed">
+              <p className="text-gray-600 mb-4 leading-relaxed">
                 {product.description}
               </p>
             )}
+
+            <div className="mb-6 p-3 bg-gray-50 rounded-lg">
+              <p className={`text-sm font-medium ${product.isAvailable ? 'text-green-600' : 'text-red-600'}`}>
+                {product.isAvailable ? '✓ Disponible' : '✗ No disponible'}
+              </p>
+            </div>
 
             {product.variants && product.variants.length > 0 && (
               <div className="mb-6">
@@ -393,26 +399,20 @@ export default function ProductPageByUsername() {
               <i className="bi bi-bag-plus"></i>
               <span>Agregar al carrito</span>
             </button>
-
-            <div className="mt-6 p-3 bg-gray-50 rounded-lg">
-              <p className={`text-sm font-medium ${product.isAvailable ? 'text-green-600' : 'text-red-600'}`}>
-                {product.isAvailable ? '✓ Disponible' : '✗ No disponible'}
-              </p>
-            </div>
           </div>
         </div>
       </main>
 
       {relatedProducts.length > 0 && (
         <section className="bg-white border-t mt-12">
-          <div className="max-w-7xl mx-auto py-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">
               Otros productos de {business?.name}
             </h2>
 
             <div className="relative">
               <div
-                className="flex gap-4 overflow-x-auto snap-x snap-mandatory scrollbar-hide px-4 sm:px-6 lg:px-8 pb-4"
+                className="flex gap-4 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-4"
                 style={{
                   scrollbarWidth: 'none',
                   msOverflowStyle: 'none',
