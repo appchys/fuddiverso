@@ -372,7 +372,8 @@ export default function ProductPageByUsername() {
               <div className="flex items-center space-x-3">
                 <button
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  className="w-10 h-10 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={!product.isAvailable}
+                  className="w-10 h-10 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
                 >
                   <i className="bi bi-dash"></i>
                 </button>
@@ -380,12 +381,14 @@ export default function ProductPageByUsername() {
                   type="number"
                   value={quantity}
                   onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-16 text-center border border-gray-300 rounded-lg py-2 px-3 focus:ring-red-500 focus:border-red-500"
+                  disabled={!product.isAvailable}
+                  className="w-16 text-center border border-gray-300 rounded-lg py-2 px-3 focus:ring-red-500 focus:border-red-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100"
                   min="1"
                 />
                 <button
                   onClick={() => setQuantity(quantity + 1)}
-                  className="w-10 h-10 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={!product.isAvailable}
+                  className="w-10 h-10 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
                 >
                   <i className="bi bi-plus"></i>
                 </button>
@@ -394,10 +397,11 @@ export default function ProductPageByUsername() {
 
             <button
               onClick={handleAddToCart}
-              className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+              disabled={!product.isAvailable}
+              className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
             >
               <i className="bi bi-bag-plus"></i>
-              <span>Agregar al carrito</span>
+              <span>{product.isAvailable ? 'Agregar al carrito' : 'Producto no disponible'}</span>
             </button>
           </div>
         </div>
