@@ -42,9 +42,20 @@ export default function ProductPageByUsername() {
           setBusiness(businessData)
 
           const allProducts = await getProductsByBusiness(businessData.id)
+
+          // Ordenar productos según el orden de la categoría definido en business.categories (uso interno)
+          const categoryOrder: string[] = Array.isArray(businessData.categories) ? businessData.categories : []
+          const getCategoryIndex = (category: string | undefined) => {
+            if (!category) return Number.MAX_SAFE_INTEGER
+            const index = categoryOrder.indexOf(category)
+            return index === -1 ? Number.MAX_SAFE_INTEGER : index
+          }
+
           const otherProducts = allProducts
             .filter(p => p.id !== productId && p.isAvailable)
+            .sort((a, b) => getCategoryIndex(a.category) - getCategoryIndex(b.category))
             .slice(0, 10)
+
           setRelatedProducts(otherProducts)
         }
 
