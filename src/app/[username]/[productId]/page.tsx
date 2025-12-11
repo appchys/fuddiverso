@@ -21,6 +21,7 @@ export default function ProductPageByUsername() {
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([])
   const [cart, setCart] = useState<any[]>([])
   const [isCartOpen, setIsCartOpen] = useState(false)
+  const [copySuccess, setCopySuccess] = useState(false)
 
   useEffect(() => {
     const loadProduct = async () => {
@@ -186,6 +187,29 @@ export default function ProductPageByUsername() {
     }
   }
 
+  const handleCopyProductLink = async () => {
+    const productUrl = `${window.location.origin}/${username}/${productId}`
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(productUrl)
+      } else {
+        const textArea = document.createElement('textarea')
+        textArea.value = productUrl
+        textArea.style.position = 'fixed'
+        textArea.style.opacity = '0'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+      }
+      setCopySuccess(true)
+      setTimeout(() => setCopySuccess(false), 2000)
+    } catch (err) {
+      console.error('Error al copiar enlace:', err)
+    }
+  }
+
   const removeFromCart = (productIdToRemove: string) => {
     if (!business?.id) return
 
@@ -298,18 +322,32 @@ export default function ProductPageByUsername() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="w-full aspect-square bg-white rounded-lg overflow-hidden shadow-sm">
-            {product.image ? (
-              <img
-                src={product.image}
-                alt={product.name}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gray-100">
-                <i className="bi bi-image text-6xl text-gray-300"></i>
-              </div>
-            )}
+          <div className="w-full">
+            <div className="w-full aspect-square bg-white rounded-lg overflow-hidden shadow-sm">
+              {product.image ? (
+                <img
+                  src={product.image}
+                  alt={product.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                  <i className="bi bi-image text-6xl text-gray-300"></i>
+                </div>
+              )}
+            </div>
+
+            {/* Botón de compartir */}
+            <div className="mt-3 flex justify-end">
+              <button
+                onClick={handleCopyProductLink}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-300 rounded-lg transition-colors"
+                title="Compartir producto"
+              >
+                <i className={`bi ${copySuccess ? 'bi-check-circle-fill text-green-600' : 'bi-share'}`}></i>
+                <span>{copySuccess ? 'Enlace copiado' : 'Compartir'}</span>
+              </button>
+            </div>
           </div>
 
           <div className="bg-white rounded-lg shadow-sm p-6">
