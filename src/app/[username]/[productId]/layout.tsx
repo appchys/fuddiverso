@@ -1,15 +1,15 @@
 import type { Metadata } from 'next'
 import { getProduct } from '@/lib/database'
 
-interface ProductPageParams {
-  params: {
+type ProductPageParams = {
+  params: Promise<{
     username: string
     productId: string
-  }
+  }>
 }
 
 export async function generateMetadata({ params }: ProductPageParams): Promise<Metadata> {
-  const { username, productId } = params
+  const { username, productId } = await params
 
   try {
     const product = await getProduct(productId)
