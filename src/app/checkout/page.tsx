@@ -2167,6 +2167,9 @@ function CheckoutContent() {
                           <span className="text-xs text-red-600 font-medium">
                             Inténtalo de nuevo
                           </span>
+                          <span className="text-[11px] text-gray-500 mt-1">
+                            Necesitamos esta info para determinar la cobertura y valor de envío
+                          </span>
                           {isRequestingLocation && (
                             <span className="mt-2 text-xs text-gray-500">
                               Obteniendo tu ubicacin...
