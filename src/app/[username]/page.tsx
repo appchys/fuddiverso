@@ -91,7 +91,7 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
 
   const handleCopyProductLink = async (e: React.MouseEvent) => {
     e.stopPropagation()
-    const productUrl = `${window.location.origin}/p/${product.id}`
+    const productUrl = `${window.location.origin}/${businessUsername}/${product.id}`
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(productUrl)

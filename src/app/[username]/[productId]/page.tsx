@@ -1,4 +1,4 @@
-'use client'
+"use client"
 
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
@@ -7,9 +7,10 @@ import { getProduct, getBusinessByProduct, getProductsByBusiness } from '@/lib/d
 import type { Product, Business } from '@/types/index'
 import CartSidebar from '@/components/CartSidebar'
 
-export default function ProductPage() {
+export default function ProductPageByUsername() {
   const params = useParams()
   const productId = params.productId as string
+  const username = params.username as string
 
   const [product, setProduct] = useState<Product | null>(null)
   const [business, setBusiness] = useState<Business | null>(null)
@@ -27,7 +28,6 @@ export default function ProductPage() {
         setLoading(true)
         setError(null)
 
-        // Obtener el producto
         const productData = await getProduct(productId)
         if (!productData) {
           setError('Producto no encontrado')
@@ -37,21 +37,17 @@ export default function ProductPage() {
 
         setProduct(productData)
 
-        // Obtener el negocio del producto
         const businessData = await getBusinessByProduct(productId)
         if (businessData) {
           setBusiness(businessData)
 
-          // Obtener otros productos de la tienda
           const allProducts = await getProductsByBusiness(businessData.id)
-          // Filtrar para excluir el producto actual, solo disponibles, y tomar máximo 10
           const otherProducts = allProducts
             .filter(p => p.id !== productId && p.isAvailable)
             .slice(0, 10)
           setRelatedProducts(otherProducts)
         }
 
-        // Seleccionar la primera variante por defecto si existen variantes
         if (productData.variants && productData.variants.length > 0) {
           setSelectedVariant(productData.variants[0].name)
         }
@@ -68,7 +64,6 @@ export default function ProductPage() {
     }
   }, [productId])
 
-  // Cargar carrito específico de esta tienda desde localStorage
   useEffect(() => {
     if (business?.id) {
       const loadCart = () => {
@@ -82,11 +77,9 @@ export default function ProductPage() {
 
       loadCart()
 
-      // Escuchar cambios en localStorage
       const handleStorageChange = () => loadCart()
       window.addEventListener('storage', handleStorageChange)
 
-      // También verificar cada segundo para cambios locales
       const interval = setInterval(loadCart, 1000)
 
       return () => {
@@ -96,13 +89,10 @@ export default function ProductPage() {
     }
   }, [business?.id])
 
-  // Actualizar meta tags dinámicamente cuando se carga el producto
   useEffect(() => {
     if (product) {
-      // Actualizar título
       document.title = `${product.name} - fuddi.shop`
 
-      // Función helper para actualizar o crear meta tags
       const updateMetaTag = (property: string, content: string, isProperty = true) => {
         const attribute = isProperty ? 'property' : 'name'
         let element = document.querySelector(`meta[${attribute}="${property}"]`)
@@ -116,55 +106,46 @@ export default function ProductPage() {
         element.setAttribute('content', content)
       }
 
-      // Meta tags básicos
       updateMetaTag('description', product.description || 'Descubre este producto en fuddi.shop', false)
 
-      // Open Graph
+      const canonicalUrl = `https://fuddi.shop/${username}/${productId}`
+
       updateMetaTag('og:type', 'product')
       updateMetaTag('og:title', product.name)
       updateMetaTag('og:description', product.description || 'Descubre este producto en fuddi.shop')
       updateMetaTag('og:image', product.image || '')
-      updateMetaTag('og:url', `https://fuddi.shop/p/${productId}`)
+      updateMetaTag('og:url', canonicalUrl)
       updateMetaTag('og:site_name', 'fuddi.shop')
       updateMetaTag('og:locale', 'es_ES')
 
-      // Twitter
       updateMetaTag('twitter:card', 'summary_large_image', false)
       updateMetaTag('twitter:title', product.name, false)
       updateMetaTag('twitter:description', product.description || 'Descubre este producto en fuddi.shop', false)
       updateMetaTag('twitter:image', product.image || '', false)
     }
-  }, [product, productId])
+  }, [product, productId, username])
 
   const handleAddToCart = () => {
     if (!product) return
 
     try {
-      // Obtener el carrito actual del localStorage
       const cartsData = localStorage.getItem('carts')
       const allCarts = cartsData ? JSON.parse(cartsData) : {}
 
-      // Asumimos que el producto pertenece a un negocio (necesitaríamos obtenerlo)
-      // Por ahora usamos un ID genérico
       const businessIdForCart = business?.id || 'unknown'
 
-      // Obtener o crear el carrito para este negocio
       const currentCart = allCarts[businessIdForCart] || []
 
-      // Crear clave única para el item (considerando variante)
       const itemKey = selectedVariant ? `${product.id}-${selectedVariant}` : product.id
 
-      // Buscar si el item ya existe en el carrito
       const existingItemIndex = currentCart.findIndex((item: any) => {
         const cartItemKey = item.variant ? `${item.id}-${item.variant}` : item.id
         return cartItemKey === itemKey
       })
 
       if (existingItemIndex >= 0) {
-        // Incrementar cantidad del item existente
         currentCart[existingItemIndex].quantity += quantity
       } else {
-        // Agregar nuevo item al carrito
         const variantData = selectedVariant && product.variants
           ? product.variants.find(v => v.name === selectedVariant)
           : null
@@ -182,14 +163,11 @@ export default function ProductPage() {
         })
       }
 
-      // Guardar carrito actualizado
       allCarts[businessIdForCart] = currentCart
       localStorage.setItem('carts', JSON.stringify(allCarts))
 
-      // Mostrar confirmación
       alert(`${product.name}${selectedVariant ? ` - ${selectedVariant}` : ''} agregado al carrito`)
 
-      // Resetear cantidad
       setQuantity(1)
     } catch (error) {
       console.error('Error adding to cart:', error)
@@ -197,25 +175,25 @@ export default function ProductPage() {
     }
   }
 
-  const removeFromCart = (productId: string) => {
+  const removeFromCart = (productIdToRemove: string) => {
     if (!business?.id) return
 
-    const newCart = cart.filter(item => item.id !== productId)
+    const newCart = cart.filter(item => item.id !== productIdToRemove)
     setCart(newCart)
     updateCartInStorage(business.id, newCart)
   }
 
-  const updateQuantity = (productId: string, quantity: number) => {
+  const updateQuantity = (productIdToUpdate: string, newQuantity: number) => {
     if (!business?.id) return
 
-    if (quantity <= 0) {
-      removeFromCart(productId)
+    if (newQuantity <= 0) {
+      removeFromCart(productIdToUpdate)
       return
     }
 
     const newCart = cart.map(item =>
-      item.id === productId
-        ? { ...item, quantity }
+      item.id === productIdToUpdate
+        ? { ...item, quantity: newQuantity }
         : item
     )
 
@@ -262,10 +240,10 @@ export default function ProductPage() {
             El producto que buscas no existe o ha sido eliminado.
           </p>
           <Link
-            href="/"
+            href={business?.username ? `/${business.username}` : '/'}
             className="inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
           >
-            Volver al inicio
+            Volver a la tienda
           </Link>
         </div>
       </div>
@@ -274,10 +252,8 @@ export default function ProductPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Contenido del producto */}
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Imagen del producto */}
           <div className="w-full aspect-square bg-white rounded-lg overflow-hidden shadow-sm">
             {product.image ? (
               <img
@@ -292,9 +268,7 @@ export default function ProductPage() {
             )}
           </div>
 
-          {/* Información del producto */}
           <div className="bg-white rounded-lg shadow-sm p-6">
-            {/* Categoría y nombre */}
             <div className="mb-4">
               {product.category && (
                 <p className="text-sm text-gray-500 mb-2">{product.category}</p>
@@ -302,14 +276,12 @@ export default function ProductPage() {
               <h1 className="text-3xl font-bold text-gray-900">{product.name}</h1>
             </div>
 
-            {/* Descripción */}
             {product.description && (
               <p className="text-gray-600 mb-6 leading-relaxed">
                 {product.description}
               </p>
             )}
 
-            {/* Variantes */}
             {product.variants && product.variants.length > 0 && (
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-900 mb-3">
@@ -335,7 +307,6 @@ export default function ProductPage() {
               </div>
             )}
 
-            {/* Precio (si no hay variantes) */}
             {(!product.variants || product.variants.length === 0) && (
               <div className="mb-6">
                 <p className="text-4xl font-bold text-red-600">
@@ -344,7 +315,6 @@ export default function ProductPage() {
               </div>
             )}
 
-            {/* Cantidad */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-900 mb-3">
                 Cantidad:
@@ -372,7 +342,6 @@ export default function ProductPage() {
               </div>
             </div>
 
-            {/* Botón agregar al carrito */}
             <button
               onClick={handleAddToCart}
               className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
@@ -381,7 +350,6 @@ export default function ProductPage() {
               <span>Agregar al carrito</span>
             </button>
 
-            {/* Disponibilidad */}
             <div className="mt-6 p-3 bg-gray-50 rounded-lg">
               <p className={`text-sm font-medium ${product.isAvailable ? 'text-green-600' : 'text-red-600'}`}>
                 {product.isAvailable ? '✓ Disponible' : '✗ No disponible'}
@@ -391,7 +359,6 @@ export default function ProductPage() {
         </div>
       </main>
 
-      {/* Carrusel de productos relacionados */}
       {relatedProducts.length > 0 && (
         <section className="bg-white border-t mt-12">
           <div className="max-w-7xl mx-auto py-8">
@@ -399,7 +366,6 @@ export default function ProductPage() {
               Otros productos de {business?.name}
             </h2>
 
-            {/* Carrusel deslizable horizontal */}
             <div className="relative">
               <div
                 className="flex gap-4 overflow-x-auto snap-x snap-mandatory scrollbar-hide px-4 sm:px-6 lg:px-8 pb-4"
@@ -412,17 +378,16 @@ export default function ProductPage() {
                 {relatedProducts.map((prod) => (
                   <Link
                     key={prod.id}
-                    href={`/p/${prod.id}`}
+                    href={`/${username}/${prod.id}`}
                     className="group flex-shrink-0 snap-start w-[160px] sm:w-[200px]"
                   >
                     <div className="bg-white rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-300 h-full">
-                      {/* Contenedor de imagen con aspect ratio fijo */}
                       <div className="relative w-full aspect-square bg-gray-100 overflow-hidden">
                         {prod.image ? (
                           <img
                             src={prod.image}
                             alt={prod.name}
-                            className="absolute inset-0 w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-300"
+                            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           />
                         ) : (
                           <div className="absolute inset-0 flex items-center justify-center">
@@ -431,7 +396,6 @@ export default function ProductPage() {
                         )}
                       </div>
 
-                      {/* Información del producto */}
                       <div className="p-3">
                         <h3 className="font-semibold text-gray-900 text-sm mb-2 line-clamp-2 group-hover:text-red-600 transition-colors min-h-[2.5rem]">
                           {prod.name}
@@ -445,7 +409,6 @@ export default function ProductPage() {
                 ))}
               </div>
 
-              {/* Indicador de deslizamiento */}
               {relatedProducts.length > 2 && (
                 <div className="absolute right-0 top-0 bottom-4 w-16 pointer-events-none bg-gradient-to-l from-white via-white/80 to-transparent flex items-center justify-end pr-2">
                   <div className="animate-pulse">
@@ -458,7 +421,6 @@ export default function ProductPage() {
         </section>
       )}
 
-      {/* Floating Cart Button */}
       {cart.length > 0 && business && (
         <div className="fixed bottom-6 right-6 z-40">
           <button
@@ -483,7 +445,6 @@ export default function ProductPage() {
         </div>
       )}
 
-      {/* Cart Sidebar */}
       <CartSidebar
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
@@ -495,3 +456,4 @@ export default function ProductPage() {
     </div>
   )
 }
+
