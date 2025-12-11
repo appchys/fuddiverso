@@ -16,7 +16,7 @@ import {
   Timestamp,
   getCountFromServer
 } from 'firebase/firestore'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
 import { normalizeEcuadorianPhone } from './validation'
 import {
@@ -525,6 +525,22 @@ export async function updateProduct(productId: string, data: Partial<Product>) {
 
 export async function deleteProduct(productId: string) {
   try {
+    const existing = await getProduct(productId)
+
+    if (existing?.image) {
+      try {
+        const url = new URL(existing.image)
+        const pathPart = url.pathname.split('/o/')[1]
+        if (pathPart) {
+          const fullPath = decodeURIComponent(pathPart.split('?')[0])
+          const storageRef = ref(storage, fullPath)
+          await deleteObject(storageRef)
+        }
+      } catch (e) {
+        console.warn('Failed to delete product image from storage for', productId, e)
+      }
+    }
+
     const docRef = doc(db, 'products', productId)
     await deleteDoc(docRef)
   } catch (error) {

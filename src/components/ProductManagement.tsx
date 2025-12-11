@@ -1,8 +1,66 @@
-'use client'
+"use client"
 
 import React, { useState, useEffect } from 'react'
 import { Product, ProductVariant, Business } from '@/types'
 import { createProduct, updateProduct, deleteProduct, uploadImage, getBusinessCategories, addCategoryToBusiness, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, updateBusiness } from '@/lib/database'
+
+const compressImageFile = (file: File, maxWidth = 1200, maxHeight = 1200, quality = 0.8): Promise<File> => {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    const reader = new FileReader()
+
+    reader.onload = event => {
+      if (!event.target?.result) {
+        resolve(file)
+        return
+      }
+
+      image.onload = () => {
+        const canvas = document.createElement('canvas')
+        let { width, height } = image
+
+        if (width > maxWidth || height > maxHeight) {
+          const ratio = Math.min(maxWidth / width, maxHeight / height)
+          width = width * ratio
+          height = height * ratio
+        }
+
+        canvas.width = width
+        canvas.height = height
+
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          resolve(file)
+          return
+        }
+
+        ctx.drawImage(image, 0, 0, width, height)
+
+        canvas.toBlob(
+          blob => {
+            if (!blob) {
+              resolve(file)
+              return
+            }
+            const compressedFile = new File([blob], file.name, {
+              type: blob.type,
+              lastModified: Date.now()
+            })
+            resolve(compressedFile)
+          },
+          'image/jpeg',
+          quality
+        )
+      }
+
+      image.onerror = () => resolve(file)
+      image.src = event.target.result as string
+    }
+
+    reader.onerror = () => resolve(file)
+    reader.readAsDataURL(file)
+  })
+}
 
 interface ProductManagementProps {
   business: Business | null
@@ -270,10 +328,11 @@ export default function ProductManagement({
     }
   }
 
-  const handleEditImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleEditImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      setEditFormData(prev => ({ ...prev, image: file }))
+      const compressed = await compressImageFile(file)
+      setEditFormData(prev => ({ ...prev, image: compressed }))
     }
   }
 
