@@ -337,6 +337,8 @@ function CheckoutContent() {
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false)
   const [isAddingNewLocation, setIsAddingNewLocation] = useState(false)
   const [loadingLocations, setLoadingLocations] = useState(false)
+  const [isRequestingLocation, setIsRequestingLocation] = useState(false)
+  const [locationPermissionError, setLocationPermissionError] = useState<string | null>(null)
 
   const [uploadingReceipt, setUploadingReceipt] = useState(false)
   const [paymentData, setPaymentData] = useState<PaymentData>({ method: '', selectedBank: '', paymentStatus: 'pending', cashAmount: 0, transferAmount: 0, receiptImageUrl: '' })
@@ -392,7 +394,10 @@ function CheckoutContent() {
           const [lat, lng] = newLocationData.latlong.split(',').map(coord => parseFloat(coord.trim()))
           if (!isNaN(lat) && !isNaN(lng)) {
             const calculatedFee = await calculateDeliveryFee({ lat, lng })
-            setNewLocationData(prev => ({ ...prev, tarifa: calculatedFee.toFixed(2) }))
+            // Si la ubicación está fuera de la zona de cobertura y la tarifa calculada es 0,
+            // usar una tarifa mínima de 1.50 en lugar de 0
+            const normalizedFee = calculatedFee === 0 ? 1.5 : calculatedFee
+            setNewLocationData(prev => ({ ...prev, tarifa: normalizedFee.toFixed(2) }))
           }
         } catch (error) {
           console.error('Error calculating tariff for new location:', error)
@@ -418,9 +423,11 @@ function CheckoutContent() {
         const [lat, lng] = selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
         if (isNaN(lat) || isNaN(lng)) return
         const fee = await calculateDeliveryFee({ lat, lng })
-        const updated = { ...selectedLocation, tarifa: fee.toString() }
+        // Normalizar tarifa fuera de cobertura: si fee es 0, usar 1.50
+        const normalizedFee = fee === 0 ? 1.5 : fee
+        const updated = { ...selectedLocation, tarifa: normalizedFee.toString() }
         setSelectedLocation(updated)
-        setDeliveryData(prev => ({ ...prev, tarifa: fee.toString() }))
+        setDeliveryData(prev => ({ ...prev, tarifa: normalizedFee.toString() }))
       } catch (e) {
         console.error('Error ensuring tariff for selected location:', e)
       } finally {
@@ -445,7 +452,9 @@ function CheckoutContent() {
 
   // Función para obtener ubicación actual
   const getCurrentLocation = () => {
+    setLocationPermissionError(null)
     if (navigator.geolocation) {
+      setIsRequestingLocation(true)
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
@@ -453,14 +462,12 @@ function CheckoutContent() {
             ...prev,
             latlong: `${latitude}, ${longitude}`
           }));
+          setIsRequestingLocation(false)
         },
         (error) => {
           console.error('Error getting location:', error);
-          // Coordenadas por defecto (Guayaquil, Ecuador)
-          setNewLocationData(prev => ({
-            ...prev,
-            latlong: '-2.1894, -79.8890'
-          }));
+          setIsRequestingLocation(false)
+          // Ya no se muestra un mensaje de error personalizado cuando no se puede obtener la ubicación
         }
       );
     } else {
@@ -532,9 +539,6 @@ function CheckoutContent() {
       setClientLocations(prev => [...prev, newLocation]);
       handleLocationSelect(newLocation);
       closeLocationModal();
-
-      // Mostrar mensaje de éxito
-      alert('🎉 Ubicación guardada exitosamente');
     } catch (error) {
       console.error('❌ Error saving location:', error);
       alert('Error al guardar la ubicación. Por favor intenta de nuevo.');
@@ -800,30 +804,40 @@ function CheckoutContent() {
 
   // Función unificada para seleccionar una ubicación del cliente
   const handleLocationSelect = async (location: ClientLocation) => {
-    // Marcar cálculo antes de setear la selección para evitar render con tarifa vacía
+    // Si la ubicación ya tiene una tarifa válida guardada (> 0), usarla tal cual sin recalcular
+    const storedTariff = location.tarifa != null ? Number(location.tarifa) : NaN
+    if (!isNaN(storedTariff) && storedTariff > 0) {
+      setSelectedLocation(location)
+      setDeliveryData(prev => ({
+        ...prev,
+        address: location.referencia,
+        references: `${location.sector} - ${location.latlong}`,
+        tarifa: location.tarifa
+      }))
+      closeLocationModal()
+      return
+    }
+
+    // Si no hay tarifa válida pero sí coordenadas, calcularla automáticamente
     if (location.latlong) {
       setCalculatingTariff(true)
-    }
-    setSelectedLocation(location)
-
-    // Si la ubicación tiene coordenadas, calcular tarifa automáticamente
-    if (location.latlong) {
       try {
         const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
         if (!isNaN(lat) && !isNaN(lng)) {
           const calculatedFee = await calculateDeliveryFee({ lat, lng })
 
-          // Actualizar la tarifa en la ubicación seleccionada
-          const updatedLocation = { ...location, tarifa: calculatedFee.toString() }
+          // Normalizar tarifa fuera de cobertura: si calculatedFee es 0, usar 1.50
+          const normalizedFee = calculatedFee === 0 ? 1.5 : calculatedFee
+
+          const updatedLocation = { ...location, tarifa: normalizedFee.toString() }
           setSelectedLocation(updatedLocation)
 
-          // Actualizar datos de entrega
           setDeliveryData(prev => ({
             ...prev,
             address: location.referencia,
             references: `${location.sector} - ${location.latlong}`,
-            tarifa: calculatedFee.toString()
-          }));
+            tarifa: normalizedFee.toString()
+          }))
 
           closeLocationModal()
           return
@@ -835,14 +849,14 @@ function CheckoutContent() {
       }
     }
 
-    // Si no se pudo calcular automáticamente, usar tarifa existente
+    // Fallback: sin tarifa válida ni cálculo, usar lo que haya en location.tarifa
+    setSelectedLocation(location)
     setDeliveryData(prev => ({
       ...prev,
       address: location.referencia,
       references: `${location.sector} - ${location.latlong}`,
       tarifa: location.tarifa
-    }));
-
+    }))
     closeLocationModal()
   }
 
@@ -1650,6 +1664,11 @@ function CheckoutContent() {
                                         <div className="flex-1 min-w-0">
                                           <div className="font-medium text-sm mb-1">{selectedLocation.referencia}</div>
                                           <div className="text-xs text-gray-500">Tarifa: ${selectedLocation.tarifa}</div>
+                                          {Number(selectedLocation.tarifa) === 1.5 && (
+                                            <p className="text-xs text-red-600 mt-1">
+                                              En revisión por cobertura
+                                            </p>
+                                          )}
                                           {selectedLocationOutsideCoverage && (
                                             <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
                                               <i className="bi bi-exclamation-triangle mr-2"></i>
@@ -2120,7 +2139,7 @@ function CheckoutContent() {
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Ubicación en el mapa (mueve el pin para ajustar)
                       </label>
-                      {mapCoordinates && (
+                      {mapCoordinates ? (
                         <div className="border rounded-lg overflow-hidden">
                           <GoogleMap
                             latitude={mapCoordinates.lat}
@@ -2133,6 +2152,32 @@ function CheckoutContent() {
                             onLocationChange={handleLocationChange}
                           />
                         </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            getCurrentLocation()
+                          }}
+                          className="w-full border border-dashed border-gray-300 rounded-lg px-4 py-6 flex flex-col items-center justify-center text-center bg-gray-50 hover:bg-gray-100 transition-colors"
+                        >
+                          <span className="text-sm font-medium text-gray-700 mb-1">
+                            Activa tu ubicación para seleccionar el punto en el mapa
+                          </span>
+                          <span className="text-xs text-red-600 font-medium">
+                            Inténtalo de nuevo
+                          </span>
+                          {isRequestingLocation && (
+                            <span className="mt-2 text-xs text-gray-500">
+                              Obteniendo tu ubicacin...
+                            </span>
+                          )}
+                          {locationPermissionError && (
+                            <span className="mt-2 text-xs text-red-500">
+                              {locationPermissionError}
+                            </span>
+                          )}
+                        </button>
                       )}
                     </div>
 
@@ -2157,7 +2202,9 @@ function CheckoutContent() {
                         Tarifa de envío
                         {newLocationData.latlong && (
                           <span className="text-xs text-green-600 ml-2">
-                            (Calculada automáticamente)
+                            {Number(newLocationData.tarifa) === 1.5
+                              ? '(Estimada)'
+                              : '(Calculada automáticamente)'}
                           </span>
                         )}
                       </label>
@@ -2172,8 +2219,19 @@ function CheckoutContent() {
                         />
                       </div>
                       {newLocationData.latlong && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          💡 La tarifa se calcula automáticamente según las zonas de cobertura configuradas
+                        <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                          {Number(newLocationData.tarifa) === 1.5 ? (
+                            <>
+                              <i className="bi bi-exclamation-triangle-fill text-red-500 mr-1"></i>
+                              <span>
+                                La ubicación está fuera de la zona de cobertura, la revisaremos y te notificaremos
+                              </span>
+                            </>
+                          ) : (
+                            <span>
+                              💡 La tarifa se calcula automáticamente según las zonas de cobertura configuradas
+                            </span>
+                          )}
                         </p>
                       )}
                       {/* Aviso fuera de cobertura para nueva ubicación */}
@@ -2190,8 +2248,11 @@ function CheckoutContent() {
 
                   <div className="mt-4 pt-3 border-t sm:border-t-0 sm:pt-4 space-y-2">
                     <button
-                      className="w-full bg-red-500 text-white py-3 rounded-lg hover:bg-red-600 transition-colors touch-manipulation"
-                      onClick={handleSaveNewLocation}
+                      className={`w-full py-3 rounded-lg transition-colors touch-manipulation ${mapCoordinates
+                        ? 'bg-red-500 text-white hover:bg-red-600'
+                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
+                      onClick={mapCoordinates ? handleSaveNewLocation : (e) => e.preventDefault()}
+                      disabled={!mapCoordinates}
                     >
                       Guardar Ubicación
                     </button>
