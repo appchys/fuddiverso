@@ -253,6 +253,39 @@ export default function ProductPageByUsername() {
   return (
     <div className="min-h-screen bg-gray-50">
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {business && (
+          <div className="mb-6 flex items-center justify-between">
+            <Link
+              href={`/${username}`}
+              className="flex items-center space-x-3 hover:opacity-90 transition-opacity"
+            >
+              <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
+                {business.image ? (
+                  <img
+                    src={business.image}
+                    alt={business.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-sm font-semibold text-gray-500">
+                    {business.name.charAt(0).toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold text-gray-900 line-clamp-1">
+                  {business.name}
+                </span>
+                {business.username && (
+                  <span className="text-xs text-gray-500 line-clamp-1">
+                    @{business.username}
+                  </span>
+                )}
+              </div>
+            </Link>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="w-full aspect-square bg-white rounded-lg overflow-hidden shadow-sm">
             {product.image ? (
