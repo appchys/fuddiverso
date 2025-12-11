@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
 import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient } from '@/lib/database'
+import { searchClients } from '@/lib/client-search'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -106,6 +107,10 @@ export default function ManualOrderSidebar({
   const [creatingClient, setCreatingClient] = useState(false)
   const [updatingClient, setUpdatingClient] = useState(false)
   const [creatingOrder, setCreatingOrder] = useState(false)
+
+  // Estados para búsqueda mejorada
+  const [searchResults, setSearchResults] = useState<Client[]>([])
+  const [showSearchResults, setShowSearchResults] = useState(false)
 
   // Estados para modal de variantes
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<Product | null>(null)
@@ -359,12 +364,13 @@ export default function ManualOrderSidebar({
     }
   }
 
-  // Búsqueda de cliente por teléfono
-  const handlePhoneSearch = async (phone: string) => {
-    const normalizedPhone = normalizePhone(phone)
-    setManualOrderData(prev => ({ ...prev, customerPhone: normalizedPhone }))
+  // Búsqueda mejorada de cliente (por teléfono o nombre)
+  const handleSearchClient = async (searchTerm: string) => {
+    setManualOrderData(prev => ({ ...prev, customerPhone: searchTerm }))
+    setShowSearchResults(false)
+    setSearchResults([])
 
-    if (normalizedPhone.length < 10) {
+    if (!searchTerm || searchTerm.trim().length < 2) {
       setClientFound(false)
       setManualOrderData(prev => ({
         ...prev,
@@ -382,30 +388,20 @@ export default function ManualOrderSidebar({
     const timeout = setTimeout(async () => {
       setSearchingClient(true)
       try {
-        const client = await searchClientByPhone(normalizedPhone)
-        if (client) {
-          setClientFound(true)
-          setManualOrderData(prev => ({ ...prev, customerName: client.nombres }))
+        const results = await searchClients(searchTerm, 'auto')
 
-          // Cargar ubicaciones del cliente
-          setLoadingClientLocations(true)
-          try {
-            const locations = await getClientLocations(client.id)
-            setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
-          } catch (error) {
-            console.error('Error loading client locations:', error)
-          } finally {
-            setLoadingClientLocations(false)
+        if (results.length > 0) {
+          setSearchResults(results as Client[])
+          setShowSearchResults(true)
+          
+          // Si hay solo un resultado exacto por teléfono, seleccionarlo automáticamente
+          if (results.length === 1 && /^\d{7,}$/.test(searchTerm.replace(/[\s\-\(\)]/g, ''))) {
+            await handleSelectClient(results[0] as Client)
           }
         } else {
           setClientFound(false)
           setShowCreateClient(true)
-          setManualOrderData(prev => ({
-            ...prev,
-            customerName: '',
-            customerLocations: [],
-            selectedLocation: null
-          }))
+          setShowSearchResults(false)
         }
       } catch (error) {
         console.error('Error searching client:', error)
@@ -413,9 +409,36 @@ export default function ManualOrderSidebar({
       } finally {
         setSearchingClient(false)
       }
-    }, 1000)
+    }, 500)
 
     setSearchTimeout(timeout)
+  }
+
+  // Manejar selección de cliente desde resultados
+  const handleSelectClient = async (selectedClient: Client) => {
+    setClientFound(true)
+    setShowSearchResults(false)
+    setManualOrderData(prev => ({
+      ...prev,
+      customerPhone: selectedClient.celular,
+      customerName: selectedClient.nombres
+    }))
+
+    // Cargar ubicaciones del cliente
+    setLoadingClientLocations(true)
+    try {
+      const locations = await getClientLocations(selectedClient.id)
+      setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
+    } catch (error) {
+      console.error('Error loading client locations:', error)
+    } finally {
+      setLoadingClientLocations(false)
+    }
+  }
+
+  // Búsqueda de cliente por teléfono (mantener para compatibilidad)
+  const handlePhoneSearch = async (phone: string) => {
+    await handleSearchClient(phone)
   }
 
   // Abrir modal para editar cliente
@@ -1143,16 +1166,17 @@ export default function ManualOrderSidebar({
           {/* Búsqueda de cliente */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-black mb-2">
-              Búsqueda por celular
+              Búsqueda por celular o nombre
             </label>
             <div className="relative">
               <div className="relative">
                 <input
-                  type="tel"
+                  type="text"
                   value={manualOrderData.customerPhone}
-                  onChange={(e) => handlePhoneSearch(e.target.value)}
-                  placeholder="0912345678"
+                  onChange={(e) => handleSearchClient(e.target.value)}
+                  placeholder="0912345678 o Nombre del cliente"
                   className="w-full px-3 py-2 pr-16 sm:pr-20 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  onFocus={() => searchResults.length > 0 && setShowSearchResults(true)}
                 />
                 <div className="absolute right-0 top-0 h-full flex items-center space-x-1 pr-2">
                   <button
@@ -1170,10 +1194,27 @@ export default function ManualOrderSidebar({
                   )}
                 </div>
               </div>
+
+              {/* Dropdown de resultados de búsqueda */}
+              {showSearchResults && searchResults.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 max-h-64 overflow-y-auto">
+                  {searchResults.map((client) => (
+                    <button
+                      key={client.id}
+                      onClick={() => handleSelectClient(client)}
+                      className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b last:border-b-0 transition-colors flex flex-col"
+                      type="button"
+                    >
+                      <p className="font-medium text-gray-900">{client.nombres}</p>
+                      <p className="text-xs text-gray-500">{client.celular}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Campo de nombre del cliente - solo visible cuando no se encuentra */}
-            {showCreateClient && manualOrderData.customerPhone.length >= 10 && (
+            {showCreateClient && manualOrderData.customerPhone.length >= 2 && (
               <div className="mt-3">
                 <input
                   type="text"
@@ -1185,7 +1226,7 @@ export default function ManualOrderSidebar({
               </div>
             )}
 
-            {/* Resultado de búsqueda */}
+            {/* Resultado de búsqueda - Cliente encontrado */}
             {clientFound ? (
               <div
                 className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md hover:bg-green-100 cursor-pointer transition-colors"
@@ -1199,7 +1240,7 @@ export default function ManualOrderSidebar({
                   <i className="bi bi-pencil-square text-green-600 hover:text-green-800"></i>
                 </div>
               </div>
-            ) : showCreateClient && manualOrderData.customerPhone.length >= 10 ? (
+            ) : showCreateClient && manualOrderData.customerPhone.length >= 2 ? (
               <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
                 <p className="text-sm text-yellow-800 mb-2">Cliente no encontrado</p>
                 <button
