@@ -217,8 +217,8 @@ export default function HomePageContent() {
             Únete a cientos de negocios que ya crecen con Fuddi.
           </p>
           <div className="flex flex-col sm:flex-row justify-center gap-4">
-            <Link href="/business/register" className="bg-white text-[#aa1918] px-6 py-3 rounded-full font-semibold hover:bg-gray-100 transition">
-              Registra tu negocio
+            <Link href="/business/dashboard" className="bg-white text-[#aa1918] px-6 py-3 rounded-full font-semibold hover:bg-gray-100 transition">
+              Empieza aquí
             </Link>
             <Link href="/info" className="border-2 border-white px-6 py-3 rounded-full font-semibold hover:bg-white hover:text-[#aa1918] transition">
               Saber más
