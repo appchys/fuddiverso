@@ -1179,9 +1179,26 @@ export default function ManualOrderSidebar({
                   onFocus={() => searchResults.length > 0 && setShowSearchResults(true)}
                   onPaste={(e) => {
                     e.preventDefault()
-                    const text = e.clipboardData.getData('text')
-                    const normalizedPhone = normalizePhone(text)
-                    handlePhoneSearch(normalizedPhone)
+                    const text = e.clipboardData.getData('text') || ''
+                    const trimmed = text.trim()
+
+                    if (!trimmed) {
+                      return
+                    }
+
+                    // Detectar si parece un teléfono (similar a searchClients auto)
+                    const digitsOnly = trimmed.replace(/[\s\-\(\)]/g, '')
+                    const looksLikePhone =
+                      /^\d{7,}$/.test(digitsOnly) ||
+                      trimmed.startsWith('+593') ||
+                      trimmed.startsWith('593')
+
+                    if (looksLikePhone) {
+                      const normalizedPhone = normalizePhone(trimmed)
+                      handlePhoneSearch(normalizedPhone)
+                    } else {
+                      handleSearchClient(trimmed)
+                    }
                   }}
                 />
                 <div className="absolute right-0 top-0 h-full flex items-center space-x-1 pr-2">
