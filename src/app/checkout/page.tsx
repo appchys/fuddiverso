@@ -695,27 +695,37 @@ function CheckoutContent() {
     }
   }
 
-  // Hash PIN using Web Crypto (shared fallback like Header)
-  async function hashPin(pin: string) {
-    try {
-      if (typeof window !== 'undefined' && window.crypto?.subtle?.digest && typeof window.crypto.subtle.digest === 'function') {
-        const encoder = new TextEncoder()
-        const data = encoder.encode(pin)
-        const hashBuffer = await window.crypto.subtle.digest('SHA-256', data)
-        const hashArray = Array.from(new Uint8Array(hashBuffer))
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  // Función para hashear el PIN de manera consistente (misma lógica que ClientLoginModal)
+  async function hashPin(pin: string): Promise<string> {
+    // Implementación de hash simple pero consistente
+    const simpleHash = (str: string): string => {
+      let hash = 0
+      for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i)
+        hash = ((hash << 5) - hash) + char
+        hash = hash & hash // Convierte a 32bit entero
       }
-    } catch (e) {
-      console.warn('Web Crypto not available, using fallback hash:', e)
+      return Math.abs(hash).toString(16).padStart(8, '0')
     }
 
-    let h = 5381
-    for (let i = 0; i < pin.length; i++) {
-      h = ((h << 5) + h) + pin.charCodeAt(i)
-      h = h & 0xffffffff
+    // Para compatibilidad con hashes existentes, intentar usar SHA-256
+    try {
+      if (typeof window !== 'undefined' && window.crypto?.subtle?.digest) {
+        // Si el hash existente del cliente tiene 64 caracteres, asumimos SHA-256
+        if (clientFound?.pinHash?.length === 64) {
+          const encoder = new TextEncoder()
+          const data = encoder.encode(pin)
+          const hashBuffer = await window.crypto.subtle.digest('SHA-256', data)
+          const hashArray = Array.from(new Uint8Array(hashBuffer))
+          return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+        }
+      }
+    } catch (e) {
+      console.warn('Error usando Web Crypto API, usando hash simple', e)
     }
-    const hex = (h >>> 0).toString(16)
-    return hex.padStart(64, '0')
+
+    // Por defecto, usar el hash simple
+    return simpleHash(pin)
   }
 
   // Handle registering or setting PIN from checkout

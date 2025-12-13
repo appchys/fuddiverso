@@ -305,10 +305,24 @@ export default function ManualOrderSidebar({
 
   // Filtrar productos por categoría
   const getFilteredProducts = () => {
-    if (selectedCategory === 'all') {
-      return products
+    const categoriesOrder = getBusinessCategories()
+
+    const getCategoryIndex = (category?: string | null) => {
+      if (!category) return Number.MAX_SAFE_INTEGER
+      const idx = categoriesOrder.indexOf(category)
+      return idx === -1 ? Number.MAX_SAFE_INTEGER : idx
     }
-    return products.filter(product => product.category === selectedCategory)
+
+    const baseProducts = selectedCategory === 'all'
+      ? products
+      : products.filter(product => product.category === selectedCategory)
+
+    // Ordenar los productos según el orden de las categorías definido por el negocio
+    return [...baseProducts].sort((a, b) => {
+      const aIdx = getCategoryIndex(a.category as string | null)
+      const bIdx = getCategoryIndex(b.category as string | null)
+      return aIdx - bIdx
+    })
   }
 
   // Manejar selección de delivery

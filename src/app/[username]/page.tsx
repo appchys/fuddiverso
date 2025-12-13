@@ -686,21 +686,11 @@ function RestaurantContent() {
     }
   };
 
-  // Si hay error, mostrar página de error (no loading)
-  if (error || (!loading && !business)) {
+  // Estado de carga simple sin skeletons estructurales
+  if (loading || !business) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">
-            {error || 'Restaurante no encontrado'}
-          </h1>
-          <Link
-            href="/"
-            className="inline-block bg-red-500 text-white px-6 py-3 rounded-lg hover:bg-red-600"
-          >
-            Volver al inicio
-          </Link>
-        </div>
+        <p className="text-gray-500">Cargando tienda...</p>
       </div>
     )
   }
@@ -712,7 +702,7 @@ function RestaurantContent() {
   const availableProducts = products.filter(product => product.isAvailable)
 
   // Si hay categorías definidas en el negocio, usamos ese orden
-  if (business?.categories?.length && !loading) {
+  if (business?.categories?.length) {
     // Creamos las categorías en el orden definido
     business.categories.forEach(category => {
       const categoryProducts = availableProducts.filter(p => p.category === category)
@@ -726,7 +716,7 @@ function RestaurantContent() {
     if (uncategorizedProducts.length > 0) {
       productsByCategory['Otros'] = uncategorizedProducts
     }
-  } else if (!loading) {
+  } else {
     // Si no hay categorías definidas, agrupamos normalmente
     availableProducts.forEach(product => {
       const category = product.category || 'Otros'
@@ -740,15 +730,13 @@ function RestaurantContent() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Structured Data for SEO */}
-      {!loading && business && <BusinessStructuredData business={business} />}
+      <BusinessStructuredData business={business} />
 
-      {/* Hero Section - Siempre visible, con shimmer si loading */}
+      {/* Hero Section sin skeletons */}
       <div className="bg-white shadow-sm">
         {/* Portada con logo superpuesto */}
-        <div className={`relative w-full h-36 sm:h-48 ${loading ? 'bg-gray-200 animate-pulse' : 'bg-gray-200'}`}>
-          {loading ? (
-            <div className="absolute inset-0 bg-gradient-to-br from-gray-200 to-gray-300 rounded-b-lg" />
-          ) : business?.coverImage ? (
+        <div className="relative w-full h-36 sm:h-48 bg-gray-200">
+          {business.coverImage ? (
             <>
               <div className={`absolute inset-0 animate-pulse bg-gray-200 ${coverLoaded ? 'hidden' : 'block'}`}></div>
               <img
@@ -772,9 +760,9 @@ function RestaurantContent() {
           >
             <i className="bi bi-share"></i>
           </button>
-          {/* Logo: placeholder si loading */}
-          <div className={`absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 z-10 ${loading ? 'w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-white shadow-lg bg-gray-200 animate-pulse' : ''}`}>
-            {!loading && business?.image && (
+          {/* Logo sin placeholder de skeleton */}
+          <div className="absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 z-10">
+            {business.image && (
               <img
                 src={business.image}
                 alt={business.name}
@@ -788,70 +776,45 @@ function RestaurantContent() {
           </div>
         </div>
 
-        {/* Contenido debajo de la portada */}
-        <div className={`max-w-3xl mx-auto px-4 pt-12 sm:pt-14 pb-4 text-center ${loading ? 'opacity-50 animate-pulse' : ''}`}>
+        {/* Contenido debajo de la portada, sin shimmer */}
+        <div className="max-w-3xl mx-auto px-4 pt-12 sm:pt-14 pb-4 text-center">
           <div className="flex flex-col items-center">
             <div className="w-full">
-              <h1 className={`text-xl sm:text-2xl font-bold ${loading ? 'bg-gray-200 h-8 rounded animate-pulse w-full' : 'text-gray-900'}`}>
-                {!loading && business?.name}
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+                {business.name}
               </h1>
-              {/* Descripción con shimmer */}
-              {loading ? (
-                <div className="h-4 bg-gray-200 rounded mt-1 w-3/4 mx-auto animate-pulse"></div>
-              ) : business?.description ? (
+              {business.description && (
                 <p className="text-gray-600 text-sm mt-1 max-w-2xl mx-auto">
                   {business.description}
                 </p>
-              ) : null}
-              <div className={`flex flex-col sm:flex-row items-center justify-center gap-2 mt-2 ${loading ? 'space-y-2' : ''}`}>
-                {/* Estado de la tienda con placeholder */}
-                {loading ? (
-                  <div className="inline-flex items-center px-8 py-0.5 bg-gray-200 rounded-full animate-pulse"></div>
-                ) : (
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isStoreOpen()
-                    ? 'bg-green-100 text-green-800'
-                    : 'bg-red-100 text-red-800'
-                    }`}>
-                    <i className={`bi ${isStoreOpen() ? 'bi-clock' : 'bi-clock-history'} mr-1`}></i>
-                    {isStoreOpen() ? 'Abierta' : 'Cerrada'}
-                  </span>
-                )}
-                {/* Dirección con placeholder */}
-                {loading ? (
-                  <div className="text-xs bg-gray-200 h-4 w-32 rounded animate-pulse"></div>
-                ) : business?.address ? (
+              )}
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 mt-2">
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isStoreOpen()
+                  ? 'bg-green-100 text-green-800'
+                  : 'bg-red-100 text-red-800'
+                  }`}>
+                  <i className={`bi ${isStoreOpen() ? 'bi-clock' : 'bi-clock-history'} mr-1`}></i>
+                  {isStoreOpen() ? 'Abierta' : 'Cerrada'}
+                </span>
+                {business.address && (
                   <span className="text-xs text-gray-500 inline-flex items-center">
                     <i className="bi bi-geo-alt mr-1"></i>
                     {business.address}
                   </span>
-                ) : null}
+                )}
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Menu Content - Con shimmer cards si loading */}
+      {/* Menu Content sin shimmer */}
       <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
-        <h2 className={`text-xl sm:text-2xl font-bold ${loading ? 'bg-gray-300 h-8 w-48 rounded animate-pulse mb-6 mx-auto' : 'text-gray-900 mb-6'}`}>
-          {!loading ? 'Nuestro Menú' : ''}
+        <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-6">
+          Nuestro Menú
         </h2>
 
-        {loading ? (
-          // Skeleton para categorías y productos
-          <div className="space-y-8">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="mb-8">
-                <div className="h-6 bg-gray-200 rounded w-32 animate-pulse mb-4"></div>
-                <div className="space-y-3">
-                  {Array.from({ length: 4 }).map((_, j) => (
-                    <div key={j} className="bg-white rounded-lg shadow-sm p-3 h-20 animate-pulse border-b border-gray-100"></div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : Object.entries(productsByCategory).length === 0 ? (
+        {Object.entries(productsByCategory).length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-500">No hay productos disponibles en este momento.</p>
           </div>
