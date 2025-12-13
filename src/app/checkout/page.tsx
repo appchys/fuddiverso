@@ -6,52 +6,13 @@ import Link from 'next/link'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone, validateAndNormalizePhone } from '@/lib/validation'
 import { createOrder, getBusiness, searchClientByPhone, createClient, updateClient, setClientPin, FirestoreClient, getClientLocations, ClientLocation, getDeliveryFeeForLocation, createClientLocation } from '@/lib/database'
 import { Business } from '@/types'
-import { GoogleMap } from '@/components/GoogleMap'
+import LocationMap from '@/components/LocationMap'
+import LocationSelectionModal from '@/components/LocationSelectionModal'
 import { useAuth } from '@/contexts/AuthContext'
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { Timestamp } from 'firebase/firestore'
 
-// Componente para mostrar mapa pequeño de ubicación
-function LocationMap({ latlong, height = "96px" }: { latlong: string; height?: string }) {
-  // Parsear las coordenadas del formato "-1.874907, -79.979742"
-  const parseCoordinates = (coordString: string) => {
-    try {
-      const [lat, lng] = coordString.split(',').map(coord => parseFloat(coord.trim()));
-      if (isNaN(lat) || isNaN(lng)) {
-        return null;
-      }
-      return { lat, lng };
-    } catch (error) {
-      console.error('Error parsing coordinates:', error);
-      return null;
-    }
-  };
-
-  const coordinates = parseCoordinates(latlong);
-
-  if (!coordinates) {
-    return (
-      <div className={`w-full bg-gray-100 rounded-lg flex items-center justify-center`} style={{ height }}>
-        <span className="text-gray-500 text-xs">📍 Coordenadas inválidas</span>
-      </div>
-    );
-  }
-
-  // Usar Google Static Maps API para evitar cargas múltiples de la API de Maps
-  const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${coordinates.lat},${coordinates.lng}&zoom=16&size=200x200&maptype=roadmap&markers=color:red%7C${coordinates.lat},${coordinates.lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
-
-  return (
-    <div className={`w-full rounded-lg overflow-hidden border border-gray-200 shadow-sm relative`} style={{ height, width: height }}>
-      <img
-        src={staticMapUrl}
-        alt={`Mapa de ubicación ${coordinates.lat}, ${coordinates.lng}`}
-        className="w-full h-full object-cover"
-        style={{ height, width: height }}
-      />
-    </div>
-  );
-}
 
 // Componente para subir comprobante de transferencia
 function TransferReceiptUploader({
@@ -300,11 +261,6 @@ function CheckoutContent() {
     phone: string
   }
 
-  type NewLocationData = {
-    latlong: string
-    referencia: string
-    tarifa: string
-  }
   // Estado y hooks necesarios para el componente
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -333,12 +289,10 @@ function CheckoutContent() {
   const [clientLocations, setClientLocations] = useState<ClientLocation[]>([])
   const [selectedLocation, setSelectedLocation] = useState<ClientLocation | null>(null)
 
-  const [newLocationData, setNewLocationData] = useState<NewLocationData>({ latlong: '', referencia: '', tarifa: '1' })
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false)
   const [isAddingNewLocation, setIsAddingNewLocation] = useState(false)
   const [loadingLocations, setLoadingLocations] = useState(false)
-  const [isRequestingLocation, setIsRequestingLocation] = useState(false)
-  const [locationPermissionError, setLocationPermissionError] = useState<string | null>(null)
+
 
   const [uploadingReceipt, setUploadingReceipt] = useState(false)
   const [paymentData, setPaymentData] = useState<PaymentData>({ method: '', selectedBank: '', paymentStatus: 'pending', cashAmount: 0, transferAmount: 0, receiptImageUrl: '' })
@@ -386,28 +340,6 @@ function CheckoutContent() {
     }
   }, [customerData, deliveryData, paymentData, showNameField, selectedLocation]);
 
-  // Effect para calcular tarifa automáticamente cuando se ingresan nuevas coordenadas
-  useEffect(() => {
-    const calculateTariffForNewLocation = async () => {
-      if (newLocationData.latlong && business?.id) {
-        try {
-          const [lat, lng] = newLocationData.latlong.split(',').map(coord => parseFloat(coord.trim()))
-          if (!isNaN(lat) && !isNaN(lng)) {
-            const calculatedFee = await calculateDeliveryFee({ lat, lng })
-            // Si la ubicación está fuera de la zona de cobertura y la tarifa calculada es 0,
-            // usar una tarifa mínima de 1.50 en lugar de 0
-            const normalizedFee = calculatedFee === 0 ? 1.5 : calculatedFee
-            setNewLocationData(prev => ({ ...prev, tarifa: normalizedFee.toFixed(2) }))
-          }
-        } catch (error) {
-          console.error('Error calculating tariff for new location:', error)
-        }
-      }
-    }
-
-    const timeoutId = setTimeout(calculateTariffForNewLocation, 1000) // Debounce por 1 segundo
-    return () => clearTimeout(timeoutId)
-  }, [newLocationData.latlong, business?.id])
 
   // NUEVO: Calcular tarifa al activar delivery si ya hay una ubicación seleccionada pero sin tarifa válida (escenario de primera carga)
   useEffect(() => {
@@ -440,6 +372,12 @@ function CheckoutContent() {
 
   // Función para abrir el modal
   const openLocationModal = () => {
+    if (!clientFound) {
+      alert('Por favor, completa el Paso 1 (Tus Datos) para poder agregar una dirección.');
+      const step1 = document.getElementById('step-1');
+      if (step1) step1.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
     setIsLocationModalOpen(true);
   };
 
@@ -447,103 +385,8 @@ function CheckoutContent() {
   const closeLocationModal = () => {
     setIsLocationModalOpen(false);
     setIsAddingNewLocation(false);
-    setNewLocationData({ latlong: '', referencia: '', tarifa: '1' });
   }
 
-  // Función para obtener ubicación actual
-  const getCurrentLocation = () => {
-    setLocationPermissionError(null)
-    if (navigator.geolocation) {
-      setIsRequestingLocation(true)
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          setNewLocationData(prev => ({
-            ...prev,
-            latlong: `${latitude}, ${longitude}`
-          }));
-          setIsRequestingLocation(false)
-        },
-        (error) => {
-          console.error('Error getting location:', error);
-          setIsRequestingLocation(false)
-          // Ya no se muestra un mensaje de error personalizado cuando no se puede obtener la ubicación
-        }
-      );
-    } else {
-      // Coordenadas por defecto si no hay geolocalización
-      setNewLocationData(prev => ({
-        ...prev,
-        latlong: '-2.1894, -79.8890'
-      }));
-    }
-  }
-
-  // Función para manejar cambio de ubicación en el mapa - optimizada para evitar re-renderizados
-  const handleLocationChange = useCallback((lat: number, lng: number) => {
-    setNewLocationData(prev => ({
-      ...prev,
-      latlong: `${lat}, ${lng}`
-    }));
-  }, []);
-
-  // Memorizar las coordenadas del mapa para evitar parpadeo
-  const mapCoordinates = useMemo(() => {
-    if (!newLocationData.latlong) return null;
-    try {
-      const [lat, lng] = newLocationData.latlong.split(',').map(coord => parseFloat(coord.trim()));
-      if (isNaN(lat) || isNaN(lng)) return null;
-      return { lat, lng };
-    } catch {
-      return null;
-    }
-  }, [newLocationData.latlong]);
-
-  // Handlers optimizados para evitar re-renderizados
-  const handleReferenciaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setNewLocationData(prev => ({ ...prev, referencia: e.target.value }));
-  }, []);
-
-  // Función para guardar nueva ubicación
-  const handleSaveNewLocation = async () => {
-    if (!clientFound || !newLocationData.latlong || !newLocationData.referencia) {
-      alert('Por favor completa todos los campos requeridos');
-      return;
-    }
-
-    try {
-      console.log('💾 Guardando nueva ubicación:', newLocationData);
-
-      // Guardar en Firebase usando la nueva función
-      const locationId = await createClientLocation({
-        id_cliente: clientFound.id,
-        latlong: newLocationData.latlong,
-        referencia: newLocationData.referencia,
-        tarifa: newLocationData.tarifa,
-        sector: 'Sin especificar' // Se puede mejorar para obtener automáticamente
-      });
-
-      console.log('✅ Ubicación guardada con ID:', locationId);
-
-      // Crear la ubicación con el ID real de Firebase
-      const newLocation: ClientLocation = {
-        id: locationId,
-        id_cliente: clientFound.id,
-        latlong: newLocationData.latlong,
-        referencia: newLocationData.referencia,
-        sector: 'Sin especificar',
-        tarifa: newLocationData.tarifa
-      };
-
-      // Actualizar el estado local
-      setClientLocations(prev => [...prev, newLocation]);
-      handleLocationSelect(newLocation);
-      closeLocationModal();
-    } catch (error) {
-      console.error('❌ Error saving location:', error);
-      alert('Error al guardar la ubicación. Por favor intenta de nuevo.');
-    }
-  }
 
   // Función para manejar la carga de comprobante
   const handleReceiptUpload = (imageUrl: string) => {
@@ -1328,186 +1171,118 @@ function CheckoutContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto py-4 sm:py-8 px-4">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 mb-4 sm:mb-6">
-          <div className="flex flex-col items-center gap-4">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Checkout</h1>
-
-            {/* Progress Steps with Icons */}
-            <div className="flex items-center justify-between w-full max-w-2xl">
-              {/* Step 1 - Cliente */}
-              <div className="flex flex-col items-center flex-1">
-                <button
-                  onClick={() => scrollToStep(1)}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all hover:scale-110 ${step1Complete ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600 hover:bg-gray-400'
-                    }`}
-                >
-                  <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                  </svg>
-                </button>
-                <span className="text-xs sm:text-sm mt-1 text-center font-medium">Cliente</span>
-              </div>
-
-              <div className="flex-1 h-px bg-gray-300 mx-2"></div>
-
-              {/* Step 2 - Entrega */}
-              <div className="flex flex-col items-center flex-1">
-                <button
-                  onClick={() => currentStep >= 2 && scrollToStep(2)}
-                  disabled={currentStep < 2}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${step2Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                    }`}
-                >
-                  {deliveryData.type === 'pickup' ? (
-                    /* Store icon when pickup */
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2H4zm3 6V7h6v3H7z" clipRule="evenodd" />
-                    </svg>
-                  ) : (
-                    /* Scooter / moto icon by default */
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M3 10h2l1-2h7l2 4h-3a3 3 0 11-2.83-4H8l-1 2H3v0zM6 15a2 2 0 100-4 2 2 0 000 4zm8 0a2 2 0 100-4 2 2 0 000 4z" />
-                    </svg>
-                  )}
-                </button>
-                <span className="text-xs sm:text-sm mt-1 text-center font-medium">
-                  {deliveryData.type === 'pickup' ? 'Retiro' : deliveryData.type === 'delivery' ? 'Delivery' : 'Entrega'}
-                </span>
-              </div>
-
-              <div className="flex-1 h-px bg-gray-300 mx-2"></div>
-
-              {/* Step 3 - Hora (replacing Horario) */}
-              <div className="flex flex-col items-center flex-1">
-                <button
-                  onClick={() => currentStep >= 3 && scrollToStep(3)}
-                  disabled={currentStep < 3}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${step3Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                    }`}
-                >
-                  {/* Clock icon: lightning for immediate, clock for scheduled */}
-                  {timingData.type === 'immediate' ? (
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M13 2L3 14h7l-1 6 10-12h-7l1-6z" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.5-11.5V10l3 1.5-.5 1-3.5-1.75V6.5h1z" clipRule="evenodd" />
-                    </svg>
-                  )}
-                </button>
-                <span className="text-xs sm:text-sm mt-1 text-center font-medium">
-                  {timingData.type === 'immediate' ? 'Inmediato' : timingData.type === 'scheduled' ? 'Programado' : 'Hora'}
-                </span>
-              </div>
-
-              <div className="flex-1 h-px bg-gray-300 mx-2"></div>
-
-              {/* Step 4 - Pago (renamed) */}
-              <div className="flex flex-col items-center flex-1">
-                <button
-                  onClick={() => currentStep >= 4 && scrollToStep(4)}
-                  disabled={currentStep < 4}
-                  className={`w-8 h-8 sm:w-10 sm:h-10 min-w-[2rem] min-h-[2rem] sm:min-w-[2.5rem] sm:min-h-[2.5rem] rounded-full flex items-center justify-center transition-all ${step4Complete ? 'bg-red-500 text-white hover:scale-110 cursor-pointer' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                    }`}
-                >
-                  {/* Payment icon: cash, transfer, or mixed */}
-                  {paymentData.method === 'transfer' ? (
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M3 10h14v2H3v-2zM5 6h10v2H5V6z" />
-                    </svg>
-                  ) : paymentData.method === 'cash' ? (
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M2 6h16v8H2zM6 10a2 2 0 104 0 2 2 0 00-4 0z" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M4 4h12v12H4z" />
-                    </svg>
-                  )}
-                </button>
-                <span className="text-xs sm:text-sm mt-1 text-center font-medium">
-                  {paymentData.method === 'cash' ? 'Efectivo' : paymentData.method === 'transfer' ? 'Transferencia' : paymentData.method === 'mixed' ? 'Mixto' : 'Pago'}
-                </span>
-              </div>
-
-            </div>
+      {/* Sticky Header - Matching CartSidebar */}
+      <div className="px-4 sm:px-6 pt-6 pb-4 bg-white sticky top-0 z-10 border-b border-gray-100 shadow-sm mb-6">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link
+              href={business?.username ? `/app/${business.username}` : '/'}
+              className="p-2 -ml-2 text-gray-800 hover:bg-gray-100 rounded-full transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+              </svg>
+            </Link>
+            <h1 className="text-lg font-bold text-gray-900 leading-none">
+              {business?.name || 'Checkout'}
+            </h1>
           </div>
+
         </div>
+      </div>
+
+      <div className="max-w-4xl mx-auto py-4 sm:py-8 px-4 sm:px-6">
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Main Content */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
+          <div className="lg:col-span-2 py-2 max-w-4xl mx-auto space-y-6">
 
-              {/* Step 1: Customer Data */}
-              {currentStep >= 1 && (
-                <div id="step-1">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6">Datos del Cliente</h2>
+            {/* Step 1: Customer Info */}
+            <div id="step-1" className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">1</span>
+                Tus Datos
+              </h2>
 
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Número de Celular *
-                      </label>
-                      {user ? (
-                        <div className="mt-2 p-3 bg-white border border-gray-200 rounded-lg flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{user.nombres}</p>
-                            <p className="text-sm text-gray-600">{user.celular}</p>
-                          </div>
-                          <div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                // cerrar sesión global y limpiar estado de checkout relacionado
-                                logout()
-                                setClientFound(null)
-                                setCustomerData({ name: '', phone: '' })
-                                setShowNameField(true)
-                                setSelectedLocation(null)
-                              }}
-                              className="text-gray-500 hover:text-gray-700 rounded-full p-2"
-                              aria-label="Cerrar sesión"
-                            >
-                              <i className="bi bi-x-lg"></i>
-                            </button>
-                          </div>
-                        </div>
+              <div className="space-y-4">
+                {user ? (
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 relative group animate-fadeIn w-full">
+                    <div className="w-12 h-12 rounded-full overflow-hidden bg-white border border-gray-200 flex-shrink-0 flex items-center justify-center shadow-sm">
+                      {user.photoURL ? (
+                        <img src={user.photoURL} alt={user.nombres} className="w-full h-full object-cover" />
                       ) : (
-                        <>
-                          <input
-                            type="tel"
-                            required
-                            value={customerData.phone}
-                            onChange={(e) => {
-                              const phone = e.target.value;
-                              setCustomerData({ ...customerData, phone });
-                              handlePhoneSearch(phone);
-                            }}
-                            onBlur={(e) => {
-                              // Al perder el foco, normalizar el número si es válido
-                              const phone = e.target.value;
-                              const normalizedPhone = normalizeEcuadorianPhone(phone);
-                              if (validateEcuadorianPhone(normalizedPhone)) {
-                                setCustomerData({ ...customerData, phone: normalizedPhone });
-                              }
-                            }}
-                            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.phone ? 'border-red-500' : 'border-gray-300'
-                              }`}
-                            placeholder="Ej: +593 95 903 6708 o 0959036708"
-                          />
-                          {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone}</p>}
-                          {clientSearching && (
-                            <p className="text-blue-500 text-sm mt-1">Buscando cliente...</p>
-                          )}
-                        </>
+                        <i className="bi bi-person-fill text-2xl text-gray-400"></i>
                       )}
                     </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-gray-900 text-base leading-tight truncate">{user.nombres}</p>
+                      <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
+                        <i className="bi bi-phone text-xs"></i>
+                        {user.celular || customerData.phone}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        logout()
+                        setClientFound(null)
+                        setCustomerData({ name: '', phone: '' })
+                        setShowNameField(true)
+                        setSelectedLocation(null)
+                      }}
+                      className="px-3 py-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 rounded-lg transition-all shadow-sm flex-shrink-0"
+                    >
+                      Salir
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Número de Celular</label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                          <i className="bi bi-phone"></i>
+                        </span>
+                        <input
+                          type="tel"
+                          value={customerData.phone}
+                          onChange={(e) => {
+                            const phone = e.target.value;
+                            setCustomerData({ ...customerData, phone });
+                            handlePhoneSearch(phone);
+                          }}
+                          onBlur={(e) => {
+                            const phone = e.target.value;
+                            const normalizedPhone = normalizeEcuadorianPhone(phone);
+                            if (validateEcuadorianPhone(normalizedPhone)) {
+                              setCustomerData({ ...customerData, phone: normalizedPhone });
+                            }
+                          }}
+                          className={`w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all ${errors.phone ? 'ring-2 ring-red-100 border-red-300' : ''}`}
+                          placeholder="0999999999"
+                          maxLength={10}
+                          disabled={!!clientFound}
+                        />
+                      </div>
+                      {clientFound && (
+                        <button
+                          onClick={() => {
+                            setClientFound(null)
+                            setCustomerData({ name: '', phone: '' })
+                            setShowNameField(true)
+                            setSelectedLocation(null)
+                          }}
+                          className="px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                          title="Cambiar número"
+                        >
+                          Cambiar
+                        </button>
+                      )}
+                    </div>
+                    {errors.phone && <p className="text-red-500 text-xs mt-2 ml-1">{errors.phone}</p>}
+                  </div>
+                )}
 
-                    {/* Lógica solicitada:
+                {/* Lógica solicitada:
                         - Si el número está vacío: no mostrar nada más.
                         - Si hay sesión (`user`): ya se muestra la tarjeta de usuario arriba.
                         - Si no hay sesión y se ingresó teléfono: según `clientFound` mostrar:
@@ -1516,453 +1291,451 @@ function CheckoutContent() {
                           * cliente no encontrado -> formulario de registro (pedir nombre + crear PIN)
                     */}
 
-                    {customerData.phone.trim() && !user && (
-                      <div>
-                        {/* clientSearching ya se muestra junto al input; evitemos duplicarlo */}
+                {customerData.phone.trim() && !user && (
+                  <div>
+                    {/* clientSearching ya se muestra junto al input; evitemos duplicarlo */}
+                    {clientSearching && (
+                      <p className="text-blue-500 text-sm mt-1">Buscando cliente...</p>
+                    )}
 
-                        {!clientSearching && clientFound && clientFound.pinHash && (
-                          // Cliente existente con PIN -> mostrar saludo y pedir PIN para iniciar sesión
-                          <div className="mt-4">
-                            <p className="text-sm text-gray-700 mb-2">Hola <strong>{clientFound.nombres || clientFound.celular}</strong></p>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Ingresa tu PIN</label>
-                            <input type="password" value={loginPin} onChange={(e) => setLoginPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-md" />
-                            {loginPinError && <p className="text-red-500 text-sm mt-1">{loginPinError}</p>}
-                            <div className="mt-3">
-                              <button onClick={handleCheckoutLoginWithPin} disabled={loginPinLoading} className="w-full px-4 py-2 bg-red-500 text-white rounded-lg">{loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}</button>
-                            </div>
+                    {!clientSearching && clientFound && clientFound.pinHash && (
+                      // Cliente existente con PIN -> mostrar saludo y pedir PIN para iniciar sesión
+                      <div className="mt-4">
+                        <p className="text-sm text-gray-700 mb-2">Hola <strong>{clientFound.nombres || clientFound.celular}</strong></p>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Ingresa tu PIN</label>
+                        <input type="password" value={loginPin} onChange={(e) => setLoginPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-xl" />
+                        {loginPinError && <p className="text-red-500 text-sm mt-1">{loginPinError}</p>}
+                        <div className="mt-3">
+                          <button onClick={handleCheckoutLoginWithPin} disabled={loginPinLoading} className="w-full px-4 py-2 bg-red-500 text-white rounded-xl">{loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {!clientSearching && clientFound && !clientFound.pinHash && (
+                      // Cliente existente sin PIN -> formulario de registro
+                      <div className="mt-4">
+                        {/* Mostrar siempre input Nombre (prellenado si clientFound.nombres existe) para permitir actualizar el nombre y luego crear PIN */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
+                          <input
+                            type="text"
+                            required
+                            value={customerData.name}
+                            onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
+                            className={`w-full px-3 py-2 border rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
+                            placeholder="Juan Pérez"
+                          />
+                          {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
+                        </div>
+
+                        <div className="mt-3">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Crea un PIN (4-6 dígitos)</label>
+                          <input type="password" value={registerPin} onChange={(e) => setRegisterPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-xl" />
+                          <label className="block text-sm font-medium text-gray-700 mb-2 mt-2">Confirmar PIN</label>
+                          <input type="password" value={registerPinConfirm} onChange={(e) => setRegisterPinConfirm(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-xl" />
+                          {registerError && <p className="text-red-500 text-sm mt-1">{registerError}</p>}
+                          <div className="mt-3">
+                            <button onClick={handleCheckoutRegisterOrSetPin} disabled={registerLoading} className="w-full px-4 py-2 bg-red-500 text-white rounded-xl">{registerLoading ? 'Procesando...' : 'Registrarse'}</button>
                           </div>
-                        )}
+                        </div>
+                      </div>
+                    )}
 
-                        {!clientSearching && clientFound && !clientFound.pinHash && (
-                          // Cliente existente sin PIN -> formulario de registro
-                          <div className="mt-4">
-                            {/* Mostrar siempre input Nombre (prellenado si clientFound.nombres existe) para permitir actualizar el nombre y luego crear PIN */}
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
-                              <input
-                                type="text"
-                                required
-                                value={customerData.name}
-                                onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
-                                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
-                                placeholder="Juan Pérez"
-                              />
-                              {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-                            </div>
+                    {!clientSearching && !clientFound && customerData.phone.trim() && (
+                      // Teléfono no encontrado -> formulario de registro (pedir nombre + crear PIN)
+                      <div className="mt-4 pt-4 border-t border-gray-100 animate-fadeIn">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
+                        <input
+                          type="text"
+                          required
+                          value={customerData.name}
+                          onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
+                          className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all ${errors.name ? 'border-red-300 ring-red-100' : 'border-gray-200'}`}
+                          placeholder="Juan Pérez"
+                        />
+                        {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
 
-                            <div className="mt-3">
-                              <label className="block text-sm font-medium text-gray-700 mb-2">Crea un PIN (4-6 dígitos)</label>
-                              <input type="password" value={registerPin} onChange={(e) => setRegisterPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-md" />
-                              <label className="block text-sm font-medium text-gray-700 mb-2 mt-2">Confirmar PIN</label>
-                              <input type="password" value={registerPinConfirm} onChange={(e) => setRegisterPinConfirm(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-md" />
-                              {registerError && <p className="text-red-500 text-sm mt-1">{registerError}</p>}
-                              <div className="mt-3">
-                                <button onClick={handleCheckoutRegisterOrSetPin} disabled={registerLoading} className="w-full px-4 py-2 bg-red-500 text-white rounded-lg">{registerLoading ? 'Procesando...' : 'Registrarse'}</button>
-                              </div>
-                            </div>
+                        <div className="mt-3">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Crea un PIN (4-6 dígitos)</label>
+                          <input type="password" value={registerPin} onChange={(e) => setRegisterPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-xl" />
+                          <label className="block text-sm font-medium text-gray-700 mb-2 mt-2">Confirmar PIN</label>
+                          <input type="password" value={registerPinConfirm} onChange={(e) => setRegisterPinConfirm(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-xl" />
+                          {registerError && <p className="text-red-500 text-sm mt-1">{registerError}</p>}
+                          <div className="mt-3">
+                            <button onClick={handleCheckoutRegisterOrSetPin} disabled={registerLoading} className="w-full px-4 py-2 bg-red-500 text-white rounded-xl">{registerLoading ? 'Procesando...' : 'Registrarse'}</button>
                           </div>
-                        )}
-
-                        {!clientSearching && !clientFound && (
-                          // Teléfono no encontrado -> formulario de registro (pedir nombre + crear PIN)
-                          <div className="mt-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
-                            <input
-                              type="text"
-                              required
-                              value={customerData.name}
-                              onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
-                              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
-                              placeholder="Juan Pérez"
-                            />
-                            {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-
-                            <div className="mt-3">
-                              <label className="block text-sm font-medium text-gray-700 mb-2">Crea un PIN (4-6 dígitos)</label>
-                              <input type="password" value={registerPin} onChange={(e) => setRegisterPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-md" />
-                              <label className="block text-sm font-medium text-gray-700 mb-2 mt-2">Confirmar PIN</label>
-                              <input type="password" value={registerPinConfirm} onChange={(e) => setRegisterPinConfirm(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-md" />
-                              {registerError && <p className="text-red-500 text-sm mt-1">{registerError}</p>}
-                              <div className="mt-3">
-                                <button onClick={handleCheckoutRegisterOrSetPin} disabled={registerLoading} className="w-full px-4 py-2 bg-red-500 text-white rounded-lg">{registerLoading ? 'Procesando...' : 'Registrarse'}</button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
+                        </div>
                       </div>
                     )}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+            </div>
 
-              {/* Step 2: Delivery */}
-              {currentStep >= 2 && (
-                <div id="step-2">
-                  {/* Mostrar selección solo si hay sesión iniciada */}
-                  {user && (
-                    <>
-                      <h2 className="text-2xl font-bold text-gray-900 mb-6">¿Cómo deseas recibir tu pedido?</h2>
-                      <div className="space-y-4 mb-6">
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              // Al cambiar a pickup, limpiamos la ubicación seleccionada
-                              setSelectedLocation(null);
-                              setDeliveryData(prev => ({
-                                ...prev,
-                                type: 'pickup',
-                                address: '',
-                                references: '',
-                                tarifa: '0'
-                              }));
-                            }}
-                            className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${deliveryData.type === 'pickup'
-                              ? 'border-blue-500 bg-blue-50 text-blue-700'
-                              : 'border-gray-300 hover:border-gray-400'
-                              }`}
-                          >
-                            <i className="bi bi-shop text-lg"></i>
-                            <span className="text-xs font-medium">Recoger en tienda</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              // Al cambiar a delivery, mantenemos la dirección pero reseteamos la tarifa
-                              setDeliveryData(prev => ({
-                                ...prev,
-                                type: 'delivery',
-                                tarifa: '0' // Reseteamos la tarifa
-                              }));
-                              // Si no hay ubicación seleccionada, abrir el modal automáticamente
-                              if (!selectedLocation) {
-                                openLocationModal()
-                              }
-                            }}
-                            className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${deliveryData.type === 'delivery'
-                              ? 'border-blue-500 bg-blue-50 text-blue-700'
-                              : 'border-gray-300 hover:border-gray-400'
-                              }`}
-                          >
-                            <i className="bi bi-scooter text-lg"></i>
-                            <span className="text-xs font-medium">Delivery</span>
-                          </button>
-                        </div>
+            {/* Step 2: Delivery */}
+            {/* Step 2: Delivery */}
+            <div id="step-2" className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">2</span>
+                Entrega
+              </h2>
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeliveryData(prev => ({ ...prev, type: 'delivery', tarifa: '0' }));
+                      if (!selectedLocation) openLocationModal();
+                    }}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${deliveryData.type === 'delivery'
+                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                      }`}
+                  >
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${deliveryData.type === 'delivery' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
+                      <i className="bi bi-bicycle"></i>
+                    </div>
+                    <span className="font-bold">Domicilio</span>
+                    {deliveryData.type === 'delivery' && (
+                      <div className="absolute top-2 right-2 text-white text-xs">
+                        <i className="bi bi-check-circle-fill"></i>
                       </div>
+                    )}
+                  </button>
 
-                      {errors.deliveryType && (
-                        <p className="text-red-500 text-sm mb-4">{errors.deliveryType}</p>
-                      )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedLocation(null);
+                      setDeliveryData(prev => ({ ...prev, type: 'pickup', address: '', references: '', tarifa: '0' }));
+                    }}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${deliveryData.type === 'pickup'
+                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                      }`}
+                  >
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${deliveryData.type === 'pickup' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
+                      <i className="bi bi-shop"></i>
+                    </div>
+                    <span className="font-bold">Retiro en Tienda</span>
+                    {deliveryData.type === 'pickup' && (
+                      <div className="absolute top-2 right-2 text-white text-xs">
+                        <i className="bi bi-check-circle-fill"></i>
+                      </div>
+                    )}
+                  </button>
+                </div>
 
-                      {deliveryData.type === 'delivery' && (
-                        <div className="space-y-4">
-                          {/* Mostrar ubicación seleccionada y botón para abrir modal */}
-                          {clientFound && clientLocations.length > 0 ? (
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">Ubicación Seleccionada</label>
-                              {loadingLocations ? (
-                                <div className="text-sm text-gray-500">Cargando ubicaciones...</div>
-                              ) : (
-                                <div className="mb-4">
-                                  {selectedLocation ? (
-                                    <div className="border border-gray-300 rounded-lg bg-gray-50 p-3">
-                                      <div className="flex gap-3 items-center">
-                                        <div className="flex-shrink-0 w-20">
-                                          <LocationMap latlong={selectedLocation.latlong} height="80px" />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                          <div className="font-medium text-sm mb-1">{selectedLocation.referencia}</div>
-                                          <div className="text-xs text-gray-500">Tarifa: ${selectedLocation.tarifa}</div>
-                                          {Number(selectedLocation.tarifa) === 1.5 && (
-                                            <p className="text-xs text-red-600 mt-1">
-                                              En revisión por cobertura
-                                            </p>
-                                          )}
-                                          {selectedLocationOutsideCoverage && (
-                                            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-                                              <i className="bi bi-exclamation-triangle mr-2"></i>
-                                              Esta ubicación está fuera de las zonas de cobertura y no será posible realizar delivery a esta dirección.
-                                            </div>
-                                          )}
-                                        </div>
-                                        <button type="button" onClick={openLocationModal} className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center flex-shrink-0">
-                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                          </svg>
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={openLocationModal}
-                                      className="w-full p-4 border-2 border-dashed border-red-300 rounded-lg bg-red-50 hover:bg-red-100 transition-colors flex flex-col items-center justify-center group"
-                                    >
-                                      <div className="bg-white p-3 rounded-full shadow-sm mb-2 group-hover:scale-110 transition-transform">
-                                        <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                                        </svg>
-                                      </div>
-                                      <span className="text-red-700 font-medium">Seleccionar Ubicación de Entrega</span>
-                                      <span className="text-xs text-red-500 mt-1">Haz clic aquí para elegir dónde recibir tu pedido</span>
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                            </div>
+                {/* Selected Location Display */}
+                {deliveryData.type === 'delivery' && (
+                  <div className="animate-fadeIn">
+                    {selectedLocation ? (
+                      <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 flex items-start gap-3 relative group">
+                        <div className="flex-shrink-0">
+                          {selectedLocation.latlong ? (
+                            <LocationMap latlong={selectedLocation.latlong} height="80px" />
                           ) : (
-                            // Usuario loggeado pero sin ubicaciones: mostrar CTA para agregar nueva ubicación
-                            <div className="p-3 border border-dashed rounded-lg bg-gray-50">
-                              <p className="text-sm text-gray-700 mb-3">No tienes ubicaciones guardadas.</p>
-                              <button type="button" onClick={() => { setIsAddingNewLocation(true); getCurrentLocation(); openLocationModal(); }} className="px-4 py-2 bg-red-500 text-white rounded-lg">Agregar nueva ubicación</button>
+                            <div className="w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400">
+                              <i className="bi bi-geo-alt-fill text-2xl"></i>
                             </div>
                           )}
-
-                          {/* Removed manual address form - not needed */}
                         </div>
-                      )}
-
-                      {deliveryData.type === 'pickup' && (
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                          <h3 className="font-medium mb-2">Información del Negocio</h3>
-                          <p className="text-sm text-gray-600 mb-2"><strong>Dirección:</strong> {business?.address}</p>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-900">Ubicación de entrega</p>
+                          <p className="text-sm text-gray-600 truncate">{selectedLocation.referencia}</p>
+                          {selectedLocation.sector && <p className="text-xs text-gray-500 mt-1 truncate">Sector: {selectedLocation.sector}</p>}
                         </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Step 3: Timing */}
-              {currentStep >= 3 && (
-                <div id="step-3">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6">¿Cuándo deseas recibir tu pedido?</h2>
-
-                  <div className="space-y-4 mb-6">
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTimingData(prev => ({ ...prev, type: 'immediate' }))
-                          // avanzar fluidamente al paso de pago
-                          setCurrentStep(4)
-                        }}
-                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${timingData.type === 'immediate'
-                          ? 'border-orange-500 bg-orange-50 text-orange-700'
-                          : 'border-gray-300 hover:border-gray-400'
-                          }`}
-                      >
-                        <i className="bi bi-lightning-fill text-lg"></i>
-                        <span className="text-xs font-medium">Inmediato</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const now = new Date();
-                          const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
-                          setTimingData(prev => ({
-                            ...prev,
-                            type: 'scheduled',
-                            scheduledDate: now.toISOString().split('T')[0],
-                            scheduledTime: oneHourLater.toTimeString().split(' ')[0].substring(0, 5)
-                          }))
-                          // avanzar al paso de pago para que la sección aparezca sin más acciones
-                          setCurrentStep(4)
-                        }}
-                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${timingData.type === 'scheduled'
-                          ? 'border-orange-500 bg-orange-50 text-orange-700'
-                          : 'border-gray-300 hover:border-gray-400'
-                          }`}
-                      >
-                        <i className="bi bi-calendar2-event text-lg"></i>
-                        <span className="text-xs font-medium">Programado</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {timingData.type === 'scheduled' && (
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Fecha de Entrega
-                        </label>
-                        <input
-                          type="date"
-                          value={timingData.scheduledDate}
-                          onChange={(e) => setTimingData({ ...timingData, scheduledDate: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                          min={new Date().toISOString().split('T')[0]}
-                        />
+                        <button
+                          onClick={openLocationModal}
+                          className="px-3 py-1 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
+                        >
+                          Cambiar
+                        </button>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Hora de Entrega
-                        </label>
-                        <input
-                          type="time"
-                          value={timingData.scheduledTime}
-                          onChange={(e) => setTimingData({ ...timingData, scheduledTime: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                        />
+                    ) : (
+                      <button
+                        onClick={openLocationModal}
+                        className="w-full py-4 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-gray-900 hover:text-gray-900 hover:bg-gray-50 transition-all flex flex-col items-center justify-center gap-2"
+                      >
+                        <i className="bi bi-geo-alt text-2xl"></i>
+                        <span className="font-medium">Seleccionar ubicación de entrega</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Store Location Info for Pickup */}
+                {deliveryData.type === 'pickup' && (
+                  <div className="animate-fadeIn">
+                    <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 flex items-start gap-3">
+                      <div className="w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400 flex-shrink-0">
+                        <i className="bi bi-shop text-2xl"></i>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900">Retirar en:</p>
+                        <p className="text-lg font-bold text-gray-800">{business?.name}</p>
+                        <p className="text-sm text-gray-600 mt-1">
+                          <i className="bi bi-geo-alt mr-1"></i>
+                          {business?.address || 'Dirección no disponible'}
+                        </p>
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
-
-              {/* Step 4: Payment */}
-              {currentStep >= 4 && (
-                <div id="step-4">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6">Método de Pago</h2>
-
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setPaymentData(prev => ({ ...prev, method: 'cash', cashAmount: 0, transferAmount: 0 }))}
-                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${paymentData.method === 'cash'
-                          ? 'border-green-500 bg-green-50 text-green-700'
-                          : 'border-gray-300 hover:border-gray-400'
-                          }`}
-                      >
-                        <i className="bi bi-cash text-lg"></i>
-                        <span className="text-xs font-medium">Efectivo</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setPaymentData(prev => ({ ...prev, method: 'transfer', cashAmount: 0, transferAmount: 0 }))}
-                        className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${paymentData.method === 'transfer'
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-gray-300 hover:border-gray-400'
-                          }`}
-                      >
-                        <i className="bi bi-bank text-lg"></i>
-                        <span className="text-xs font-medium">Transferencia</span>
-                      </button>
-
-                      {/* Mixto oculto por ahora - no renderizamos la opción */}
-                    </div>
-
-                    {/* Configuración de Pago Mixto */}
-                    {/* Mixto deshabilitado - fin */}
                   </div>
+                )}
+              </div>
+            </div>
 
-                  {errors.paymentMethod && (
-                    <p className="text-red-500 text-sm mt-2 flex items-center">
-                      <i className="bi bi-exclamation-triangle mr-1"></i>
-                      {errors.paymentMethod}
-                    </p>
-                  )}
+            {/* Step 3: Timing */}
+            <div id="step-3" className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">3</span>
+                Horario
+              </h2>
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setTimingData({ type: 'immediate', scheduledDate: '', scheduledTime: '' })}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${timingData.type === 'immediate'
+                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                      }`}
+                  >
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${timingData.type === 'immediate' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
+                      <i className="bi bi-lightning-charge-fill"></i>
+                    </div>
+                    <span className="font-bold">Lo antes posible</span>
+                    {timingData.type === 'immediate' && (
+                      <div className="absolute top-2 right-2 text-white text-xs">
+                        <i className="bi bi-check-circle-fill"></i>
+                      </div>
+                    )}
+                  </button>
 
-                  {paymentData.method === 'transfer' && (
-                    <div className="mt-6 bg-gray-50 p-4 rounded-lg">
-                      {/* Solo mostrar datos bancarios si NO hay comprobante adjunto */}
-                      {!paymentData.receiptImageUrl && (
-                        <>
-                          <h3 className="font-medium mb-4">💳 Datos para realizar la transferencia</h3>
+                  <button
+                    type="button"
+                    onClick={() => setTimingData({ ...timingData, type: 'scheduled' })}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${timingData.type === 'scheduled'
+                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                      }`}
+                  >
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${timingData.type === 'scheduled' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
+                      <i className="bi bi-clock-fill"></i>
+                    </div>
+                    <span className="font-bold">Programar</span>
+                    {timingData.type === 'scheduled' && (
+                      <div className="absolute top-2 right-2 text-white text-xs">
+                        <i className="bi bi-check-circle-fill"></i>
+                      </div>
+                    )}
+                  </button>
+                </div>
 
-                          {/* Selector de banco */}
-                          <div className="mb-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Selecciona el banco:
-                            </label>
-                            <select
-                              value={paymentData.selectedBank}
-                              onChange={(e) => setPaymentData({ ...paymentData, selectedBank: e.target.value })}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                            >
-                              <option value="">Selecciona un banco</option>
-                              <option value="pichincha">🟡 Banco Pichincha</option>
-                              <option value="pacifico">🔵 Banco Pacifico</option>
-                              <option value="guayaquil">🩷 Banco Guayaquil</option>
-                              <option value="produbanco">🟢 Banco Produbanco</option>
-                            </select>
-                            {errors.selectedBank && (
-                              <p className="text-red-500 text-xs mt-1 flex items-center">
-                                <i className="bi bi-exclamation-triangle mr-1"></i>
-                                {errors.selectedBank}
-                              </p>
-                            )}
+                {timingData.type === 'scheduled' && (
+                  <div className="grid grid-cols-2 gap-4 animate-fadeIn">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Fecha</label>
+                      <input
+                        type="date"
+                        min={new Date().toISOString().split('T')[0]}
+                        value={timingData.scheduledDate}
+                        onChange={(e) => setTimingData({ ...timingData, scheduledDate: e.target.value })}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Hora</label>
+                      <input
+                        type="time"
+                        value={timingData.scheduledTime}
+                        onChange={(e) => setTimingData({ ...timingData, scheduledTime: e.target.value })}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Step 4: Payment */}
+            <div id="step-4" className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">4</span>
+                Pago
+              </h2>
+
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Efectivo */}
+                  <button
+                    type="button"
+                    onClick={() => setPaymentData({ ...paymentData, method: 'cash' })}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${paymentData.method === 'cash'
+                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                      }`}
+                  >
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${paymentData.method === 'cash' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
+                      <i className="bi bi-cash-coin"></i>
+                    </div>
+                    <span className="font-bold">Efectivo</span>
+                    {paymentData.method === 'cash' && (
+                      <div className="absolute top-2 right-2 text-white text-xs">
+                        <i className="bi bi-check-circle-fill"></i>
+                      </div>
+                    )}
+                  </button>
+                  {/* Transferencia */}
+                  <button
+                    type="button"
+                    onClick={() => setPaymentData({ ...paymentData, method: 'transfer' })}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${paymentData.method === 'transfer'
+                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                      }`}
+                  >
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${paymentData.method === 'transfer' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
+                      <i className="bi bi-bank"></i>
+                    </div>
+                    <span className="font-bold">Transferencia</span>
+                    {paymentData.method === 'transfer' && (
+                      <div className="absolute top-2 right-2 text-white text-xs">
+                        <i className="bi bi-check-circle-fill"></i>
+                      </div>
+                    )}
+                  </button>
+                </div>
+
+                {errors.paymentMethod && (
+                  <p className="text-red-500 text-sm flex items-center">
+                    <i className="bi bi-exclamation-triangle mr-1"></i>
+                    {errors.paymentMethod}
+                  </p>
+                )}
+
+                {paymentData.method === 'transfer' && (
+                  <div className="mt-6 bg-gray-50 p-4 rounded-lg animate-fadeIn">
+                    {/* Solo mostrar datos bancarios si NO hay comprobante adjunto */}
+                    {!paymentData.receiptImageUrl && (
+                      <>
+                        <h3 className="font-medium mb-4">💳 Datos para realizar la transferencia</h3>
+
+                        {/* Selector de banco */}
+                        <div className="mb-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Selecciona el banco:
+                          </label>
+                          <div className="grid grid-cols-2 gap-3">
+                            {[
+                              { id: 'pichincha', label: 'Pichincha', colorClass: 'bg-yellow-100 text-yellow-600', activeClass: 'bg-yellow-400 border-yellow-500 text-gray-900' },
+                              { id: 'pacifico', label: 'Pacifico', colorClass: 'bg-blue-100 text-blue-600', activeClass: 'bg-blue-600 border-blue-700 text-white' },
+                              { id: 'guayaquil', label: 'Guayaquil', colorClass: 'bg-pink-100 text-pink-600', activeClass: 'bg-pink-600 border-pink-700 text-white' },
+                              { id: 'produbanco', label: 'Produbanco', colorClass: 'bg-green-100 text-green-600', activeClass: 'bg-green-600 border-green-700 text-white' },
+                            ].map((bank) => (
+                              <button
+                                key={bank.id}
+                                type="button"
+                                onClick={() => setPaymentData({ ...paymentData, selectedBank: bank.id })}
+                                className={`w-full h-24 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${paymentData.selectedBank === bank.id
+                                  ? `${bank.activeClass} shadow-md`
+                                  : 'border-gray-100 bg-white text-gray-500 hover:border-gray-300'
+                                  }`}
+                              >
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${paymentData.selectedBank === bank.id ? 'bg-white/30 text-inherit' : bank.colorClass}`}>
+                                  <i className="bi bi-bank"></i>
+                                </div>
+                                <span className="text-xs font-bold text-center leading-tight">
+                                  {bank.label}
+                                </span>
+                              </button>
+                            ))}
                           </div>
+                          {errors.selectedBank && (
+                            <p className="text-red-500 text-xs mt-1 flex items-center">
+                              <i className="bi bi-exclamation-triangle mr-1"></i>
+                              {errors.selectedBank}
+                            </p>
+                          )}
+                        </div>
 
-                          {/* Mostrar datos bancarios según selección */}
-                          {paymentData.selectedBank && (
-                            <div className="bg-white p-4 rounded-lg border">
-                              <h4 className="font-semibold mb-3">Datos de la cuenta:</h4>
+                        {/* Mostrar datos bancarios según selección */}
+                        {paymentData.selectedBank && (
+                          <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm mt-4">
+                            <div className="space-y-5">
+                              {/* Header del Banco */}
+                              <div className="pb-4 border-b border-gray-100">
+                                <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Banco Destino</p>
+                                <p className="font-bold text-gray-900 text-xl flex items-center gap-2">
+                                  {paymentData.selectedBank === 'pichincha' && 'Banco Pichincha'}
+                                  {paymentData.selectedBank === 'pacifico' && 'Banco del Pacífico'}
+                                  {paymentData.selectedBank === 'guayaquil' && 'Banco Guayaquil'}
+                                  {paymentData.selectedBank === 'produbanco' && 'Banco Produbanco'}
+                                </p>
+                              </div>
 
-                              {paymentData.selectedBank === 'pichincha' && (
-                                <div className="text-sm space-y-2">
-                                  <p><strong>🟡 Banco Pichincha</strong></p>
-                                  <p><strong>Cuenta de ahorros:</strong> 2203257517</p>
-                                  <p><strong>A nombre de:</strong> Pedro Sánchez León</p>
-                                  <p><strong>Cédula:</strong> 0929057636</p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                <div>
+                                  <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Cuenta de Ahorros</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-mono text-xl font-bold text-gray-900 bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-block">
+                                      {paymentData.selectedBank === 'pichincha' && '2203257517'}
+                                      {paymentData.selectedBank === 'pacifico' && '1063889358'}
+                                      {paymentData.selectedBank === 'guayaquil' && '0030697477'}
+                                      {paymentData.selectedBank === 'produbanco' && '20000175331'}
+                                    </p>
+                                  </div>
                                 </div>
-                              )}
-
-                              {paymentData.selectedBank === 'pacifico' && (
-                                <div className="text-sm space-y-2">
-                                  <p><strong>🔵 Banco Pacifico</strong></p>
-                                  <p><strong>Cuenta de ahorros:</strong> 1063889358</p>
-                                  <p><strong>A nombre de:</strong> Pedro Sánchez León</p>
-                                  <p><strong>Cédula:</strong> 0929057636</p>
+                                <div>
+                                  <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Cédula / RUC</p>
+                                  <p className="font-medium text-gray-900 text-lg">
+                                    {paymentData.selectedBank === 'produbanco' ? '0940482169' : '0929057636'}
+                                  </p>
                                 </div>
-                              )}
+                              </div>
 
-                              {paymentData.selectedBank === 'guayaquil' && (
-                                <div className="text-sm space-y-2">
-                                  <p><strong>🩷 Banco Guayaquil</strong></p>
-                                  <p><strong>Cuenta de ahorros:</strong> 0030697477</p>
-                                  <p><strong>A nombre de:</strong> Pedro Sánchez León</p>
-                                  <p><strong>Cédula:</strong> 0929057636</p>
-                                </div>
-                              )}
-
-                              {paymentData.selectedBank === 'produbanco' && (
-                                <div className="text-sm space-y-2">
-                                  <p><strong>🟢 Banco Produbanco</strong></p>
-                                  <p><strong>Cuenta de ahorros:</strong> 20000175331</p>
-                                  <p><strong>A nombre de:</strong> Liliana Ravelo Coloma</p>
-                                  <p><strong>Cédula:</strong> 0940482169</p>
-                                </div>
-                              )}
-
-                              <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                                <p className="text-sm text-yellow-800">
-                                  <strong>Importante:</strong> Realiza la transferencia por el monto exacto de ${total.toFixed(2)} y sube el comprobante aquí.
+                              <div>
+                                <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Titular de la Cuenta</p>
+                                <p className="font-medium text-gray-900 text-lg border-b border-gray-100 pb-1 inline-block">
+                                  {paymentData.selectedBank === 'produbanco' ? 'Liliana Ravelo Coloma' : 'Pedro Sánchez León'}
                                 </p>
                               </div>
                             </div>
-                          )}
-                        </>
-                      )}
 
-                      {/* Componente para subir comprobante - SIEMPRE VISIBLE */}
-                      {paymentData.selectedBank && clientFound && (
-                        <TransferReceiptUploader
-                          onReceiptUpload={handleReceiptUpload}
-                          uploadedImageUrl={paymentData.receiptImageUrl || null}
-                          isUploading={uploadingReceipt}
-                          clientId={clientFound.id}
-                        />
-                      )}
+                            <div className="mt-6 p-4 bg-gray-900 text-white rounded-xl shadow-lg flex gap-3 items-start">
+                              <i className="bi bi-cash-stack text-xl"></i>
+                              <div>
+                                <p className="font-bold text-lg mb-1">Total a transferir: ${total.toFixed(2)}</p>
+                                <p className="text-sm text-gray-300 leading-snug">
+                                  Realiza la transferencia exacta y sube tu comprobante a continuación para confirmar tu pedido.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
 
-                      {/* Error del comprobante */}
-                      {errors.receiptImage && (
-                        <p className="text-red-500 text-xs mt-2 flex items-center">
-                          <i className="bi bi-exclamation-triangle mr-1"></i>
-                          {errors.receiptImage}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+                    {/* Componente para subir comprobante - SIEMPRE VISIBLE */}
+                    {paymentData.selectedBank && clientFound && (
+                      <TransferReceiptUploader
+                        onReceiptUpload={handleReceiptUpload}
+                        uploadedImageUrl={paymentData.receiptImageUrl || null}
+                        isUploading={uploadingReceipt}
+                        clientId={clientFound.id}
+                      />
+                    )}
 
-              {/* Step 5 removed - Confirmar step was removed per request */}
+                    {/* Error del comprobante */}
+                    {errors.receiptImage && (
+                      <p className="text-red-500 text-xs mt-2 flex items-center">
+                        <i className="bi bi-exclamation-triangle mr-1"></i>
+                        {errors.receiptImage}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -2061,227 +1834,22 @@ function CheckoutContent() {
           </div>
         </div>
 
-        {/* Modal para mostrar ubicaciones registradas - Mobile Optimized */}
-        {isLocationModalOpen && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-t-lg sm:rounded-lg shadow-lg w-full max-w-md mx-auto p-4 sm:p-6 max-h-[90vh] sm:max-h-[80vh] flex flex-col">
-              <div className="flex justify-between items-center mb-4 pb-3 border-b sm:border-b-0 sm:pb-0">
-                <h2 className="text-lg font-bold">
-                  {isAddingNewLocation ? 'Agregar Nueva Ubicación' : 'Selecciona una ubicación'}
-                </h2>
-                <button
-                  onClick={closeLocationModal}
-                  className="text-gray-400 hover:text-gray-600 p-1"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              {!isAddingNewLocation ? (
-                <>
-                  <div className="space-y-4 overflow-y-auto flex-1 -mx-2 px-2">
-                    {clientLocations.map((location) => (
-                      <div
-                        key={location.id}
-                        className={`border rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md ${selectedLocation?.id === location.id
-                          ? 'border-red-500 bg-red-50 shadow-md'
-                          : 'border-gray-300 hover:bg-gray-50 active:bg-gray-100'
-                          }`}
-                        onClick={() => {
-                          handleLocationSelect(location);
-                          closeLocationModal();
-                        }}
-                      >
-                        {/* Layout horizontal: Mapa a la izquierda, información a la derecha */}
-                        <div className="flex gap-3 p-3">
-                          {/* Mapa de la ubicación - Cuadrado a la izquierda */}
-                          <div className="flex-shrink-0">
-                            <LocationMap latlong={location.latlong} height="80px" />
-                          </div>
-
-                          {/* Información de la ubicación - A la derecha */}
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-sm mb-1 text-gray-900">
-                              {location.referencia}
-                            </div>
-                            <div className="text-xs text-gray-500 mb-2 flex items-center gap-2">
-                              <span>💰 Tarifa: ${location.tarifa}</span>
-                              {(location.tarifa == null || Number(location.tarifa) <= 0) && (
-                                <span className="text-xs text-yellow-800 bg-yellow-100 px-2 py-1 rounded-full">Fuera de cobertura</span>
-                              )}
-                            </div>
-                            {selectedLocation?.id === location.id && (
-                              <div className="text-xs text-red-600 font-medium bg-red-100 px-2 py-1 rounded-full inline-block">
-                                ✓ Seleccionada
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-4 pt-3 border-t sm:border-t-0 sm:pt-4 space-y-2">
-                    <button
-                      className="w-full bg-red-500 text-white py-3 rounded-lg hover:bg-red-600 transition-colors touch-manipulation"
-                      onClick={() => {
-                        setIsAddingNewLocation(true);
-                        getCurrentLocation();
-                      }}
-                    >
-                      + Agregar Nueva Ubicación
-                    </button>
-                    <button
-                      className="w-full bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 active:bg-gray-400 transition-colors touch-manipulation"
-                      onClick={closeLocationModal}
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* Formulario para agregar nueva ubicación */}
-                  <div className="space-y-4 overflow-y-auto flex-1">
-                    {/* Mapa interactivo */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Ubicación en el mapa (mueve el pin para ajustar)
-                      </label>
-                      {mapCoordinates ? (
-                        <div className="border rounded-lg overflow-hidden">
-                          <GoogleMap
-                            latitude={mapCoordinates.lat}
-                            longitude={mapCoordinates.lng}
-                            height="200px"
-                            width="100%"
-                            zoom={16}
-                            marker={true}
-                            draggable={true}
-                            onLocationChange={handleLocationChange}
-                          />
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault()
-                            getCurrentLocation()
-                          }}
-                          className="w-full border border-dashed border-gray-300 rounded-lg px-4 py-6 flex flex-col items-center justify-center text-center bg-gray-50 hover:bg-gray-100 transition-colors"
-                        >
-                          <span className="text-sm font-medium text-gray-700 mb-1">
-                            Activa tu ubicación para seleccionar el punto en el mapa
-                          </span>
-                          <span className="text-xs text-red-600 font-medium">
-                            Inténtalo de nuevo
-                          </span>
-                          <span className="text-[11px] text-gray-500 mt-1">
-                            Necesitamos esta info para determinar la cobertura y valor de envío
-                          </span>
-                          {isRequestingLocation && (
-                            <span className="mt-2 text-xs text-gray-500">
-                              Obteniendo tu ubicacin...
-                            </span>
-                          )}
-                          {locationPermissionError && (
-                            <span className="mt-2 text-xs text-red-500">
-                              {locationPermissionError}
-                            </span>
-                          )}
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Campo de referencias */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Referencias de la ubicación *
-                      </label>
-                      <textarea
-                        value={newLocationData.referencia}
-                        onChange={handleReferenciaChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                        placeholder="Ej: Casa blanca, portón negro, diagonal al supermercado..."
-                        rows={3}
-                        required
-                      />
-                    </div>
-
-                    {/* Campo de tarifa */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Tarifa de envío
-                        {newLocationData.latlong && (
-                          <span className="text-xs text-green-600 ml-2">
-                            {Number(newLocationData.tarifa) === 1.5
-                              ? '(Estimada)'
-                              : '(Calculada automáticamente)'}
-                          </span>
-                        )}
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          value={`$${newLocationData.tarifa}`}
-                          readOnly
-                          disabled
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-600 cursor-not-allowed"
-                          placeholder="$0.00"
-                        />
-                      </div>
-                      {newLocationData.latlong && (
-                        <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                          {Number(newLocationData.tarifa) === 1.5 ? (
-                            <>
-                              <i className="bi bi-exclamation-triangle-fill text-red-500 mr-1"></i>
-                              <span>
-                                La ubicación está fuera de la zona de cobertura, la revisaremos y te notificaremos
-                              </span>
-                            </>
-                          ) : (
-                            <span>
-                              💡 La tarifa se calcula automáticamente según las zonas de cobertura configuradas
-                            </span>
-                          )}
-                        </p>
-                      )}
-                      {/* Aviso fuera de cobertura para nueva ubicación */}
-                      {(newLocationData.tarifa == null || Number(newLocationData.tarifa) <= 0) && newLocationData.latlong && (
-                        <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-                          <i className="bi bi-exclamation-triangle mr-2"></i>
-                          Esta ubicación está fuera de las zonas de cobertura. Podrás guardarla, pero no estará disponible para delivery.
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Campo de coordenadas eliminado para simplificar la interfaz */}
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t sm:border-t-0 sm:pt-4 space-y-2">
-                    <button
-                      className={`w-full py-3 rounded-lg transition-colors touch-manipulation ${mapCoordinates
-                        ? 'bg-red-500 text-white hover:bg-red-600'
-                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
-                      onClick={mapCoordinates ? handleSaveNewLocation : (e) => e.preventDefault()}
-                      disabled={!mapCoordinates}
-                    >
-                      Guardar Ubicación
-                    </button>
-                    <button
-                      className="w-full bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 active:bg-gray-400 transition-colors touch-manipulation"
-                      onClick={() => setIsAddingNewLocation(false)}
-                    >
-                      Volver
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
+        {/* Modal externo reutilizable */}
+        <LocationSelectionModal
+          isOpen={isLocationModalOpen}
+          onClose={closeLocationModal}
+          clientLocations={clientLocations}
+          onSelect={handleLocationSelect}
+          onLocationCreated={(newLocation) => {
+            setClientLocations(prev => [...prev, newLocation]);
+            handleLocationSelect(newLocation);
+          }}
+          clientId={clientFound?.id || ''}
+          businessId={business?.id}
+          initialAddingState={isAddingNewLocation}
+          selectedLocationId={selectedLocation?.id}
+        />
       </div>
-    </div>
+    </div >
   )
 }
