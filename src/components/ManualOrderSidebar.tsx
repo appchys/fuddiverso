@@ -1177,6 +1177,12 @@ export default function ManualOrderSidebar({
                   placeholder="0912345678 o Nombre del cliente"
                   className="w-full px-3 py-2 pr-16 sm:pr-20 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                   onFocus={() => searchResults.length > 0 && setShowSearchResults(true)}
+                  onPaste={(e) => {
+                    e.preventDefault()
+                    const text = e.clipboardData.getData('text')
+                    const normalizedPhone = normalizePhone(text)
+                    handlePhoneSearch(normalizedPhone)
+                  }}
                 />
                 <div className="absolute right-0 top-0 h-full flex items-center space-x-1 pr-2">
                   <button
