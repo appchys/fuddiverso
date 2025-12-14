@@ -1441,9 +1441,10 @@ function CheckoutContent() {
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900">Ubicación de entrega</p>
-                          <p className="text-sm text-gray-600 truncate">{selectedLocation.referencia}</p>
-                          {selectedLocation.sector && <p className="text-xs text-gray-500 mt-1 truncate">Sector: {selectedLocation.sector}</p>}
+                          <p className="font-medium text-gray-900">{selectedLocation.referencia}</p>
+                          <p className="text-xs text-gray-500 mt-1 truncate">
+                            Tarifa: ${Number(selectedLocation.tarifa || '0').toFixed(2)}
+                          </p>
                         </div>
                         <button
                           onClick={openLocationModal}

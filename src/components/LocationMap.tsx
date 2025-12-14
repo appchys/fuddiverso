@@ -17,7 +17,7 @@ export default function LocationMap({ latlong, height = "96px" }: { latlong: str
 
     if (!coordinates) {
         return (
-            <div className={`w-full bg-gray-100 rounded-lg flex items-center justify-center`} style={{ height }}>
+            <div className="w-full bg-gray-100 rounded-lg flex items-center justify-center" style={{ height }}>
                 <span className="text-gray-500 text-xs">📍 Coordenadas inválidas</span>
             </div>
         );
@@ -27,12 +27,11 @@ export default function LocationMap({ latlong, height = "96px" }: { latlong: str
     const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${coordinates.lat},${coordinates.lng}&zoom=16&size=200x200&maptype=roadmap&markers=color:red%7C${coordinates.lat},${coordinates.lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
 
     return (
-        <div className={`w-full rounded-lg overflow-hidden border border-gray-200 shadow-sm relative`} style={{ height, width: height }}>
+        <div className="w-full max-w-[96px] rounded-lg overflow-hidden border border-gray-200 shadow-sm relative">
             <img
                 src={staticMapUrl}
                 alt={`Mapa de ubicación ${coordinates.lat}, ${coordinates.lng}`}
-                className="w-full h-full object-cover"
-                style={{ height, width: height }}
+                className="w-full h-auto aspect-square object-cover"
             />
         </div>
     );
