@@ -1562,8 +1562,8 @@ export default function BusinessDashboard() {
           touchAction: blockHorizontalPan ? 'pan-y' as any : undefined
         }}
       >
-        {/* Vista móvil */}
-        <td className="md:hidden w-full max-w-full">
+        {/* Vista móvil - única vista */}
+        <td className="w-full max-w-full">
           <div className="p-3 max-w-full">
             {/* Layout horizontal fijo: Hora | Botones | Cliente/Dirección | Expandir */}
             <div
@@ -1817,162 +1817,7 @@ export default function BusinessDashboard() {
           </div>
         </td>
 
-        {/* Vista desktop */}
-        <td className="hidden md:table-cell relative pl-6 px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap text-xs sm:text-sm cursor-pointer shrink-0 w-0">
-          <div
-            className="absolute left-1 top-1/2 -translate-y-1/2 pointer-events-none"
-            style={{ opacity: swipeProgress }}
-          >
-            <i className="bi bi-check-circle-fill text-green-500"></i>
-          </div>
-          {isToday ? (
-            <span className={`font-medium text-xs sm:text-sm whitespace-nowrap tabular-nums ${isOrderUpcoming(order) ? 'text-orange-600' : 'text-gray-900'}`}>
-              {formatTime(getOrderDateTime(order))}
-            </span>
-          ) : (
-            <span className="text-gray-900">
-              {formatDate(getOrderDateTime(order))}
-            </span>
-          )}
-        </td>
-        <td className="hidden md:table-cell px-1 py-1.5 sm:px-2 sm:py-2 whitespace-nowrap shrink-0 w-16">
-          <div className="flex space-x-1">
-            {(() => {
-              const nextStatus = getNextStatus(order.status)
-              return isToday && !!nextStatus ? (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleAdvanceStatus(order)
-                  }}
-                  className="text-green-600 hover:text-green-800 p-1 sm:p-1.5 rounded hover:bg-green-50"
-                  title={`Avanzar a ${getStatusText(nextStatus!)}`}
-                >
-                  <i className="bi bi-check-lg text-base sm:text-lg"></i>
-                </button>
-              ) : null
-            })()}
 
-            {isToday && (
-              (order.delivery?.type === 'delivery' && (order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery)) ||
-              (order.delivery?.type === 'pickup' && business?.phone)
-            ) && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleSendWhatsApp(order)
-                  }}
-                  className="text-green-600 hover:text-green-800 p-1 sm:p-1.5 rounded hover:bg-green-50"
-                  title={order.delivery?.type === 'delivery' ? 'Enviar mensaje de WhatsApp al delivery' : 'Enviar mensaje de WhatsApp a la tienda'}
-                >
-                  <i className="bi bi-whatsapp text-base sm:text-lg"></i>
-                </button>
-              )}
-            {/* Botón para enviar WhatsApp al cliente (desktop) */}
-            {order.customer?.phone && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleSendWhatsAppToCustomer(order)
-                }}
-                className="text-green-500 hover:text-green-700 p-1 sm:p-1.5 rounded hover:bg-green-50"
-                title="Enviar WhatsApp al cliente"
-              >
-                <i className="bi bi-chat-dots text-base sm:text-lg"></i>
-              </button>
-            )}
-
-            {isToday && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleEditPayment(order)
-                }}
-                className={`${(() => {
-                  const status = order.payment?.paymentStatus
-                  if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
-                  if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
-                  return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-                })()} p-1 sm:p-1.5 rounded`}
-                title="Editar método/estado de pago"
-              >
-                <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-base sm:text-lg`}></i>
-              </button>
-            )}
-          </div>
-        </td>
-        <td className="hidden md:table-cell px-2 py-1.5 sm:px-3 sm:py-2 min-w-0 cursor-pointer flex-1">
-          <div className="w-full">
-            <div className="text-xs sm:text-sm font-medium text-gray-900 truncate">
-              {order.customer?.name || 'Cliente sin nombre'}
-            </div>
-            <div className="text-[11px] sm:text-xs text-gray-500 truncate">
-              {order.delivery?.type === 'delivery' ? (
-                <>
-                  <i className="bi bi-geo-alt me-1 flex-shrink-0"></i>
-                  <span
-                    className="inline-block truncate align-bottom"
-                    title={order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
-                  >
-                    {order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <i className="bi bi-shop me-1 flex-shrink-0"></i>
-                  <span className="font-medium text-blue-600">Retiro en tienda</span>
-                </>
-              )}
-            </div>
-          </div>
-        </td>
-        <td className="hidden md:table-cell px-1 py-2 cursor-pointer shrink-0 w-24">
-          <div className="text-sm text-gray-900">
-            {order.items?.slice(0, 2).map((item: any, index) => (
-              <div key={index} className="truncate">
-                {item.quantity}x {item.variant || item.name || item.product?.name || 'Producto'}
-              </div>
-            ))}
-            {order.items && order.items.length > 2 && (
-              <div className="text-xs text-gray-500">
-                +{order.items.length - 2} más...
-              </div>
-            )}
-          </div>
-        </td>
-        <td className="hidden md:table-cell px-1 py-2 whitespace-nowrap cursor-pointer shrink-0 w-20">
-          <span className="text-lg font-bold text-emerald-600">
-            ${(order.total || (order as any).totalAmount || 0).toFixed(2)}
-          </span>
-        </td>
-        {isToday && order.delivery?.type === 'delivery' && (
-          <td className="hidden md:table-cell px-1 py-2 whitespace-nowrap shrink-0 w-24">
-            {(() => {
-              const currentDeliveryId = order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery;
-              const currentDelivery = availableDeliveries?.find(d => d.id === currentDeliveryId);
-
-              return (
-                <div className="relative">
-                  <select
-                    value={currentDeliveryId || ''}
-                    onChange={(e) => handleDeliveryAssignment(order.id, e.target.value)}
-                    className={`text-xs px-2 py-1 rounded-full border-0 font-medium transition-colors ${currentDelivery
-                      ? 'bg-blue-100 text-blue-800'
-                      : 'bg-gray-100 text-gray-600'
-                      }`}
-                  >
-                    <option value="">Sin asignar</option>
-                    {availableDeliveries?.map((delivery) => (
-                      <option key={delivery.id} value={delivery.id}>
-                        {delivery.nombres}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              );
-            })()}
-          </td>
-        )}
 
       </tr>
     );
@@ -2350,7 +2195,7 @@ export default function BusinessDashboard() {
         {/* Overlay solo en móvil */}
         {sidebarOpen && (
           <div
-            className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+            className="fixed inset-0 bg-black bg-opacity-50 z-40"
             onClick={() => setSidebarOpen(false)}
           />
         )}
@@ -2478,7 +2323,7 @@ export default function BusinessDashboard() {
         <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
           {/* Header - ahora dentro del contenedor scrollable */}
           <header className="bg-white shadow-sm border-b sticky top-0 z-10">
-            <div className="px-4 sm:px-6 lg:px-8">
+            <div className="px-4 sm:px-6">
               <div className="flex justify-between items-center py-3 sm:py-4">
                 <div className="flex items-center space-x-3">
                   {/* Botón de menú móvil */}
@@ -2653,7 +2498,7 @@ export default function BusinessDashboard() {
             </div>
           </header>
 
-          <div className="mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+          <div className="mx-auto px-4 sm:px-6 py-4 sm:py-8">
 
             {/* Orders Tab */}
             {activeTab === 'orders' && (
@@ -3175,7 +3020,7 @@ export default function BusinessDashboard() {
                     <i className="bi bi-person-fill me-2"></i>
                     Información del Cliente
                   </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <div>
                       <span className="text-sm font-medium text-gray-500">Nombre:</span>
                       <p className="text-gray-900">{selectedOrderDetails.customer?.name || 'Sin nombre'}</p>
@@ -3251,7 +3096,7 @@ export default function BusinessDashboard() {
                     <i className="bi bi-bank me-2"></i>
                     Información de Pago
                   </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <div>
                       <span className="text-sm font-medium text-gray-500">Método:</span>
                       <p className="text-gray-900">
@@ -3285,7 +3130,7 @@ export default function BusinessDashboard() {
                     <i className="bi bi-info-circle-fill me-2"></i>
                     Estado del Pedido
                   </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <div>
                       <span className="text-sm font-medium text-gray-500">Estado actual:</span>
                       <span className={`ml-2 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(selectedOrderDetails.status)}`}>
@@ -3488,7 +3333,7 @@ export default function BusinessDashboard() {
                         <i className="bi bi-calculator me-1"></i>
                         Distribución del Pago
                       </h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">
                             Efectivo
@@ -3577,10 +3422,10 @@ export default function BusinessDashboard() {
             setEditingOrderForSidebar(null)
             setShowManualOrderModal(true)
           }}
-          className="fixed bottom-4 right-4 lg:bottom-6 lg:right-6 bg-red-600 hover:bg-red-700 text-white rounded-full w-12 h-12 lg:w-16 lg:h-16 shadow-lg transition-colors z-50 flex items-center justify-center"
+          className="fixed bottom-4 right-4 bg-red-600 hover:bg-red-700 text-white rounded-full w-12 h-12 shadow-lg transition-colors z-50 flex items-center justify-center"
           title="Crear Pedido"
         >
-          <i className="bi bi-plus-lg text-lg lg:text-xl"></i>
+          <i className="bi bi-plus-lg text-lg"></i>
         </button>
 
         {/* Sidebar para crear pedido manual */}
