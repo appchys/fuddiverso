@@ -878,7 +878,7 @@ function RestaurantContent() {
         onAgregarPremio={manejarAgregarPremio}
         premioYaAgregado={premioAgregado}
         businessName={business?.name || ''}
-        show={true}
+        show={business?.username === 'munchys'}
         initialExpanded={true}
       />
 
