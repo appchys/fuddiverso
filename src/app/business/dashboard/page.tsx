@@ -15,7 +15,7 @@ import ProductManagement from '@/components/ProductManagement'
 import CostReports from '@/components/CostReports'
 import NotificationsBell from '@/components/NotificationsBell'
 import { sendWhatsAppToDelivery, sendWhatsAppToCustomer } from '@/components/WhatsAppUtils'
-import { BusinessProfileSection } from '@/components/BusinessProfileSection'
+import BusinessProfileDashboard from '@/components/BusinessProfileDashboard'
 import {
   getBusiness,
   getProductsByBusiness,
@@ -2641,12 +2641,14 @@ export default function BusinessDashboard() {
 
             {/* Profile Tab */}
             {activeTab === 'profile' && business && (
-              <BusinessProfileSection
+              <BusinessProfileDashboard
                 business={business}
                 editedBusiness={editedBusiness}
                 isEditingProfile={isEditingProfile}
                 uploadingCover={uploadingCover}
                 uploadingProfile={uploadingProfile}
+                products={products}
+                categories={businessCategories}
                 onCoverImageUpload={handleCoverImageUpload}
                 onProfileImageUpload={handleProfileImageUpload}
                 onEditProfile={handleEditProfile}
@@ -2655,6 +2657,8 @@ export default function BusinessDashboard() {
                 onBusinessFieldChange={handleBusinessFieldChange}
                 onScheduleFieldChange={handleScheduleFieldChange}
                 onToggleDayOpen={toggleDayOpen}
+                onProductsChange={setProducts}
+                onCategoriesChange={setBusinessCategories}
               />
             )}
 

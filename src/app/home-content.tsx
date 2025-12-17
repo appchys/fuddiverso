@@ -148,12 +148,16 @@ export default function HomePageContent() {
                     key={b.id}
                     className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100"
                   >
-                    <div className="relative">
-                      <img
-                        src={b.image || '/default.jpg'}
-                        alt={b.name}
-                        className="w-full h-40 object-cover"
-                      />
+                    <div className="relative h-40 bg-gray-100 flex items-center justify-center">
+                      {b.image ? (
+                        <img
+                          src={b.image}
+                          alt={b.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <i className="bi bi-shop text-5xl text-gray-400"></i>
+                      )}
                       <button
                         onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                           e.preventDefault()
