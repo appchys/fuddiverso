@@ -245,34 +245,54 @@ export default function ProductList({
           {products.map((product) => (
             <div
               key={product.id}
-              className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm transition-shadow"
+              className={`border rounded-lg p-4 hover:shadow-sm transition-shadow ${
+                product.isAvailable
+                  ? 'bg-white border-gray-200'
+                  : 'bg-gray-50 border-gray-300 opacity-60'
+              }`}
             >
               <div className="flex gap-4">
                 {/* Imagen */}
-                <div className="w-16 h-16 flex-shrink-0 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
+                <div className={`w-16 h-16 flex-shrink-0 rounded-lg flex items-center justify-center overflow-hidden ${
+                  product.isAvailable ? 'bg-gray-200' : 'bg-gray-300'
+                }`}>
                   {product.image ? (
-                    <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+                    <img src={product.image} alt={product.name} className={`w-full h-full object-cover ${
+                      !product.isAvailable ? 'opacity-70' : ''
+                    }`} />
                   ) : (
-                    <i className="bi bi-box-seam text-xl text-gray-400"></i>
+                    <i className={`bi bi-box-seam text-xl ${
+                      product.isAvailable ? 'text-gray-400' : 'text-gray-500'
+                    }`}></i>
                   )}
                 </div>
 
                 {/* Información */}
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-gray-900">{product.name}</h3>
+                    <h3 className={`font-semibold ${
+                      product.isAvailable ? 'text-gray-900' : 'text-gray-600'
+                    }`}>{product.name}</h3>
                     {!product.isAvailable && (
                       <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
                         No disponible
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-gray-600 mt-1 line-clamp-2">{product.description}</p>
+                  <p className={`text-sm mt-1 line-clamp-2 ${
+                    product.isAvailable ? 'text-gray-600' : 'text-gray-500'
+                  }`}>{product.description}</p>
                   <div className="flex items-center gap-3 mt-2">
-                    <span className="text-sm font-semibold text-gray-900">${product.price.toFixed(2)}</span>
-                    <span className="text-xs text-gray-500">{product.category}</span>
+                    <span className={`text-sm font-semibold ${
+                      product.isAvailable ? 'text-gray-900' : 'text-gray-600'
+                    }`}>${product.price.toFixed(2)}</span>
+                    <span className={`text-xs ${
+                      product.isAvailable ? 'text-gray-500' : 'text-gray-400'
+                    }`}>{product.category}</span>
                     {product.variants && product.variants.length > 0 && (
-                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        product.isAvailable ? 'bg-blue-50 text-blue-700' : 'bg-gray-300 text-gray-600'
+                      }`}>
                         {product.variants.length} variante{product.variants.length !== 1 ? 's' : ''}
                       </span>
                     )}

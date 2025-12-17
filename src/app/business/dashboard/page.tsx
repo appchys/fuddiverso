@@ -11,7 +11,6 @@ import { doc, updateDoc, Timestamp } from 'firebase/firestore'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import ManualOrderSidebar from '@/components/ManualOrderSidebar'
-import ProductManagement from '@/components/ProductManagement'
 import CostReports from '@/components/CostReports'
 import NotificationsBell from '@/components/NotificationsBell'
 import { sendWhatsAppToDelivery, sendWhatsAppToCustomer } from '@/components/WhatsAppUtils'
@@ -59,7 +58,7 @@ export default function BusinessDashboard() {
   const [orders, setOrders] = useState<Order[]>([])
   const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'profile' | 'admins' | 'reports'>('orders')
+  const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports'>('orders')
   const [showManualOrderModal, setShowManualOrderModal] = useState(false) // Cerrado por defecto
   const [sidebarOpen, setSidebarOpen] = useState(false) // Cerrado por defecto
   const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today') // Nueva pestaña para pedidos
@@ -2236,10 +2235,10 @@ export default function BusinessDashboard() {
 
               <button
                 onClick={() => {
-                  setActiveTab('products')
+                  setActiveTab('profile')
                   setSidebarOpen(false)
                 }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'products'
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'profile'
                   ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
                   : 'text-gray-700 hover:bg-gray-50'
                   }`}
@@ -2628,17 +2627,6 @@ export default function BusinessDashboard() {
               </div>
             )}
 
-            {/* Products Tab */}
-            {activeTab === 'products' && (
-              <ProductManagement
-                business={business}
-                products={products}
-                onProductsChange={setProducts}
-                businessCategories={businessCategories}
-                onCategoriesChange={setBusinessCategories}
-              />
-            )}
-
             {/* Profile Tab */}
             {activeTab === 'profile' && business && (
               <BusinessProfileDashboard
@@ -2659,6 +2647,7 @@ export default function BusinessDashboard() {
                 onToggleDayOpen={toggleDayOpen}
                 onProductsChange={setProducts}
                 onCategoriesChange={setBusinessCategories}
+                initialTab="general"
               />
             )}
 

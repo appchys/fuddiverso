@@ -22,6 +22,7 @@ interface BusinessProfileDashboardProps {
   onToggleDayOpen: (day: string) => void
   onProductsChange: (products: Product[]) => void
   onCategoriesChange: (categories: string[]) => void
+  initialTab?: 'general' | 'products'
 }
 
 export default function BusinessProfileDashboard({
@@ -41,11 +42,12 @@ export default function BusinessProfileDashboard({
   onScheduleFieldChange,
   onToggleDayOpen,
   onProductsChange,
-  onCategoriesChange
+  onCategoriesChange,
+  initialTab = 'general'
 }: BusinessProfileDashboardProps) {
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
-  const [activeTab, setActiveTab] = useState<'general' | 'products'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'products'>(initialTab)
 
   const displayBusiness = isEditingProfile && editedBusiness ? editedBusiness : business
 
