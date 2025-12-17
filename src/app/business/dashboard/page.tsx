@@ -553,6 +553,13 @@ export default function BusinessDashboard() {
     return () => clearInterval(interval);
   }, [selectedBusinessId, previousOrdersCount, permission, showNotification])
 
+  // Efecto para cargar automáticamente el historial cuando el usuario entra a la pestaña
+  useEffect(() => {
+    if (ordersSubTab === 'history' && !historyLoaded) {
+      setHistoryLoaded(true)
+    }
+  }, [ordersSubTab, historyLoaded])
+
   // Efecto para calcular automáticamente el total del pedido manual
   useEffect(() => {
     const subtotal = manualOrderData.selectedProducts.reduce((sum, item) =>
@@ -2604,35 +2611,19 @@ export default function BusinessDashboard() {
                     })()}
                   </div>
                 )}
-
                 {ordersSubTab === 'history' && (
-                  <div>
-                    {historyLoaded ? (
-                      <OrderHistory
-                        orders={orders}
-                        onOrderEdit={handleEditOrder}
-                        onOrderDelete={handleDeleteOrder}
-                        onOrderStatusChange={handleStatusChange}
-                        getStatusColor={getStatusColor}
-                        getStatusText={getStatusText}
-                        formatDate={formatDate}
-                        formatTime={formatTime}
-                        getOrderDateTime={getOrderDateTime}
-                        OrderRow={OrderRow}
-                      />
-                    ) : (
-                      <div className="bg-white rounded-xl p-8 text-center border border-gray-200">
-                        <div className="text-6xl mb-4">📋</div>
-                        <p className="text-gray-600 mb-4">El historial se carga bajo demanda para optimizar el rendimiento</p>
-                        <button
-                          onClick={() => setHistoryLoaded(true)}
-                          className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg transition-colors"
-                        >
-                          Cargar Historial
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  <OrderHistory
+                    orders={orders}
+                    onOrderEdit={handleEditOrder}
+                    onOrderDelete={handleDeleteOrder}
+                    onOrderStatusChange={handleStatusChange}
+                    getStatusColor={getStatusColor}
+                    getStatusText={getStatusText}
+                    formatDate={formatDate}
+                    formatTime={formatTime}
+                    getOrderDateTime={getOrderDateTime}
+                    OrderRow={OrderRow}
+                  />
                 )}
               </div>
             )}
