@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { Business, Product, Order, ProductVariant, ClientLocation } from '@/types'
 import { auth, db } from '@/lib/firebase'
 import { printOrder } from '@/lib/print-utils'
@@ -41,6 +42,12 @@ import {
   createClientLocation
 } from '@/lib/database'
 
+// Carga dinámica del componente de historial
+const OrderHistory = dynamic(() => import('@/components/OrderHistory'), {
+  loading: () => <div className="text-center py-8">Cargando historial...</div>,
+  ssr: false
+})
+
 export default function BusinessDashboard() {
   const router = useRouter()
   const { user, businessId, ownerId, isAuthenticated, authLoading, logout, setBusinessId } = useBusinessAuth()
@@ -56,6 +63,7 @@ export default function BusinessDashboard() {
   const [showManualOrderModal, setShowManualOrderModal] = useState(false) // Cerrado por defecto
   const [sidebarOpen, setSidebarOpen] = useState(false) // Cerrado por defecto
   const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today') // Nueva pestaña para pedidos
+  const [historyLoaded, setHistoryLoaded] = useState(false) // Control para carga lazy del historial
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(businessId)
   const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null) // Nuevo estado
   const [manualSidebarMode, setManualSidebarMode] = useState<'create' | 'edit'>('create')
@@ -150,9 +158,6 @@ export default function BusinessDashboard() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // Estados para historial agrupado por fecha
-  const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set())
 
   // Estados para categorías colapsadas en pedidos de hoy
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set(['delivered']))
@@ -371,7 +376,6 @@ export default function BusinessDashboard() {
           const { pastOrders } = categorizeOrdersForData(cachedOrders)
           const groupedPastOrders = groupOrdersByDate(pastOrders)
           const allDates = groupedPastOrders.map(({ date }) => date)
-          setCollapsedDates(new Set(allDates))
         }
 
         // 2) Fetch en paralelo y refrescar estado + cache
@@ -439,11 +443,9 @@ export default function BusinessDashboard() {
           localStorage.setItem(oKey, JSON.stringify({ timestamp: Date.now(), data: ordersData }))
         } catch { }
 
-        // Inicializar fechas colapsadas para el historial
-        const { pastOrders } = categorizeOrdersForData(ordersData);
-        const groupedPastOrders = groupOrdersByDate(pastOrders);
-        const allDates = groupedPastOrders.map(({ date }) => date);
-        setCollapsedDates(new Set(allDates)); // Colapsar todas las fechas por defecto
+        // Actualizar estado de órdenes
+        setOrders(ordersData);
+        setPreviousOrdersCount(ordersData.length);
 
         // Actualizar localStorage
         localStorage.setItem('businessId', selectedBusinessId);
@@ -755,16 +757,6 @@ export default function BusinessDashboard() {
     } catch (error) {
       alert('Error al actualizar el estado de pago')
     }
-  }
-
-  const toggleDateCollapse = (dateKey: string) => {
-    const newCollapsed = new Set(collapsedDates)
-    if (newCollapsed.has(dateKey)) {
-      newCollapsed.delete(dateKey)
-    } else {
-      newCollapsed.add(dateKey)
-    }
-    setCollapsedDates(newCollapsed)
   }
 
   const toggleCategoryCollapse = (category: string) => {
@@ -2615,118 +2607,31 @@ export default function BusinessDashboard() {
 
                 {ordersSubTab === 'history' && (
                   <div>
-                    {(() => {
-                      const { upcomingOrders, pastOrders } = categorizeOrders();
-                      const groupedPastOrders = groupOrdersByDate(pastOrders.slice(0, 100)); // Limitar a 100 pedidos
-
-                      return (
-                        <div className="space-y-8">
-                          {/* Pedidos Próximos */}
-                          {upcomingOrders.length > 0 && (
-                            <div>
-                              <div className="flex items-center justify-between mb-4">
-                                <h2 className="text-xl font-bold text-gray-900">
-                                  <i className="bi bi-clock me-2"></i>
-                                  Pedidos Próximos ({upcomingOrders.length})
-                                </h2>
-                              </div>
-                              <OrdersTable orders={upcomingOrders} isToday={false} />
-                            </div>
-                          )}
-
-                          {/* Historial de Pedidos Agrupado por Fecha */}
-                          {groupedPastOrders.length > 0 ? (
-                            <div>
-                              <div className="flex items-center justify-between mb-4">
-                                <h2 className="text-xl font-bold text-gray-900">
-                                  <i className="bi bi-archive me-2"></i>
-                                  Historial de Pedidos ({pastOrders.length})
-                                </h2>
-                                {pastOrders.length > 100 && (
-                                  <span className="text-sm text-gray-500">
-                                    Mostrando los últimos 100 pedidos
-                                  </span>
-                                )}
-                              </div>
-
-                              <div className="space-y-4">
-                                {groupedPastOrders.map(({ date, orders }) => {
-                                  const isCollapsed = collapsedDates.has(date);
-                                  return (
-                                    <div key={date} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                                      {/* Header de fecha colapsable */}
-                                      <button
-                                        onClick={() => toggleDateCollapse(date)}
-                                        className="w-full px-4 py-3 bg-gray-50 border-b border-gray-200 text-left hover:bg-gray-100 transition-colors"
-                                      >
-                                        <div className="flex items-center justify-between">
-                                          <h3 className="text-lg font-semibold text-gray-900 capitalize">
-                                            {date}
-                                            <span className="ml-2 bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
-                                              {orders.length}
-                                            </span>
-                                          </h3>
-                                          <div className="flex items-center">
-                                            <span className="text-sm text-gray-500 mr-2">
-                                              ${orders.reduce((sum, order) => sum + (order.total || 0), 0).toFixed(2)} total
-                                            </span>
-                                            <i className={`bi ${isCollapsed ? 'bi-chevron-down' : 'bi-chevron-up'} text-gray-400`}></i>
-                                          </div>
-                                        </div>
-                                      </button>
-
-                                      {/* Tabla de pedidos (colapsable) */}
-                                      {!isCollapsed && (
-                                        <div className="overflow-x-auto">
-                                          <table className="w-full">
-                                            <thead className="bg-gray-50">
-                                              <tr>
-                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                  Hora
-                                                </th>
-                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                  Cliente
-                                                </th>
-                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                  Productos
-                                                </th>
-                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                  Total
-                                                </th>
-                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                  Estado
-                                                </th>
-                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                  Pago
-                                                </th>
-                                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                  Acciones
-                                                </th>
-                                              </tr>
-                                            </thead>
-                                            <tbody className="bg-white divide-y divide-gray-200">
-                                              {orders.map((order) => (
-                                                <OrderRow key={order.id} order={order} isToday={false} />
-                                              ))}
-                                            </tbody>
-                                          </table>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          ) : upcomingOrders.length === 0 && (
-                            <div className="bg-white rounded-xl p-8 text-center border border-gray-200">
-                              <div className="text-6xl mb-4">📋</div>
-                              <h3 className="text-lg font-medium text-gray-900 mb-2">No hay pedidos en el historial</h3>
-                              <p className="text-gray-500 text-sm">Los pedidos completados aparecerán aquí</p>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
+                    {historyLoaded ? (
+                      <OrderHistory
+                        orders={orders}
+                        onOrderEdit={handleEditOrder}
+                        onOrderDelete={handleDeleteOrder}
+                        onOrderStatusChange={handleStatusChange}
+                        getStatusColor={getStatusColor}
+                        getStatusText={getStatusText}
+                        formatDate={formatDate}
+                        formatTime={formatTime}
+                        getOrderDateTime={getOrderDateTime}
+                        OrderRow={OrderRow}
+                      />
+                    ) : (
+                      <div className="bg-white rounded-xl p-8 text-center border border-gray-200">
+                        <div className="text-6xl mb-4">📋</div>
+                        <p className="text-gray-600 mb-4">El historial se carga bajo demanda para optimizar el rendimiento</p>
+                        <button
+                          onClick={() => setHistoryLoaded(true)}
+                          className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg transition-colors"
+                        >
+                          Cargar Historial
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
