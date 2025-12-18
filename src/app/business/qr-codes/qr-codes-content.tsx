@@ -9,12 +9,16 @@ import { QRCode } from '@/types'
 import QRCodeLib from 'qrcode'
 import QRStatistics from '@/components/QRStatistics'
 
-export default function QRCodesContent() {
+interface QRCodesContentProps {
+  businessId?: string | null
+}
+
+export default function QRCodesContent({ businessId: initialBusinessId }: QRCodesContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [qrCodes, setQrCodes] = useState<QRCode[]>([])
-  const [businessId, setBusinessId] = useState<string>('')
+  const [businessId, setBusinessId] = useState<string>(initialBusinessId || '')
   const [generating, setGenerating] = useState(false)
   const [qrImages, setQrImages] = useState<{ [key: string]: string }>({})
   const [activeTab, setActiveTab] = useState<'overview' | 'scans' | 'users'>('overview')
@@ -35,19 +39,27 @@ export default function QRCodesContent() {
   const [containerColor, setContainerColor] = useState('#f3f4f6') // Color personalizable del contenedor
 
   useEffect(() => {
+    if (initialBusinessId) {
+      setBusinessId(initialBusinessId)
+      loadQRCodes(initialBusinessId)
+      return
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // Por ahora usaremos un businessId de ejemplo
-        const defaultBusinessId = '0FeNtdYThoTRMPJ6qaS7' // Reemplazar con el ID real del negocio
-        setBusinessId(defaultBusinessId)
-        await loadQRCodes(defaultBusinessId)
+        // Fallback for standalone usage if any
+        if (!businessId) {
+          const defaultBusinessId = '0FeNtdYThoTRMPJ6qaS7'
+          setBusinessId(defaultBusinessId)
+          await loadQRCodes(defaultBusinessId)
+        }
       } else {
         router.push('/login')
       }
     })
 
     return () => unsubscribe()
-  }, [router])
+  }, [router, initialBusinessId])
 
   // Leer el parámetro 'tab' de la URL cuando cambia
   useEffect(() => {
@@ -347,40 +359,23 @@ export default function QRCodesContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <button
-            onClick={() => router.back()}
-            className="mb-4 flex items-center text-gray-600 hover:text-gray-800 transition-colors"
-          >
-            <i className="bi bi-arrow-left me-2"></i>
-            Volver
-          </button>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800">Códigos QR</h1>
-              <p className="text-gray-600 mt-1">
-                Gestiona los códigos QR para la colección de clientes
-              </p>
-            </div>
-
-            <button
-              onClick={() => openModal()}
-              disabled={generating}
-              className="bg-red-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center"
-            >
-              <i className="bi bi-plus-lg me-2"></i>
-              Generar Código Nuevo
-            </button>
-          </div>
+    <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="p-8 border-b border-gray-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-gray-50/30">
+        <div>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Fidelización QR</h2>
+          <p className="text-xs text-gray-400 font-black uppercase tracking-widest mt-1">Crea campañas de recompensas para tus clientes</p>
         </div>
+        <button
+          onClick={() => openModal()}
+          disabled={generating}
+          className="bg-red-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-xs hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all shadow-xl shadow-red-100 active:scale-95 flex items-center gap-2"
+        >
+          <i className="bi bi-plus-lg"></i>
+          Nuevo Código
+        </button>
       </div>
 
-      {/* Contenido */}
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="p-8">
         {qrCodes.length === 0 ? (
           <div className="bg-white rounded-lg shadow-md p-12 text-center">
             <i className="bi bi-qr-code text-6xl text-gray-400 mb-4"></i>
@@ -560,150 +555,152 @@ export default function QRCodesContent() {
       </div>
 
       {/* Modal para Generar/Editar Código */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">{modalTitle}</h2>
+      {
+        showModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <h2 className="text-xl font-bold text-gray-800 mb-4">{modalTitle}</h2>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Nombre del Código *</label>
-              <input
-                type="text"
-                value={newCodeName}
-                onChange={(e) => {
-                  setNewCodeName(e.target.value)
-                  if (nameError) setNameError('')
-                }}
-                placeholder="Ej: Entrada Principal"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-              {nameError && <p className="text-red-500 text-sm mt-1">{nameError}</p>}
-            </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nombre del Código *</label>
+                <input
+                  type="text"
+                  value={newCodeName}
+                  onChange={(e) => {
+                    setNewCodeName(e.target.value)
+                    if (nameError) setNameError('')
+                  }}
+                  placeholder="Ej: Entrada Principal"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+                {nameError && <p className="text-red-500 text-sm mt-1">{nameError}</p>}
+              </div>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Imagen (Opcional)
-              </label>
-              <div className="mt-1 flex items-center">
-                <label className="cursor-pointer">
-                  <div className="w-24 h-24 rounded-md overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center">
-                    {imagePreview ? (
-                      <img
-                        src={imagePreview}
-                        alt="Vista previa"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="text-gray-400">
-                        <i className="bi bi-image text-2xl"></i>
-                      </div>
-                    )}
-                  </div>
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept="image/*"
-                    onChange={handleImageChange}
-                  />
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Imagen (Opcional)
                 </label>
-                <div className="ml-4 text-sm text-gray-500">
-                  <p>Haz clic para subir una imagen</p>
-                  <p className="text-xs">Tamaño recomendado: 500x500px</p>
+                <div className="mt-1 flex items-center">
+                  <label className="cursor-pointer">
+                    <div className="w-24 h-24 rounded-md overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center">
+                      {imagePreview ? (
+                        <img
+                          src={imagePreview}
+                          alt="Vista previa"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="text-gray-400">
+                          <i className="bi bi-image text-2xl"></i>
+                        </div>
+                      )}
+                    </div>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*"
+                      onChange={handleImageChange}
+                    />
+                  </label>
+                  <div className="ml-4 text-sm text-gray-500">
+                    <p>Haz clic para subir una imagen</p>
+                    <p className="text-xs">Tamaño recomendado: 500x500px</p>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Color de Fondo
-              </label>
-              <div className="flex items-center gap-3">
-                {/* Color picker visual */}
-                <input
-                  type="color"
-                  value={newCodeColor}
-                  onChange={(e) => setNewCodeColor(e.target.value)}
-                  className="w-12 h-12 rounded-lg cursor-pointer border-2 border-gray-300"
-                />
-
-                {/* Hexadecimal input */}
-                <div className="flex-1">
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Color de Fondo
+                </label>
+                <div className="flex items-center gap-3">
+                  {/* Color picker visual */}
                   <input
-                    type="text"
+                    type="color"
                     value={newCodeColor}
-                    onChange={(e) => {
-                      const value = e.target.value
-                      // Validar que sea un color hexadecimal válido
-                      if (/^#[0-9A-Fa-f]{0,6}$/.test(value)) {
-                        setNewCodeColor(value)
-                      }
-                    }}
-                    placeholder="#f3f4f6"
-                    maxLength={7}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 font-mono text-sm"
+                    onChange={(e) => setNewCodeColor(e.target.value)}
+                    className="w-12 h-12 rounded-lg cursor-pointer border-2 border-gray-300"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Formato: #RRGGBB</p>
+
+                  {/* Hexadecimal input */}
+                  <div className="flex-1">
+                    <input
+                      type="text"
+                      value={newCodeColor}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        // Validar que sea un color hexadecimal válido
+                        if (/^#[0-9A-Fa-f]{0,6}$/.test(value)) {
+                          setNewCodeColor(value)
+                        }
+                      }}
+                      placeholder="#f3f4f6"
+                      maxLength={7}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 font-mono text-sm"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Formato: #RRGGBB</p>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Puntos</label>
-              <input
-                type="number"
-                value={newCodePoints}
-                onChange={(e) => setNewCodePoints(Number(e.target.value))}
-                min="1"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-            </div>
-
-            <div className="mb-6">
-              <label className="flex items-center text-sm font-medium text-gray-700">
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Puntos</label>
                 <input
-                  type="checkbox"
-                  checked={newCodeIsActive}
-                  onChange={(e) => setNewCodeIsActive(e.target.checked)}
-                  className="mr-2"
+                  type="number"
+                  value={newCodePoints}
+                  onChange={(e) => setNewCodePoints(Number(e.target.value))}
+                  min="1"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                 />
-                Activo
-              </label>
-            </div>
+              </div>
 
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowModal(false)
-                  setNewCodeName('')
-                  setNewCodePoints(10)
-                  setNewCodeIsActive(true)
-                  setNameError('')
-                  setEditingCodeId(null)
-                }}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSaveCode}
-                disabled={generating || !newCodeName.trim()}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-              >
-                {generating ? (
-                  <span className="flex items-center">
-                    <i className="bi bi-arrow-repeat animate-spin me-2"></i>
-                    Guardando...
-                  </span>
-                ) : editingCodeId ? (
-                  'Actualizar'
-                ) : (
-                  'Generar'
-                )}
-              </button>
+              <div className="mb-6">
+                <label className="flex items-center text-sm font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={newCodeIsActive}
+                    onChange={(e) => setNewCodeIsActive(e.target.checked)}
+                    className="mr-2"
+                  />
+                  Activo
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setShowModal(false)
+                    setNewCodeName('')
+                    setNewCodePoints(10)
+                    setNewCodeIsActive(true)
+                    setNameError('')
+                    setEditingCodeId(null)
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveCode}
+                  disabled={generating || !newCodeName.trim()}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                >
+                  {generating ? (
+                    <span className="flex items-center">
+                      <i className="bi bi-arrow-repeat animate-spin me-2"></i>
+                      Guardando...
+                    </span>
+                  ) : editingCodeId ? (
+                    'Actualizar'
+                  ) : (
+                    'Generar'
+                  )}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
     </div>
   )
 }

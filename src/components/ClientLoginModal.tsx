@@ -12,9 +12,9 @@ interface ClientLoginModalProps {
   initialPhone?: string
 }
 
-export default function ClientLoginModal({ 
-  isOpen, 
-  onClose, 
+export default function ClientLoginModal({
+  isOpen,
+  onClose,
   onLoginSuccess,
   initialPhone = ''
 }: ClientLoginModalProps) {
@@ -104,7 +104,7 @@ export default function ClientLoginModal({
       }
       return Math.abs(hash).toString(16).padStart(8, '0')
     }
-    
+
     // Para compatibilidad con hashes existentes, intentamos primero con el método simple
     // Si el hash resultante tiene 64 caracteres, asumimos que fue generado con SHA-256
     // y usamos ese método si está disponible
@@ -122,7 +122,7 @@ export default function ClientLoginModal({
     } catch (e) {
       console.warn('Error usando Web Crypto API, usando hash simple', e)
     }
-    
+
     // Por defecto, usar el hash simple
     return simpleHash(pin)
   }
@@ -223,10 +223,10 @@ export default function ClientLoginModal({
         const normalizedPhone = normalizeEcuadorianPhone(loginPhone)
         localStorage.setItem('loginPhone', normalizedPhone)
         localStorage.setItem('clientData', JSON.stringify(foundClient))
-        
+
         // Actualizar contexto de autenticación
         login(foundClient)
-        
+
         onLoginSuccess(foundClient)
         onClose()
       } else {
@@ -262,7 +262,7 @@ export default function ClientLoginModal({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div 
+      <div
         ref={modalRef}
         className="bg-[#ff6a8c] rounded-lg max-w-md w-full p-6 text-white relative"
         onClick={(e) => e.stopPropagation()}
@@ -281,16 +281,16 @@ export default function ClientLoginModal({
               <div className="relative group">
                 <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center overflow-hidden">
                   {profileImage ? (
-                    <img 
-                      src={profileImage} 
-                      alt="Foto de perfil" 
+                    <img
+                      src={profileImage}
+                      alt="Foto de perfil"
                       className="w-full h-full object-cover"
                     />
                   ) : (
                     <i className="bi bi-person text-2xl text-white/70"></i>
                   )}
                 </div>
-                <button 
+                <button
                   onClick={() => fileInputRef.current?.click()}
                   className="absolute bottom-0 right-0 translate-y-1/2 w-5 h-5 flex items-center justify-center text-white text-xs transition-all duration-200"
                   title="Cambiar foto"
@@ -322,7 +322,7 @@ export default function ClientLoginModal({
                   ) : registerName ? (
                     <>
                       Hola, {registerName}
-                      <i 
+                      <i
                         className="bi bi-pencil text-white/70 hover:text-white transition-colors cursor-pointer"
                         onClick={() => setShowEditFields(!showEditFields)}
                       ></i>
@@ -366,8 +366,8 @@ export default function ClientLoginModal({
                 <p className="text-yellow-300 text-sm mt-1">{loginError}</p>
               )}
             </div>
-            <button 
-              onClick={handleLogin} 
+            <button
+              onClick={handleLogin}
               disabled={!loginPhone.trim() || !!loginError}
               className="w-full px-4 py-2 bg-white text-[#ff6a8c] font-medium rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
             >
@@ -381,17 +381,17 @@ export default function ClientLoginModal({
               <div className="mt-3 space-y-3">
                 <div>
                   <label className="block text-sm font-medium text-white mb-1">Ingresa tu PIN</label>
-                  <input 
-                    type="password" 
-                    value={loginPin} 
-                    onChange={(e) => setLoginPin(e.target.value)} 
-                    maxLength={6} 
-                    className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70" 
+                  <input
+                    type="password"
+                    value={loginPin}
+                    onChange={(e) => setLoginPin(e.target.value)}
+                    maxLength={6}
+                    className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70"
                     onKeyPress={(e) => e.key === 'Enter' && handleLoginWithPin()}
                   />
                   <div className="text-right mt-1">
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       onClick={async () => {
                         if (!foundClient?.id) return;
                         try {
@@ -419,15 +419,15 @@ export default function ClientLoginModal({
                   {loginPinError && <p className="text-yellow-300 text-sm mt-1">{loginPinError}</p>}
                 </div>
                 <div className="flex gap-3">
-                  <button 
-                    onClick={onClose} 
+                  <button
+                    onClick={onClose}
                     className="flex-1 px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30 transition-colors"
                   >
                     Cancelar
                   </button>
-                  <button 
-                    onClick={handleLoginWithPin} 
-                    disabled={loginPinLoading} 
+                  <button
+                    onClick={handleLoginWithPin}
+                    disabled={loginPinLoading}
                     className="flex-1 px-4 py-2 bg-white text-[#ff6a8c] font-medium rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-70"
                   >
                     {loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}
@@ -452,35 +452,35 @@ export default function ClientLoginModal({
 
                 <div>
                   <label className="block text-sm font-medium text-white mb-1">Crea un PIN (4-6 dígitos)</label>
-                  <input 
-                    type="password" 
-                    value={registerPin} 
-                    onChange={(e) => setRegisterPin(e.target.value)} 
-                    maxLength={6} 
-                    className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70" 
+                  <input
+                    type="password"
+                    value={registerPin}
+                    onChange={(e) => setRegisterPin(e.target.value)}
+                    maxLength={6}
+                    className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-white mb-1">Confirmar PIN</label>
-                  <input 
-                    type="password" 
-                    value={registerPinConfirm} 
-                    onChange={(e) => setRegisterPinConfirm(e.target.value)} 
-                    maxLength={6} 
-                    className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70" 
+                  <input
+                    type="password"
+                    value={registerPinConfirm}
+                    onChange={(e) => setRegisterPinConfirm(e.target.value)}
+                    maxLength={6}
+                    className="w-full px-3 py-2 border border-white/30 bg-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent placeholder-white/70"
                   />
                 </div>
                 {registerError && <p className="text-yellow-300 text-sm">{registerError}</p>}
                 <div className="flex gap-3">
-                  <button 
-                    onClick={onClose} 
+                  <button
+                    onClick={onClose}
                     className="flex-1 px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30 transition-colors"
                   >
                     Cancelar
                   </button>
-                  <button 
-                    onClick={handleRegisterSubmit} 
-                    disabled={registerLoading} 
+                  <button
+                    onClick={handleRegisterSubmit}
+                    disabled={registerLoading}
                     className="flex-1 px-4 py-2 bg-white text-[#ff6a8c] font-medium rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-70"
                   >
                     {registerLoading ? 'Procesando...' : (foundClient ? 'Crear PIN' : 'Registrarse')}

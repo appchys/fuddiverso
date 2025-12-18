@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense, useRef, useCallback, useMemo } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone, validateAndNormalizePhone } from '@/lib/validation'
-import { createOrder, getBusiness, searchClientByPhone, createClient, updateClient, setClientPin, FirestoreClient, getClientLocations, ClientLocation, getDeliveryFeeForLocation, createClientLocation, registerOrderConsumption } from '@/lib/database'
+import { createOrder, getBusiness, searchClientByPhone, createClient, updateClient, setClientPin, FirestoreClient, getClientLocations, ClientLocation, getDeliveryFeeForLocation, createClientLocation, registerOrderConsumption, clearClientPin, registerClientForgotPin } from '@/lib/database'
 import { Business } from '@/types'
 import LocationMap from '@/components/LocationMap'
 import LocationSelectionModal from '@/components/LocationSelectionModal'
@@ -283,6 +283,7 @@ function CheckoutContent() {
   const [loginPin, setLoginPin] = useState('')
   const [loginPinError, setLoginPinError] = useState('')
   const [loginPinLoading, setLoginPinLoading] = useState(false)
+  const [pinAttempted, setPinAttempted] = useState(false)
 
   const [customerData, setCustomerData] = useState<CustomerData>({ name: '', phone: '' })
 
@@ -422,6 +423,7 @@ function CheckoutContent() {
 
     // Normalizar el número de teléfono antes de validar y buscar
     const normalizedPhone = normalizeEcuadorianPhone(phone);
+    setPinAttempted(false);
 
     if (!validateEcuadorianPhone(normalizedPhone)) {
       setClientFound(null);
@@ -438,31 +440,14 @@ function CheckoutContent() {
       if (client) {
         setClientFound(client);
         // Prefill nombre si existe; mostrar casillero de nombre solo cuando el cliente NO tiene nombres y NO tiene PIN
-        // If client has no PIN, force the name input to be empty so user types a new name;
-        // if client has PIN, we can prefill the name for greeting purposes.
         setCustomerData(prev => ({
           ...prev,
           name: client.pinHash ? (client.nombres || '') : '',
           phone: normalizedPhone // Actualizar con el número normalizado
         }));
         setShowNameField(!client.pinHash);
-
-        // Cargar las ubicaciones del cliente
-        setLoadingLocations(true);
-        try {
-          const locations = await getClientLocations(client.id);
-          setClientLocations(locations);
-          // Seleccionar automáticamente la primera ubicación si existe
-          if (locations.length > 0) {
-            // No seleccionar automáticamente la primera ubicación para que el usuario elija explícitamente
-            // handleLocationSelect(locations[0]);
-          }
-        } catch (error) {
-          console.error('Error loading client locations:', error);
-          setClientLocations([]);
-        } finally {
-          setLoadingLocations(false);
-        }
+        setClientLocations([]);
+        setSelectedLocation(null);
       } else {
         setClientFound(null);
         setShowNameField(true);
@@ -594,6 +579,8 @@ function CheckoutContent() {
       const pinHash = await hashPin(registerPin)
       const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
 
+      let registeredClientId = clientFound?.id;
+
       if (clientFound && clientFound.id) {
         // Update name only if user provided one (to avoid wiping existing nombres)
         try {
@@ -610,12 +597,28 @@ function CheckoutContent() {
           login(updated as any)
           setClientFound(updated)
           setShowNameField(false)
+          registeredClientId = updated.id
         }
       } else {
         const newClient = await createClient({ celular: normalizedPhone, nombres: customerData.name, pinHash })
         login(newClient as any)
         setClientFound(newClient as any)
         setShowNameField(false)
+        registeredClientId = newClient.id
+      }
+
+      // Cargar las ubicaciones del cliente después de registrarse/crear PIN
+      if (registeredClientId) {
+        setLoadingLocations(true);
+        try {
+          const locations = await getClientLocations(registeredClientId);
+          setClientLocations(locations);
+        } catch (error) {
+          console.error('Error loading client locations after registration:', error);
+          setClientLocations([]);
+        } finally {
+          setLoadingLocations(false);
+        }
       }
       // clear pins
       setRegisterPin('')
@@ -630,6 +633,7 @@ function CheckoutContent() {
 
   const handleCheckoutLoginWithPin = async () => {
     setLoginPinError('')
+    setPinAttempted(true)
     if (!clientFound) return
     if (!/^[0-9]{4,6}$/.test(loginPin)) {
       setLoginPinError('PIN inválido')
@@ -644,12 +648,45 @@ function CheckoutContent() {
         setCustomerData(prev => ({ ...prev, name: clientFound.nombres || '', phone: normalizeEcuadorianPhone(prev.phone) }))
         setShowNameField(false)
         setLoginPin('')
+
+        // Cargar las ubicaciones del cliente después de ingresar el PIN
+        if (clientFound?.id) {
+          setLoadingLocations(true);
+          try {
+            const locations = await getClientLocations(clientFound.id);
+            setClientLocations(locations);
+          } catch (error) {
+            console.error('Error loading client locations after PIN login:', error);
+            setClientLocations([]);
+          } finally {
+            setLoadingLocations(false);
+          }
+        }
       } else {
         setLoginPinError('PIN incorrecto')
       }
     } catch (error) {
       console.error('Error validating PIN in checkout:', error)
       setLoginPinError('Error al verificar PIN')
+    } finally {
+      setLoginPinLoading(false)
+    }
+  }
+
+  const handleCheckoutResetPin = async () => {
+    if (!clientFound?.id) return;
+    try {
+      setLoginPinLoading(true)
+      await registerClientForgotPin(clientFound.id)
+      await clearClientPin(clientFound.id)
+      // Refrescar UI para mostrar flujo de crear PIN
+      setClientFound((prev: any | null) => (prev ? { ...prev, pinHash: null } : prev))
+      setLoginPin('')
+      setLoginPinError('')
+      setShowNameField(true) // Mostrar campo de nombre para que pueda actualizarlo si desea
+    } catch (e) {
+      console.error('Error al limpiar PIN:', e)
+      setLoginPinError('No se pudo restablecer el PIN. Intenta nuevamente.')
     } finally {
       setLoginPinLoading(false)
     }
@@ -869,7 +906,7 @@ function CheckoutContent() {
     if (customerData.phone.trim()) {
       const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
       if (validateEcuadorianPhone(normalizedPhone)) {
-        if (!showNameField || customerData.name.trim()) {
+        if (user) {
           maxStep = 2;
         }
       }
@@ -909,6 +946,7 @@ function CheckoutContent() {
     const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
     if (!validateEcuadorianPhone(normalizedPhone)) return false;
     if (showNameField && !customerData.name.trim()) return false;
+    if (!user) return false;
     return true;
   })();
 
@@ -946,6 +984,7 @@ function CheckoutContent() {
     const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
     if (!validateEcuadorianPhone(normalizedPhone)) return false;
     if (showNameField && !customerData.name.trim()) return false;
+    if (!user) return false;
 
     // Paso 2: entrega
     if (!deliveryData.type) return false;
@@ -1114,12 +1153,18 @@ function CheckoutContent() {
 
       // Registrar consumo de ingredientes automáticamente
       try {
-        await registerOrderConsumption(businessId, cartItems.map((item: any) => ({
-          productId: item.id.split('-')[0],
-          variant: item.variantName || item.name,
-          name: item.variantName || item.productName || item.name,
-          quantity: item.quantity
-        })))
+        const orderDateStr = new Date().toISOString().split('T')[0]
+        await registerOrderConsumption(
+          businessId,
+          cartItems.map((item: any) => ({
+            productId: item.id.split('-')[0],
+            variant: item.variantName || item.name,
+            name: item.variantName || item.productName || item.name,
+            quantity: item.quantity
+          })),
+          orderDateStr,
+          orderId
+        )
       } catch (error) {
         console.error('Error registering order consumption:', error)
         // No interrumpir el flujo si hay error en consumo
@@ -1241,6 +1286,7 @@ function CheckoutContent() {
                         setCustomerData({ name: '', phone: '' })
                         setShowNameField(true)
                         setSelectedLocation(null)
+                        setPinAttempted(false)
                       }}
                       className="px-3 py-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 rounded-lg transition-all shadow-sm flex-shrink-0"
                     >
@@ -1283,6 +1329,7 @@ function CheckoutContent() {
                             setCustomerData({ name: '', phone: '' })
                             setShowNameField(true)
                             setSelectedLocation(null)
+                            setPinAttempted(false)
                           }}
                           className="px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors"
                           title="Cambiar número"
@@ -1316,7 +1363,25 @@ function CheckoutContent() {
                       <div className="mt-4">
                         <p className="text-sm text-gray-700 mb-2">Hola <strong>{clientFound.nombres || clientFound.celular}</strong></p>
                         <label className="block text-sm font-medium text-gray-700 mb-2">Ingresa tu PIN</label>
-                        <input type="password" value={loginPin} onChange={(e) => setLoginPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-xl" />
+                        <input
+                          type="password"
+                          value={loginPin}
+                          onChange={(e) => setLoginPin(e.target.value)}
+                          maxLength={6}
+                          className="w-full px-3 py-2 border rounded-xl"
+                          onKeyPress={(e) => e.key === 'Enter' && handleCheckoutLoginWithPin()}
+                        />
+                        {pinAttempted && (
+                          <div className="text-right mt-1">
+                            <button
+                              type="button"
+                              onClick={handleCheckoutResetPin}
+                              className="text-xs text-gray-500 hover:text-red-500 transition-colors"
+                            >
+                              ¿Olvidaste tu PIN?
+                            </button>
+                          </div>
+                        )}
                         {loginPinError && <p className="text-red-500 text-sm mt-1">{loginPinError}</p>}
                         <div className="mt-3">
                           <button onClick={handleCheckoutLoginWithPin} disabled={loginPinLoading} className="w-full px-4 py-2 bg-red-500 text-white rounded-xl">{loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}</button>
@@ -1397,12 +1462,18 @@ function CheckoutContent() {
                   <button
                     type="button"
                     onClick={() => {
+                      if (!user) {
+                        alert('Por favor, inicia sesión con tu PIN para continuar con el pedido a domicilio.');
+                        return;
+                      }
                       setDeliveryData(prev => ({ ...prev, type: 'delivery', tarifa: '0' }));
                       if (!selectedLocation) openLocationModal();
                     }}
                     className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${deliveryData.type === 'delivery'
                       ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
-                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                      : !user
+                        ? 'border-gray-100 bg-gray-50 text-gray-400 opacity-60'
+                        : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
                       }`}
                   >
                     <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${deliveryData.type === 'delivery' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>

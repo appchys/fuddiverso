@@ -13,6 +13,7 @@ import { usePushNotifications } from '@/hooks/usePushNotifications'
 import ManualOrderSidebar from '@/components/ManualOrderSidebar'
 import CostReports from '@/components/CostReports'
 import NotificationsBell from '@/components/NotificationsBell'
+import IngredientStockManagement from '@/components/IngredientStockManagement'
 import { sendWhatsAppToDelivery, sendWhatsAppToCustomer } from '@/components/WhatsAppUtils'
 import BusinessProfileDashboard from '@/components/BusinessProfileDashboard'
 import {
@@ -38,12 +39,18 @@ import {
   createClient,
   updateOrder,
   deleteOrder,
-  createClientLocation
+  createClientLocation,
+  registerOrderConsumption
 } from '@/lib/database'
 
 // Carga dinámica del componente de historial
 const OrderHistory = dynamic(() => import('@/components/OrderHistory'), {
   loading: () => <div className="text-center py-8">Cargando historial...</div>,
+  ssr: false
+})
+
+const QRCodesContent = dynamic(() => import('@/app/business/qr-codes/qr-codes-content'), {
+  loading: () => <div className="text-center py-8 text-gray-400">Cargando herramientas de fidelización...</div>,
   ssr: false
 })
 
@@ -58,7 +65,7 @@ export default function BusinessDashboard() {
   const [orders, setOrders] = useState<Order[]>([])
   const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports'>('orders')
+  const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes'>('orders')
   const [showManualOrderModal, setShowManualOrderModal] = useState(false) // Cerrado por defecto
   const [sidebarOpen, setSidebarOpen] = useState(false) // Cerrado por defecto
   const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today') // Nueva pestaña para pedidos
@@ -2123,7 +2130,25 @@ export default function BusinessDashboard() {
         }
       };
 
-      await createOrder(orderData as any);
+      const orderId = await createOrder(orderData as any);
+
+      // Registrar consumo de ingredientes automáticamente para órdenes manuales
+      try {
+        const orderDateStr = new Date().toISOString().split('T')[0]
+        await registerOrderConsumption(
+          selectedBusinessId || '',
+          manualOrderData.selectedProducts.map(p => ({
+            productId: p.id,
+            variant: p.variant,
+            name: p.name,
+            quantity: p.quantity
+          })),
+          orderDateStr,
+          orderId
+        )
+      } catch (error) {
+        console.error('[Dashboard] Error registering consumption:', error)
+      }
 
       // Limpiar formulario
       setManualOrderData({
@@ -2243,25 +2268,8 @@ export default function BusinessDashboard() {
                   : 'text-gray-700 hover:bg-gray-50'
                   }`}
               >
-                <i className="bi bi-box-seam me-3 text-lg"></i>
-                <span className="font-medium">Productos</span>
-                <span className="ml-auto bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs">
-                  {products.length}
-                </span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setActiveTab('profile')
-                  setSidebarOpen(false)
-                }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'profile'
-                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                  : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-              >
                 <i className="bi bi-shop me-3 text-lg"></i>
-                <span className="font-medium">Perfil</span>
+                <span className="font-medium">Perfil / Tienda</span>
               </button>
 
               <button
@@ -2278,8 +2286,6 @@ export default function BusinessDashboard() {
                 <span className="font-medium">Administradores</span>
               </button>
 
-
-
               <button
                 onClick={() => {
                   setActiveTab('reports')
@@ -2291,26 +2297,32 @@ export default function BusinessDashboard() {
                   }`}
               >
                 <i className="bi bi-graph-up me-3 text-lg"></i>
-                <span className="font-medium">Reportes de Costos</span>
+                <span className="font-medium">Reportes</span>
               </button>
 
               <button
                 onClick={() => {
-                  router.push('/business/stock')
+                  setActiveTab('inventory')
                   setSidebarOpen(false)
                 }}
-                className="w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'inventory'
+                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                  : 'text-gray-700 hover:bg-gray-50'
+                  }`}
               >
                 <i className="bi bi-box-seam me-3 text-lg"></i>
-                <span className="font-medium">Stock de Ingredientes</span>
+                <span className="font-medium">Inventario / Stock</span>
               </button>
 
               <button
                 onClick={() => {
-                  router.push('/business/qr-codes')
+                  setActiveTab('qrcodes')
                   setSidebarOpen(false)
                 }}
-                className="w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'qrcodes'
+                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                  : 'text-gray-700 hover:bg-gray-50'
+                  }`}
               >
                 <i className="bi bi-qr-code me-3 text-lg"></i>
                 <span className="font-medium">Códigos QR</span>
@@ -2358,7 +2370,7 @@ export default function BusinessDashboard() {
                 <div className="flex items-center space-x-2 sm:space-x-4">
                   {/* Campana de notificaciones */}
                   {selectedBusinessId && (
-                    <NotificationsBell 
+                    <NotificationsBell
                       businessId={selectedBusinessId}
                       onNewOrder={handleNewOrder}
                     />
@@ -2889,6 +2901,16 @@ export default function BusinessDashboard() {
             {/* Reports Tab */}
             {activeTab === 'reports' && (
               <CostReports business={business} />
+            )}
+
+            {/* Inventory Tab */}
+            {activeTab === 'inventory' && (
+              <IngredientStockManagement business={business} />
+            )}
+
+            {/* QR Codes Tab */}
+            {activeTab === 'qrcodes' && (
+              <QRCodesContent businessId={businessId} />
             )}
 
           </div>

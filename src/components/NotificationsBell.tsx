@@ -38,66 +38,56 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   const audioRef = useRef<HTMLAudioElement>(null)
   const lastProcessedNotificationIdRef = useRef<string | null>(null)
 
-  // Función para reproducir un sonido de notificación usando Web Audio API
+  // Función para reproducir un sonido de notificación
   const playNotificationSound = () => {
     try {
-      // Verificar que el usuario ha interactuado con la página
-      if ((document as any).hidden) {
-        return // No reproducir si la pestaña está oculta
-      }
-
-      // Solo intentar crear AudioContext si es seguro
-      if (typeof window === 'undefined' || !window.AudioContext) {
-        return
-      }
+      if ((document as any).hidden) return
 
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
 
-      // Reanudar el contexto de audio si está en estado suspendido
       if (audioContext.state === 'suspended') {
-        audioContext.resume().catch(() => {
-          // Ignorar si no se puede reanudar
-        })
+        const resume = () => {
+          audioContext.resume().then(() => {
+            document.removeEventListener('click', resume)
+            document.removeEventListener('keydown', resume)
+            // Una vez reanudado, intentar sonar
+            makeBeep(audioContext)
+          })
+        }
+        document.addEventListener('click', resume)
+        document.addEventListener('keydown', resume)
         return
       }
 
-      const now = audioContext.currentTime
-
-      // Crear un sonido beep simple (2 tonos)
-      const osc1 = audioContext.createOscillator()
-      const osc2 = audioContext.createOscillator()
-      const gain = audioContext.createGain()
-
-      osc1.connect(gain)
-      osc2.connect(gain)
-      gain.connect(audioContext.destination)
-
-      // Establecer volumen bajo para no molestar
-      gain.gain.setValueAtTime(0.1, now)
-
-      // Primer tono (800 Hz, 100ms)
-      osc1.frequency.setValueAtTime(800, now)
-      osc1.frequency.setValueAtTime(800, now + 0.1)
-
-      osc1.start(now)
-      osc1.stop(now + 0.1)
-
-      // Segundo tono (1000 Hz, 100ms)
-      osc2.frequency.setValueAtTime(1000, now + 0.1)
-      osc2.frequency.setValueAtTime(1000, now + 0.2)
-
-      osc2.start(now + 0.1)
-      osc2.stop(now + 0.2)
-
-      // Silenciar después del sonido
-      gain.gain.setValueAtTime(0.1, now + 0.2)
-      gain.gain.setValueAtTime(0, now + 0.21)
-
-      console.log('[NotificationsBell] Sonido de notificación reproducido')
+      makeBeep(audioContext)
     } catch (error) {
-      // Silenciosamente fallar si Web Audio API no está disponible
       console.debug('[NotificationsBell] No se pudo reproducir sonido:', error)
     }
+  }
+
+  // Helper para crear el pitido
+  const makeBeep = (audioContext: AudioContext) => {
+    const now = audioContext.currentTime
+    const osc1 = audioContext.createOscillator()
+    const osc2 = audioContext.createOscillator()
+    const gain = audioContext.createGain()
+
+    osc1.connect(gain)
+    osc2.connect(gain)
+    gain.connect(audioContext.destination)
+
+    gain.gain.setValueAtTime(0.1, now)
+    osc1.frequency.setValueAtTime(800, now)
+    osc1.start(now)
+    osc1.stop(now + 0.1)
+
+    osc2.frequency.setValueAtTime(1000, now + 0.1)
+    osc2.start(now + 0.1)
+    osc2.stop(now + 0.2)
+
+    gain.gain.setValueAtTime(0.1, now + 0.2)
+    gain.gain.setValueAtTime(0, now + 0.21)
+    console.log('[NotificationsBell] Sonido de notificación reproducido')
   }
 
   // Escuchar notificaciones en tiempo real desde Firebase
@@ -311,9 +301,8 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
                 <div
                   key={notif.id}
                   onClick={() => handleNotificationClick(notif)}
-                  className={`p-4 border-b cursor-pointer transition-colors hover:bg-gray-50 ${
-                    notif.read ? 'bg-white' : 'bg-blue-50'
-                  }`}
+                  className={`p-4 border-b cursor-pointer transition-colors hover:bg-gray-50 ${notif.read ? 'bg-white' : 'bg-blue-50'
+                    }`}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">

@@ -407,7 +407,7 @@ export default function ManualOrderSidebar({
         if (results.length > 0) {
           setSearchResults(results as Client[])
           setShowSearchResults(true)
-          
+
           // Si hay solo un resultado exacto por teléfono, seleccionarlo automáticamente
           if (results.length === 1 && /^\d{7,}$/.test(searchTerm.replace(/[\s\-\(\)]/g, ''))) {
             await handleSelectClient(results[0] as Client)
@@ -577,17 +577,17 @@ export default function ManualOrderSidebar({
   // Función para normalizar coordenadas (eliminar espacios, convertir comas decimales a puntos)
   const normalizeLatLong = (coords: string): string => {
     console.log('🔧 normalizeLatLong - Input:', coords);
-    
+
     // Primero, trim y eliminar espacios después de comas
     let normalized = coords.trim();
     console.log('   Después de trim:', normalized);
-    
+
     // El problema: -1,8732619, -79,9795561 tiene 3 comas:
     // - Una como separador decimal de lat
     // - Una para separar lat y lng
     // - Una como separador decimal de lng
     // Necesitamos identificar cuál es la coma separadora (generalmente después del número completo)
-    
+
     // Estrategia: buscar la coma que tiene un espacio después o que está entre dos números
     // y tiene números antes y después
     const commaPositions = [];
@@ -597,7 +597,7 @@ export default function ManualOrderSidebar({
       }
     }
     console.log('   Posiciones de comas:', commaPositions);
-    
+
     // Si hay exactamente 3 comas (decimal lat, separador, decimal lng)
     if (commaPositions.length === 3) {
       // La coma separadora es la del medio
@@ -606,7 +606,7 @@ export default function ManualOrderSidebar({
       const lng = normalized.substring(separatorIndex + 1).replace(/,/g, '.');
       normalized = `${lat.trim()},${lng.trim()}`;
       console.log('   3 comas detectadas - Lat:', lat, 'Lng:', lng);
-    } 
+    }
     // Si hay exactamente 1 coma (solo separador, sin decimales)
     else if (commaPositions.length === 1) {
       // Ya está bien, solo eliminar espacios alrededor de la coma
@@ -620,7 +620,7 @@ export default function ManualOrderSidebar({
       normalized = normalized.replace(/\s+/g, ''); // Remover todos los espacios
       console.log('   2 comas detectadas');
     }
-    
+
     console.log('   Output normalizado:', normalized);
     return normalized;
   }
@@ -632,14 +632,14 @@ export default function ManualOrderSidebar({
     if (!coords) return false;
     const normalized = normalizeLatLong(coords);
     console.log('  Normalizado:', normalized);
-    
+
     // Patrón que acepta puntos O comas como separadores decimales
     // Antes de normalizar: -1,8732619, -79,9795561
     // Después de normalizar: -1.8732619,-79.9795561
     const coordPattern = /^-?\d{1,3}\.?\d*,-?\d{1,3}\.?\d*$/;
     const patternMatch = coordPattern.test(normalized);
     console.log('  ¿Cumple patrón?:', patternMatch, '- Patrón:', coordPattern);
-    
+
     if (!patternMatch) {
       console.log('  ❌ No cumple patrón');
       return false;
@@ -1113,8 +1113,8 @@ export default function ManualOrderSidebar({
         await updateOrder(editOrder.id, updatePayload)
         onOrderUpdated && onOrderUpdated()
       } else {
-        await createOrder(orderData as any)
-        
+        const orderId = await createOrder(orderData as any)
+
         // Registrar consumo de ingredientes automáticamente
         try {
           const cartItems = (manualOrderData.selectedProducts as any[]).map((item: any) => ({
@@ -1124,13 +1124,14 @@ export default function ManualOrderSidebar({
             quantity: item.quantity
           }))
           if (cartItems.length > 0) {
-            await registerOrderConsumption(business?.id!, cartItems)
+            const orderDateStr = new Date().toISOString().split('T')[0]
+            await registerOrderConsumption(business?.id!, cartItems, orderDateStr, orderId)
           }
         } catch (error) {
           console.error('Error registering order consumption:', error)
           // No interrumpir el flujo si hay error en consumo
         }
-        
+
         onOrderCreated()
       }
       handleReset()

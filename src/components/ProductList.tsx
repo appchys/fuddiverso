@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { Business, Product, ProductVariant } from '@/types'
+import { Business, Product, ProductVariant, Ingredient } from '@/types'
 import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem } from '@/lib/database'
 
 interface ProductListProps {
@@ -91,24 +91,24 @@ export default function ProductList({
       image: null
     })
     setVariants(product.variants || [])
-    setIngredients((product as any).ingredients || [])
-    
+    setIngredients((product.ingredients || []) as any)
+
     // Cargar ingredientes por variante
-    const variantIngs: Record<string, any[]> = {}
+    const variantIngs: Record<string, Ingredient[]> = {}
     if (product.variants) {
       product.variants.forEach(variant => {
-        if ((variant as any).ingredients) {
-          variantIngs[variant.id] = (variant as any).ingredients
+        if (variant.ingredients) {
+          variantIngs[variant.id] = variant.ingredients
         }
       })
     }
-    setVariantIngredients(variantIngs)
-    
+    setVariantIngredients(variantIngs as any)
+
     // Cargar biblioteca de ingredientes
     if (business?.id) {
       getIngredientLibrary(business.id).then(lib => setIngredientLibrary(lib))
     }
-    
+
     setCurrentIngredient({ name: '', unitCost: '', quantity: '' })
     setErrors({})
     setActiveTab('general')
@@ -241,7 +241,8 @@ export default function ProductList({
       quantity: quantity
     }
 
-    setIngredients(prev => [...prev, newIngredient])
+    const nextIngredients = [...ingredients, newIngredient]
+    setIngredients(nextIngredients)
     setCurrentIngredient({ name: '', unitCost: '', quantity: '' })
     setShowIngredientSuggestions(false)
     setIngredientSearchTerm('')
@@ -250,11 +251,15 @@ export default function ProductList({
       await addOrUpdateIngredientInLibrary(business.id, newIngredient.name, unitCost)
       const library = await getIngredientLibrary(business.id)
       setIngredientLibrary(library)
+      // Autosincronizar si estamos editando un producto
+      syncProductIngredients(nextIngredients)
     }
   }
 
   const removeIngredient = (ingredientId: string) => {
-    setIngredients(prev => prev.filter(i => i.id !== ingredientId))
+    const nextIngredients = ingredients.filter(i => i.id !== ingredientId)
+    setIngredients(nextIngredients)
+    syncProductIngredients(nextIngredients)
   }
 
   const addIngredientToVariant = async (variantId: string) => {
@@ -278,10 +283,11 @@ export default function ProductList({
       quantity: quantity
     }
 
-    setVariantIngredients(prev => ({
-      ...prev,
-      [variantId]: [...(prev[variantId] || []), newIngredient]
-    }))
+    const nextVariantIngredients = {
+      ...variantIngredients,
+      [variantId]: [...(variantIngredients[variantId] || []), newIngredient]
+    }
+    setVariantIngredients(nextVariantIngredients)
     setCurrentIngredient({ name: '', unitCost: '', quantity: '' })
     setShowIngredientSuggestions(false)
     setIngredientSearchTerm('')
@@ -290,28 +296,55 @@ export default function ProductList({
       await addOrUpdateIngredientInLibrary(business.id, newIngredient.name, unitCost)
       const library = await getIngredientLibrary(business.id)
       setIngredientLibrary(library)
+      // Autosincronizar si estamos editando un producto
+      syncProductIngredients(undefined, nextVariantIngredients)
     }
   }
 
   const removeIngredientFromVariant = (variantId: string, ingredientId: string) => {
-    setVariantIngredients(prev => ({
-      ...prev,
-      [variantId]: (prev[variantId] || []).filter(i => i.id !== ingredientId)
-    }))
+    const nextVariantIngredients = {
+      ...variantIngredients,
+      [variantId]: (variantIngredients[variantId] || []).filter(i => i.id !== ingredientId)
+    }
+    setVariantIngredients(nextVariantIngredients)
+    syncProductIngredients(undefined, nextVariantIngredients)
   }
 
   const toggleVariantExpanded = (variantId: string) => {
-    const newExpanded = new Set(expandedVariantsForIngredients)
-    if (newExpanded.has(variantId)) {
-      newExpanded.delete(variantId)
-    } else {
+    const isCurrentlyExpanded = expandedVariantsForIngredients.has(variantId)
+    const newExpanded = new Set<string>()
+    if (!isCurrentlyExpanded) {
       newExpanded.add(variantId)
+      // Reset current ingredient form when opening a new variant
+      setCurrentIngredient({ name: '', unitCost: '', quantity: '' })
+      setIngredientSearchTerm('')
     }
     setExpandedVariantsForIngredients(newExpanded)
   }
 
   const calculateTotalIngredientCost = () => {
     return ingredients.reduce((sum, ingredient) => sum + (ingredient.unitCost * ingredient.quantity), 0)
+  }
+
+  const syncProductIngredients = async (updatedIngredients?: Ingredient[], updatedVariantIngredients?: Record<string, Ingredient[]>) => {
+    if (!editingProduct?.id || !business?.id) return
+
+    const ings = updatedIngredients || ingredients
+    const vIngs = updatedVariantIngredients || variantIngredients
+
+    const variantsWithIngredients = variants.map(variant => ({
+      ...variant,
+      ingredients: vIngs[variant.id] || []
+    }))
+
+    try {
+      await updateProduct(editingProduct.id, {
+        ingredients: ings,
+        variants: variantsWithIngredients
+      })
+    } catch (error) {
+      console.error('Error autosaving ingredients:', error)
+    }
   }
 
   // Cerrar sugerencias al hacer clic fuera
@@ -371,14 +404,21 @@ export default function ProductList({
         updatedAt: new Date()
       }
 
-      if (editingProduct?.id) {
-        await updateProduct(editingProduct.id, productData)
-        onProductsChange(products.map(p => 
-          p.id === editingProduct.id ? { ...p, ...productData } : p
-        ))
+      if (editingProduct) {
+        const currentId = editingProduct.id;
+        await updateProduct(currentId, productData);
+        onProductsChange(products.map(p =>
+          p.id === currentId ? ({ ...p, ...productData } as Product) : p
+        ));
       } else {
-        const newProductId = await createProduct(productData)
-        onProductsChange([...products, { ...productData, id: newProductId, createdAt: new Date() }])
+        const newProductId = await createProduct(productData);
+        const newProduct: Product = {
+          ...productData,
+          id: newProductId,
+          createdAt: new Date(),
+          businessId: business.id
+        } as Product;
+        onProductsChange([...products, newProduct]);
       }
 
       handleCloseForm()
@@ -404,7 +444,7 @@ export default function ProductList({
   const handleToggleAvailability = async (productId: string, isAvailable: boolean) => {
     try {
       await updateProduct(productId, { isAvailable: !isAvailable })
-      onProductsChange(products.map(p => 
+      onProductsChange(products.map(p =>
         p.id === productId ? { ...p, isAvailable: !isAvailable } : p
       ))
     } catch (error) {
@@ -438,54 +478,45 @@ export default function ProductList({
           {products.map((product) => (
             <div
               key={product.id}
-              className={`border rounded-lg p-4 hover:shadow-sm transition-shadow ${
-                product.isAvailable
-                  ? 'bg-white border-gray-200'
-                  : 'bg-gray-50 border-gray-300 opacity-60'
-              }`}
+              className={`border rounded-lg p-4 hover:shadow-sm transition-shadow ${product.isAvailable
+                ? 'bg-white border-gray-200'
+                : 'bg-gray-50 border-gray-300 opacity-60'
+                }`}
             >
               <div className="flex gap-4">
                 {/* Imagen */}
-                <div className={`w-16 h-16 flex-shrink-0 rounded-lg flex items-center justify-center overflow-hidden ${
-                  product.isAvailable ? 'bg-gray-200' : 'bg-gray-300'
-                }`}>
+                <div className={`w-16 h-16 flex-shrink-0 rounded-lg flex items-center justify-center overflow-hidden ${product.isAvailable ? 'bg-gray-200' : 'bg-gray-300'
+                  }`}>
                   {product.image ? (
-                    <img src={product.image} alt={product.name} className={`w-full h-full object-cover ${
-                      !product.isAvailable ? 'opacity-70' : ''
-                    }`} />
+                    <img src={product.image} alt={product.name} className={`w-full h-full object-cover ${!product.isAvailable ? 'opacity-70' : ''
+                      }`} />
                   ) : (
-                    <i className={`bi bi-box-seam text-xl ${
-                      product.isAvailable ? 'text-gray-400' : 'text-gray-500'
-                    }`}></i>
+                    <i className={`bi bi-box-seam text-xl ${product.isAvailable ? 'text-gray-400' : 'text-gray-500'
+                      }`}></i>
                   )}
                 </div>
 
                 {/* Información */}
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <h3 className={`font-semibold ${
-                      product.isAvailable ? 'text-gray-900' : 'text-gray-600'
-                    }`}>{product.name}</h3>
+                    <h3 className={`font-semibold ${product.isAvailable ? 'text-gray-900' : 'text-gray-600'
+                      }`}>{product.name}</h3>
                     {!product.isAvailable && (
                       <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
                         No disponible
                       </span>
                     )}
                   </div>
-                  <p className={`text-sm mt-1 line-clamp-2 ${
-                    product.isAvailable ? 'text-gray-600' : 'text-gray-500'
-                  }`}>{product.description}</p>
+                  <p className={`text-sm mt-1 line-clamp-2 ${product.isAvailable ? 'text-gray-600' : 'text-gray-500'
+                    }`}>{product.description}</p>
                   <div className="flex items-center gap-3 mt-2">
-                    <span className={`text-sm font-semibold ${
-                      product.isAvailable ? 'text-gray-900' : 'text-gray-600'
-                    }`}>${product.price.toFixed(2)}</span>
-                    <span className={`text-xs ${
-                      product.isAvailable ? 'text-gray-500' : 'text-gray-400'
-                    }`}>{product.category}</span>
+                    <span className={`text-sm font-semibold ${product.isAvailable ? 'text-gray-900' : 'text-gray-600'
+                      }`}>${product.price.toFixed(2)}</span>
+                    <span className={`text-xs ${product.isAvailable ? 'text-gray-500' : 'text-gray-400'
+                      }`}>{product.category}</span>
                     {product.variants && product.variants.length > 0 && (
-                      <span className={`text-xs px-2 py-0.5 rounded ${
-                        product.isAvailable ? 'bg-blue-50 text-blue-700' : 'bg-gray-300 text-gray-600'
-                      }`}>
+                      <span className={`text-xs px-2 py-0.5 rounded ${product.isAvailable ? 'bg-blue-50 text-blue-700' : 'bg-gray-300 text-gray-600'
+                        }`}>
                         {product.variants.length} variante{product.variants.length !== 1 ? 's' : ''}
                       </span>
                     )}
@@ -496,11 +527,10 @@ export default function ProductList({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => handleToggleAvailability(product.id, product.isAvailable)}
-                    className={`p-2 rounded-lg transition-colors ${
-                      product.isAvailable
-                        ? 'text-orange-600 hover:bg-orange-50'
-                        : 'text-green-600 hover:bg-green-50'
-                    }`}
+                    className={`p-2 rounded-lg transition-colors ${product.isAvailable
+                      ? 'text-orange-600 hover:bg-orange-50'
+                      : 'text-green-600 hover:bg-green-50'
+                      }`}
                     title={product.isAvailable ? 'Ocultar' : 'Mostrar'}
                   >
                     <i className={`bi ${product.isAvailable ? 'bi-eye-slash' : 'bi-eye'}`}></i>
@@ -550,11 +580,10 @@ export default function ProductList({
                   <button
                     type="button"
                     onClick={() => setActiveTab('general')}
-                    className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-                      activeTab === 'general'
-                        ? 'border-red-500 text-red-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
+                    className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'general'
+                      ? 'border-red-500 text-red-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      }`}
                   >
                     <i className="bi bi-info-circle me-2"></i>
                     Información General
@@ -562,11 +591,10 @@ export default function ProductList({
                   <button
                     type="button"
                     onClick={() => setActiveTab('ingredients')}
-                    className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-                      activeTab === 'ingredients'
-                        ? 'border-red-500 text-red-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
+                    className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'ingredients'
+                      ? 'border-red-500 text-red-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      }`}
                   >
                     <i className="bi bi-basket me-2"></i>
                     Ingredientes y Costos
@@ -583,240 +611,237 @@ export default function ProductList({
                 {/* PESTAÑA: INFORMACIÓN GENERAL */}
                 {activeTab === 'general' && (
                   <>
-                {/* Sección de Imagen - Visual */}
-                <div>
-                  <label htmlFor="image-upload" className="block cursor-pointer">
-                    <div className="relative w-full aspect-square bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 hover:border-red-400 hover:bg-red-50 transition-colors flex items-center justify-center overflow-hidden group">
-                      {formData.image ? (
-                        <div className="absolute inset-0 w-full h-full">
-                          <img src={URL.createObjectURL(formData.image)} alt="Preview" className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                            <div className="text-center">
-                              <i className="bi bi-camera text-white text-2xl mb-2 block"></i>
-                              <p className="text-white text-sm font-medium">Cambiar imagen</p>
+                    {/* Sección de Imagen - Visual */}
+                    <div>
+                      <label htmlFor="image-upload" className="block cursor-pointer">
+                        <div className="relative w-full aspect-square bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 hover:border-red-400 hover:bg-red-50 transition-colors flex items-center justify-center overflow-hidden group">
+                          {formData.image ? (
+                            <div className="absolute inset-0 w-full h-full">
+                              <img src={URL.createObjectURL(formData.image)} alt="Preview" className="w-full h-full object-cover" />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                <div className="text-center">
+                                  <i className="bi bi-camera text-white text-2xl mb-2 block"></i>
+                                  <p className="text-white text-sm font-medium">Cambiar imagen</p>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      ) : editingProduct?.image ? (
-                        <div className="absolute inset-0 w-full h-full">
-                          <img src={editingProduct.image} alt="Current" className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                            <div className="text-center">
-                              <i className="bi bi-camera text-white text-2xl mb-2 block"></i>
-                              <p className="text-white text-sm font-medium">Cambiar imagen</p>
+                          ) : editingProduct?.image ? (
+                            <div className="absolute inset-0 w-full h-full">
+                              <img src={editingProduct.image} alt="Current" className="w-full h-full object-cover" />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                <div className="text-center">
+                                  <i className="bi bi-camera text-white text-2xl mb-2 block"></i>
+                                  <p className="text-white text-sm font-medium">Cambiar imagen</p>
+                                </div>
+                              </div>
                             </div>
-                          </div>
+                          ) : (
+                            <div className="text-center">
+                              <i className="bi bi-box-seam text-6xl text-gray-300 mb-3 block"></i>
+                              <p className="text-gray-500 font-medium mb-1">Arrastra una imagen aquí</p>
+                              <p className="text-gray-400 text-sm">o haz clic para seleccionar</p>
+                            </div>
+                          )}
                         </div>
-                      ) : (
-                        <div className="text-center">
-                          <i className="bi bi-box-seam text-6xl text-gray-300 mb-3 block"></i>
-                          <p className="text-gray-500 font-medium mb-1">Arrastra una imagen aquí</p>
-                          <p className="text-gray-400 text-sm">o haz clic para seleccionar</p>
-                        </div>
-                      )}
+                      </label>
+                      <input
+                        id="image-upload"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageChange}
+                        className="hidden"
+                      />
                     </div>
-                  </label>
-                  <input
-                    id="image-upload"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageChange}
-                    className="hidden"
-                  />
-                </div>
 
-                {/* Nombre del Producto - Editable y Destacado */}
-                <div>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleInputChange}
-                      placeholder="Nombre del producto"
-                      className={`w-full text-3xl font-bold text-gray-900 border-b-2 focus:outline-none transition-colors py-2 px-0 ${
-                        errors.name ? 'border-red-500 text-red-600' : 'border-transparent hover:border-gray-300 focus:border-red-500'
-                      }`}
-                    />
-                    {formData.name && (
-                      <button
-                        type="button"
-                        onClick={() => setFormData(prev => ({ ...prev, name: '' }))}
-                        className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500 transition-colors"
-                      >
-                        <i className="bi bi-x-circle-fill"></i>
-                      </button>
-                    )}
-                  </div>
-                  {errors.name && <p className="text-red-500 text-sm mt-2">{errors.name}</p>}
-                </div>
-
-                {/* Descripción - Editable tipo nombre */}
-                <div>
-                  <textarea
-                    name="description"
-                    value={formData.description}
-                    onChange={handleInputChange}
-                    rows={2}
-                    placeholder="Describe tu producto..."
-                    className={`w-full px-0 py-2 border-b-2 focus:outline-none transition-colors bg-transparent text-gray-600 resize-none ${
-                      errors.description ? 'border-red-500 text-red-600' : 'border-transparent hover:border-gray-300 focus:border-red-500'
-                    }`}
-                  />
-                  {errors.description && <p className="text-red-500 text-sm mt-2">{errors.description}</p>}
-                </div>
-
-                {/* Precio - Grande y destacado */}
-                <div>
-                  <div className="relative">
-                    <span className="absolute left-0 top-2 text-4xl font-bold text-gray-900">$</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      name="price"
-                      value={formData.price}
-                      onChange={handleInputChange}
-                      placeholder="0.00"
-                      className={`w-full pl-12 pr-0 py-2 text-4xl font-bold border-b-2 focus:outline-none transition-colors bg-transparent ${
-                        errors.price ? 'border-red-500 text-red-600' : 'border-transparent hover:border-gray-300 focus:border-red-500 text-gray-900'
-                      }`}
-                    />
-                  </div>
-                  {errors.price && <p className="text-red-500 text-sm mt-2">{errors.price}</p>}
-                </div>
-
-                {/* Categoría - Unificada */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-3">CATEGORÍA</label>
-                  <div className="space-y-2">
-                    {categories.length === 0 ? (
-                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                        <p className="text-sm text-blue-600 font-medium mb-2">📌 Categoría por defecto</p>
-                        <p className="text-sm text-gray-600">Se usará "General" como categoría principal</p>
-                      </div>
-                    ) : (
-                      <select
-                        name="category"
-                        value={formData.category}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 font-medium bg-white"
-                      >
-                        {categories.map((cat) => (
-                          <option key={cat} value={cat}>{cat}</option>
-                        ))}
-                      </select>
-                    )}
-
-                    {/* Botón para agregar nueva categoría - Integrado */}
-                    {!showNewCategory ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowNewCategory(true)}
-                        className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-red-400 hover:bg-red-50 transition-colors font-medium text-sm"
-                      >
-                        <i className="bi bi-plus-circle me-2"></i>
-                        Agregar nueva categoría
-                      </button>
-                    ) : (
-                      <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+                    {/* Nombre del Producto - Editable y Destacado */}
+                    <div>
+                      <div className="relative">
                         <input
                           type="text"
-                          value={newCategory}
-                          onChange={(e) => setNewCategory(e.target.value)}
-                          placeholder="Nombre de la nueva categoría"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
-                          autoFocus
+                          name="name"
+                          value={formData.name}
+                          onChange={handleInputChange}
+                          placeholder="Nombre del producto"
+                          className={`w-full text-3xl font-bold text-gray-900 border-b-2 focus:outline-none transition-colors py-2 px-0 ${errors.name ? 'border-red-500 text-red-600' : 'border-transparent hover:border-gray-300 focus:border-red-500'
+                            }`}
+                        />
+                        {formData.name && (
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, name: '' }))}
+                            className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500 transition-colors"
+                          >
+                            <i className="bi bi-x-circle-fill"></i>
+                          </button>
+                        )}
+                      </div>
+                      {errors.name && <p className="text-red-500 text-sm mt-2">{errors.name}</p>}
+                    </div>
+
+                    {/* Descripción - Editable tipo nombre */}
+                    <div>
+                      <textarea
+                        name="description"
+                        value={formData.description}
+                        onChange={handleInputChange}
+                        rows={2}
+                        placeholder="Describe tu producto..."
+                        className={`w-full px-0 py-2 border-b-2 focus:outline-none transition-colors bg-transparent text-gray-600 resize-none ${errors.description ? 'border-red-500 text-red-600' : 'border-transparent hover:border-gray-300 focus:border-red-500'
+                          }`}
+                      />
+                      {errors.description && <p className="text-red-500 text-sm mt-2">{errors.description}</p>}
+                    </div>
+
+                    {/* Precio - Grande y destacado */}
+                    <div>
+                      <div className="relative">
+                        <span className="absolute left-0 top-2 text-4xl font-bold text-gray-900">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          name="price"
+                          value={formData.price}
+                          onChange={handleInputChange}
+                          placeholder="0.00"
+                          className={`w-full pl-12 pr-0 py-2 text-4xl font-bold border-b-2 focus:outline-none transition-colors bg-transparent ${errors.price ? 'border-red-500 text-red-600' : 'border-transparent hover:border-gray-300 focus:border-red-500 text-gray-900'
+                            }`}
+                        />
+                      </div>
+                      {errors.price && <p className="text-red-500 text-sm mt-2">{errors.price}</p>}
+                    </div>
+
+                    {/* Categoría - Unificada */}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-3">CATEGORÍA</label>
+                      <div className="space-y-2">
+                        {categories.length === 0 ? (
+                          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <p className="text-sm text-blue-600 font-medium mb-2">📌 Categoría por defecto</p>
+                            <p className="text-sm text-gray-600">Se usará "General" como categoría principal</p>
+                          </div>
+                        ) : (
+                          <select
+                            name="category"
+                            value={formData.category}
+                            onChange={handleInputChange}
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 font-medium bg-white"
+                          >
+                            {categories.map((cat) => (
+                              <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                          </select>
+                        )}
+
+                        {/* Botón para agregar nueva categoría - Integrado */}
+                        {!showNewCategory ? (
+                          <button
+                            type="button"
+                            onClick={() => setShowNewCategory(true)}
+                            className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-red-400 hover:bg-red-50 transition-colors font-medium text-sm"
+                          >
+                            <i className="bi bi-plus-circle me-2"></i>
+                            Agregar nueva categoría
+                          </button>
+                        ) : (
+                          <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+                            <input
+                              type="text"
+                              value={newCategory}
+                              onChange={(e) => setNewCategory(e.target.value)}
+                              placeholder="Nombre de la nueva categoría"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                              autoFocus
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={handleAddCategory}
+                                className="flex-1 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm transition-colors"
+                              >
+                                <i className="bi bi-check-lg me-1"></i>
+                                Crear
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowNewCategory(false)
+                                  setNewCategory('')
+                                }}
+                                className="flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium text-sm transition-colors"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Disponibilidad */}
+                    <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={formData.isAvailable}
+                        onChange={(e) => setFormData(prev => ({ ...prev, isAvailable: e.target.checked }))}
+                        className="w-5 h-5 rounded text-red-600 cursor-pointer"
+                      />
+                      <span className="font-medium text-gray-700">Producto disponible</span>
+                    </label>
+
+                    {/* Variantes */}
+                    <div className="border-t pt-6">
+                      <h4 className="font-semibold text-gray-900 mb-4">Variantes (Opcional)</h4>
+
+                      {variants.length > 0 && (
+                        <div className="space-y-2 mb-4">
+                          {variants.map((variant) => (
+                            <div key={variant.id} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg hover:bg-gray-100 transition-colors">
+                              <div>
+                                <p className="font-medium text-gray-900">{variant.name}</p>
+                                <p className="text-sm text-gray-600">${variant.price.toFixed(2)}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeVariant(variant.id)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                              >
+                                <i className="bi bi-trash"></i>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="space-y-2 bg-gray-50 p-4 rounded-lg">
+                        <input
+                          type="text"
+                          value={currentVariant.name}
+                          onChange={(e) => setCurrentVariant(prev => ({ ...prev, name: e.target.value }))}
+                          placeholder="Ej: Tamaño grande, Con queso extra"
+                          className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
                         />
                         <div className="flex gap-2">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={currentVariant.price}
+                            onChange={(e) => setCurrentVariant(prev => ({ ...prev, price: e.target.value }))}
+                            placeholder="Precio (opcional)"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
+                          />
                           <button
                             type="button"
-                            onClick={handleAddCategory}
-                            className="flex-1 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm transition-colors"
+                            onClick={addVariant}
+                            className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 font-medium"
                           >
-                            <i className="bi bi-check-lg me-1"></i>
-                            Crear
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowNewCategory(false)
-                              setNewCategory('')
-                            }}
-                            className="flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium text-sm transition-colors"
-                          >
-                            Cancelar
+                            <i className="bi bi-plus-lg me-1"></i>
+                            Agregar
                           </button>
                         </div>
                       </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Disponibilidad */}
-                <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={formData.isAvailable}
-                    onChange={(e) => setFormData(prev => ({ ...prev, isAvailable: e.target.checked }))}
-                    className="w-5 h-5 rounded text-red-600 cursor-pointer"
-                  />
-                  <span className="font-medium text-gray-700">Producto disponible</span>
-                </label>
-
-                {/* Variantes */}
-                <div className="border-t pt-6">
-                  <h4 className="font-semibold text-gray-900 mb-4">Variantes (Opcional)</h4>
-
-                  {variants.length > 0 && (
-                    <div className="space-y-2 mb-4">
-                      {variants.map((variant) => (
-                        <div key={variant.id} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg hover:bg-gray-100 transition-colors">
-                          <div>
-                            <p className="font-medium text-gray-900">{variant.name}</p>
-                            <p className="text-sm text-gray-600">${variant.price.toFixed(2)}</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeVariant(variant.id)}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                          >
-                            <i className="bi bi-trash"></i>
-                          </button>
-                        </div>
-                      ))}
                     </div>
-                  )}
-
-                  <div className="space-y-2 bg-gray-50 p-4 rounded-lg">
-                    <input
-                      type="text"
-                      value={currentVariant.name}
-                      onChange={(e) => setCurrentVariant(prev => ({ ...prev, name: e.target.value }))}
-                      placeholder="Ej: Tamaño grande, Con queso extra"
-                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
-                    />
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={currentVariant.price}
-                        onChange={(e) => setCurrentVariant(prev => ({ ...prev, price: e.target.value }))}
-                        placeholder="Precio (opcional)"
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
-                      />
-                      <button
-                        type="button"
-                        onClick={addVariant}
-                        className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 font-medium"
-                      >
-                        <i className="bi bi-plus-lg me-1"></i>
-                        Agregar
-                      </button>
-                    </div>
-                  </div>
-                </div>
                   </>
                 )}
 
@@ -878,95 +903,154 @@ export default function ProductList({
                           </div>
                         )}
 
-                        {/* Formulario para agregar ingrediente */}
-                        <div className="bg-gray-50 p-4 rounded-md">
-                          <h4 className="font-medium text-gray-900 mb-3">Agregar Nuevo Ingrediente</h4>
+                        {/* Formulario para agregar ingrediente - Optimizado */}
+                        <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 shadow-sm transition-all hover:shadow-md">
+                          <div className="flex items-center gap-2 mb-6">
+                            <div className="w-8 h-8 bg-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center">
+                              <i className="bi bi-magic"></i>
+                            </div>
+                            <h4 className="font-black text-slate-800 uppercase text-[10px] tracking-[0.2em]">Configurar Insumos</h4>
+                          </div>
 
-                          <div className="space-y-3">
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Nombre del Ingrediente *
+                          <div className="space-y-5">
+                            <div className="relative ingredient-input-container">
+                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2">
+                                Buscar o Crear Insumo
                               </label>
-                              <div className="relative ingredient-input-container">
+                              <div className="relative group">
+                                <i className="bi bi-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-emerald-500 transition-colors"></i>
                                 <input
                                   type="text"
                                   name="name"
                                   value={currentIngredient.name}
                                   onChange={handleIngredientChange}
                                   onFocus={() => setShowIngredientSuggestions(true)}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                                  placeholder="Ej: Pan, Carne, Mayonesa (escribe para buscar)"
+                                  className="w-full pl-12 pr-4 py-4 bg-white border-2 border-slate-100 rounded-2xl focus:outline-none focus:border-emerald-500 font-bold text-slate-900 transition-all placeholder:text-slate-300 placeholder:font-medium"
+                                  placeholder="¿Qué insumo necesitas?"
                                   autoComplete="off"
                                 />
+                              </div>
 
-                                {/* Sugerencias de ingredientes */}
-                                {showIngredientSuggestions && getFilteredIngredients().length > 0 && (
-                                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                                    {getFilteredIngredients().map((ingredient) => (
-                                      <button
-                                        key={ingredient.id}
-                                        type="button"
-                                        onClick={() => selectIngredientFromLibrary(ingredient)}
-                                        className="w-full text-left px-4 py-3 hover:bg-emerald-50 border-b border-gray-100 last:border-b-0 transition-colors"
-                                      >
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-sm font-medium text-gray-900">{ingredient.name}</span>
-                                          <span className="text-sm text-emerald-600 font-bold">${ingredient.unitCost.toFixed(2)}</span>
+                              {/* Sugerencias de ingredientes - Diseño Mejorado */}
+                              {showIngredientSuggestions && (
+                                <div className="absolute z-[60] w-full mt-2 bg-white border border-slate-100 rounded-[2rem] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
+                                  <div className="max-h-64 overflow-y-auto custom-scrollbar">
+                                    {getFilteredIngredients().length > 0 ? (
+                                      <>
+                                        <div className="px-5 py-3 bg-slate-50/50 border-b border-slate-50">
+                                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Insumos en Biblioteca</p>
                                         </div>
-                                        <div className="text-xs text-gray-500 mt-1">
-                                          <i className="bi bi-clock-history me-1"></i>
-                                          Usado {ingredient.usageCount} {ingredient.usageCount === 1 ? 'vez' : 'veces'}
+                                        {getFilteredIngredients().map((ingredient) => (
+                                          <button
+                                            key={ingredient.id}
+                                            type="button"
+                                            onClick={() => selectIngredientFromLibrary(ingredient)}
+                                            className="w-full text-left px-5 py-4 hover:bg-emerald-50 border-b border-slate-50 last:border-b-0 transition-all group/item"
+                                          >
+                                            <div className="flex items-center justify-between">
+                                              <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center font-black text-[10px] text-slate-400 group-hover/item:bg-emerald-100 group-hover/item:text-emerald-600 transition-colors">
+                                                  {ingredient.name.substring(0, 2).toUpperCase()}
+                                                </div>
+                                                <span className="text-sm font-bold text-slate-900">{ingredient.name}</span>
+                                              </div>
+                                              <div className="text-right">
+                                                <span className="text-sm font-black text-emerald-600">${ingredient.unitCost.toFixed(2)}</span>
+                                              </div>
+                                            </div>
+                                          </button>
+                                        ))}
+                                      </>
+                                    ) : currentIngredient.name.trim() !== '' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowIngredientSuggestions(false)}
+                                        className="w-full text-left px-5 py-6 bg-emerald-50 hover:bg-emerald-100 transition-all group/new"
+                                      >
+                                        <div className="flex items-center gap-4">
+                                          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-emerald-600 shadow-sm group-hover/new:scale-110 transition-transform">
+                                            <i className="bi bi-plus-lg text-xl"></i>
+                                          </div>
+                                          <div>
+                                            <p className="text-sm font-black text-emerald-700 uppercase tracking-tight">Crear "{currentIngredient.name}"</p>
+                                            <p className="text-[10px] text-emerald-600 font-medium">Este insumo se guardará en tu biblioteca</p>
+                                          </div>
                                         </div>
                                       </button>
-                                    ))}
+                                    )}
+
+                                    {/* Mostrar sugerencias generales si no hay búsqueda */}
+                                    {currentIngredient.name.trim() === '' && ingredientLibrary.length > 0 && (
+                                      <>
+                                        <div className="px-5 py-3 bg-slate-50/50 border-b border-slate-50">
+                                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Usados frecuentemente</p>
+                                        </div>
+                                        {ingredientLibrary.slice(0, 5).map((ingredient) => (
+                                          <button
+                                            key={ingredient.id}
+                                            type="button"
+                                            onClick={() => selectIngredientFromLibrary(ingredient)}
+                                            className="w-full text-left px-5 py-4 hover:bg-emerald-50 border-b border-slate-50 last:border-b-0 transition-all"
+                                          >
+                                            <div className="flex items-center justify-between">
+                                              <span className="text-sm font-bold text-slate-900">{ingredient.name}</span>
+                                              <span className="text-sm font-black text-emerald-600">${ingredient.unitCost.toFixed(2)}</span>
+                                            </div>
+                                          </button>
+                                        ))}
+                                      </>
+                                    )}
                                   </div>
-                                )}
-                              </div>
+                                </div>
+                              )}
                             </div>
 
-                            <div className="grid grid-cols-2 gap-3">
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                  Costo Unitario ($) *
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                                  Costo (Unidad)
                                 </label>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  name="unitCost"
-                                  value={currentIngredient.unitCost}
-                                  onChange={handleIngredientChange}
-                                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                                  placeholder="0.00"
-                                />
+                                <div className="relative">
+                                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    name="unitCost"
+                                    value={currentIngredient.unitCost}
+                                    onChange={handleIngredientChange}
+                                    className="w-full pl-8 pr-4 py-4 bg-white border-2 border-slate-100 rounded-2xl focus:outline-none focus:border-emerald-500 font-bold text-slate-900 transition-all"
+                                    placeholder="0.00"
+                                  />
+                                </div>
                               </div>
 
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                  Cantidad *
+                              <div className="space-y-2">
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                                  Cantidad
                                 </label>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0.01"
-                                  name="quantity"
-                                  value={currentIngredient.quantity}
-                                  onChange={handleIngredientChange}
-                                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                                  placeholder="1"
-                                />
+                                <div className="relative">
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0.01"
+                                    name="quantity"
+                                    value={currentIngredient.quantity}
+                                    onChange={handleIngredientChange}
+                                    className="w-full px-4 py-4 bg-white border-2 border-slate-100 rounded-2xl focus:outline-none focus:border-emerald-500 font-bold text-slate-900 transition-all"
+                                    placeholder="1.0"
+                                  />
+                                </div>
                               </div>
                             </div>
 
                             <button
                               type="button"
                               onClick={addIngredient}
-                              className="w-full bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700 transition-colors"
+                              className="w-full bg-slate-900 text-white px-8 py-5 rounded-2xl font-black uppercase text-xs hover:bg-black transition-all shadow-xl shadow-slate-200 active:scale-[0.98] flex items-center justify-center gap-3 mt-4"
                             >
-                              <i className="bi bi-plus-lg me-2"></i>
-                              Agregar Ingrediente
+                              <i className="bi bi-plus-circle-fill text-lg"></i>
+                              Agregar a Receta
                             </button>
                           </div>
                         </div>
@@ -980,7 +1064,7 @@ export default function ProductList({
                         <p className="text-sm text-gray-500 mb-4">
                           Gestiona los ingredientes específicos para cada variante. Haz clic en una variante para expandir/contraer
                         </p>
-                        
+
                         <div className="space-y-3">
                           {variants.map((variant) => {
                             const isExpanded = expandedVariantsForIngredients.has(variant.id)
@@ -989,7 +1073,7 @@ export default function ProductList({
                               0
                             )
                             const profit = variant.price ? Number(variant.price) - totalCost : 0
-                            
+
                             return (
                               <div key={variant.id} className="border border-gray-200 rounded-lg overflow-hidden hover:border-gray-300 transition-colors">
                                 {/* Header expandible */}
@@ -1018,7 +1102,9 @@ export default function ProductList({
                                             Ganancia: ${profit.toFixed(2)}
                                           </span>
                                         )}
-                                        <span className="text-gray-400 bg-gray-200 px-2 py-0.5 rounded">
+                                        <span className={`px-2 py-0.5 rounded text-xs transition-colors ${variantIngredients[variant.id]?.length > 0
+                                          ? 'bg-blue-100 text-blue-600 font-bold'
+                                          : 'text-gray-400 bg-gray-200'}`}>
                                           {variantIngredients[variant.id]?.length || 0} ingredientes
                                         </span>
                                       </div>
@@ -1030,7 +1116,7 @@ export default function ProductList({
                                 {isExpanded && (
                                   <div className="px-4 py-4 bg-white">
                                     {/* Lista de ingredientes */}
-                                    {variantIngredients[variant.id]?.length > 0 ? (
+                                    {variantIngredients[variant.id]?.length > 0 && (
                                       <div className="space-y-2 mb-4">
                                         {variantIngredients[variant.id].map((ingredient) => (
                                           <div key={ingredient.id} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-md hover:bg-gray-100 transition-colors">
@@ -1051,60 +1137,74 @@ export default function ProductList({
                                           </div>
                                         ))}
                                       </div>
-                                    ) : (
-                                      <div className="text-center py-3 text-sm text-gray-400 bg-gray-50 rounded-md mb-3">
-                                        <i className="bi bi-inbox me-2"></i>
-                                        Sin ingredientes específicos
-                                      </div>
                                     )}
 
-                                    {/* Formulario para agregar ingrediente */}
-                                    <div className="border-t border-gray-200 pt-3">
-                                      <h5 className="text-sm font-medium text-gray-900 mb-3">Agregar Ingrediente</h5>
-                                      <div className="space-y-2">
+                                    {/* Formulario para agregar ingrediente por variante - Optimizado */}
+                                    <div className="border-t border-slate-100 pt-5 mt-2 bg-slate-50/50 p-6 rounded-[2rem] border border-dashed border-slate-200">
+                                      <h5 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <i className="bi bi-plus-circle text-emerald-500"></i>
+                                        Agregar Insumo Específico
+                                      </h5>
+                                      <div className="space-y-4">
                                         <div className="relative ingredient-input-container">
-                                          <input
-                                            type="text"
-                                            name="name"
-                                            value={currentIngredient.name}
-                                            onChange={handleIngredientChange}
-                                            onFocus={() => setShowIngredientSuggestions(true)}
-                                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                            placeholder="Nombre del ingrediente"
-                                            autoComplete="off"
-                                          />
-                                          
+                                          <div className="relative">
+                                            <i className="bi bi-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 text-xs text-xs"></i>
+                                            <input
+                                              type="text"
+                                              name="name"
+                                              value={currentIngredient.name}
+                                              onChange={handleIngredientChange}
+                                              onFocus={() => setShowIngredientSuggestions(true)}
+                                              className="w-full pl-10 pr-4 py-3 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 font-bold transition-all shadow-sm"
+                                              placeholder="Buscar o crear insumo..."
+                                              autoComplete="off"
+                                            />
+                                          </div>
+
                                           {/* Sugerencias de ingredientes */}
-                                          {showIngredientSuggestions && getFilteredIngredients().length > 0 && (
-                                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-40 overflow-y-auto">
-                                              {getFilteredIngredients().map((ingredient) => (
-                                                <button
-                                                  key={ingredient.id}
-                                                  type="button"
-                                                  onClick={() => selectIngredientFromLibrary(ingredient)}
-                                                  className="w-full text-left px-3 py-2 hover:bg-emerald-50 border-b border-gray-100 last:border-b-0 text-sm transition-colors"
-                                                >
-                                                  <div className="flex items-center justify-between">
-                                                    <span className="font-medium text-gray-900">{ingredient.name}</span>
-                                                    <span className="text-emerald-600 text-xs font-bold">${ingredient.unitCost.toFixed(2)}</span>
-                                                  </div>
-                                                </button>
-                                              ))}
+                                          {showIngredientSuggestions && (
+                                            <div className="absolute z-[60] w-full mt-1 bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden shadow-emerald-900/5">
+                                              <div className="max-h-40 overflow-y-auto custom-scrollbar">
+                                                {getFilteredIngredients().length > 0 ? (
+                                                  getFilteredIngredients().map((ingredient) => (
+                                                    <button
+                                                      key={ingredient.id}
+                                                      type="button"
+                                                      onClick={() => selectIngredientFromLibrary(ingredient)}
+                                                      className="w-full text-left px-4 py-2.5 hover:bg-emerald-50 border-b border-slate-50 last:border-b-0 text-[11px] transition-all flex items-center justify-between"
+                                                    >
+                                                      <span className="font-bold text-slate-700">{ingredient.name}</span>
+                                                      <span className="text-emerald-600 font-black">${ingredient.unitCost.toFixed(2)}</span>
+                                                    </button>
+                                                  ))
+                                                ) : currentIngredient.name.trim() !== '' && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setShowIngredientSuggestions(false)}
+                                                    className="w-full text-left px-4 py-3 bg-emerald-50 hover:bg-emerald-100 text-[11px] font-black text-emerald-700 transition-all flex items-center gap-2"
+                                                  >
+                                                    <i className="bi bi-plus-lg bg-white p-1.5 rounded-lg shadow-sm"></i>
+                                                    Crear "{currentIngredient.name}"
+                                                  </button>
+                                                )}
+                                              </div>
                                             </div>
                                           )}
                                         </div>
-                                        <div className="grid grid-cols-2 gap-2">
-                                          <input
-                                            type="number"
-                                            step="0.01"
-                                            min="0"
-                                            name="unitCost"
-                                            value={currentIngredient.unitCost}
-                                            onChange={handleIngredientChange}
-                                            onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                                            placeholder="Costo ($)"
-                                          />
+                                        <div className="grid grid-cols-2 gap-3">
+                                          <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 text-[10px]">$</span>
+                                            <input
+                                              type="number"
+                                              step="0.01"
+                                              min="0"
+                                              name="unitCost"
+                                              value={currentIngredient.unitCost}
+                                              onChange={handleIngredientChange}
+                                              className="w-full pl-6 pr-3 py-2.5 text-[11px] bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 font-black transition-all"
+                                              placeholder="Costo"
+                                            />
+                                          </div>
                                           <input
                                             type="number"
                                             step="0.01"
@@ -1112,18 +1212,16 @@ export default function ProductList({
                                             name="quantity"
                                             value={currentIngredient.quantity}
                                             onChange={handleIngredientChange}
-                                            onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                            className="w-full px-3 py-2.5 text-[11px] bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 font-black transition-all"
                                             placeholder="Cantidad"
                                           />
                                         </div>
                                         <button
                                           type="button"
                                           onClick={() => addIngredientToVariant(variant.id)}
-                                          className="w-full bg-emerald-600 text-white px-3 py-2 text-sm rounded-md hover:bg-emerald-700 transition-colors font-medium"
+                                          className="w-full bg-emerald-600 text-white px-4 py-3 text-[10px] rounded-xl hover:bg-emerald-700 transition-all font-black uppercase tracking-wider"
                                         >
-                                          <i className="bi bi-plus-lg me-1"></i>
-                                          Agregar
+                                          Agregar a Variante
                                         </button>
                                       </div>
                                     </div>
@@ -1136,7 +1234,9 @@ export default function ProductList({
                       </div>
                     )}
                   </div>
-                )}                {/* Error general */}
+                )}
+
+                {/* Error general */}
                 {errors.submit && (
                   <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                     <p className="text-red-600 text-sm">{errors.submit}</p>
@@ -1176,6 +1276,39 @@ export default function ProductList({
           </div>
         </div>
       )}
+      <style jsx>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #f1f1f1;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #e1e1e1;
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        @keyframes slideInFromTop {
+          from { transform: translateY(-8px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+
+        .animate-in {
+          animation: fadeIn 0.3s ease-out;
+        }
+
+        .slide-in-from-top-2 {
+          animation: slideInFromTop 0.3s ease-out;
+        }
+      `}</style>
     </div>
   )
 }

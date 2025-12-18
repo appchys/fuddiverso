@@ -628,6 +628,24 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
     }
 
     const docRef = await addDoc(collection(db, 'orders'), standardizedOrder)
+
+    // 3. REGISTRO AUTOMÁTICO DE CONSUMO (Punto 4 del pedido)
+    try {
+      await registerOrderConsumption(
+        standardizedOrder.businessId,
+        standardizedOrder.items.map((item: any) => ({
+          productId: item.productId,
+          variant: item.variant?.name || item.variantId,
+          name: item.product?.name || item.name || '',
+          quantity: item.quantity
+        })),
+        new Date().toISOString().split('T')[0],
+        docRef.id
+      )
+    } catch (consumeError) {
+      console.error('Error al descontar stock automáticamente:', consumeError)
+    }
+
     return docRef.id
   } catch (error) {
     console.error('Error creating order:', error)
@@ -789,12 +807,28 @@ export async function updateOrder(orderId: string, orderData: Partial<Omit<Order
 
 export async function deleteOrder(orderId: string) {
   try {
-    console.log('🗑️ Deleting order:', orderId);
+    console.log('🗑️ Eliminando orden y recuperando stock:', orderId);
+
+    // Buscar y eliminar movimientos de stock asociados a esta orden (Recuperación)
+    try {
+      const movementsRef = collection(db, 'ingredientStockMovements')
+      const q = query(movementsRef, where('orderId', '==', orderId))
+      const snapshot = await getDocs(q)
+
+      if (!snapshot.empty) {
+        console.log(`♻️ Recuperando stock de ${snapshot.size} ingredientes...`);
+        const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref))
+        await Promise.all(deletePromises)
+      }
+    } catch (revertError) {
+      console.error('Error al recuperar stock:', revertError)
+    }
+
     const docRef = doc(db, 'orders', orderId)
     await deleteDoc(docRef)
-    console.log('✅ Order deleted successfully');
+    console.log('✅ Orden eliminada y stock recuperado');
   } catch (error) {
-    console.error('❌ Error deleting order:', error);
+    console.error('❌ Error al eliminar orden:', error);
     throw error;
   }
 }
@@ -2205,6 +2239,26 @@ export async function addOrUpdateIngredientInLibrary(
 }
 
 /**
+ * Actualizar un ingrediente específico de la biblioteca
+ */
+export async function updateIngredientLibraryItem(
+  businessId: string,
+  ingredientId: string,
+  data: { name?: string; unitCost?: number }
+): Promise<void> {
+  try {
+    const docRef = doc(db, 'businesses', businessId, 'ingredientLibrary', ingredientId)
+    await updateDoc(docRef, {
+      ...data,
+      lastUsed: serverTimestamp()
+    })
+  } catch (error) {
+    console.error('Error updating ingredient library item:', error)
+    throw error
+  }
+}
+
+/**
  * Eliminar un ingrediente de la biblioteca
  */
 export async function deleteIngredientFromLibrary(businessId: string, ingredientId: string): Promise<void> {
@@ -3196,13 +3250,17 @@ export interface IngredientStockMovement {
   notes?: string
   createdAt?: any
   businessId: string
+  orderId?: string // Vincula el movimiento con una venta específica
+  unitCost?: number // Costo unitario al momento de la entrada
 }
 
 export interface IngredientStockSummary {
   ingredientId: string
+  libraryId?: string
   ingredientName: string
   currentStock: number
   unit: string
+  unitCost?: number
   movements: IngredientStockMovement[]
 }
 
@@ -3213,14 +3271,22 @@ export async function recordStockMovement(
   movement: Omit<IngredientStockMovement, 'id' | 'createdAt'>
 ): Promise<string> {
   try {
-    const movementData = {
+    const movementData = cleanObject({
       ...movement,
       createdAt: serverTimestamp()
-    }
+    })
     const docRef = await addDoc(
       collection(db, 'ingredientStockMovements'),
       movementData
     )
+
+    // Registrar en la biblioteca de ingredientes para mantener consistencia
+    await addOrUpdateIngredientInLibrary(
+      movement.businessId,
+      movement.ingredientName,
+      movement.type === 'entry' ? movement.unitCost || 0 : 0
+    )
+
     return docRef.id
   } catch (error) {
     console.error('Error recording stock movement:', error)
@@ -3321,76 +3387,54 @@ export async function calculateCurrentStock(
 export async function getIngredientStockSummary(
   businessId: string
 ): Promise<IngredientStockSummary[]> {
-  console.log('[getIngredientStockSummary] Starting for businessId:', businessId)
   try {
+    // Obtener la biblioteca primero para tener la lista base de ingredientes
+    const library = await getIngredientLibrary(businessId)
     const movementsRef = collection(db, 'ingredientStockMovements')
-    const q = query(
-      movementsRef,
-      where('businessId', '==', businessId)
-    )
-
-    console.log('[getIngredientStockSummary] Fetching movements...')
+    const q = query(movementsRef, where('businessId', '==', businessId))
     const snapshot = await getDocs(q)
-    console.log('[getIngredientStockSummary] Movements fetched:', snapshot.size)
 
     const ingredientMap = new Map<string, IngredientStockSummary>()
     const currentDate = new Date().toISOString().split('T')[0]
 
-    // Helper para normalizar nombres y generar IDs consistentes
+    // Helper para normalizar
     const normalize = (name: string) => name.trim().toLowerCase();
     const generateId = (name: string) => `ing_${normalize(name).replace(/\s+/g, '_')}`;
 
-    // 1. Obtener todos los ingredientes definidos en productos
-    try {
-      console.log('[getIngredientStockSummary] Fetching products...')
-      const products = await getProductsByBusiness(businessId)
-      console.log('[getIngredientStockSummary] Products fetched:', products.length)
-
-      products.forEach((product: Product) => {
-        // Ingredientes del producto base y de las variantes
-        const allProductIngredients = [
-          ...(product.ingredients || []),
-          ...(product.variants?.flatMap(v => v.ingredients || []) || [])
-        ];
-
-        allProductIngredients.forEach((ing: Ingredient) => {
-          const normName = normalize(ing.name);
-          const ingId = generateId(ing.name);
-
-          if (!ingredientMap.has(normName)) {
-            ingredientMap.set(normName, {
-              ingredientId: ingId, // Usamos el ID generado para consistencia
-              ingredientName: ing.name.trim(),
-              currentStock: 0,
-              unit: ing.unit || 'unidad',
-              movements: []
-            })
-          }
-        });
+    // Inicializar el mapa con los ingredientes de la biblioteca
+    library.forEach(item => {
+      const normName = normalize(item.name)
+      ingredientMap.set(normName, {
+        ingredientId: generateId(item.name),
+        libraryId: item.id,
+        ingredientName: item.name.trim(),
+        currentStock: 0,
+        unit: 'unidad',
+        unitCost: item.unitCost,
+        movements: []
       })
-    } catch (error) {
-      console.error('[getIngredientStockSummary] Error fetching products:', error)
-    }
+    })
 
-    // 2. Procesar movimientos y calcular stock en memoria
+    // Procesar todos los movimientos para actualizar el stock de los ingredientes
     snapshot.docs.forEach(doc => {
       const m = doc.data() as IngredientStockMovement
-      // Unificamos por el nombre del ingrediente en el movimiento
       const normName = normalize(m.ingredientName)
+      const ingId = m.ingredientId || generateId(m.ingredientName)
 
       if (!ingredientMap.has(normName)) {
         ingredientMap.set(normName, {
-          ingredientId: m.ingredientId || generateId(m.ingredientName),
-          ingredientName: m.ingredientName,
+          ingredientId: ingId,
+          ingredientName: m.ingredientName.trim(),
           currentStock: 0,
-          unit: 'unidad',
+          unit: 'unidad', // Valor por defecto
           movements: []
         })
       }
 
-      // Solo procesar si la fecha es hoy o anterior
+      const summary = ingredientMap.get(normName)!
+
+      // Solo sumamos movimientos hasta la fecha actual
       if (m.date <= currentDate) {
-        const summary = ingredientMap.get(normName)!
         if (m.type === 'entry' || m.type === 'adjustment') {
           summary.currentStock += m.quantity
         } else if (m.type === 'sale') {
@@ -3399,13 +3443,12 @@ export async function getIngredientStockSummary(
       }
     })
 
-    const result = Array.from(ingredientMap.values()).sort((a, b) =>
+    // Devolver lista ordenada alfabéticamente
+    return Array.from(ingredientMap.values()).sort((a, b) =>
       a.ingredientName.localeCompare(b.ingredientName)
     )
-    console.log('[getIngredientStockSummary] Completed with', result.length, 'unified ingredients')
-    return result
   } catch (error) {
-    console.error('[getIngredientStockSummary] Global error:', error)
+    console.error('[getIngredientStockSummary] Error:', error)
     return []
   }
 }
@@ -3567,12 +3610,13 @@ export async function registerOrderConsumption(
     name: string
     quantity: number
   }>,
-  orderDate?: string
+  orderDate?: string,
+  orderId?: string
 ): Promise<void> {
   try {
     const dateForMovement = orderDate || new Date().toISOString().split('T')[0]
 
-    // Obtener todos los productos del negocio
+    // 1. Obtener los productos involucrados para conocer sus ingredientes
     const productsSnapshot = await getDocs(
       query(collection(db, 'products'), where('businessId', '==', businessId))
     )
@@ -3582,50 +3626,45 @@ export async function registerOrderConsumption(
       productsMap.set(doc.id, { id: doc.id, ...doc.data() })
     })
 
-    // Procesar cada item de la orden
+    // 2. Procesar cada item vendido
     for (const item of items) {
       const product = productsMap.get(item.productId)
       if (!product) continue
 
-      // Determinar qué ingredientes usar
+      // Determinar ingredientes (Prioridad: Variante > Producto Base)
       let ingredientsToUse: any[] = []
-
       if (item.variant && product.variants) {
-        const variant = product.variants.find((v: any) =>
-          v.name === item.variant || v.name === item.name
-        )
-        if (variant?.ingredients) {
-          ingredientsToUse = variant.ingredients
-        }
+        const variant = product.variants.find((v: any) => v.name === item.variant)
+        if (variant?.ingredients) ingredientsToUse = variant.ingredients
       }
 
       if (ingredientsToUse.length === 0 && product.ingredients) {
         ingredientsToUse = product.ingredients
       }
 
-      // Registrar consumo para cada ingrediente
+      // 3. Registrar salida de stock para cada ingrediente (Punto 4 del pedido)
       for (const ingredient of ingredientsToUse) {
         try {
-          // Generar ID consistente para el ingrediente
-          const ingredientId = ingredient.id || `ing_${ingredient.name.toLowerCase().replace(/\s+/g, '_')}`
+          // Generar un ID único normalizado: ing_nombre_del_ingrediente
+          const normalizedName = ingredient.name.trim().toLowerCase();
+          const ingredientId = `ing_${normalizedName.replace(/\s+/g, '_')}`;
 
           await recordStockMovement({
             ingredientId: ingredientId,
-            ingredientName: ingredient.name,
+            ingredientName: ingredient.name.trim(),
             type: 'sale',
-            quantity: ingredient.quantity * item.quantity,
+            quantity: ingredient.quantity * item.quantity, // Cantidad por ingrediente * cantidad de productos
             date: dateForMovement,
-            notes: `Venta en orden - ${item.name}`,
-            businessId: businessId
+            notes: `Venta automática - Orden: ${orderId || 'Manual'}`,
+            businessId: businessId,
+            orderId: orderId
           })
         } catch (error) {
-          console.error(`Error registering consumption for ingredient ${ingredient.name}:`, error)
-          // Continuar con los siguientes ingredientes
+          console.error(`Error procesando ingrediente ${ingredient.name}:`, error)
         }
       }
     }
   } catch (error) {
-    console.error('Error registering order consumption:', error)
-    // No lanzar error para no interrumpir la creación de la orden
+    console.error('Error global en registro de consumo:', error)
   }
 }

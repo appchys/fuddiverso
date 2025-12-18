@@ -82,7 +82,8 @@ export interface Ingredient {
   id?: string
   name: string
   quantity: number
-  unit: string
+  unitCost: number
+  unit?: string
 }
 
 export interface ProductVariant {
