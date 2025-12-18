@@ -107,7 +107,7 @@ export default function ProductManagement({
   // Estados para pestañas del modal
   const [activeModalTab, setActiveModalTab] = useState<'general' | 'ingredients'>('general')
 
-  // Estados para ingredientes
+  // Estados para ingredientes (mejorados para soportar múltiples contextos)
   const [editIngredients, setEditIngredients] = useState<Array<{
     id: string
     name: string
@@ -126,21 +126,18 @@ export default function ProductManagement({
     quantity: number
   }>>>({})
 
-  // Estados para modal de ingredientes por variante
-  const [showVariantIngredientModal, setShowVariantIngredientModal] = useState(false)
-  const [currentVariantForIngredient, setCurrentVariantForIngredient] = useState<string | null>(null)
-  const [modalIngredient, setModalIngredient] = useState({
-    name: '',
-    unitCost: '',
-    quantity: ''
-  })
+  // Estado para saber en qué contexto se está editando un ingrediente
+  const [ingredientEditContext, setIngredientEditContext] = useState<'main' | 'variant'>('main')
 
   // Estados para biblioteca de ingredientes
   const [ingredientLibrary, setIngredientLibrary] = useState<IngredientLibraryItem[]>([])
   const [showIngredientSuggestions, setShowIngredientSuggestions] = useState(false)
   const [ingredientSearchTerm, setIngredientSearchTerm] = useState('')
 
-  // Cerrar sugerencias y modal al hacer clic fuera
+  // Estados para expandir/contraer variantes en pestaña de ingredientes
+  const [expandedVariantsForIngredients, setExpandedVariantsForIngredients] = useState<Set<string>>(new Set())
+
+  // Cerrar sugerencias al hacer clic fuera
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element
@@ -149,16 +146,11 @@ export default function ProductManagement({
       if (showIngredientSuggestions && !target.closest('.ingredient-input-container')) {
         setShowIngredientSuggestions(false)
       }
-
-      // Cerrar modal de ingredientes por variante
-      if (showVariantIngredientModal && !target.closest('.modal-content') && !target.closest('.modal-overlay')) {
-        closeVariantIngredientModal()
-      }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showIngredientSuggestions, showVariantIngredientModal])
+  }, [showIngredientSuggestions])
 
   const handleToggleAvailability = async (productId: string, currentAvailability: boolean) => {
     try {
@@ -423,20 +415,15 @@ export default function ProductManagement({
     }
   }
 
-  // Seleccionar ingrediente de la biblioteca (para formulario principal y modal)
-  const selectIngredientFromLibrary = (ingredient: IngredientLibraryItem, isModal = false) => {
+  // Seleccionar ingrediente de la biblioteca
+  const selectIngredientFromLibrary = (ingredient: IngredientLibraryItem) => {
     const ingredientData = {
       name: ingredient.name,
       unitCost: ingredient.unitCost.toString(),
       quantity: '1'
     }
 
-    if (isModal) {
-      setModalIngredient(ingredientData)
-    } else {
-      setEditCurrentIngredient(ingredientData)
-    }
-
+    setEditCurrentIngredient(ingredientData)
     setShowIngredientSuggestions(false)
     setIngredientSearchTerm('')
   }
@@ -561,71 +548,21 @@ export default function ProductManagement({
   }
 
   // Funciones para modal de ingredientes por variante
-  const openVariantIngredientModal = (variantId: string) => {
-    setCurrentVariantForIngredient(variantId)
-    setModalIngredient({ name: '', unitCost: '', quantity: '' })
-    setShowVariantIngredientModal(true)
+  // Funciones para expandir/contraer variantes en pestaña de ingredientes
+  const toggleVariantExpanded = (variantId: string) => {
+    const newExpanded = new Set(expandedVariantsForIngredients)
+    if (newExpanded.has(variantId)) {
+      newExpanded.delete(variantId)
+    } else {
+      newExpanded.add(variantId)
+    }
+    setExpandedVariantsForIngredients(newExpanded)
   }
 
   const closeVariantIngredientModal = () => {
-    setShowVariantIngredientModal(false)
-    setCurrentVariantForIngredient(null)
-    setModalIngredient({ name: '', unitCost: '', quantity: '' })
+    setEditCurrentIngredient({ name: '', unitCost: '', quantity: '' })
     setShowIngredientSuggestions(false)
     setIngredientSearchTerm('')
-  }
-
-  const handleModalIngredientChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-    setModalIngredient(prev => ({ ...prev, [name]: value }))
-
-    // Mostrar sugerencias al escribir el nombre
-    if (name === 'name') {
-      setIngredientSearchTerm(value)
-      setShowIngredientSuggestions(value.trim().length > 0)
-    }
-  }
-
-  const addIngredientFromModal = async () => {
-    if (!currentVariantForIngredient || !modalIngredient.name.trim()) {
-      alert('El nombre del ingrediente es requerido')
-      return
-    }
-
-    const unitCost = modalIngredient.unitCost ? Number(modalIngredient.unitCost) : 0
-    const quantity = modalIngredient.quantity ? Number(modalIngredient.quantity) : 1
-
-    if (isNaN(unitCost) || unitCost < 0) {
-      alert('El costo unitario debe ser un número válido mayor o igual a 0')
-      return
-    }
-
-    if (isNaN(quantity) || quantity <= 0) {
-      alert('La cantidad debe ser un número válido mayor a 0')
-      return
-    }
-
-    const newIngredient = {
-      id: Date.now().toString(),
-      name: modalIngredient.name.trim(),
-      unitCost: unitCost,
-      quantity: quantity
-    }
-
-    setVariantIngredients(prev => ({
-      ...prev,
-      [currentVariantForIngredient]: [...(prev[currentVariantForIngredient] || []), newIngredient]
-    }))
-
-    closeVariantIngredientModal()
-
-    // Guardar en la biblioteca
-    if (business?.id) {
-      await addOrUpdateIngredientInLibrary(business.id, newIngredient.name, unitCost)
-      // Recargar biblioteca
-      const library = await getIngredientLibrary(business.id)
-      setIngredientLibrary(library)
-    }
   }
 
   // Mover categoría hacia arriba
@@ -1491,90 +1428,160 @@ export default function ProductManagement({
                       <div className="mt-8 bg-white p-4 rounded-lg border border-gray-200">
                         <h3 className="text-lg font-medium text-gray-900 mb-4">Ingredientes por Variante</h3>
                         <p className="text-sm text-gray-500 mb-4">
-                          Gestiona los ingredientes específicos para cada variante
+                          Gestiona los ingredientes específicos para cada variante. Haz clic en una variante para expandir/contraer
                         </p>
                         
-                        <div className="space-y-6">
-                          {editVariants.map((variant) => (
-                            <div key={variant.id} className="border border-gray-200 rounded-lg overflow-hidden">
-                              <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                                <div>
-                                  <h4 className="font-medium text-gray-900">
-                                    {variant.name}
-                                    {variant.price && (
-                                      <span className="ml-2 text-sm font-normal text-gray-500">
-                                        (${Number(variant.price).toFixed(2)})
-                                      </span>
-                                    )}
-                                  </h4>
-                                  {(() => {
-                                    const totalCost = (variantIngredients[variant.id] || []).reduce(
-                                      (sum, ingredient) => sum + (ingredient.quantity * ingredient.unitCost),
-                                      0
-                                    );
-                                    const profit = variant.price ? Number(variant.price) - totalCost : 0;
-                                    return (
-                                      <div className="mt-1 text-xs">
-                                        <span className="text-emerald-600">
+                        <div className="space-y-3">
+                          {editVariants.map((variant) => {
+                            const isExpanded = expandedVariantsForIngredients.has(variant.id)
+                            const totalCost = (variantIngredients[variant.id] || []).reduce(
+                              (sum, ingredient) => sum + (ingredient.quantity * ingredient.unitCost),
+                              0
+                            )
+                            const profit = variant.price ? Number(variant.price) - totalCost : 0
+                            
+                            return (
+                              <div key={variant.id} className="border border-gray-200 rounded-lg overflow-hidden hover:border-gray-300 transition-colors">
+                                {/* Header expandible */}
+                                <button
+                                  type="button"
+                                  onClick={() => toggleVariantExpanded(variant.id)}
+                                  className="w-full bg-gray-50 hover:bg-gray-100 px-4 py-3 border-b border-gray-200 flex items-center justify-between transition-colors"
+                                >
+                                  <div className="flex items-center gap-3 flex-1 text-left">
+                                    <i className={`bi bi-chevron-${isExpanded ? 'down' : 'right'} text-gray-500 transition-transform`}></i>
+                                    <div>
+                                      <h4 className="font-medium text-gray-900">
+                                        {variant.name}
+                                        {variant.price && (
+                                          <span className="ml-2 text-sm font-normal text-gray-500">
+                                            (${Number(variant.price).toFixed(2)})
+                                          </span>
+                                        )}
+                                      </h4>
+                                      <div className="mt-1 flex items-center gap-3 text-xs">
+                                        <span className="text-emerald-600 font-medium">
                                           Costo: ${totalCost.toFixed(2)}
                                         </span>
                                         {variant.price && (
-                                          <span className={`ml-2 ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                          <span className={`font-medium ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                             Ganancia: ${profit.toFixed(2)}
                                           </span>
                                         )}
+                                        <span className="text-gray-400 bg-gray-200 px-2 py-0.5 rounded">
+                                          {variantIngredients[variant.id]?.length || 0} ingredientes
+                                        </span>
                                       </div>
-                                    );
-                                  })()}
-                                  {variant.description && (
-                                    <p className="text-sm text-gray-500 mt-1">{variant.description}</p>
-                                  )}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => openVariantIngredientModal(variant.id)}
-                                  className="btn btn-sm btn-link text-gray-500 hover:text-emerald-600 p-0 d-flex align-items-center justify-content-center"
-                                  title="Agregar ingrediente"
-                                  style={{ width: '24px', height: '24px' }}
-                                >
-                                  <i className="bi bi-plus-circle fs-5"></i>
+                                    </div>
+                                  </div>
                                 </button>
-                              </div>
-                              
-                              <div className="px-3 py-2">
-                                {/* Lista de ingredientes de la variante */}
-                                {variantIngredients[variant.id]?.length > 0 ? (
-                                  <div className="space-y-1.5">
-                                    {variantIngredients[variant.id].map((ingredient, idx) => (
-                                      <div key={`${variant.id}-${ingredient.id}-${idx}`} className="flex justify-between items-center bg-gray-50 px-2.5 py-1.5 rounded text-sm">
-                                        <div className="flex-1">
-                                          <p className="font-medium text-gray-900 truncate">{ingredient.name}</p>
-                                          <p className="text-xs text-gray-500">
-                                            {ingredient.quantity} × ${ingredient.unitCost.toFixed(2)} = ${(ingredient.quantity * ingredient.unitCost).toFixed(2)}
-                                          </p>
+
+                                {/* Contenido expandible */}
+                                {isExpanded && (
+                                  <div className="px-4 py-4 bg-white">
+                                    {/* Lista de ingredientes */}
+                                    {variantIngredients[variant.id]?.length > 0 ? (
+                                      <div className="space-y-2 mb-4">
+                                        {variantIngredients[variant.id].map((ingredient) => (
+                                          <div key={ingredient.id} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-md hover:bg-gray-100 transition-colors">
+                                            <div className="flex-1">
+                                              <p className="font-medium text-gray-900 text-sm">{ingredient.name}</p>
+                                              <p className="text-xs text-gray-500 mt-0.5">
+                                                {ingredient.quantity} × ${ingredient.unitCost.toFixed(2)} = <span className="font-medium text-emerald-600">${(ingredient.quantity * ingredient.unitCost).toFixed(2)}</span>
+                                              </p>
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() => removeIngredientFromVariant(variant.id, ingredient.id)}
+                                              className="ml-3 text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded transition-colors flex-shrink-0"
+                                              title="Eliminar ingrediente"
+                                            >
+                                              <i className="bi bi-trash text-sm"></i>
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <div className="text-center py-3 text-sm text-gray-400 bg-gray-50 rounded-md mb-3">
+                                        <i className="bi bi-inbox me-2"></i>
+                                        Sin ingredientes específicos
+                                      </div>
+                                    )}
+
+                                    {/* Formulario para agregar ingrediente */}
+                                    <div className="border-t border-gray-200 pt-3">
+                                      <h5 className="text-sm font-medium text-gray-900 mb-3">Agregar Ingrediente</h5>
+                                      <div className="space-y-2">
+                                        <div className="relative ingredient-input-container">
+                                          <input
+                                            type="text"
+                                            name="name"
+                                            value={editCurrentIngredient.name}
+                                            onChange={handleIngredientChange}
+                                            onFocus={() => setShowIngredientSuggestions(true)}
+                                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                            placeholder="Nombre del ingrediente"
+                                            autoComplete="off"
+                                          />
+                                          
+                                          {/* Sugerencias de ingredientes */}
+                                          {showIngredientSuggestions && getFilteredIngredients().length > 0 && (
+                                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-40 overflow-y-auto">
+                                              {getFilteredIngredients().map((ingredient) => (
+                                                <button
+                                                  key={ingredient.id}
+                                                  type="button"
+                                                  onClick={() => selectIngredientFromLibrary(ingredient)}
+                                                  className="w-full text-left px-3 py-2 hover:bg-emerald-50 border-b border-gray-100 last:border-b-0 text-sm transition-colors"
+                                                >
+                                                  <div className="flex items-center justify-between">
+                                                    <span className="font-medium text-gray-900">{ingredient.name}</span>
+                                                    <span className="text-emerald-600 text-xs font-bold">${ingredient.unitCost.toFixed(2)}</span>
+                                                  </div>
+                                                </button>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            name="unitCost"
+                                            value={editCurrentIngredient.unitCost}
+                                            onChange={handleIngredientChange}
+                                            onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                            placeholder="Costo ($)"
+                                          />
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0.01"
+                                            name="quantity"
+                                            value={editCurrentIngredient.quantity}
+                                            onChange={handleIngredientChange}
+                                            onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                            placeholder="Cantidad"
+                                          />
                                         </div>
                                         <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            removeIngredientFromVariant(variant.id, ingredient.id);
-                                          }}
-                                          className="text-red-500 hover:text-red-700 p-1 text-sm"
-                                          title="Eliminar ingrediente"
+                                          type="button"
+                                          onClick={() => addIngredientToVariant(variant.id)}
+                                          className="w-full bg-emerald-600 text-white px-3 py-2 text-sm rounded-md hover:bg-emerald-700 transition-colors font-medium"
                                         >
-                                          <i className="bi bi-x-lg"></i>
+                                          <i className="bi bi-plus-lg me-1"></i>
+                                          Agregar
                                         </button>
                                       </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="text-center py-2 text-xs text-gray-400">
-                                    Sin ingredientes específicos
+                                    </div>
                                   </div>
                                 )}
-                                
                               </div>
-                            </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       </div>
                     )}
@@ -1622,121 +1629,6 @@ export default function ProductManagement({
         </div>
       )}
 
-      {/* Modal de Ingredientes por Variante */}
-      {showVariantIngredientModal && currentVariantForIngredient && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 modal-overlay">
-          <div className="bg-white rounded-lg max-w-md w-full modal-content">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  <i className="bi bi-basket me-2"></i>
-                  Agregar Ingrediente a Variante
-                </h3>
-                <button
-                  onClick={closeVariantIngredientModal}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <i className="bi bi-x-lg"></i>
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Nombre del Ingrediente *
-                  </label>
-                  <div className="relative ingredient-input-container">
-                    <input
-                      type="text"
-                      name="name"
-                      value={modalIngredient.name}
-                      onChange={handleModalIngredientChange}
-                      onFocus={() => setShowIngredientSuggestions(true)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      placeholder="Buscar o agregar ingrediente"
-                      autoComplete="off"
-                    />
-
-                    {/* Sugerencias de ingredientes */}
-                    {showIngredientSuggestions && getFilteredIngredients().length > 0 && (
-                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto">
-                        {getFilteredIngredients().map((ingredient) => (
-                          <button
-                            key={ingredient.id}
-                            type="button"
-                            onClick={() => selectIngredientFromLibrary(ingredient, true)}
-                            className="w-full text-left px-3 py-2 hover:bg-emerald-50 border-b border-gray-100 last:border-b-0 text-sm"
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="font-medium text-gray-900">{ingredient.name}</span>
-                              <span className="text-emerald-600 font-medium">${ingredient.unitCost.toFixed(2)}</span>
-                            </div>
-                            <div className="text-xs text-gray-500 mt-0.5">
-                              Usado {ingredient.usageCount} {ingredient.usageCount === 1 ? 'vez' : 'veces'}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Costo Unitario ($) *
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      name="unitCost"
-                      value={modalIngredient.unitCost}
-                      onChange={handleModalIngredientChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      placeholder="0.00"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Cantidad *
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      name="quantity"
-                      value={modalIngredient.quantity}
-                      onChange={handleModalIngredientChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      placeholder="1"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex space-x-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={addIngredientFromModal}
-                    className="flex-1 bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700 transition-colors"
-                  >
-                    <i className="bi bi-check-lg me-2"></i>
-                    Agregar Ingrediente
-                  </button>
-                  <button
-                    type="button"
-                    onClick={closeVariantIngredientModal}
-                    className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-200 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   )
 }
