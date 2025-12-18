@@ -78,12 +78,20 @@ export interface CoverageZone {
   updatedAt: Date
 }
 
+export interface Ingredient {
+  id?: string
+  name: string
+  quantity: number
+  unit: string
+}
+
 export interface ProductVariant {
   id: string
   name: string
   description?: string
   price: number
   isAvailable: boolean
+  ingredients?: Ingredient[]
 }
 
 export interface Product {
@@ -96,6 +104,7 @@ export interface Product {
   image?: string
   variants?: ProductVariant[] // Variantes opcionales del producto
   isAvailable: boolean
+  ingredients?: Ingredient[]
   createdAt: Date
   updatedAt: Date
 }

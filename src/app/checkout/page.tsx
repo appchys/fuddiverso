@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense, useRef, useCallback, useMemo } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone, validateAndNormalizePhone } from '@/lib/validation'
-import { createOrder, getBusiness, searchClientByPhone, createClient, updateClient, setClientPin, FirestoreClient, getClientLocations, ClientLocation, getDeliveryFeeForLocation, createClientLocation } from '@/lib/database'
+import { createOrder, getBusiness, searchClientByPhone, createClient, updateClient, setClientPin, FirestoreClient, getClientLocations, ClientLocation, getDeliveryFeeForLocation, createClientLocation, registerOrderConsumption } from '@/lib/database'
 import { Business } from '@/types'
 import LocationMap from '@/components/LocationMap'
 import LocationSelectionModal from '@/components/LocationSelectionModal'
@@ -1066,10 +1066,11 @@ function CheckoutContent() {
       const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
       const deliveryCost = selectedLocation?.tarifa ? parseFloat(selectedLocation.tarifa) : 0;
       const total = subtotal + deliveryCost;
+      const businessId = searchParams.get('businessId') || ''
 
       // Luego crear el objeto orderData
       const orderData = {
-        businessId: searchParams.get('businessId') || '',
+        businessId: businessId,
         items: cartItems.map((item: any) => ({
           productId: item.id.split('-')[0],
           name: item.variantName || item.productName || item.name,
@@ -1111,8 +1112,20 @@ function CheckoutContent() {
 
       const orderId = await createOrder(orderData);
 
+      // Registrar consumo de ingredientes automáticamente
+      try {
+        await registerOrderConsumption(businessId, cartItems.map((item: any) => ({
+          productId: item.id.split('-')[0],
+          variant: item.variantName || item.name,
+          name: item.variantName || item.productName || item.name,
+          quantity: item.quantity
+        })))
+      } catch (error) {
+        console.error('Error registering order consumption:', error)
+        // No interrumpir el flujo si hay error en consumo
+      }
+
       // Limpiar carrito específico de este negocio
-      const businessId = searchParams.get('businessId')
       if (businessId) {
         const cartsData = localStorage.getItem('carts')
         if (cartsData) {

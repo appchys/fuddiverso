@@ -2296,6 +2296,17 @@ export default function BusinessDashboard() {
 
               <button
                 onClick={() => {
+                  router.push('/business/stock')
+                  setSidebarOpen(false)
+                }}
+                className="w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
+              >
+                <i className="bi bi-box-seam me-3 text-lg"></i>
+                <span className="font-medium">Stock de Ingredientes</span>
+              </button>
+
+              <button
+                onClick={() => {
                   router.push('/business/qr-codes')
                   setSidebarOpen(false)
                 }}

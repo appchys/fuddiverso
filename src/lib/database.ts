@@ -29,6 +29,8 @@ import {
 import {
   Business,
   Product,
+  ProductVariant,
+  Ingredient,
   Order,
   CoverageZone,
   Delivery,
@@ -2745,7 +2747,7 @@ async function createQRScanNotification(
       const clientsRef = collection(db, 'clients')
       const q = query(clientsRef, where('celular', '==', normalizedPhone), limit(1))
       const clientSnapshot = await getDocs(q)
-      
+
       if (!clientSnapshot.empty) {
         const clientData = clientSnapshot.docs[0].data()
         clientName = clientData.nombres || 'Cliente'
@@ -2776,7 +2778,7 @@ async function createQRScanNotification(
     // Guardar directamente en Firestore usando el SDK cliente
     const notificationsRef = collection(db, 'businesses', businessId, 'notifications')
     const docRef = await addDoc(notificationsRef, notificationData)
-    
+
     console.log('[createQRScanNotification] Notificación guardada con ID:', docRef.id)
   } catch (error) {
     console.error('[createQRScanNotification] Error saving QR scan notification:', error)
@@ -3010,7 +3012,7 @@ export async function createRatingNotification(
     // Guardar directamente en Firestore usando el SDK cliente
     const notificationsRef = collection(db, 'businesses', businessId, 'notifications')
     const docRef = await addDoc(notificationsRef, notificationData)
-    
+
     console.log('[createRatingNotification] Notificación guardada con ID:', docRef.id)
   } catch (error) {
     console.error('[createRatingNotification] Error saving rating notification:', error)
@@ -3096,7 +3098,7 @@ export async function getTopQRScanners(
         try {
           // Normalizar el celular para buscar (puede venir en diferentes formatos)
           const normalizedPhone = normalizeEcuadorianPhone(scanner.userId)
-          
+
           // Buscar el cliente por celular (userId es el celular)
           const clientQuery = query(
             collection(db, 'clients'),
@@ -3179,5 +3181,451 @@ export async function getQRStatisticsDetail(businessId: string): Promise<{
       usersCompleted: 0,
       completionRate: 0
     }
+  }
+}
+
+// ==================== GESTIÓN DE STOCK DE INGREDIENTES ====================
+
+export interface IngredientStockMovement {
+  id?: string
+  ingredientId: string
+  ingredientName: string
+  type: 'entry' | 'sale' | 'adjustment'  // entry = entrada de stock, sale = venta/uso, adjustment = ajuste manual
+  quantity: number
+  date: string  // YYYY-MM-DD
+  notes?: string
+  createdAt?: any
+  businessId: string
+}
+
+export interface IngredientStockSummary {
+  ingredientId: string
+  ingredientName: string
+  currentStock: number
+  unit: string
+  movements: IngredientStockMovement[]
+}
+
+/**
+ * Registrar un movimiento de stock (entrada, venta o ajuste)
+ */
+export async function recordStockMovement(
+  movement: Omit<IngredientStockMovement, 'id' | 'createdAt'>
+): Promise<string> {
+  try {
+    const movementData = {
+      ...movement,
+      createdAt: serverTimestamp()
+    }
+    const docRef = await addDoc(
+      collection(db, 'ingredientStockMovements'),
+      movementData
+    )
+    return docRef.id
+  } catch (error) {
+    console.error('Error recording stock movement:', error)
+    throw error
+  }
+}
+
+/**
+ * Obtener movimientos de stock de un ingrediente en un rango de fechas
+ */
+export async function getStockMovements(
+  businessId: string,
+  ingredientId?: string,
+  startDate?: Date,
+  endDate?: Date
+): Promise<IngredientStockMovement[]> {
+  try {
+    const movementsRef = collection(db, 'ingredientStockMovements')
+
+    let constraints: any[] = [where('businessId', '==', businessId)]
+
+    if (ingredientId) {
+      constraints.push(where('ingredientId', '==', ingredientId))
+    }
+
+    // Filtrar por rango de fechas si se proporciona
+    if (startDate && endDate) {
+      const startStr = startDate.toISOString().split('T')[0]
+      const endStr = endDate.toISOString().split('T')[0]
+      constraints.push(where('date', '>=', startStr))
+      constraints.push(where('date', '<=', endStr))
+    }
+
+    constraints.push(orderBy('date', 'desc'))
+    constraints.push(orderBy('createdAt', 'desc'))
+
+    const q = query(movementsRef, ...constraints)
+    const snapshot = await getDocs(q)
+
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as IngredientStockMovement[]
+  } catch (error) {
+    console.error('Error getting stock movements:', error)
+    throw error
+  }
+}
+
+/**
+ * Calcular stock disponible de un ingrediente en una fecha específica
+ */
+export async function calculateCurrentStock(
+  businessId: string,
+  ingredientId: string,
+  asOfDate?: string
+): Promise<number> {
+  try {
+    const movementsRef = collection(db, 'ingredientStockMovements')
+    const dateFilter = asOfDate || new Date().toISOString().split('T')[0]
+
+    let constraints: any[] = [
+      where('businessId', '==', businessId),
+      where('ingredientId', '==', ingredientId),
+      where('date', '<=', dateFilter)
+    ]
+
+    const q = query(movementsRef, ...constraints)
+    const snapshot = await getDocs(q)
+
+    // Sort in memory instead of using composite orderBy
+    const movements = snapshot.docs.map(doc => doc.data() as IngredientStockMovement)
+    movements.sort((a, b) => {
+      const dateCompare = a.date.localeCompare(b.date)
+      if (dateCompare !== 0) return dateCompare
+      return (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0)
+    })
+
+    let stock = 0
+    movements.forEach(movement => {
+      if (movement.type === 'entry' || movement.type === 'adjustment') {
+        stock += movement.quantity
+      } else if (movement.type === 'sale') {
+        stock -= movement.quantity
+      }
+    })
+
+    return stock
+  } catch (error) {
+    console.error('Error calculating current stock:', error)
+    throw error
+  }
+}
+
+/**
+ * Obtener resumen de stock de todos los ingredientes
+ */
+export async function getIngredientStockSummary(
+  businessId: string
+): Promise<IngredientStockSummary[]> {
+  console.log('[getIngredientStockSummary] Starting for businessId:', businessId)
+  try {
+    const movementsRef = collection(db, 'ingredientStockMovements')
+    const q = query(
+      movementsRef,
+      where('businessId', '==', businessId)
+    )
+
+    console.log('[getIngredientStockSummary] Fetching movements...')
+    const snapshot = await getDocs(q)
+    console.log('[getIngredientStockSummary] Movements fetched:', snapshot.size)
+
+    const ingredientMap = new Map<string, IngredientStockSummary>()
+    const currentDate = new Date().toISOString().split('T')[0]
+
+    // Helper para normalizar nombres y generar IDs consistentes
+    const normalize = (name: string) => name.trim().toLowerCase();
+    const generateId = (name: string) => `ing_${normalize(name).replace(/\s+/g, '_')}`;
+
+    // 1. Obtener todos los ingredientes definidos en productos
+    try {
+      console.log('[getIngredientStockSummary] Fetching products...')
+      const products = await getProductsByBusiness(businessId)
+      console.log('[getIngredientStockSummary] Products fetched:', products.length)
+
+      products.forEach((product: Product) => {
+        // Ingredientes del producto base y de las variantes
+        const allProductIngredients = [
+          ...(product.ingredients || []),
+          ...(product.variants?.flatMap(v => v.ingredients || []) || [])
+        ];
+
+        allProductIngredients.forEach((ing: Ingredient) => {
+          const normName = normalize(ing.name);
+          const ingId = generateId(ing.name);
+
+          if (!ingredientMap.has(normName)) {
+            ingredientMap.set(normName, {
+              ingredientId: ingId, // Usamos el ID generado para consistencia
+              ingredientName: ing.name.trim(),
+              currentStock: 0,
+              unit: ing.unit || 'unidad',
+              movements: []
+            })
+          }
+        });
+      })
+    } catch (error) {
+      console.error('[getIngredientStockSummary] Error fetching products:', error)
+    }
+
+    // 2. Procesar movimientos y calcular stock en memoria
+    snapshot.docs.forEach(doc => {
+      const m = doc.data() as IngredientStockMovement
+      // Unificamos por el nombre del ingrediente en el movimiento
+      const normName = normalize(m.ingredientName)
+
+      if (!ingredientMap.has(normName)) {
+        ingredientMap.set(normName, {
+          ingredientId: m.ingredientId || generateId(m.ingredientName),
+          ingredientName: m.ingredientName,
+          currentStock: 0,
+          unit: 'unidad',
+          movements: []
+        })
+      }
+
+      // Solo procesar si la fecha es hoy o anterior
+      if (m.date <= currentDate) {
+        const summary = ingredientMap.get(normName)!
+        if (m.type === 'entry' || m.type === 'adjustment') {
+          summary.currentStock += m.quantity
+        } else if (m.type === 'sale') {
+          summary.currentStock -= m.quantity
+        }
+      }
+    })
+
+    const result = Array.from(ingredientMap.values()).sort((a, b) =>
+      a.ingredientName.localeCompare(b.ingredientName)
+    )
+    console.log('[getIngredientStockSummary] Completed with', result.length, 'unified ingredients')
+    return result
+  } catch (error) {
+    console.error('[getIngredientStockSummary] Global error:', error)
+    return []
+  }
+}
+
+/**
+ * Calcular consumo de un ingrediente desde órdenes en un rango de fechas
+ * (Similar a como se hace en calculateCostReport)
+ */
+export async function calculateIngredientConsumption(
+  businessId: string,
+  ingredientName: string,
+  startDate: Date,
+  endDate: Date
+): Promise<number> {
+  try {
+    const ordersRef = collection(db, 'orders')
+    const q = query(
+      ordersRef,
+      where('businessId', '==', businessId),
+      where('status', '!=', 'cancelled')
+    )
+
+    const ordersSnapshot = await getDocs(q)
+    const productsSnapshot = await getDocs(
+      query(collection(db, 'products'), where('businessId', '==', businessId))
+    )
+
+    const productsMap = new Map<string, any>()
+    productsSnapshot.forEach(doc => {
+      productsMap.set(doc.id, { id: doc.id, ...doc.data() })
+    })
+
+    let totalConsumption = 0
+
+    const toDateSafe = (d: any) => {
+      if (!d) return new Date(0)
+      if (d instanceof Date) return d
+      if (typeof d === 'object' && typeof d.toDate === 'function') return d.toDate()
+      if (typeof d === 'object' && 'seconds' in d && typeof d.seconds === 'number') {
+        return new Date(d.seconds * 1000)
+      }
+      return new Date(d)
+    }
+
+    ordersSnapshot.forEach(orderDoc => {
+      const order = orderDoc.data() as any
+
+      let orderRefDate = toDateSafe(order.createdAt)
+      try {
+        if (order?.timing?.type === 'scheduled' && order?.timing?.scheduledDate) {
+          orderRefDate = toDateSafe(order.timing.scheduledDate)
+        }
+      } catch (e) {
+        // fallback
+      }
+
+      if (!(orderRefDate >= startDate && orderRefDate <= endDate)) {
+        return
+      }
+
+      order.items?.forEach((item: any) => {
+        const product = productsMap.get(item.productId)
+        if (!product) return
+
+        const quantity = item.quantity || 1
+        const variantName = item.variant || item.name
+
+        // Determinar qué ingredientes usar
+        let ingredientsToUse: any[] = []
+
+        if (item.variant && product.variants) {
+          const variant = product.variants.find((v: any) =>
+            v.name === item.variant || v.name === variantName
+          )
+          if (variant?.ingredients) {
+            ingredientsToUse = variant.ingredients
+          }
+        }
+
+        if (ingredientsToUse.length === 0 && product.ingredients) {
+          ingredientsToUse = product.ingredients
+        }
+
+        // Contar consumo del ingrediente específico
+        ingredientsToUse.forEach((ingredient: any) => {
+          if (ingredient.name === ingredientName) {
+            totalConsumption += ingredient.quantity * quantity
+          }
+        })
+      })
+    })
+
+    return totalConsumption
+  } catch (error) {
+    console.error('Error calculating ingredient consumption:', error)
+    return 0
+  }
+}
+
+/**
+ * Obtener historial de stock de un ingrediente con movimientos y stock calculado por día
+ */
+export async function getIngredientStockHistory(
+  businessId: string,
+  ingredientId: string,
+  startDate: Date,
+  endDate: Date
+): Promise<Array<{
+  date: string
+  movements: IngredientStockMovement[]
+  stockAtEndOfDay: number
+}>> {
+  try {
+    const movements = await getStockMovements(businessId, ingredientId, startDate, endDate)
+
+    const historyMap = new Map<string, {
+      date: string
+      movements: IngredientStockMovement[]
+      stockAtEndOfDay: number
+    }>()
+
+    // Agrupar por fecha
+    movements.forEach(movement => {
+      if (!historyMap.has(movement.date)) {
+        historyMap.set(movement.date, {
+          date: movement.date,
+          movements: [],
+          stockAtEndOfDay: 0
+        })
+      }
+      historyMap.get(movement.date)!.movements.push(movement)
+    })
+
+    // Calcular stock al final de cada día
+    const sortedDates = Array.from(historyMap.keys()).sort()
+    for (const date of sortedDates) {
+      const stock = await calculateCurrentStock(businessId, ingredientId, date)
+      historyMap.get(date)!.stockAtEndOfDay = stock
+    }
+
+    return Array.from(historyMap.values()).sort((a, b) =>
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    )
+  } catch (error) {
+    console.error('Error getting ingredient stock history:', error)
+    return []
+  }
+}
+
+/**
+ * Registrar automáticamente el consumo de ingredientes cuando se crea una orden
+ * Extrae ingredientes de los productos y registra movimientos de "sale"
+ */
+export async function registerOrderConsumption(
+  businessId: string,
+  items: Array<{
+    productId: string
+    variant?: string
+    name: string
+    quantity: number
+  }>,
+  orderDate?: string
+): Promise<void> {
+  try {
+    const dateForMovement = orderDate || new Date().toISOString().split('T')[0]
+
+    // Obtener todos los productos del negocio
+    const productsSnapshot = await getDocs(
+      query(collection(db, 'products'), where('businessId', '==', businessId))
+    )
+
+    const productsMap = new Map<string, any>()
+    productsSnapshot.forEach(doc => {
+      productsMap.set(doc.id, { id: doc.id, ...doc.data() })
+    })
+
+    // Procesar cada item de la orden
+    for (const item of items) {
+      const product = productsMap.get(item.productId)
+      if (!product) continue
+
+      // Determinar qué ingredientes usar
+      let ingredientsToUse: any[] = []
+
+      if (item.variant && product.variants) {
+        const variant = product.variants.find((v: any) =>
+          v.name === item.variant || v.name === item.name
+        )
+        if (variant?.ingredients) {
+          ingredientsToUse = variant.ingredients
+        }
+      }
+
+      if (ingredientsToUse.length === 0 && product.ingredients) {
+        ingredientsToUse = product.ingredients
+      }
+
+      // Registrar consumo para cada ingrediente
+      for (const ingredient of ingredientsToUse) {
+        try {
+          // Generar ID consistente para el ingrediente
+          const ingredientId = ingredient.id || `ing_${ingredient.name.toLowerCase().replace(/\s+/g, '_')}`
+
+          await recordStockMovement({
+            ingredientId: ingredientId,
+            ingredientName: ingredient.name,
+            type: 'sale',
+            quantity: ingredient.quantity * item.quantity,
+            date: dateForMovement,
+            notes: `Venta en orden - ${item.name}`,
+            businessId: businessId
+          })
+        } catch (error) {
+          console.error(`Error registering consumption for ingredient ${ingredient.name}:`, error)
+          // Continuar con los siguientes ingredientes
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error registering order consumption:', error)
+    // No lanzar error para no interrumpir la creación de la orden
   }
 }

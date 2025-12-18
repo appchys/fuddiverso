@@ -170,5 +170,22 @@ service cloud.firestore {
       // No permitir eliminación
       allow delete: if false;
     }
+
+    // Colección de movimientos de stock de ingredientes
+    // Acceso restringido a usuarios autenticados del negocio
+    match /ingredientStockMovements/{document} {
+      // Lectura: usuarios autenticados pueden leer movimientos de su negocio
+      allow read: if request.auth != null &&
+        request.auth.uid != null;
+      
+      // Escritura: usuarios autenticados pueden crear/actualizar movimientos
+      // Se valida en la aplicación que pertenezcan al negocio correcto
+      allow create, update: if request.auth != null &&
+        request.auth.uid != null &&
+        request.resource.data.businessId is string;
+      
+      // Eliminación: no permitida (mantener auditoría)
+      allow delete: if false;
+    }
   }
 }

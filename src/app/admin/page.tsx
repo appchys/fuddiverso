@@ -236,6 +236,46 @@ export default function AdminDashboard() {
         </div>
       </div>
 
+      {/* Gestión Rápida */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <a
+          href="/admin/orders"
+          className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg shadow-sm p-6 border border-orange-200 hover:shadow-md transition-shadow cursor-pointer"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-orange-700">Pedidos</p>
+              <p className="text-xs text-orange-600 mt-1">Ver actividad</p>
+            </div>
+            <i className="bi bi-clipboard-list text-2xl text-orange-600"></i>
+          </div>
+        </a>
+        <a
+          href="/admin/coverage-zones"
+          className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg shadow-sm p-6 border border-purple-200 hover:shadow-md transition-shadow cursor-pointer"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-purple-700">Zonas</p>
+              <p className="text-xs text-purple-600 mt-1">Cobertura</p>
+            </div>
+            <i className="bi bi-map text-2xl text-purple-600"></i>
+          </div>
+        </a>
+        <a
+          href="/business"
+          className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg shadow-sm p-6 border border-blue-200 hover:shadow-md transition-shadow cursor-pointer"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-blue-700">Negocios</p>
+              <p className="text-xs text-blue-600 mt-1">Administrar</p>
+            </div>
+            <i className="bi bi-shop text-2xl text-blue-600"></i>
+          </div>
+        </a>
+      </div>
+
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Gráfico de Visitas */}

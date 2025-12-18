@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
-import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient } from '@/lib/database'
+import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption } from '@/lib/database'
 import { searchClients } from '@/lib/client-search'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 import { storage } from '@/lib/firebase'
@@ -1114,6 +1114,23 @@ export default function ManualOrderSidebar({
         onOrderUpdated && onOrderUpdated()
       } else {
         await createOrder(orderData as any)
+        
+        // Registrar consumo de ingredientes automáticamente
+        try {
+          const cartItems = (manualOrderData.selectedProducts as any[]).map((item: any) => ({
+            productId: item.productId,
+            variant: item.variant || item.name,
+            name: item.name,
+            quantity: item.quantity
+          }))
+          if (cartItems.length > 0) {
+            await registerOrderConsumption(business?.id!, cartItems)
+          }
+        } catch (error) {
+          console.error('Error registering order consumption:', error)
+          // No interrumpir el flujo si hay error en consumo
+        }
+        
         onOrderCreated()
       }
       handleReset()

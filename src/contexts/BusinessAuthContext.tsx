@@ -24,6 +24,8 @@ interface BusinessAuthContextType {
 
 const BusinessAuthContext = createContext<BusinessAuthContextType | undefined>(undefined)
 
+export { BusinessAuthContext }
+
 export function BusinessAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<BusinessUser | null>(null)
   const [businessId, setBusinessIdState] = useState<string | null>(null)
@@ -35,23 +37,55 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
     // Cargar datos desde localStorage al iniciar
     const savedBusinessId = localStorage.getItem('businessId')
     const savedOwnerId = localStorage.getItem('ownerId')
-    
+
     if (savedBusinessId) setBusinessIdState(savedBusinessId)
     if (savedOwnerId) setOwnerIdState(savedOwnerId)
 
     // Escuchar cambios en el estado de autenticación de Firebase
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       console.timeEnd('[Auth] init');
       console.time('[Auth] onAuthStateChanged handler');
-      if (firebaseUser && savedBusinessId && savedOwnerId) {
+
+      if (firebaseUser) {
+        // Tenemos usuario en Firebase
+        let currentBusinessId = savedBusinessId
+        let currentOwnerId = savedOwnerId
+
+        // Si faltan datos en localStorage, intentamos recuperarlos de la DB
+        if (!currentBusinessId || !currentOwnerId) {
+          console.debug('[Auth] Missing localStorage, attempting recovery from DB...');
+          try {
+            const { getBusinessByOwner } = await import('@/lib/database');
+            const biz = await getBusinessByOwner(firebaseUser.uid);
+            if (biz) {
+              currentBusinessId = biz.id;
+              currentOwnerId = biz.ownerId || firebaseUser.uid;
+              // Guardar para evitar repetir la búsqueda
+              localStorage.setItem('businessId', currentBusinessId);
+              localStorage.setItem('ownerId', currentOwnerId);
+              localStorage.setItem('currentBusinessId', currentBusinessId);
+              console.debug('[Auth] Recovered business session:', currentBusinessId);
+            }
+          } catch (err) {
+            console.error('[Auth] Error during session recovery:', err);
+          }
+        }
+
         setUser({
           uid: firebaseUser.uid,
           email: firebaseUser.email,
           displayName: firebaseUser.displayName
         })
+        setBusinessIdState(currentBusinessId)
+        setOwnerIdState(currentOwnerId)
         setAuthLoading(false)
-        console.debug('[Auth] Firebase user present, localStorage complete');
-      } else if (!firebaseUser) {
+
+        if (currentBusinessId && currentOwnerId) {
+          console.log('[Auth] Auth complete with businessId:', currentBusinessId);
+        } else {
+          console.warn('[Auth] Firebase user logged in but no business found');
+        }
+      } else {
         // Si el usuario no está autenticado en Firebase, limpiar todo
         setUser(null)
         setBusinessIdState(null)
@@ -61,15 +95,6 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('currentBusinessId')
         setAuthLoading(false)
         console.debug('[Auth] No Firebase user, cleared localStorage');
-      } else {
-        // Tenemos firebaseUser pero faltan datos en localStorage
-        setUser({
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName
-        })
-        setAuthLoading(false)
-        console.warn('[Auth] Firebase user present but missing localStorage business/owner');
       }
       console.timeEnd('[Auth] onAuthStateChanged handler');
     })
@@ -81,7 +106,7 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
     setUser(userData)
     setBusinessIdState(businessIdParam)
     setOwnerIdState(ownerIdParam)
-    
+
     // Persistir en localStorage
     localStorage.setItem('businessId', businessIdParam)
     localStorage.setItem('ownerId', ownerIdParam)
@@ -92,12 +117,12 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
     setBusinessIdState(null)
     setOwnerIdState(null)
-    
+
     // Limpiar localStorage
     localStorage.removeItem('businessId')
     localStorage.removeItem('ownerId')
     localStorage.removeItem('currentBusinessId')
-    
+
     // Sign out de Firebase
     auth.signOut()
   }
