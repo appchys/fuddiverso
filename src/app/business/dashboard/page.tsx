@@ -19,7 +19,8 @@ import BusinessProfileDashboard from '@/components/BusinessProfileDashboard'
 import {
   getBusiness,
   getProductsByBusiness,
-  getOrdersByBusiness,
+  getRecentOrdersByBusiness,
+  getHistoricalOrdersByBusiness,
   updateOrderStatus,
   updateProduct,
   deleteProduct,
@@ -63,6 +64,7 @@ export default function BusinessDashboard() {
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [orders, setOrders] = useState<Order[]>([])
+  const [historicalOrders, setHistoricalOrders] = useState<Order[]>([])
   const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes'>('orders')
@@ -379,9 +381,6 @@ export default function BusinessDashboard() {
         if (cachedOrders) {
           setOrders(cachedOrders)
           setPreviousOrdersCount(cachedOrders.length)
-          const { pastOrders } = categorizeOrdersForData(cachedOrders)
-          const groupedPastOrders = groupOrdersByDate(pastOrders)
-          const allDates = groupedPastOrders.map(({ date }) => date)
         }
 
         // 2) Fetch en paralelo y refrescar estado + cache
@@ -389,8 +388,9 @@ export default function BusinessDashboard() {
         const [productsData, categoriesData, ordersData] = await Promise.all([
           getProductsByBusiness(selectedBusinessId),
           getBusinessCategories(selectedBusinessId),
-          getOrdersByBusiness(selectedBusinessId)
+          getRecentOrdersByBusiness(selectedBusinessId)
         ])
+
         const pdt = performance.now() - p0
         console.debug('[Dashboard] fetch products/categories/orders (parallel):', pdt.toFixed(2), 'ms')
         setProducts(productsData)
@@ -445,13 +445,10 @@ export default function BusinessDashboard() {
 
         setOrders(ordersData);
         setPreviousOrdersCount(ordersData.length);
+
         try {
           localStorage.setItem(oKey, JSON.stringify({ timestamp: Date.now(), data: ordersData }))
         } catch { }
-
-        // Actualizar estado de órdenes
-        setOrders(ordersData);
-        setPreviousOrdersCount(ordersData.length);
 
         // Actualizar localStorage
         localStorage.setItem('businessId', selectedBusinessId);
@@ -470,9 +467,10 @@ export default function BusinessDashboard() {
   const loadOrders = async () => {
     if (!selectedBusinessId) return;
     try {
-      const ordersData = await getOrdersByBusiness(selectedBusinessId);
+      const ordersData = await getRecentOrdersByBusiness(selectedBusinessId);
       setOrders(ordersData);
       setPreviousOrdersCount(ordersData.length);
+
     } catch (error) {
       console.error('Error loading orders:', error);
     }
@@ -505,7 +503,7 @@ export default function BusinessDashboard() {
 
     const interval = setInterval(async () => {
       try {
-        const ordersData = await getOrdersByBusiness(selectedBusinessId);
+        const ordersData = await getRecentOrdersByBusiness(selectedBusinessId);
 
         // Detectar nuevos pedidos
         if (previousOrdersCount > 0 && ordersData.length > previousOrdersCount) {
@@ -561,10 +559,20 @@ export default function BusinessDashboard() {
 
   // Efecto para cargar automáticamente el historial cuando el usuario entra a la pestaña
   useEffect(() => {
-    if (ordersSubTab === 'history' && !historyLoaded) {
-      setHistoryLoaded(true)
+    const loadHistoryIfNeeded = async () => {
+      if (ordersSubTab === 'history' && !historyLoaded && selectedBusinessId) {
+        try {
+          const historyData = await getHistoricalOrdersByBusiness(selectedBusinessId)
+          setHistoricalOrders(historyData)
+          setHistoryLoaded(true)
+        } catch (error) {
+          console.error('Error loading historical orders:', error)
+        }
+      }
     }
-  }, [ordersSubTab, historyLoaded])
+
+    loadHistoryIfNeeded()
+  }, [ordersSubTab, historyLoaded, selectedBusinessId])
 
   // Efecto para calcular automáticamente el total del pedido manual
   useEffect(() => {
@@ -2176,7 +2184,7 @@ export default function BusinessDashboard() {
 
       // Recargar pedidos
       if (selectedBusinessId) {
-        const ordersData = await getOrdersByBusiness(selectedBusinessId);
+        const ordersData = await getRecentOrdersByBusiness(selectedBusinessId);
         setOrders(ordersData);
       }
     } catch (error) {
@@ -2635,7 +2643,7 @@ export default function BusinessDashboard() {
                 )}
                 {ordersSubTab === 'history' && (
                   <OrderHistory
-                    orders={orders}
+                    orders={[...orders, ...historicalOrders]}
                     onOrderEdit={handleEditOrder}
                     onOrderDelete={handleDeleteOrder}
                     onOrderStatusChange={handleStatusChange}

@@ -677,6 +677,54 @@ export async function getOrdersByBusiness(businessId: string): Promise<Order[]> 
   }
 }
 
+// Obtiene solo los pedidos recientes (de hoy en adelante) para un negocio específico.
+// Esto se usa para el dashboard en la pestaña de "Hoy" para evitar cargar
+// todo el historial desde Firebase en el primer render.
+export async function getRecentOrdersByBusiness(businessId: string): Promise<Order[]> {
+  try {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+    // Nota: Para simplificar y evitar depender de índices complejos,
+    // usamos la misma consulta base que getOrdersByBusiness y filtramos en memoria.
+    // Aun así, esto se llama en un contexto controlado (dashboard) y
+    // nos permite luego cargar el historial completo solo cuando el
+    // usuario lo solicite.
+    const allOrders = await getOrdersByBusiness(businessId)
+
+    const recentOrders = allOrders.filter(order => {
+      const created = order.createdAt instanceof Date ? order.createdAt : parseCreatedAt(order.createdAt as any)
+      return created >= today
+    })
+
+    return recentOrders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  } catch (error) {
+    console.error('Error getting recent orders:', error)
+    throw error
+  }
+}
+
+// Obtiene los pedidos históricos (anteriores a hoy) para un negocio específico.
+// Se usará de forma lazy cuando el usuario entre a la pestaña de Historial.
+export async function getHistoricalOrdersByBusiness(businessId: string): Promise<Order[]> {
+  try {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+    const allOrders = await getOrdersByBusiness(businessId)
+
+    const historicalOrders = allOrders.filter(order => {
+      const created = order.createdAt instanceof Date ? order.createdAt : parseCreatedAt(order.createdAt as any)
+      return created < today
+    })
+
+    return historicalOrders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  } catch (error) {
+    console.error('Error getting historical orders:', error)
+    throw error
+  }
+}
+
 // Helper function para convertir createdAt a Date
 function parseCreatedAt(createdAt: any): Date {
   if (!createdAt) {
