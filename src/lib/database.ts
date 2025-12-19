@@ -680,24 +680,27 @@ export async function getOrdersByBusiness(businessId: string): Promise<Order[]> 
 // Obtiene solo los pedidos recientes (de hoy en adelante) para un negocio específico.
 // Esto se usa para el dashboard en la pestaña de "Hoy" para evitar cargar
 // todo el historial desde Firebase en el primer render.
+// Para pedidos programados, usa la fecha programada (timing.scheduledDate) si está disponible.
 export async function getRecentOrdersByBusiness(businessId: string): Promise<Order[]> {
   try {
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
-    // Nota: Para simplificar y evitar depender de índices complejos,
-    // usamos la misma consulta base que getOrdersByBusiness y filtramos en memoria.
-    // Aun así, esto se llama en un contexto controlado (dashboard) y
-    // nos permite luego cargar el historial completo solo cuando el
-    // usuario lo solicite.
+    // Obtenemos todos los pedidos del negocio
     const allOrders = await getOrdersByBusiness(businessId)
 
+    // Filtramos los pedidos recientes usando la fecha de referencia correcta
     const recentOrders = allOrders.filter(order => {
-      const created = order.createdAt instanceof Date ? order.createdAt : parseCreatedAt(order.createdAt as any)
-      return created >= today
+      const orderDate = getOrderReferenceDate(order)
+      return orderDate >= today
     })
 
-    return recentOrders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    // Ordenamos por la fecha de referencia
+    return recentOrders.sort((a, b) => {
+      const dateA = getOrderReferenceDate(a)
+      const dateB = getOrderReferenceDate(b)
+      return dateB.getTime() - dateA.getTime()
+    })
   } catch (error) {
     console.error('Error getting recent orders:', error)
     throw error
@@ -706,23 +709,48 @@ export async function getRecentOrdersByBusiness(businessId: string): Promise<Ord
 
 // Obtiene los pedidos históricos (anteriores a hoy) para un negocio específico.
 // Se usará de forma lazy cuando el usuario entre a la pestaña de Historial.
+// Para pedidos programados, usa la fecha programada (timing.scheduledDate) si está disponible.
 export async function getHistoricalOrdersByBusiness(businessId: string): Promise<Order[]> {
   try {
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
+    // Obtenemos todos los pedidos del negocio
     const allOrders = await getOrdersByBusiness(businessId)
 
+    // Filtramos los pedidos históricos usando la fecha de referencia correcta
     const historicalOrders = allOrders.filter(order => {
-      const created = order.createdAt instanceof Date ? order.createdAt : parseCreatedAt(order.createdAt as any)
-      return created < today
+      const orderDate = getOrderReferenceDate(order)
+      return orderDate < today
     })
 
-    return historicalOrders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    // Ordenamos por la fecha de referencia
+    return historicalOrders.sort((a, b) => {
+      const dateA = getOrderReferenceDate(a)
+      const dateB = getOrderReferenceDate(b)
+      return dateB.getTime() - dateA.getTime()
+    })
   } catch (error) {
     console.error('Error getting historical orders:', error)
     throw error
   }
+}
+
+// Función auxiliar para obtener la fecha de referencia de un pedido
+function getOrderReferenceDate(order: Order): Date {
+  // Si es un pedido programado y tiene scheduledDate, usamos esa fecha
+  if (order.timing?.type === 'scheduled' && order.timing.scheduledDate) {
+    // Si es un Timestamp de Firestore (con seconds)
+    if (typeof order.timing.scheduledDate === 'object' && 'seconds' in order.timing.scheduledDate) {
+      return new Date(order.timing.scheduledDate.seconds * 1000);
+    }
+    // Si es un string de fecha
+    if (typeof order.timing.scheduledDate === 'string') {
+      return new Date(order.timing.scheduledDate);
+    }
+  }
+  // Si no es programado o no tiene scheduledDate, usar createdAt
+  return order.createdAt instanceof Date ? order.createdAt : parseCreatedAt(order.createdAt);
 }
 
 // Helper function para convertir createdAt a Date
