@@ -43,6 +43,7 @@ import {
   createClientLocation,
   registerOrderConsumption
 } from '@/lib/database'
+import { isStoreOpen } from '@/lib/store-utils'
 
 // Carga dinámica del componente de historial
 const OrderHistory = dynamic(() => import('@/components/OrderHistory'), {
@@ -95,6 +96,7 @@ export default function BusinessDashboard() {
     }
   })
   const [addingAdmin, setAddingAdmin] = useState(false)
+  const [updatingStoreStatus, setUpdatingStoreStatus] = useState(false)
 
   // Estados para orden manual
   const [manualOrderData, setManualOrderData] = useState({
@@ -1050,6 +1052,40 @@ export default function BusinessDashboard() {
   const handleLogout = () => {
     logout()
     router.push('/business/login')
+  }
+
+  // Función para toggle manual de estado de tienda
+  const handleToggleStoreStatus = async () => {
+    if (!business?.id) return
+
+    setUpdatingStoreStatus(true)
+    try {
+      const currentStatus = business.manualStoreStatus
+      let newStatus: 'open' | 'closed' | null
+
+      // Ciclo: null (Auto) -> closed (Forzar Cerrado) -> open (Forzar Abierto) -> null
+      if (currentStatus === null || currentStatus === undefined) {
+        newStatus = 'closed'
+      } else if (currentStatus === 'closed') {
+        newStatus = 'open'
+      } else {
+        newStatus = null
+      }
+
+      await updateBusiness(business.id, { manualStoreStatus: newStatus })
+
+      // Actualizar estado local
+      const updatedBusiness = { ...business, manualStoreStatus: newStatus }
+      setBusiness(updatedBusiness)
+      setBusinesses(prev => prev.map(b =>
+        b.id === business.id ? updatedBusiness : b
+      ))
+    } catch (error) {
+      console.error('Error updating store status:', error)
+      alert('Error al actualizar el estado de la tienda')
+    } finally {
+      setUpdatingStoreStatus(false)
+    }
   }
 
   // Función helper para obtener la fecha actual en zona horaria de Ecuador (UTC-5)
@@ -2376,6 +2412,46 @@ export default function BusinessDashboard() {
                 </div>
 
                 <div className="flex items-center space-x-2 sm:space-x-4">
+                  {/* Control Manual de Tienda */}
+                  {business && (
+                    <div className="flex items-center gap-2">
+                      <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
+                        <div className={`w-2 h-2 rounded-full ${isStoreOpen(business) ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                          }`} />
+                        <span className="text-sm font-medium text-gray-700">
+                          {isStoreOpen(business) ? 'Abierto' : 'Cerrado'}
+                        </span>
+                      </div>
+
+                      <button
+                        onClick={handleToggleStoreStatus}
+                        disabled={updatingStoreStatus}
+                        className="px-3 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 disabled:opacity-50"
+                        title={
+                          business.manualStoreStatus === null || business.manualStoreStatus === undefined
+                            ? 'Modo automático (según horario)'
+                            : business.manualStoreStatus === 'open'
+                              ? 'Forzar abierto (ignorar horario)'
+                              : 'Forzar cerrado (ignorar horario)'
+                        }
+                      >
+                        <i className={`bi ${business.manualStoreStatus === 'open'
+                            ? 'bi-unlock-fill text-green-600'
+                            : business.manualStoreStatus === 'closed'
+                              ? 'bi-lock-fill text-red-600'
+                              : 'bi-clock-fill text-blue-600'
+                          }`} />
+                        <span className="hidden sm:inline text-sm font-medium">
+                          {business.manualStoreStatus === null || business.manualStoreStatus === undefined
+                            ? 'Auto'
+                            : business.manualStoreStatus === 'open'
+                              ? 'Forzar Abierto'
+                              : 'Forzar Cerrado'}
+                        </span>
+                      </button>
+                    </div>
+                  )}
+
                   {/* Campana de notificaciones */}
                   {selectedBusinessId && (
                     <NotificationsBell

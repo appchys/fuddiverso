@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { Timestamp } from 'firebase/firestore'
+import { isStoreOpen } from '@/lib/store-utils'
 
 
 // Componente para subir comprobante de transferencia
@@ -1577,20 +1578,44 @@ function CheckoutContent() {
                 Horario
               </h2>
               <div className="space-y-6">
+                {/* Mensaje informativo cuando la tienda está cerrada */}
+                {!isStoreOpen(business) && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 animate-fadeIn">
+                    <i className="bi bi-info-circle-fill text-amber-600 text-xl flex-shrink-0 mt-0.5"></i>
+                    <div className="flex-1">
+                      <p className="font-medium text-amber-900">Tienda actualmente cerrada</p>
+                      <p className="text-sm text-amber-700 mt-1">
+                        Solo puedes programar pedidos para cuando la tienda esté abierta.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                   <button
                     type="button"
                     onClick={() => setTimingData({ type: 'immediate', scheduledDate: '', scheduledTime: '' })}
-                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${timingData.type === 'immediate'
-                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
-                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                    disabled={!isStoreOpen(business)}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${!isStoreOpen(business)
+                        ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                        : timingData.type === 'immediate'
+                          ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                          : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
                       }`}
                   >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${timingData.type === 'immediate' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${!isStoreOpen(business)
+                        ? 'bg-gray-200 text-gray-400'
+                        : timingData.type === 'immediate'
+                          ? 'bg-white/20 text-white'
+                          : 'bg-white text-gray-400'
+                      }`}>
                       <i className="bi bi-lightning-charge-fill"></i>
                     </div>
                     <span className="font-bold">Lo antes posible</span>
-                    {timingData.type === 'immediate' && (
+                    {!isStoreOpen(business) && (
+                      <span className="text-xs text-gray-500 mt-1">Tienda cerrada</span>
+                    )}
+                    {timingData.type === 'immediate' && isStoreOpen(business) && (
                       <div className="absolute top-2 right-2 text-white text-xs">
                         <i className="bi bi-check-circle-fill"></i>
                       </div>

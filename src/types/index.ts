@@ -31,6 +31,7 @@ export interface Business {
       isOpen: boolean
     }
   }
+  manualStoreStatus?: 'open' | 'closed' | null // Control manual: open/closed override, null = usar horario
   isActive: boolean
   createdAt: Date
   updatedAt: Date
