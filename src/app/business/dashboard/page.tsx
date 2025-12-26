@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -227,7 +227,6 @@ export default function BusinessDashboard() {
             if (cached && cached.timestamp && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
               businessAccess = cached.data;
               usedCache = true;
-              console.debug('[Dashboard] using cached businessAccess');
             }
           } catch { }
         }
@@ -849,6 +848,8 @@ export default function BusinessDashboard() {
         b.id === business.id ? updatedBusiness : b
       ));
 
+      updateBusinessCache(updatedBusiness);
+
     } catch (error) {
       alert('Error al subir la imagen de portada. Inténtalo de nuevo.');
     } finally {
@@ -879,6 +880,8 @@ export default function BusinessDashboard() {
       setBusinesses(prev => prev.map(b =>
         b.id === business.id ? updatedBusiness : b
       ));
+
+      updateBusinessCache(updatedBusiness);
 
     } catch (error) {
       alert('Error al subir la imagen de perfil. Inténtalo de nuevo.');
@@ -912,6 +915,8 @@ export default function BusinessDashboard() {
       setBusinesses(prev => prev.map(b =>
         b.id === editedBusiness.id ? editedBusiness : b
       ));
+
+      updateBusinessCache(editedBusiness);
 
       setIsEditingProfile(false);
       setEditedBusiness(null);
@@ -1080,6 +1085,9 @@ export default function BusinessDashboard() {
       setBusinesses(prev => prev.map(b =>
         b.id === business.id ? updatedBusiness : b
       ))
+
+      // Actualizar también el caché para que persista al recargar
+      updateBusinessCache(updatedBusiness)
     } catch (error) {
       console.error('Error updating store status:', error)
       alert('Error al actualizar el estado de la tienda')
@@ -1087,6 +1095,43 @@ export default function BusinessDashboard() {
       setUpdatingStoreStatus(false)
     }
   }
+
+  // Función helper para actualizar el cache de localStorage
+  const updateBusinessCache = (updatedBusiness: Business) => {
+    if (!user?.uid) return;
+
+    const cacheKey = `businessAccess:${user.uid}`;
+    const cachedRaw = localStorage.getItem(cacheKey);
+
+    if (cachedRaw) {
+      try {
+        const cached = JSON.parse(cachedRaw);
+        if (cached && cached.data) {
+          const data = cached.data;
+
+          // Actualizar en ownedBusinesses
+          if (data.ownedBusinesses) {
+            data.ownedBusinesses = data.ownedBusinesses.map((b: Business) =>
+              b.id === updatedBusiness.id ? updatedBusiness : b
+            );
+          }
+
+          // Actualizar en adminBusinesses
+          if (data.adminBusinesses) {
+            data.adminBusinesses = data.adminBusinesses.map((b: Business) =>
+              b.id === updatedBusiness.id ? updatedBusiness : b
+            );
+          }
+
+          // Guardar de nuevo en localStorage
+          localStorage.setItem(cacheKey, JSON.stringify(cached));
+          console.debug('[Dashboard] Cache updated with new store status');
+        }
+      } catch (e) {
+        console.error('Error updating cache:', e);
+      }
+    }
+  };
 
   // Función helper para obtener la fecha actual en zona horaria de Ecuador (UTC-5)
   const getEcuadorDate = (date?: Date) => {
@@ -2436,10 +2481,10 @@ export default function BusinessDashboard() {
                         }
                       >
                         <i className={`bi ${business.manualStoreStatus === 'open'
-                            ? 'bi-unlock-fill text-green-600'
-                            : business.manualStoreStatus === 'closed'
-                              ? 'bi-lock-fill text-red-600'
-                              : 'bi-clock-fill text-blue-600'
+                          ? 'bi-unlock-fill text-green-600'
+                          : business.manualStoreStatus === 'closed'
+                            ? 'bi-lock-fill text-red-600'
+                            : `bi-clock-fill ${isStoreOpen(business) ? 'text-green-600' : 'text-gray-400'}`
                           }`} />
                         <span className="hidden sm:inline text-sm font-medium">
                           {business.manualStoreStatus === null || business.manualStoreStatus === undefined

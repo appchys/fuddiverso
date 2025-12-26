@@ -1625,6 +1625,7 @@ export async function getBusinessesByOwner(ownerId: string): Promise<Business[]>
         bankAccount: businessData.bankAccount || undefined,
         schedule: businessData.schedule || {},
         isActive: businessData.isActive !== false,
+        manualStoreStatus: businessData.manualStoreStatus,
         createdAt: toSafeDate(businessData.createdAt),
         updatedAt: toSafeDate(businessData.updatedAt)
       });
@@ -1729,6 +1730,7 @@ export async function getBusinessesByAdministrator(userEmail: string): Promise<B
           bankAccount: businessData.bankAccount || undefined,
           schedule: businessData.schedule || {},
           isActive: businessData.isActive !== false,
+          manualStoreStatus: businessData.manualStoreStatus,
           createdAt: toSafeDate(businessData.createdAt),
           updatedAt: toSafeDate(businessData.updatedAt),
           ownerId: businessData.ownerId || '',
