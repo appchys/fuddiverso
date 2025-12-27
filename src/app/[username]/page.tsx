@@ -8,6 +8,7 @@ import { Business, Product } from '@/types'
 import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore } from '@/lib/database'
 import { PremioFloatingButton } from '@/components/PremioFloatingButton'
 import CartSidebar from '@/components/CartSidebar'
+import { isStoreOpen } from '@/lib/store-utils'
 
 // Componente para structured data JSON-LD
 function BusinessStructuredData({ business }: { business: Business }) {
@@ -645,19 +646,6 @@ function RestaurantContent() {
     showNotification('¡Premio especial agregado al carrito! 🎉', 'success')
   }
 
-  // Función para determinar si la tienda está abierta
-  const isStoreOpen = () => {
-    if (!business?.schedule) return false;
-
-    const now = new Date();
-    const currentDay = now.toLocaleDateString('en', { weekday: 'long' }).toLowerCase();
-    const currentTime = now.toLocaleTimeString('en-GB', { hour12: false }).slice(0, 5);
-
-    const todaySchedule = business.schedule[currentDay];
-    if (!todaySchedule || !todaySchedule.isOpen) return false;
-
-    return currentTime >= todaySchedule.open && currentTime <= todaySchedule.close;
-  };
 
   // Función para copiar enlace
   const copyStoreLink = async () => {
@@ -789,12 +777,12 @@ function RestaurantContent() {
                 </p>
               )}
               <div className="flex flex-col sm:flex-row items-center justify-center gap-2 mt-2">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isStoreOpen()
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isStoreOpen(business)
                   ? 'bg-green-100 text-green-800'
                   : 'bg-red-100 text-red-800'
                   }`}>
-                  <i className={`bi ${isStoreOpen() ? 'bi-clock' : 'bi-clock-history'} mr-1`}></i>
-                  {isStoreOpen() ? 'Abierta' : 'Cerrada'}
+                  <i className={`bi ${isStoreOpen(business) ? 'bi-clock' : 'bi-clock-history'} mr-1`}></i>
+                  {isStoreOpen(business) ? 'Abierta' : 'Cerrada'}
                 </span>
                 {business.address && (
                   <span className="text-xs text-gray-500 inline-flex items-center">

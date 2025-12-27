@@ -1237,6 +1237,7 @@ export async function getBusinessByUsername(username: string): Promise<Business 
         bankAccount: businessData.bankAccount || undefined,
         schedule: businessData.schedule || {},
         isActive: businessData.isActive || false,
+        manualStoreStatus: businessData.manualStoreStatus,
         createdAt: toSafeDate(businessData.createdAt),
         updatedAt: toSafeDate(businessData.updatedAt)
       };
