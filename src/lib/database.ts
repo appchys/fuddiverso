@@ -1238,6 +1238,7 @@ export async function getBusinessByUsername(username: string): Promise<Business 
         schedule: businessData.schedule || {},
         isActive: businessData.isActive || false,
         manualStoreStatus: businessData.manualStoreStatus,
+        rewardSettings: businessData.rewardSettings,
         createdAt: toSafeDate(businessData.createdAt),
         updatedAt: toSafeDate(businessData.updatedAt)
       };
@@ -1627,6 +1628,7 @@ export async function getBusinessesByOwner(ownerId: string): Promise<Business[]>
         schedule: businessData.schedule || {},
         isActive: businessData.isActive !== false,
         manualStoreStatus: businessData.manualStoreStatus,
+        rewardSettings: businessData.rewardSettings,
         createdAt: toSafeDate(businessData.createdAt),
         updatedAt: toSafeDate(businessData.updatedAt)
       });
@@ -1732,6 +1734,7 @@ export async function getBusinessesByAdministrator(userEmail: string): Promise<B
           schedule: businessData.schedule || {},
           isActive: businessData.isActive !== false,
           manualStoreStatus: businessData.manualStoreStatus,
+          rewardSettings: businessData.rewardSettings,
           createdAt: toSafeDate(businessData.createdAt),
           updatedAt: toSafeDate(businessData.updatedAt),
           ownerId: businessData.ownerId || '',

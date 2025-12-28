@@ -37,6 +37,13 @@ export interface Business {
   updatedAt: Date
   ratingAverage?: number // Calificación promedio
   ratingCount?: number // Cantidad de calificaciones
+  rewardSettings?: {
+    enabled: boolean
+    name: string
+    description: string
+    image?: string
+    ingredients?: Ingredient[]
+  }
 }
 
 export interface BusinessAdministrator {

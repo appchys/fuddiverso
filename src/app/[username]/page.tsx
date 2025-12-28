@@ -6,7 +6,6 @@ import Link from 'next/link'
 import Head from 'next/head'
 import { Business, Product } from '@/types'
 import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore } from '@/lib/database'
-import { PremioFloatingButton } from '@/components/PremioFloatingButton'
 import CartSidebar from '@/components/CartSidebar'
 import { isStoreOpen } from '@/lib/store-utils'
 
@@ -470,16 +469,42 @@ function RestaurantContent() {
   useEffect(() => {
     if (business?.id) {
       const savedCarts = localStorage.getItem('carts')
+      let businessCart = []
       if (savedCarts) {
         const allCarts = JSON.parse(savedCarts)
-        const businessCart = allCarts[business.id] || []
-        setCart(businessCart)
-        // Verificar si el premio ya está en el carrito
-        const tienePremio = businessCart.some((item: any) => item.esPremio === true)
+        businessCart = allCarts[business.id] || []
+      }
+
+      // Verificar si el premio ya está en el carrito
+      const tienePremio = businessCart.some((item: any) => item.esPremio === true)
+
+      // Auto-agregar premio según configuración dinámica
+      if (business.rewardSettings?.enabled && !tienePremio) {
+        const premioEspecial = {
+          id: 'premio-especial-auto',
+          name: `🎁 ${business.rewardSettings.name}`,
+          variantName: null,
+          productName: `🎁 ${business.rewardSettings.name}`,
+          description: business.rewardSettings.description || '¡Felicidades! Has reclamado tu premio especial gratis',
+          price: 0,
+          isAvailable: true,
+          esPremio: true,
+          quantity: 1,
+          image: business.image || 'https://via.placeholder.com/150?text=Premio',
+          businessId: business.id,
+          businessName: business.name,
+          businessImage: business.image
+        }
+        businessCart = [...businessCart, premioEspecial]
+        updateCartInStorage(business.id, businessCart)
+        setPremioAgregado(true)
+      } else {
         setPremioAgregado(tienePremio)
       }
+
+      setCart(businessCart)
     }
-  }, [business?.id])
+  }, [business?.id, business?.username, business?.rewardSettings])
 
   // Función para mostrar notificaciones temporales
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -620,31 +645,6 @@ function RestaurantContent() {
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
   const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
 
-  const manejarAgregarPremio = () => {
-    if (!business?.id) return;
-
-    const premioEspecial = {
-      id: 'premio-especial-' + Date.now(),
-      name: '🎁 5 wantancitos',
-      variantName: null,
-      productName: '🎁 5 wantancitos',
-      description: '¡Felicidades! Has reclamado tu premio especial gratis',
-      price: 0,
-      isAvailable: true,
-      esPremio: true,
-      quantity: 1,
-      image: business.image || 'https://via.placeholder.com/150?text=Premio',
-      businessId: business.id,
-      businessName: business.name,
-      businessImage: business.image
-    }
-
-    const newCart = [...cart, premioEspecial]
-    setCart(newCart)
-    setPremioAgregado(true)
-    updateCartInStorage(business.id, newCart)
-    showNotification('¡Premio especial agregado al carrito! 🎉', 'success')
-  }
 
 
   // Función para copiar enlace
@@ -861,14 +861,6 @@ function RestaurantContent() {
         updateQuantity={updateQuantity}
       />
 
-      {/* Botón Flotante de Premio */}
-      <PremioFloatingButton
-        onAgregarPremio={manejarAgregarPremio}
-        premioYaAgregado={premioAgregado}
-        businessName={business?.name || ''}
-        show={business?.username === 'munchys'}
-        initialExpanded={true}
-      />
 
       {/* Modal de variantes */}
       <VariantModal
