@@ -643,7 +643,7 @@ function RestaurantContent() {
   }
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
-  const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+  const cartItemsCount = cart.filter(item => !item.esPremio).reduce((sum, item) => sum + item.quantity, 0)
 
 
 
@@ -829,7 +829,7 @@ function RestaurantContent() {
       </div>
 
       {/* Floating Cart Button */}
-      {cart.length > 0 && (
+      {cartItemsCount > 0 && (
         <div className="fixed bottom-6 right-6 z-40">
           <button
             onClick={() => setIsCartOpen(true)}
