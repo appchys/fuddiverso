@@ -833,7 +833,7 @@ function RestaurantContent() {
         <div className="max-w-4xl mx-auto px-4 py-12">
           <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
             <h2 className="text-2xl font-black text-gray-900 mb-6 flex items-center gap-3">
-              <i className="bi bi-info-circle text-red-500"></i>
+              <i className="bi bi-shop text-red-500"></i>
               Sobre nosotros
             </h2>
 
@@ -845,15 +845,7 @@ function RestaurantContent() {
                 </div>
               )}
 
-              {business.address && (
-                <div>
-                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Ubicación</h3>
-                  <div className="flex items-start gap-3 bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                    <i className="bi bi-geo-alt-fill text-red-500 text-xl mt-1"></i>
-                    <p className="text-gray-700 font-medium">{business.address}</p>
-                  </div>
-                </div>
-              )}
+              {/* Ubicación eliminada por solicitud del usuario */}
 
               <div>
                 <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Horario de Atención</h3>
@@ -861,11 +853,32 @@ function RestaurantContent() {
                   <div className="absolute top-0 right-0 p-4 opacity-10">
                     <i className="bi bi-clock-fill text-6xl"></i>
                   </div>
-                  <p className="text-gray-600 mb-4 flex items-center gap-2">
+                  <p className="text-gray-600 mb-6 flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${isStoreOpen(business) ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
                     La tienda está actualmente <strong>{isStoreOpen(business) ? 'Abierta' : 'Cerrada'}</strong>
                   </p>
-                  <p className="text-gray-500 text-sm">Consulta nuestros horarios especiales para feriados y eventos directamente en nuestro canal de atención.</p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 relative z-10">
+                    {Object.entries({
+                      monday: 'Lunes',
+                      tuesday: 'Martes',
+                      wednesday: 'Miércoles',
+                      thursday: 'Jueves',
+                      friday: 'Viernes',
+                      saturday: 'Sábado',
+                      sunday: 'Domingo'
+                    }).map(([key, label]) => {
+                      const daySchedule = business.schedule?.[key as keyof typeof business.schedule] as any
+                      return (
+                        <div key={key} className="flex justify-between items-center text-sm py-1 border-b border-gray-200/50 last:border-0 sm:last:border-b">
+                          <span className="font-semibold text-gray-700">{label}</span>
+                          <span className={daySchedule?.isOpen ? 'text-gray-600' : 'text-rose-400 font-medium'}>
+                            {daySchedule?.isOpen ? `${daySchedule.open} - ${daySchedule.close}` : 'Cerrado'}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
