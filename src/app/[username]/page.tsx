@@ -77,7 +77,6 @@ function BusinessStructuredData({ business }: { business: Business }) {
   )
 }
 
-// Componente para mostrar variantes de producto
 function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, updateQuantity, businessImage, businessUsername }: {
   product: any,
   onAddToCart: (item: any) => void,
@@ -111,52 +110,31 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
     }
   }
 
+  const quantity = getCartItemQuantity(product.id)
+  const hasVariants = product.variants && product.variants.length > 0
+
   return (
-    <div onClick={handleCardClick} className="bg-white rounded-lg shadow-sm overflow-hidden cursor-pointer hover:bg-gray-50 transition flex items-center p-3 border-b border-gray-100 relative">
-      {/* Botones de acción - esquina superior derecha */}
-      <div className="absolute top-0 right-2 z-10 flex flex-col gap-0">
-        {/* Botón de compartir */}
-        <button
-          onClick={handleCopyProductLink}
-          disabled={!product.isAvailable}
-          className={`transition-colors ${product.isAvailable
-            ? 'text-gray-500 hover:text-gray-700'
-            : 'text-gray-300 cursor-not-allowed'
-            }`}
-          title="Compartir producto"
-        >
-          <i className="bi bi-share text-xs"></i>
-        </button>
+    <div
+      onClick={handleCardClick}
+      className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 cursor-pointer active:scale-[0.98] ${quantity > 0 ? 'border-red-200 shadow-md ring-1 ring-red-50' : 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
+        }`}
+    >
+      {/* Botón compartir producto (solo visible en hover) */}
+      <button
+        onClick={handleCopyProductLink}
+        className="absolute top-3 right-3 p-1.5 text-gray-400 hover:text-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
+        title="Copiar enlace del producto"
+      >
+        <i className="bi bi-link-45deg text-lg"></i>
+      </button>
 
-        {/* Botón de agregar/ver variantes */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onAddToCart(product) }}
-          disabled={!product.isAvailable}
-          className={`flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-lg ${product.isAvailable
-            ? 'bg-gray-100 hover:bg-gray-200'
-            : 'bg-gray-100 text-gray-300 cursor-not-allowed'
-            }`}
-          title={product.isAvailable ? (product.variants?.length ? 'Ver opciones' : 'Agregar al carrito') : 'Agotado'}
-        >
-          {product.variants?.length ? (
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          )}
-        </button>
-      </div>
-
-      {/* Imagen cuadrada */}
-      <div className="w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100 relative">
-        <div className={`absolute inset-0 animate-pulse bg-gray-200 ${imgLoaded ? 'hidden' : 'block'}`}></div>
+      {/* Imagen cuadrada con diseño redondeado */}
+      <div className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50">
+        <div className={`absolute inset-0 animate-pulse bg-gray-100 ${imgLoaded ? 'hidden' : 'block'}`}></div>
         <img
           src={product.image || businessImage}
           alt={product.name}
-          className="w-full h-full object-cover"
+          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
           decoding="async"
           onLoad={() => setImgLoaded(true)}
@@ -170,25 +148,56 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
         />
       </div>
 
-      {/* Nombre, descripción y precio */}
-      <div className="flex-1 min-w-0 ml-3 sm:ml-4 pr-6">
-        <h4 className="font-medium text-sm sm:text-base text-gray-900 truncate">{product.name}</h4>
-        <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2">{product.description}</p>
+      {/* Info Content */}
+      <div className="flex-1 min-w-0 ml-4 pr-4">
+        <div className="flex flex-col h-full justify-between">
+          <div>
+            <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
+              {product.name}
+            </h4>
+            <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
+              {product.description}
+            </p>
+          </div>
 
-        {/* Precio debajo de la descripción */}
-        <div className="mt-1">
-          {product.variants && product.variants.length > 0 ? (
-            <div className="flex items-center">
-              <span className="text-xs text-gray-500 mr-1">Desde</span>
-              <span className="text-sm sm:text-base font-bold text-red-500">
-                ${Math.min(...product.variants.filter((v: any) => v.isAvailable).map((v: any) => v.price)).toFixed(2)}
+          <div className="mt-2 flex items-center justify-between">
+            <div className="flex items-baseline gap-1">
+              {hasVariants && (
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Desde</span>
+              )}
+              <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
+                ${(hasVariants
+                  ? Math.min(...product.variants.filter((v: any) => v.isAvailable).map((v: any) => v.price))
+                  : product.price).toFixed(2)}
               </span>
             </div>
-          ) : (
-            <span className="text-sm sm:text-base font-bold text-red-500">
-              ${product.price.toFixed(2)}
-            </span>
-          )}
+
+            {/* Selector de cantidad compacto o botón añadir */}
+            {quantity > 0 ? (
+              <div
+                className="flex items-center bg-gray-100 rounded-lg p-1 gap-1"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  onClick={() => updateQuantity(product.id, quantity - 1)}
+                  className="w-7 h-7 flex items-center justify-center bg-white rounded-md text-gray-600 shadow-sm hover:text-red-500 transition-colors"
+                >
+                  <i className="bi bi-dash"></i>
+                </button>
+                <span className="w-6 text-center font-bold text-sm text-gray-900">{quantity}</span>
+                <button
+                  onClick={() => updateQuantity(product.id, quantity + 1)}
+                  className="w-7 h-7 flex items-center justify-center bg-white rounded-md text-gray-600 shadow-sm hover:text-emerald-600 transition-colors"
+                >
+                  <i className="bi bi-plus"></i>
+                </button>
+              </div>
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-lg transform group-hover:scale-110 group-hover:bg-red-600 transition-all duration-300">
+                <i className="bi bi-plus-lg text-sm"></i>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -374,6 +383,7 @@ function RestaurantContent() {
   const [premioAgregado, setPremioAgregado] = useState(false)
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
+  const [activeTab, setActiveTab] = useState<'catalogo' | 'perfil'>('catalogo')
 
   useEffect(() => {
     const loadRestaurantData = async () => {
@@ -740,111 +750,191 @@ function RestaurantContent() {
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-orange-100 to-orange-200" />
           )}
-          {/* Botón copiar enlace como ícono (mejor para móviles) - siempre visible */}
-          <button
-            onClick={copyStoreLink}
-            aria-label="Copiar enlace de la tienda"
-            className="absolute right-3 top-3 z-10 p-2 bg-white/90 hover:bg-white rounded-full shadow text-gray-700"
-          >
-            <i className="bi bi-share"></i>
-          </button>
-          {/* Logo sin placeholder de skeleton */}
+          {/* Botón compartir eliminado de aquí para estar en las pestañas */}
+          {/* Logo con estilo premium */}
           <div className="absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 z-10">
             {business.image && (
-              <img
-                src={business.image}
-                alt={business.name}
-                className="w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-white shadow-lg object-cover"
-                loading="eager"
-                decoding="async"
-                onLoad={() => setLogoLoaded(true)}
-                onError={() => setLogoLoaded(true)}
-              />
+              <div className="relative">
+                <div className="absolute inset-0 rounded-full bg-white/20 blur-md translate-y-1"></div>
+                <img
+                  src={business.image}
+                  alt={business.name}
+                  className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-[5px] border-white shadow-2xl object-cover relative z-10"
+                  loading="eager"
+                  decoding="async"
+                  onLoad={() => setLogoLoaded(true)}
+                  onError={() => setLogoLoaded(true)}
+                />
+              </div>
             )}
           </div>
         </div>
 
-        {/* Contenido debajo de la portada, sin shimmer */}
-        <div className="max-w-3xl mx-auto px-4 pt-12 sm:pt-14 pb-4 text-center">
+        {/* Contenido debajo de la portada - Diseño Premium */}
+        <div className="max-w-3xl mx-auto px-4 pt-16 sm:pt-20 pb-8 text-center">
           <div className="flex flex-col items-center">
             <div className="w-full">
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+              <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight mb-2">
                 {business.name}
               </h1>
               {business.description && (
-                <p className="text-gray-600 text-sm mt-1 max-w-2xl mx-auto">
+                <p className="text-gray-500 text-sm sm:text-base mt-2 max-w-2xl mx-auto leading-relaxed">
                   {business.description}
                 </p>
               )}
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 mt-2">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isStoreOpen(business)
-                  ? 'bg-green-100 text-green-800'
-                  : 'bg-red-100 text-red-800'
+
+              <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
+                <span className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm transition-all ${isStoreOpen(business)
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                  : 'bg-rose-50 text-rose-700 border border-rose-100'
                   }`}>
-                  <i className={`bi ${isStoreOpen(business) ? 'bi-clock' : 'bi-clock-history'} mr-1`}></i>
-                  {isStoreOpen(business) ? 'Abierta' : 'Cerrada'}
+                  <span className={`w-2 h-2 rounded-full ${isStoreOpen(business) ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
+                  {isStoreOpen(business) ? 'Abierto Ahora' : 'Cerrado'}
                 </span>
-                {business.address && (
-                  <span className="text-xs text-gray-500 inline-flex items-center">
-                    <i className="bi bi-geo-alt mr-1"></i>
-                    {business.address}
-                  </span>
-                )}
+              </div>
+
+              {/* Navegación por Pestañas - Estilo Minimalista */}
+              <div className="flex items-center justify-center gap-6 mt-8 w-fit mx-auto">
+                <button
+                  onClick={() => setActiveTab('perfil')}
+                  className={`flex flex-col items-center justify-center min-w-[80px] sm:min-w-[100px] aspect-square py-3 px-2 rounded-xl text-xs font-bold transition-all duration-300 gap-2 ${activeTab === 'perfil'
+                    ? 'bg-white text-gray-900 shadow-md ring-1 ring-black/5'
+                    : 'text-gray-400 hover:text-gray-600'
+                    }`}
+                >
+                  <i className={`bi bi-shop text-xl ${activeTab === 'perfil' ? 'text-red-500' : ''}`}></i>
+                  Perfil
+                </button>
+                <button
+                  onClick={() => setActiveTab('catalogo')}
+                  className={`flex flex-col items-center justify-center min-w-[80px] sm:min-w-[100px] aspect-square py-3 px-2 rounded-xl text-xs font-bold transition-all duration-300 gap-2 ${activeTab === 'catalogo'
+                    ? 'bg-white text-gray-900 shadow-md ring-1 ring-black/5'
+                    : 'text-gray-400 hover:text-gray-600'
+                    }`}
+                >
+                  <i className={`bi bi-grid text-xl ${activeTab === 'catalogo' ? 'text-red-500' : ''}`}></i>
+                  Catálogo
+                </button>
+                <button
+                  onClick={copyStoreLink}
+                  className="flex flex-col items-center justify-center min-w-[80px] sm:min-w-[100px] aspect-square py-3 px-2 rounded-xl text-xs font-bold text-gray-400 hover:text-gray-900 hover:bg-white transition-all duration-300 gap-2"
+                >
+                  <i className="bi bi-share text-xl"></i>
+                  Compartir
+                </button>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Menu Content sin shimmer */}
-      <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
-        <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-6">
-          Nuestro Menú
-        </h2>
+      {activeTab === 'perfil' ? (
+        /* Vista de Perfil */
+        <div className="max-w-4xl mx-auto px-4 py-12">
+          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
+            <h2 className="text-2xl font-black text-gray-900 mb-6 flex items-center gap-3">
+              <i className="bi bi-info-circle text-red-500"></i>
+              Sobre nosotros
+            </h2>
 
-        {Object.entries(productsByCategory).length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500">No hay productos disponibles en este momento.</p>
-          </div>
-        ) : (
-          Object.entries(productsByCategory).map(([category, categoryProducts]) => (
-            <div key={category} className="mb-8">
-              <h3 className="text-lg sm:text-xl font-semibold text-gray-800 mb-4">{category}</h3>
-              <div className="space-y-3">
-                {categoryProducts.map((product) => (
-                  <ProductVariantSelector
-                    key={product.id}
-                    product={product}
-                    onAddToCart={addToCart}
-                    getCartItemQuantity={getCartItemQuantity}
-                    updateQuantity={updateQuantity}
-                    businessImage={business?.image}
-                    businessUsername={business?.username}
-                  />
-                ))}
+            <div className="space-y-8">
+              {business.description && (
+                <div>
+                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Descripción</h3>
+                  <p className="text-gray-700 leading-relaxed">{business.description}</p>
+                </div>
+              )}
+
+              {business.address && (
+                <div>
+                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Ubicación</h3>
+                  <div className="flex items-start gap-3 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                    <i className="bi bi-geo-alt-fill text-red-500 text-xl mt-1"></i>
+                    <p className="text-gray-700 font-medium">{business.address}</p>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Horario de Atención</h3>
+                <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 overflow-hidden relative">
+                  <div className="absolute top-0 right-0 p-4 opacity-10">
+                    <i className="bi bi-clock-fill text-6xl"></i>
+                  </div>
+                  <p className="text-gray-600 mb-4 flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${isStoreOpen(business) ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
+                    La tienda está actualmente <strong>{isStoreOpen(business) ? 'Abierta' : 'Cerrada'}</strong>
+                  </p>
+                  <p className="text-gray-500 text-sm">Consulta nuestros horarios especiales para feriados y eventos directamente en nuestro canal de atención.</p>
+                </div>
               </div>
             </div>
-          ))
-        )}
-      </div>
+          </div>
+        </div>
+      ) : (
+        /* Vista de Catálogo (actual) */
+        <div className="max-w-7xl mx-auto px-4 py-8 sm:py-12">
+          <div className="flex items-center gap-4 mb-10">
+            <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
+              Nuestro Menú
+            </h2>
+            <div className="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent"></div>
+          </div>
 
-      {/* Floating Cart Button */}
+          {Object.entries(productsByCategory).length === 0 ? (
+            <div className="text-center py-20 bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200">
+              <i className="bi bi-bag-x text-4xl text-gray-300 mb-4 block"></i>
+              <p className="text-gray-500 font-medium">No hay productos disponibles por ahora.</p>
+            </div>
+          ) : (
+            Object.entries(productsByCategory).map(([category, categoryProducts]) => (
+              <div key={category} className="mb-12">
+                <div className="flex items-center gap-3 mb-6">
+                  <h3 className="text-lg sm:text-xl font-bold text-gray-800 tracking-wide uppercase">{category}</h3>
+                  <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px] font-bold">{categoryProducts.length} items</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                  {categoryProducts.map((product) => (
+                    <ProductVariantSelector
+                      key={product.id}
+                      product={product}
+                      onAddToCart={addToCart}
+                      getCartItemQuantity={getCartItemQuantity}
+                      updateQuantity={updateQuantity}
+                      businessImage={business?.image}
+                      businessUsername={business?.username}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Floating Cart Button - Ultra Modern */}
       {cartItemsCount > 0 && (
-        <div className="fixed bottom-6 right-6 z-40">
+        <div className="fixed bottom-8 right-6 z-40">
           <button
             onClick={() => setIsCartOpen(true)}
-            className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-full shadow-2xl hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 group"
+            className="relative bg-gray-900 text-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] hover:bg-black transition-all duration-300 transform hover:scale-105 active:scale-95 group overflow-hidden"
           >
-            <div className="flex items-center px-4 py-3 space-x-2">
+            {/* Glossy Effect */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+
+            <div className="flex items-center px-6 py-4 space-x-3">
               <div className="relative">
-                <i className="bi bi-cart text-xl"></i>
-                <span className="absolute -top-2 -right-2 bg-yellow-400 text-red-900 rounded-full w-5 h-5 text-xs font-bold flex items-center justify-center animate-pulse">
+                <i className="bi bi-cart3 text-2xl"></i>
+                <span className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full w-6 h-6 text-[10px] font-black flex items-center justify-center border-2 border-gray-900 shadow-lg animate-bounce">
                   {cartItemsCount}
                 </span>
               </div>
-              <div className="hidden sm:block text-left">
-                <div className="text-sm font-semibold leading-none">${cartTotal.toFixed(2)}</div>
-                <div className="text-xs text-red-100 leading-none mt-0.5">Ver carrito</div>
+              <div className="text-left">
+                <div className="text-xs text-gray-400 font-bold uppercase tracking-widest leading-none mb-1">Total</div>
+                <div className="text-lg font-black leading-none">${cartTotal.toFixed(2)}</div>
+              </div>
+              <div className="pl-2 border-l border-white/10 group-hover:translate-x-1 transition-transform">
+                <i className="bi bi-chevron-right text-gray-400"></i>
               </div>
             </div>
           </button>
