@@ -1821,13 +1821,8 @@ export default function ManualOrderSidebar({
             <button
               onClick={handleSubmitOrder}
               disabled={
-                !manualOrderData.customerPhone ||
-                !manualOrderData.customerName ||
-                manualOrderData.selectedProducts.length === 0 ||
-                !manualOrderData.deliveryType ||
-                (manualOrderData.deliveryType === 'delivery' && !manualOrderData.selectedLocation) ||
-                (manualOrderData.paymentMethod === 'mixed' && Math.abs((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0) - manualOrderData.total) >= 0.01) ||
-                creatingOrder
+                creatingOrder ||
+                (manualOrderData.paymentMethod === 'mixed' && Math.abs((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0) - manualOrderData.total) >= 0.01)
               }
               className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
@@ -1841,7 +1836,7 @@ export default function ManualOrderSidebar({
         {isVariantModalOpen && selectedProductForVariants && (
           /* ... */
           <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
-            <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4">
+            <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 max-h-[90vh] overflow-y-auto">
               <h3 className="text-lg font-semibold mb-4">Seleccionar variante</h3>
               <p className="text-sm text-gray-600 mb-4">{selectedProductForVariants.name}</p>
 
