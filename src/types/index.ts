@@ -113,6 +113,8 @@ export interface Product {
   image?: string
   variants?: ProductVariant[] // Variantes opcionales del producto
   isAvailable: boolean
+  businessName?: string
+  businessImage?: string
   ingredients?: Ingredient[]
   createdAt: Date
   updatedAt: Date

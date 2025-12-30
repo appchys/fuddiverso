@@ -80,8 +80,8 @@ function BusinessStructuredData({ business }: { business: Business }) {
 function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, updateQuantity, businessImage, businessUsername }: {
   product: any,
   onAddToCart: (item: any) => void,
-  getCartItemQuantity: (id: string) => number,
-  updateQuantity: (id: string, quantity: number) => void,
+  getCartItemQuantity: (id: string, variantName?: string | null) => number,
+  updateQuantity: (id: string, quantity: number, variantName?: string | null) => void,
   businessImage?: string,
   businessUsername?: string
 }) {
@@ -110,7 +110,7 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
     }
   }
 
-  const quantity = getCartItemQuantity(product.id)
+  const quantity = getCartItemQuantity(product.id, null)
   const hasVariants = product.variants && product.variants.length > 0
 
   return (
@@ -179,14 +179,14 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
                 onClick={(e) => e.stopPropagation()}
               >
                 <button
-                  onClick={() => updateQuantity(product.id, quantity - 1)}
+                  onClick={() => updateQuantity(product.id, quantity - 1, null)}
                   className="w-7 h-7 flex items-center justify-center bg-white rounded-md text-gray-600 shadow-sm hover:text-red-500 transition-colors"
                 >
                   <i className="bi bi-dash"></i>
                 </button>
                 <span className="w-6 text-center font-bold text-sm text-gray-900">{quantity}</span>
                 <button
-                  onClick={() => updateQuantity(product.id, quantity + 1)}
+                  onClick={() => updateQuantity(product.id, quantity + 1, null)}
                   className="w-7 h-7 flex items-center justify-center bg-white rounded-md text-gray-600 shadow-sm hover:text-emerald-600 transition-colors"
                 >
                   <i className="bi bi-plus"></i>
@@ -211,8 +211,8 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
   onClose: () => void;
   onAddToCart: (item: any) => void;
   businessImage?: string;
-  getCartItemQuantity: (id: string) => number;
-  updateQuantity: (id: string, quantity: number) => void;
+  getCartItemQuantity: (id: string, variantName?: string | null) => number;
+  updateQuantity: (id: string, quantity: number, variantName?: string | null) => void;
 }) {
   const [selectedVariant, setSelectedVariant] = useState<any>(null)
   const [modalImgLoaded, setModalImgLoaded] = useState(false)
@@ -270,8 +270,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
           <div className="px-4 sm:px-6 pb-4 overflow-y-auto flex-1 max-h-[60vh] sm:max-h-[40vh] custom-scrollbar">
             <div className="space-y-3 pr-2">
               {product?.variants?.filter((v: any) => v.isAvailable).map((variant: any, i: number) => {
-                const uid = makeUid(variant)
-                const qty = getCartItemQuantity(uid)
+                const qty = getCartItemQuantity(product.id, variant.name)
 
                 return (
                   <div
@@ -292,7 +291,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
                       {qty > 0 ? (
                         <div className="flex items-center border rounded-lg overflow-hidden bg-white">
                           <button
-                            onClick={() => updateQuantity(uid, qty - 1)}
+                            onClick={() => updateQuantity(product.id, qty - 1, variant.name)}
                             className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
                           >
                             -
@@ -301,7 +300,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
                             {qty}
                           </div>
                           <button
-                            onClick={() => updateQuantity(uid, qty + 1)}
+                            onClick={() => updateQuantity(product.id, qty + 1, variant.name)}
                             className="px-3 py-1 bg-red-500 text-white hover:bg-red-600 transition-colors"
                           >
                             +
@@ -311,7 +310,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
                         <button
                           onClick={() => {
                             onAddToCart({
-                              id: uid,
+                              id: product.id,
                               name: `${product.name} - ${variant.name}`,
                               variantName: variant.name,
                               productName: product.name,
@@ -548,12 +547,12 @@ function RestaurantContent() {
       businessImage: business.image
     }
 
-    const existingItem = cart.find(item => item.id === cartItem.id)
+    const existingItem = cart.find(item => item.id === cartItem.id && item.variantName === cartItem.variantName)
     let newCart
 
     if (existingItem) {
       newCart = cart.map(item =>
-        item.id === cartItem.id
+        (item.id === cartItem.id && item.variantName === cartItem.variantName)
           ? { ...item, quantity: item.quantity + 1 }
           : item
       )
@@ -573,12 +572,12 @@ function RestaurantContent() {
   const addVariantToCart = (product: any) => {
     if (!business?.id) return;
 
-    const existingItem = cart.find(item => item.id === product.id)
+    const existingItem = cart.find(item => item.id === product.id && item.variantName === product.variantName)
     let newCart
 
     if (existingItem) {
       newCart = cart.map(item =>
-        item.id === product.id
+        (item.id === product.id && item.variantName === product.variantName)
           ? { ...item, quantity: item.quantity + 1 }
           : item
       )
@@ -598,14 +597,14 @@ function RestaurantContent() {
     updateCartInStorage(business.id, newCart)
   }
 
-  const removeFromCart = (productId: string) => {
+  const removeFromCart = (productId: string, variantName?: string | null) => {
     if (!business?.id) return;
 
     // Verificar si el ítem a eliminar es un premio
-    const itemToRemove = cart.find(item => item.id === productId)
+    const itemToRemove = cart.find(item => item.id === productId && item.variantName === variantName)
     const isPremio = itemToRemove?.esPremio === true
 
-    const newCart = cart.filter(item => item.id !== productId)
+    const newCart = cart.filter(item => !(item.id === productId && item.variantName === variantName))
     setCart(newCart)
     updateCartInStorage(business.id, newCart)
 
@@ -615,16 +614,16 @@ function RestaurantContent() {
     }
   }
 
-  const updateQuantity = (productId: string, quantity: number) => {
+  const updateQuantity = (productId: string, quantity: number, variantName?: string | null) => {
     if (!business?.id) return;
 
     if (quantity <= 0) {
-      removeFromCart(productId)
+      removeFromCart(productId, variantName)
       return
     }
 
     const newCart = cart.map(item =>
-      item.id === productId
+      (item.id === productId && item.variantName === variantName)
         ? { ...item, quantity }
         : item
     )
@@ -647,8 +646,8 @@ function RestaurantContent() {
     localStorage.setItem('carts', JSON.stringify(allCarts))
   }
 
-  const getCartItemQuantity = (productId: string) => {
-    const item = cart.find(item => item.id === productId)
+  const getCartItemQuantity = (productId: string, variantName?: string | null) => {
+    const item = cart.find(item => item.id === productId && item.variantName === variantName)
     return item ? item.quantity : 0
   }
 
@@ -979,18 +978,25 @@ function RestaurantContent() {
         updateQuantity={updateQuantity}
       />
 
-      {/* Notificación temporal */}
+      {/* Notificación temporal - Premium Toast */}
       {notification.show && (
-        <div className="fixed top-20 right-4 z-50 animate-pulse">
-          <div className={`rounded-lg px-4 py-3 shadow-lg text-white font-medium ${notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
-            }`}>
-            <div className="flex items-center space-x-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <span className="text-sm">{notification.message}</span>
+        <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[100] w-[calc(100%-2rem)] max-w-xs pointer-events-none animate-[slideDown_0.3s_ease-out]">
+          <div className="bg-gray-900/95 backdrop-blur-xl border border-white/10 rounded-[2rem] px-6 py-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+              <i className="bi bi-bag-check-fill text-emerald-400 text-lg"></i>
+            </div>
+            <div className="flex-1">
+              <p className="text-white font-black text-[10px] uppercase tracking-[0.2em] leading-tight">
+                {notification.message}
+              </p>
             </div>
           </div>
+          <style jsx>{`
+            @keyframes slideDown {
+              from { transform: translateY(-20px); opacity: 0; }
+              to { transform: translateY(0); opacity: 1; }
+            }
+          `}</style>
         </div>
       )}
     </div>

@@ -1597,17 +1597,17 @@ function CheckoutContent() {
                     onClick={() => setTimingData({ type: 'immediate', scheduledDate: '', scheduledTime: '' })}
                     disabled={!isStoreOpen(business)}
                     className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${!isStoreOpen(business)
-                        ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
-                        : timingData.type === 'immediate'
-                          ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
-                          : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                      ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                      : timingData.type === 'immediate'
+                        ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                        : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
                       }`}
                   >
                     <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${!isStoreOpen(business)
-                        ? 'bg-gray-200 text-gray-400'
-                        : timingData.type === 'immediate'
-                          ? 'bg-white/20 text-white'
-                          : 'bg-white text-gray-400'
+                      ? 'bg-gray-200 text-gray-400'
+                      : timingData.type === 'immediate'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-white text-gray-400'
                       }`}>
                       <i className="bi bi-lightning-charge-fill"></i>
                     </div>
@@ -1852,62 +1852,98 @@ function CheckoutContent() {
           {/* Sidebar - Responsive Order Summary */}
           <div className="lg:space-y-6 space-y-4">
             {/* Order Summary */}
-            <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
-              <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-3 sm:mb-4">Resumen del Pedido</h3>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sticky top-28">
+              <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center justify-between">
+                Resumen del Pedido
+                <span className="text-xs font-medium px-2.5 py-1 bg-gray-100 text-gray-600 rounded-full">
+                  {cartItems.length} {cartItems.length === 1 ? 'ítem' : 'ítems'}
+                </span>
+              </h3>
 
-              <div className="space-y-2 sm:space-y-3">
+              <div className="space-y-4 mb-6">
                 {cartItems.map((item: any, index: number) => (
                   <div
                     key={index}
-                    className={`flex justify-between items-center gap-2 p-2 rounded-lg transition-all ${item.esPremio
-                      ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300 shadow-sm'
-                      : ''
+                    className={`flex gap-3 p-3 rounded-xl transition-all ${item.esPremio
+                      ? 'bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200 shadow-sm'
+                      : 'bg-gray-50 border border-gray-50 hover:border-gray-200'
                       }`}
                   >
-                    <div className="flex-1 min-w-0">
-                      {item.variantName ? (
-                        <>
-                          <p className={`text-sm font-medium truncate ${item.esPremio ? 'text-amber-800' : ''}`}>
-                            {item.variantName}
-                          </p>
-                          <p className="text-xs text-gray-500">{item.productName}</p>
-                        </>
+                    {/* Item Image Preview if available, else icon */}
+                    <div className="w-12 h-12 rounded-lg bg-white border border-gray-200 flex-shrink-0 flex items-center justify-center overflow-hidden shadow-sm">
+                      {item.image ? (
+                        <img src={item.image} alt={item.productName || item.name} className="w-full h-full object-cover" />
                       ) : (
-                        <p className={`text-sm font-medium truncate ${item.esPremio ? 'text-amber-800' : ''}`}>
-                          {item.productName || item.name}
-                        </p>
+                        <i className={`bi bi-box2-fill text-xl ${item.esPremio ? 'text-amber-400' : 'text-gray-300'}`}></i>
                       )}
-                      {item.esPremio && (
-                        <span className="inline-block mt-1 text-xs bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-semibold">
-                          ¡Premio Especial!
-                        </span>
-                      )}
-                      <p className="text-xs text-gray-500">Cantidad: {item.quantity}</p>
                     </div>
-                    <p className={`text-sm font-medium shrink-0 ${item.esPremio ? 'text-amber-700 font-bold' : ''}`}>
-                      {item.price > 0 ? `$${(item.price * item.quantity).toFixed(2)}` : '¡Gratis!'}
-                    </p>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-start gap-1">
+                        <div className="flex-1 min-w-0">
+                          {item.variantName ? (
+                            <>
+                              <p className={`text-sm font-bold truncate ${item.esPremio ? 'text-amber-900' : 'text-gray-900'}`}>
+                                {item.variantName}
+                              </p>
+                              <p className="text-[11px] text-gray-500 uppercase font-bold tracking-wider">{item.productName}</p>
+                            </>
+                          ) : (
+                            <p className={`text-sm font-bold truncate ${item.esPremio ? 'text-amber-900' : 'text-gray-900'}`}>
+                              {item.productName || item.name}
+                            </p>
+                          )}
+                        </div>
+                        <p className={`text-sm font-bold whitespace-nowrap ${item.esPremio ? 'text-amber-700' : 'text-gray-900'}`}>
+                          {item.price > 0 ? `$${(item.price * item.quantity).toFixed(2)}` : '¡Gratis!'}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-1">
+                        <p className="text-xs text-gray-500 flex items-center gap-1">
+                          <span className="font-medium bg-gray-200/50 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">x{item.quantity}</span>
+                        </p>
+                        {item.esPremio && (
+                          <span className="text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded font-bold uppercase tracking-tighter">
+                            PREMIO
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
 
-              <div className="border-t pt-3 mt-3 space-y-2">
+              <div className="space-y-3 pt-6 border-t border-gray-100">
                 {/* Subtotal */}
-                <div className="flex justify-between items-center">
-                  <p className="text-sm text-gray-600">Subtotal</p>
-                  <p className="text-sm text-gray-600">${subtotal.toFixed(2)}</p>
+                <div className="flex justify-between items-center text-sm">
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <i className="bi bi-tag"></i>
+                    <span>Subtotal</span>
+                  </div>
+                  <span className="font-bold text-gray-900">${subtotal.toFixed(2)}</span>
                 </div>
 
-                {/* Tarifa de envío - siempre mostrar */}
-                <div className="flex justify-between items-center">
-                  <p className="text-sm text-gray-600">Envío</p>
-                  <p className="text-sm text-gray-600">${deliveryCost.toFixed(2)}</p>
+                {/* Tarifa de envío */}
+                <div className="flex justify-between items-center text-sm">
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <i className="bi bi-truck"></i>
+                    <span>Envío</span>
+                  </div>
+                  <span className={`font-bold ${deliveryCost > 0 ? 'text-gray-900' : 'text-amber-600'}`}>
+                    {deliveryData.type === 'delivery' && deliveryCost === 0
+                      ? 'Calculando...'
+                      : (deliveryData.type === 'pickup' ? 'Gratis' : (deliveryCost > 0 ? `$${deliveryCost.toFixed(2)}` : 'Pendiente'))}
+                  </span>
                 </div>
 
                 {/* Total final */}
-                <div className="flex justify-between items-center pt-2 border-t">
-                  <p className="text-base sm:text-lg font-bold">Total</p>
-                  <p className="text-base sm:text-lg font-bold text-red-500">${total.toFixed(2)}</p>
+                <div className="flex justify-between items-center pt-4 border-t border-gray-200 mt-2">
+                  <div className="flex items-center gap-2 text-gray-900">
+                    <i className="bi bi-wallet2 text-lg"></i>
+                    <span className="text-base font-bold">Total a pagar</span>
+                  </div>
+                  <p className="text-2xl font-black text-red-600 tracking-tight">${total.toFixed(2)}</p>
                 </div>
               </div>
             </div>

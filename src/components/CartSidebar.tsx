@@ -9,8 +9,8 @@ interface CartSidebarProps {
     onClose: () => void
     cart: any[]
     business: any
-    removeFromCart: (productId: string) => void
-    updateQuantity: (productId: string, quantity: number) => void
+    removeFromCart: (productId: string, variantName?: string | null) => void
+    updateQuantity: (productId: string, quantity: number, variantName?: string | null) => void
 }
 
 export default function CartSidebar({
@@ -143,7 +143,7 @@ export default function CartSidebar({
                                                         <div className="space-y-3">
                                                             {items.map((item) => (
                                                                 <div
-                                                                    key={item.id}
+                                                                    key={`${item.id}-${item.variantName || 'original'}`}
                                                                     className={`flex items-start gap-3 ${item.esPremio ? 'bg-amber-50/50 p-3 rounded-xl border border-amber-100' : ''}`}
                                                                 >
                                                                     {/* Info */}
@@ -168,7 +168,7 @@ export default function CartSidebar({
                                                                         {!item.esPremio ? (
                                                                             <div className="flex items-center bg-gray-100 rounded-lg p-1">
                                                                                 <button
-                                                                                    onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                                                                                    onClick={() => updateQuantity(item.id, item.quantity - 1, item.variantName)}
                                                                                     className="w-7 h-7 flex items-center justify-center bg-white rounded-md text-gray-600 shadow-sm hover:text-red-500 transition-colors disabled:opacity-50"
                                                                                     disabled={item.quantity <= 1}
                                                                                 >
@@ -178,7 +178,7 @@ export default function CartSidebar({
                                                                                     {item.quantity}
                                                                                 </span>
                                                                                 <button
-                                                                                    onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                                                                                    onClick={() => updateQuantity(item.id, item.quantity + 1, item.variantName)}
                                                                                     className="w-7 h-7 flex items-center justify-center bg-white rounded-md text-gray-600 shadow-sm hover:text-green-600 transition-colors"
                                                                                 >
                                                                                     +
@@ -189,7 +189,7 @@ export default function CartSidebar({
                                                                         )}
 
                                                                         <button
-                                                                            onClick={() => removeFromCart(item.id)}
+                                                                            onClick={() => removeFromCart(item.id, item.variantName)}
                                                                             className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                                                                         >
                                                                             <i className="bi bi-trash"></i>

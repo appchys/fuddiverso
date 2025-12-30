@@ -22,6 +22,11 @@ export default function ProductPageByUsername() {
   const [cart, setCart] = useState<any[]>([])
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [copySuccess, setCopySuccess] = useState(false)
+  const [notification, setNotification] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
+    show: false,
+    message: '',
+    type: 'success'
+  })
 
   useEffect(() => {
     const loadProduct = async () => {
@@ -137,53 +142,60 @@ export default function ProductPageByUsername() {
     }
   }, [product, productId, username])
 
+  const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
+    setNotification({ show: true, message, type })
+    setTimeout(() => {
+      setNotification({ show: false, message: '', type: 'success' })
+    }, 3000)
+  }
+
   const handleAddToCart = () => {
     if (!product) return
 
     try {
       const cartsData = localStorage.getItem('carts')
       const allCarts = cartsData ? JSON.parse(cartsData) : {}
-
-      const businessIdForCart = business?.id || 'unknown'
-
+      const businessIdForCart = business?.id || product.businessId || 'unknown'
       const currentCart = allCarts[businessIdForCart] || []
 
-      const itemKey = selectedVariant ? `${product.id}-${selectedVariant}` : product.id
+      const variantData = selectedVariant && product.variants
+        ? product.variants.find((v: any) => v.name === selectedVariant)
+        : null
 
-      const existingItemIndex = currentCart.findIndex((item: any) => {
-        const cartItemKey = item.variant ? `${item.id}-${item.variant}` : item.id
-        return cartItemKey === itemKey
-      })
+      const cartItem = {
+        id: product.id,
+        name: `${product.name}${selectedVariant ? ` - ${selectedVariant}` : ''}`,
+        variantName: selectedVariant || null,
+        productName: product.name,
+        price: variantData ? variantData.price : product.price,
+        image: product.image,
+        description: variantData?.description || product.description,
+        businessId: businessIdForCart,
+        businessName: business?.name || product.businessName,
+        businessImage: business?.image || product.businessImage,
+        category: product.category
+      }
 
-      if (existingItemIndex >= 0) {
+      // Buscar si el producto con ESA VARIANTE ya existe
+      const existingItemIndex = currentCart.findIndex((item: any) =>
+        item.id === product.id && item.variantName === (selectedVariant || null)
+      )
+
+      if (existingItemIndex > -1) {
         currentCart[existingItemIndex].quantity += quantity
       } else {
-        const variantData = selectedVariant && product.variants
-          ? product.variants.find(v => v.name === selectedVariant)
-          : null
-
-        currentCart.push({
-          id: product.id,
-          productName: product.name,
-          variantName: selectedVariant || null,
-          name: selectedVariant ? `${product.name} - ${selectedVariant}` : product.name,
-          price: variantData ? variantData.price : product.price,
-          quantity,
-          image: product.image,
-          category: product.category,
-          variant: selectedVariant || null
-        })
+        currentCart.push({ ...cartItem, quantity })
       }
 
       allCarts[businessIdForCart] = currentCart
       localStorage.setItem('carts', JSON.stringify(allCarts))
 
-      alert(`${product.name}${selectedVariant ? ` - ${selectedVariant}` : ''} agregado al carrito`)
+      showNotification(`${product.name}${selectedVariant ? ` - ${selectedVariant}` : ''} agregado al carrito`)
 
       setQuantity(1)
     } catch (error) {
       console.error('Error adding to cart:', error)
-      alert('Error al agregar al carrito')
+      showNotification('Error al agregar al carrito', 'error')
     }
   }
 
@@ -210,24 +222,24 @@ export default function ProductPageByUsername() {
     }
   }
 
-  const removeFromCart = (productIdToRemove: string) => {
+  const removeFromCart = (productIdToRemove: string, variantName?: string | null) => {
     if (!business?.id) return
 
-    const newCart = cart.filter(item => item.id !== productIdToRemove)
+    const newCart = cart.filter(item => !(item.id === productIdToRemove && item.variantName === variantName))
     setCart(newCart)
     updateCartInStorage(business.id, newCart)
   }
 
-  const updateQuantity = (productIdToUpdate: string, newQuantity: number) => {
+  const updateQuantity = (productIdToUpdate: string, newQuantity: number, variantName?: string | null) => {
     if (!business?.id) return
 
     if (newQuantity <= 0) {
-      removeFromCart(productIdToUpdate)
+      removeFromCart(productIdToUpdate, variantName)
       return
     }
 
     const newCart = cart.map(item =>
-      item.id === productIdToUpdate
+      (item.id === productIdToUpdate && item.variantName === variantName)
         ? { ...item, quantity: newQuantity }
         : item
     )
@@ -250,7 +262,7 @@ export default function ProductPageByUsername() {
   }
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
-  const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+  const cartItemsCount = cart.reduce((sum, item) => sum + (item.esPremio ? 0 : item.quantity), 0)
 
   if (loading) {
     return (
@@ -286,15 +298,15 @@ export default function ProductPageByUsername() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {business && (
-          <div className="mb-6 flex items-center justify-between">
+          <div className="mb-8">
             <Link
               href={`/${username}`}
-              className="flex items-center space-x-3 hover:opacity-90 transition-opacity"
+              className="inline-flex items-center space-x-4 group p-2 rounded-2xl hover:bg-gray-50 transition-all duration-300"
             >
-              <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center border-2 border-white shadow-md ring-1 ring-gray-100 group-hover:shadow-lg transition-all">
                 {business.image ? (
                   <img
                     src={business.image}
@@ -302,17 +314,17 @@ export default function ProductPageByUsername() {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <span className="text-sm font-semibold text-gray-500">
+                  <span className="text-lg font-black text-gray-400">
                     {business.name.charAt(0).toUpperCase()}
                   </span>
                 )}
               </div>
               <div className="flex flex-col">
-                <span className="text-sm font-semibold text-gray-900 line-clamp-1">
+                <span className="text-base font-black text-gray-900 tracking-tight leading-tight group-hover:text-red-600 transition-colors">
                   {business.name}
                 </span>
                 {business.username && (
-                  <span className="text-xs text-gray-500 line-clamp-1">
+                  <span className="text-xs font-bold text-gray-400">
                     @{business.username}
                   </span>
                 )}
@@ -321,9 +333,9 @@ export default function ProductPageByUsername() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
           <div className="w-full">
-            <div className="w-full aspect-square bg-white rounded-lg overflow-hidden shadow-sm">
+            <div className="w-full aspect-square bg-white rounded-[2.5rem] overflow-hidden shadow-xl shadow-gray-100 border border-gray-50 transition-all hover:shadow-2xl hover:shadow-gray-200 duration-500">
               {product.image ? (
                 <img
                   src={product.image}
@@ -331,62 +343,66 @@ export default function ProductPageByUsername() {
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center bg-gray-100">
-                  <i className="bi bi-image text-6xl text-gray-300"></i>
+                <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                  <i className="bi bi-image text-7xl text-gray-200"></i>
                 </div>
               )}
             </div>
 
-            {/* Botón de compartir */}
-            <div className="mt-3 flex justify-end">
+            {/* Botón de compartir refinado */}
+            <div className="mt-6 flex justify-center sm:justify-end">
               <button
                 onClick={handleCopyProductLink}
-                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-300 rounded-lg transition-colors"
+                className="flex items-center gap-2 px-6 py-3 text-xs font-bold uppercase tracking-widest text-gray-500 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-100 rounded-2xl shadow-sm transition-all active:scale-95"
                 title="Compartir producto"
               >
-                <i className={`bi ${copySuccess ? 'bi-check-circle-fill text-green-600' : 'bi-share'}`}></i>
+                <i className={`bi ${copySuccess ? 'bi-check-circle-fill text-emerald-500' : 'bi-share'} text-lg`}></i>
                 <span>{copySuccess ? 'Enlace copiado' : 'Compartir'}</span>
               </button>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <div className="mb-4">
-              {product.category && (
-                <p className="text-sm text-gray-500 mb-2">{product.category}</p>
+          <div className="flex flex-col">
+            <div className="mb-6">
+              <div className="flex items-center gap-2 mb-3">
+                {product.category && (
+                  <span className="px-3 py-1 bg-red-50 text-red-600 text-[10px] font-black uppercase tracking-widest rounded-full">
+                    {product.category}
+                  </span>
+                )}
+                <span className={`px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-full ${product.isAvailable ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                  {product.isAvailable ? '✓ Disponible' : '✗ No disponible'}
+                </span>
+              </div>
+              <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight mb-4">
+                {product.name}
+              </h1>
+              {product.description && (
+                <p className="text-gray-500 text-sm sm:text-base leading-relaxed mb-6 font-medium">
+                  {product.description}
+                </p>
               )}
-              <h1 className="text-3xl font-bold text-gray-900">{product.name}</h1>
-            </div>
-
-            {product.description && (
-              <p className="text-gray-600 mb-4 leading-relaxed">
-                {product.description}
-              </p>
-            )}
-
-            <div className="mb-6 p-3 bg-gray-50 rounded-lg">
-              <p className={`text-sm font-medium ${product.isAvailable ? 'text-green-600' : 'text-red-600'}`}>
-                {product.isAvailable ? '✓ Disponible' : '✗ No disponible'}
-              </p>
             </div>
 
             {product.variants && product.variants.length > 0 && (
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-900 mb-3">
-                  Selecciona una opción:
+              <div className="mb-8">
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-4">
+                  Selecciona una opción
                 </label>
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 gap-3">
                   {product.variants.map((variant) => (
                     <button
                       key={variant.name}
                       onClick={() => setSelectedVariant(variant.name)}
-                      className={`w-full flex items-center justify-between p-3 rounded-lg border-2 transition-colors ${selectedVariant === variant.name
-                        ? 'border-red-500 bg-red-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                      className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 ${selectedVariant === variant.name
+                        ? 'border-red-500 bg-red-50 shadow-md ring-1 ring-red-500/10 scale-[1.02]'
+                        : 'border-gray-100 hover:border-gray-200 bg-white hover:bg-gray-50'
                         }`}
                     >
-                      <span className="font-medium text-gray-900">{variant.name}</span>
-                      <span className="text-lg font-semibold text-red-600">
+                      <span className={`font-bold transition-colors ${selectedVariant === variant.name ? 'text-gray-900' : 'text-gray-600'}`}>
+                        {variant.name}
+                      </span>
+                      <span className={`text-lg font-black transition-colors ${selectedVariant === variant.name ? 'text-red-600' : 'text-gray-400'}`}>
                         ${variant.price.toFixed(2)}
                       </span>
                     </button>
@@ -396,39 +412,37 @@ export default function ProductPageByUsername() {
             )}
 
             {(!product.variants || product.variants.length === 0) && (
-              <div className="mb-6">
-                <p className="text-4xl font-bold text-red-600">
-                  ${product.price.toFixed(2)}
-                </p>
+              <div className="mb-8">
+                <div className="inline-flex flex-col">
+                  <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Precio</span>
+                  <p className="text-4xl font-black text-red-600 tracking-tight">
+                    ${product.price.toFixed(2)}
+                  </p>
+                </div>
               </div>
             )}
 
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-900 mb-3">
-                Cantidad:
+            <div className="mb-8 p-6 bg-gray-50 rounded-[2rem] border border-gray-100">
+              <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-4 text-center">
+                Cantidad a pedir
               </label>
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center justify-center space-x-6">
                 <button
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
                   disabled={!product.isAvailable}
-                  className="w-10 h-10 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
+                  className="w-12 h-12 flex items-center justify-center bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md hover:bg-gray-50 transition-all active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <i className="bi bi-dash"></i>
+                  <i className="bi bi-dash text-xl"></i>
                 </button>
-                <input
-                  type="number"
-                  value={quantity}
-                  onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                  disabled={!product.isAvailable}
-                  className="w-16 text-center border border-gray-300 rounded-lg py-2 px-3 focus:ring-red-500 focus:border-red-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100"
-                  min="1"
-                />
+                <div className="w-12 text-center text-2xl font-black text-gray-900 tabular-nums">
+                  {quantity}
+                </div>
                 <button
                   onClick={() => setQuantity(quantity + 1)}
                   disabled={!product.isAvailable}
-                  className="w-10 h-10 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
+                  className="w-12 h-12 flex items-center justify-center bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md hover:bg-gray-50 transition-all active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <i className="bi bi-plus"></i>
+                  <i className="bi bi-plus text-xl"></i>
                 </button>
               </div>
             </div>
@@ -436,25 +450,30 @@ export default function ProductPageByUsername() {
             <button
               onClick={handleAddToCart}
               disabled={!product.isAvailable}
-              className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
+              className="w-full bg-gray-900 hover:bg-black text-white font-black py-5 px-6 rounded-[2rem] shadow-xl shadow-gray-200 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center space-x-3 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
-              <i className="bi bi-bag-plus"></i>
-              <span>{product.isAvailable ? 'Agregar al carrito' : 'Producto no disponible'}</span>
+              <i className="bi bi-bag-plus-fill text-xl"></i>
+              <span className="uppercase tracking-widest text-sm">
+                {product.isAvailable ? 'Agregar al carrito' : 'Producto no disponible'}
+              </span>
             </button>
           </div>
         </div>
       </main>
 
       {relatedProducts.length > 0 && (
-        <section className="bg-white border-t mt-12">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">
-              Otros productos de {business?.name}
-            </h2>
+        <section className="bg-white border-t border-gray-100 mt-12 pb-20">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+            <div className="flex items-center gap-4 mb-8">
+              <h2 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">
+                Otros productos de {business?.name}
+              </h2>
+              <div className="flex-1 h-px bg-gradient-to-r from-gray-100 to-transparent"></div>
+            </div>
 
             <div className="relative">
               <div
-                className="flex gap-4 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-4"
+                className="flex gap-5 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-6"
                 style={{
                   scrollbarWidth: 'none',
                   msOverflowStyle: 'none',
@@ -465,28 +484,33 @@ export default function ProductPageByUsername() {
                   <Link
                     key={prod.id}
                     href={`/${username}/${prod.id}`}
-                    className="group flex-shrink-0 snap-start w-[160px] sm:w-[200px]"
+                    className="group flex-shrink-0 snap-start w-[180px] sm:w-[220px]"
                   >
-                    <div className="bg-white rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-300 h-full">
-                      <div className="relative w-full aspect-square bg-gray-100 overflow-hidden">
+                    <div className="bg-white rounded-[2rem] overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 h-full border border-gray-50 group-hover:border-red-50 group-hover:ring-1 group-hover:ring-red-50 translate-z-0">
+                      <div className="relative w-full aspect-square bg-gray-50 overflow-hidden">
                         {prod.image ? (
                           <img
                             src={prod.image}
                             alt={prod.name}
-                            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                            className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                           />
                         ) : (
                           <div className="absolute inset-0 flex items-center justify-center">
-                            <i className="bi bi-image text-4xl text-gray-300"></i>
+                            <i className="bi bi-image text-5xl text-gray-200"></i>
                           </div>
                         )}
+                        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="bg-white/90 backdrop-blur-sm p-1.5 rounded-full shadow-sm">
+                            <i className="bi bi-arrow-right-short text-gray-900 text-xl"></i>
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="p-3">
-                        <h3 className="font-semibold text-gray-900 text-sm mb-2 line-clamp-2 group-hover:text-red-600 transition-colors min-h-[2.5rem]">
+                      <div className="p-4 flex flex-col items-center text-center">
+                        <h3 className="font-bold text-gray-900 text-sm mb-2 line-clamp-2 transition-colors min-h-[2.5rem] tracking-tight group-hover:text-red-600">
                           {prod.name}
                         </h3>
-                        <p className="text-red-600 font-bold text-base">
+                        <p className="text-red-500 font-black text-lg tracking-tight">
                           ${prod.price.toFixed(2)}
                         </p>
                       </div>
@@ -496,9 +520,9 @@ export default function ProductPageByUsername() {
               </div>
 
               {relatedProducts.length > 2 && (
-                <div className="absolute right-0 top-0 bottom-4 w-16 pointer-events-none bg-gradient-to-l from-white via-white/80 to-transparent flex items-center justify-end pr-2">
-                  <div className="animate-pulse">
-                    <i className="bi bi-chevron-right text-2xl text-gray-400"></i>
+                <div className="absolute right-0 top-0 bottom-6 w-20 pointer-events-none bg-gradient-to-l from-white via-white/50 to-transparent flex items-center justify-end pr-2">
+                  <div className="animate-pulse bg-white/80 p-2 rounded-full shadow-sm backdrop-blur-sm">
+                    <i className="bi bi-chevron-right text-xl text-gray-400"></i>
                   </div>
                 </div>
               )}
@@ -507,24 +531,29 @@ export default function ProductPageByUsername() {
         </section>
       )}
 
-      {cart.length > 0 && business && (
-        <div className="fixed bottom-6 right-6 z-40">
+      {/* Floating Cart Button - Ultra Modern (Synchronized with Store Page) */}
+      {cartItemsCount > 0 && (
+        <div className="fixed bottom-8 right-6 z-40">
           <button
             onClick={() => setIsCartOpen(true)}
-            className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-full shadow-2xl hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 group"
+            className="relative bg-gray-900 text-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] hover:bg-black transition-all duration-300 transform hover:scale-105 active:scale-95 group overflow-hidden"
           >
-            <div className="flex items-center px-4 py-3 space-x-2">
+            {/* Glossy Effect */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+
+            <div className="flex items-center px-6 py-4 space-x-3">
               <div className="relative">
-                <i className="bi bi-cart text-xl"></i>
-                <span className="absolute -top-2 -right-2 bg-yellow-400 text-red-900 rounded-full w-5 h-5 text-xs font-bold flex items-center justify-center animate-pulse">
+                <i className="bi bi-cart3 text-2xl"></i>
+                <span className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full w-6 h-6 text-[10px] font-black flex items-center justify-center border-2 border-gray-900 shadow-lg animate-bounce">
                   {cartItemsCount}
                 </span>
               </div>
-              <div className="hidden sm:block text-left">
-                <div className="text-sm font-semibold leading-none">
-                  ${cartTotal.toFixed(2)}
-                </div>
-                <div className="text-xs text-red-100 leading-none mt-0.5">Ver carrito</div>
+              <div className="text-left">
+                <div className="text-xs text-gray-400 font-bold uppercase tracking-widest leading-none mb-1 text-[8px]">Total</div>
+                <div className="text-lg font-black leading-none">${cartTotal.toFixed(2)}</div>
+              </div>
+              <div className="pl-2 border-l border-white/10 group-hover:translate-x-1 transition-transform">
+                <i className="bi bi-chevron-right text-gray-400"></i>
               </div>
             </div>
           </button>
@@ -539,6 +568,28 @@ export default function ProductPageByUsername() {
         removeFromCart={removeFromCart}
         updateQuantity={updateQuantity}
       />
+
+      {/* Notificación temporal - Premium Toast */}
+      {notification.show && (
+        <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[100] w-[calc(100%-2rem)] max-w-xs pointer-events-none animate-[slideDown_0.3s_ease-out]">
+          <div className="bg-gray-900/95 backdrop-blur-xl border border-white/10 rounded-[2rem] px-6 py-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+              <i className="bi bi-bag-check-fill text-emerald-400 text-lg"></i>
+            </div>
+            <div className="flex-1">
+              <p className="text-white font-black text-[10px] uppercase tracking-[0.2em] leading-tight">
+                {notification.message}
+              </p>
+            </div>
+          </div>
+          <style jsx>{`
+            @keyframes slideDown {
+              from { transform: translateY(-20px); opacity: 0; }
+              to { transform: translateY(0); opacity: 1; }
+            }
+          `}</style>
+        </div>
+      )}
     </div>
   )
 }
