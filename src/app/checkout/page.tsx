@@ -1230,23 +1230,18 @@ function CheckoutContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Sticky Header - Matching CartSidebar */}
+      {/* Sticky Header - Simplified with only back arrow */}
       <div className="px-4 sm:px-6 pt-6 pb-4 bg-white sticky top-0 z-10 border-b border-gray-100 shadow-sm mb-6">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              href={business?.username ? `/app/${business.username}` : '/'}
-              className="p-2 -ml-2 text-gray-800 hover:bg-gray-100 rounded-full transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
-              </svg>
-            </Link>
-            <h1 className="text-lg font-bold text-gray-900 leading-none">
-              {business?.name || 'Checkout'}
-            </h1>
-          </div>
-
+        <div className="max-w-4xl mx-auto flex items-center">
+          <Link
+            href={business?.username ? `/app/${business.username}` : '/'}
+            className="p-2 -ml-2 text-gray-800 hover:bg-gray-100 rounded-full transition-colors flex items-center gap-2"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+            </svg>
+            <span className="text-sm font-medium">Volver</span>
+          </Link>
         </div>
       </div>
 
@@ -1932,8 +1927,8 @@ function CheckoutContent() {
                   </div>
                   <span className={`font-bold ${deliveryCost > 0 ? 'text-gray-900' : 'text-amber-600'}`}>
                     {deliveryData.type === 'delivery' && deliveryCost === 0
-                      ? 'Calculando...'
-                      : (deliveryData.type === 'pickup' ? 'Gratis' : (deliveryCost > 0 ? `$${deliveryCost.toFixed(2)}` : 'Pendiente'))}
+                      ? 'Por calcular'
+                      : (deliveryData.type === 'pickup' ? '$0' : (deliveryCost > 0 ? `$${deliveryCost.toFixed(2)}` : 'Por calcular'))}
                   </span>
                 </div>
 
@@ -1954,28 +1949,22 @@ function CheckoutContent() {
 
         {/* Confirmación final (no flotante) */}
         <div className="max-w-4xl mx-auto mt-6 px-4">
-          <div className="bg-white rounded-lg shadow-md p-4 flex flex-col sm:flex-row items-center justify-between">
-            <div className="mb-3 sm:mb-0">
-              <p className="text-sm text-gray-600">Total</p>
-              <p className="text-lg font-semibold text-red-600">${total.toFixed(2)}</p>
-            </div>
-            <div className="w-full sm:w-auto">
-              <div className="w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage)}
-                  className={`w-full sm:w-auto px-6 py-3 rounded-lg text-white font-medium ${!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage)
-                    ? 'bg-gray-400 cursor-not-allowed'
-                    : 'bg-green-500 hover:bg-green-600'
-                    }`}
-                >
-                  {loading ? 'Procesando...' : (readyToConfirm ? 'Confirmar pedido' : 'Completa los pasos')}
-                </button>
-                {deliveryData.type === 'delivery' && selectedLocationOutsideCoverage && (
-                  <p className="text-sm text-yellow-800 mt-2">No es posible confirmar el pedido porque la ubicación seleccionada está fuera de la zona de cobertura.</p>
-                )}
-              </div>
+          <div className="bg-white rounded-lg shadow-md p-4 flex justify-center">
+            <div className="w-full sm:w-auto text-center">
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage)}
+                className={`w-full sm:w-auto px-6 py-3 rounded-lg text-white font-medium ${!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage)
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-green-500 hover:bg-green-600'
+                  }`}
+              >
+                {loading ? 'Procesando...' : (readyToConfirm ? 'Confirmar pedido' : 'Completa los pasos')}
+              </button>
+              {deliveryData.type === 'delivery' && selectedLocationOutsideCoverage && (
+                <p className="text-sm text-yellow-800 mt-2">No es posible confirmar el pedido porque la ubicación seleccionada está fuera de la zona de cobertura.</p>
+              )}
             </div>
           </div>
         </div>
