@@ -48,3 +48,69 @@ export function getStoreStatusDescription(business: Business | null): string {
         return isOpen ? 'Abierto (Horario)' : 'Cerrado (Horario)'
     }
 }
+
+/**
+ * Normaliza una hora en formato H:M o HH:M a HH:MM para comparación segura.
+ * Maneja espacios y segundos si existieran.
+ */
+export function normalizeTime(time: string): string {
+    if (!time) return ''
+    // Limpiar espacios y segundos
+    const cleanTime = time.trim().split(' ')[0]
+    const parts = cleanTime.split(':')
+    if (parts.length < 2) return cleanTime
+
+    // Tomar solo HH y MM ignorando SS si existiera
+    const [h, m] = parts
+    return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`
+}
+
+/**
+ * Valida si una fecha y hora específicas están dentro del horario de la tienda.
+ */
+export function isSpecificTimeOpen(business: Business | null, dateStr: string, timeStr: string): boolean {
+    if (!business || !dateStr || !timeStr) return false
+
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const requestedDate = new Date(year, month - 1, day)
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+    const dayOfWeek = dayNames[requestedDate.getDay()]
+
+    const schedule = business.schedule?.[dayOfWeek]
+
+    if (!schedule || !schedule.isOpen) return false
+
+    // Normalizar para comparación de texto segura (ej: "9:00" -> "09:00")
+    const normalizedRequested = normalizeTime(timeStr)
+    const normalizedOpen = normalizeTime(schedule.open)
+    const normalizedClose = normalizeTime(schedule.close)
+
+    return normalizedRequested >= normalizedOpen && normalizedRequested <= normalizedClose
+}
+
+/**
+ * Obtiene el horario de la tienda para un día específico.
+ */
+export function getStoreScheduleForDate(business: Business | null, dateStr: string) {
+    if (!business || !dateStr) return null
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const requestedDate = new Date(year, month - 1, day)
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+    const dayOfWeek = dayNames[requestedDate.getDay()]
+
+    // Traducción de días para el mensaje
+    const dayTranslations: Record<string, string> = {
+        'sunday': 'domingo',
+        'monday': 'lunes',
+        'tuesday': 'martes',
+        'wednesday': 'miércoles',
+        'thursday': 'jueves',
+        'friday': 'viernes',
+        'saturday': 'sábado'
+    }
+
+    return {
+        schedule: business.schedule?.[dayOfWeek] || null,
+        dayName: dayTranslations[dayOfWeek] || dayOfWeek
+    }
+}

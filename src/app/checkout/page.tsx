@@ -12,7 +12,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { Timestamp } from 'firebase/firestore'
-import { isStoreOpen } from '@/lib/store-utils'
+import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate, normalizeTime } from '@/lib/store-utils'
 
 
 // Componente para subir comprobante de transferencia
@@ -925,7 +925,9 @@ function CheckoutContent() {
       if (timingData.type === 'immediate') {
         maxStep = 4;
       } else if (timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime) {
-        maxStep = 4;
+        if (isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)) {
+          maxStep = 4;
+        }
       }
     }
 
@@ -964,7 +966,7 @@ function CheckoutContent() {
     if (!timingData.type) return false;
     if (timingData.type === 'immediate') return true;
     if (timingData.type === 'scheduled') {
-      return Boolean(timingData.scheduledDate && timingData.scheduledTime);
+      return Boolean(timingData.scheduledDate && timingData.scheduledTime && isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime));
     }
     return false;
   })();
@@ -999,6 +1001,7 @@ function CheckoutContent() {
     if (!timingData.type) return false; // requiere seleccionar inmediato o programado
     if (timingData.type === 'scheduled') {
       if (!timingData.scheduledDate || !timingData.scheduledTime) return false;
+      if (!isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)) return false;
     }
 
     // Paso 4: pago
@@ -1646,7 +1649,10 @@ function CheckoutContent() {
                         min={new Date().toISOString().split('T')[0]}
                         value={timingData.scheduledDate}
                         onChange={(e) => setTimingData({ ...timingData, scheduledDate: e.target.value })}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 ${timingData.scheduledDate && timingData.scheduledTime && !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)
+                          ? 'border-red-300'
+                          : 'border-gray-200'
+                          }`}
                       />
                     </div>
                     <div>
@@ -1655,9 +1661,35 @@ function CheckoutContent() {
                         type="time"
                         value={timingData.scheduledTime}
                         onChange={(e) => setTimingData({ ...timingData, scheduledTime: e.target.value })}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 ${timingData.scheduledDate && timingData.scheduledTime && !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)
+                          ? 'border-red-300'
+                          : 'border-gray-200'
+                          }`}
                       />
                     </div>
+
+                    {timingData.scheduledDate && timingData.scheduledTime && !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) && (
+                      <div className="col-span-2 mt-2 p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 animate-fadeIn">
+                        <i className="bi bi-exclamation-circle-fill text-red-500 mt-0.5"></i>
+                        <div className="text-sm text-red-700">
+                          <p className="font-bold">Fuera de horario</p>
+                          <p>La tienda no recibe pedidos en el horario seleccionado.</p>
+                          {(() => {
+                            const info = getStoreScheduleForDate(business, timingData.scheduledDate);
+                            if (info?.schedule && info.schedule.isOpen) {
+                              return (
+                                <p className="mt-1 font-medium">
+                                  El {info.dayName} atendemos de {info.schedule.open} a {info.schedule.close}.
+                                </p>
+                              );
+                            } else if (info) {
+                              return <p className="mt-1 font-medium text-red-800">El {info.dayName} la tienda permanece cerrada.</p>;
+                            }
+                            return null;
+                          })()}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
