@@ -10,7 +10,7 @@ export const getNextStatus = (status: Order['status']): Order['status'] | null =
 }
 // Helper para formatear la fecha programada
 const formatScheduledDate = (timing: Order['timing']): string => {
-    if (timing?.type !== 'scheduled') return '⚡ Inmediato';
+    if (timing?.type !== 'scheduled') return '⚡ Inmediato\n_(Aprox 30 minutos)_';
 
     const time = timing.scheduledTime || '';
 
@@ -311,7 +311,9 @@ export const sendOrderToStore = (order: Order, business: Business) => {
 
     const orderType = formatScheduledDate(order.timing);
 
-    const references = order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'
+    const references = order.delivery.type === 'pickup'
+        ? '🏪 Retira en tienda'
+        : (order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia');
 
     // Construir mensaje con el formato solicitado
     let message = `*Hola ${business.name}, he realizado un pedido!*\n\n`

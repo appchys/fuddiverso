@@ -1079,9 +1079,9 @@ function CheckoutContent() {
       let scheduledTime, scheduledDate;
 
       if (timingData.type === 'immediate') {
-        // Para inmediato: fecha y hora actuales + 30 minutos
+        // Para inmediato: fecha y hora actuales + 31 minutos
         const now = new Date();
-        const deliveryTime = new Date(now.getTime() + 30 * 60 * 1000);
+        const deliveryTime = new Date(now.getTime() + 31 * 60 * 1000);
 
         // Asegurarse de que la hora esté en formato de 24h con ceros a la izquierda
         const hours = String(deliveryTime.getHours()).padStart(2, '0');
