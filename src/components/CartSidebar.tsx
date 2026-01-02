@@ -3,8 +3,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { QRCode, UserQRProgress } from '@/types'
-import { getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize } from '@/lib/database'
-import { normalizeEcuadorianPhone } from '@/lib/validation'
+import {
+    getQRCodesByBusiness,
+    getUserQRProgress,
+    redeemQRCodePrize,
+    unredeemQRCodePrize,
+    searchClientByPhone,
+    setClientPin,
+    clearClientPin,
+    registerClientForgotPin
+} from '@/lib/database'
+import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 import { CheckoutContent } from '@/components/CheckoutContent'
 
 interface CartSidebarProps {
@@ -26,7 +35,7 @@ export default function CartSidebar({
     updateQuantity,
     addItemToCart
 }: CartSidebarProps) {
-    const { user } = useAuth()
+    const { user, login } = useAuth()
 
     const [view, setView] = useState<'cart' | 'checkout'>('cart')
 
@@ -39,6 +48,14 @@ export default function CartSidebar({
     const [redeemingQrId, setRedeemingQrId] = useState<string | null>(null)
     const [qrError, setQrError] = useState<string>('')
     const [lastQrPrizeIdInCart, setLastQrPrizeIdInCart] = useState<string[]>([])
+
+    // Login states
+    const [customerData, setCustomerData] = useState({ name: '', phone: '' })
+    const [loginPin, setLoginPin] = useState('')
+    const [loginPinError, setLoginPinError] = useState('')
+    const [loginPinLoading, setLoginPinLoading] = useState(false)
+    const [pinAttempted, setPinAttempted] = useState(false)
+    const [clientFound, setClientFound] = useState<any | null>(null)
 
     const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
     const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
@@ -247,6 +264,129 @@ export default function CartSidebar({
             setQrError('Error al canjear la tarjeta')
         } finally {
             setRedeemingQrId(null)
+        }
+    }
+
+    // Función para hashear el PIN de manera consistente (misma lógica que CheckoutContent)
+    const hashPin = async (pin: string): Promise<string> => {
+        // Implementación de hash simple pero consistente
+        const simpleHash = (str: string): string => {
+            let hash = 0
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i)
+                hash = ((hash << 5) - hash) + char
+                hash = hash & hash // Convierte a 32bit entero
+            }
+            return Math.abs(hash).toString(16).padStart(8, '0')
+        }
+
+        // Para compatibilidad con hashes existentes, intentar usar SHA-256
+        try {
+            if (typeof window !== 'undefined' && window.crypto?.subtle?.digest) {
+                // Si el hash existente del cliente tiene 64 caracteres, asumimos SHA-256
+                if (clientFound?.pinHash?.length === 64) {
+                    const encoder = new TextEncoder()
+                    const data = encoder.encode(pin)
+                    const hashBuffer = await window.crypto.subtle.digest('SHA-256', data)
+                    const hashArray = Array.from(new Uint8Array(hashBuffer))
+                    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+                }
+            }
+        } catch (e) {
+            console.warn('Error usando Web Crypto API, usando hash simple', e)
+        }
+
+        // Por defecto, usar el hash simple
+        return simpleHash(pin)
+    }
+
+    // Función para login con PIN
+    const handleCheckoutLoginWithPin = async () => {
+        if (!loginPin || loginPin.length < 4) {
+            setLoginPinError('El PIN debe tener al menos 4 dígitos')
+            setPinAttempted(true)
+            return
+        }
+
+        setLoginPinLoading(true)
+        setLoginPinError('')
+
+        try {
+            const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
+            const client = await searchClientByPhone(normalizedPhone)
+
+            if (!client) {
+                setLoginPinError('No se encontró un cliente con este teléfono')
+                setPinAttempted(true)
+                setLoginPinLoading(false)
+                return
+            }
+
+            // Guardar el cliente encontrado para usar en hashPin
+            setClientFound(client)
+
+            if (!client.pinHash) {
+                setLoginPinError('Este cliente no tiene un PIN configurado')
+                setPinAttempted(true)
+                setLoginPinLoading(false)
+                return
+            }
+
+            const hashedPin = await hashPin(loginPin)
+            if (hashedPin !== client.pinHash) {
+                setLoginPinError('PIN incorrecto')
+                setPinAttempted(true)
+                setLoginPinLoading(false)
+                return
+            }
+
+            // Login exitoso
+            login(client)
+
+            try {
+                localStorage.setItem('loginPhone', normalizedPhone)
+                localStorage.setItem('clientData', JSON.stringify(client))
+            } catch (e) {
+                console.error('Error saving additional data to localStorage:', e)
+            }
+
+            setLocalClientProfile(client)
+            setLocalClientId(normalizedPhone)
+            setLoginPin('')
+            setLoginPinError('')
+            setPinAttempted(false)
+            setCustomerData({ ...customerData, name: client.nombres || '' })
+        } catch (e) {
+            console.error('Error during login:', e)
+            setLoginPinError('Error al iniciar sesión')
+            setPinAttempted(true)
+        } finally {
+            setLoginPinLoading(false)
+        }
+    }
+
+    // Función para resetear PIN
+    const handleCheckoutResetPin = async () => {
+        if (!customerData.phone) {
+            alert('Por favor ingresa tu número de teléfono')
+            return
+        }
+
+        const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
+        const confirmReset = confirm(`¿Estás seguro de que quieres resetear tu PIN para el número ${normalizedPhone}? Se eliminará tu PIN actual.`)
+
+        if (!confirmReset) return
+
+        try {
+            await clearClientPin(normalizedPhone)
+            await registerClientForgotPin(normalizedPhone)
+            alert('Tu PIN ha sido eliminado. Por favor contacta con el negocio para crear uno nuevo.')
+            setPinAttempted(false)
+            setLoginPin('')
+            setLoginPinError('')
+        } catch (e) {
+            console.error('Error resetting PIN:', e)
+            alert('Error al resetear el PIN. Por favor intenta de nuevo.')
         }
     }
 
@@ -464,91 +604,174 @@ export default function CartSidebar({
                                 </div>
                             )}
 
-                            {view === 'cart' && clientId && (
+                            {view === 'cart' && (
                                 <div className="mt-8">
-                                    <div className="flex items-center justify-between mb-3">
-                                        <h4 className="font-bold text-gray-900">Tarjetas escaneadas</h4>
-                                        {loadingQr && (
-                                            <span className="text-xs text-gray-400 font-bold">Cargando...</span>
-                                        )}
-                                    </div>
+                                    {/* Si no hay usuario loggeado, mostrar prompt de login para QR */}
+                                    {!clientId ? (
+                                        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+                                            <div className="flex items-center gap-3 mb-4">
+                                                <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center border border-amber-100">
+                                                    <i className="bi bi-gift-fill text-xl text-amber-600"></i>
+                                                </div>
+                                                <div className="flex-1">
+                                                    <h4 className="font-bold text-gray-900">¿Tienes un QR canjeable?</h4>
+                                                    <p className="text-xs text-gray-500 mt-0.5">Inicia sesión para ver tus tarjetas</p>
+                                                </div>
+                                            </div>
 
-                                    {qrError && (
-                                        <div className="mb-3 text-xs text-red-600 font-bold">
-                                            {qrError}
-                                        </div>
-                                    )}
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-2">Número de Celular</label>
+                                                    <div className="relative">
+                                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                                                            <i className="bi bi-phone"></i>
+                                                        </span>
+                                                        <input
+                                                            type="tel"
+                                                            value={customerData.phone}
+                                                            onChange={(e) => {
+                                                                const phone = e.target.value;
+                                                                setCustomerData({ ...customerData, phone });
+                                                            }}
+                                                            onBlur={(e) => {
+                                                                const phone = e.target.value;
+                                                                const normalizedPhone = normalizeEcuadorianPhone(phone);
+                                                                if (validateEcuadorianPhone(normalizedPhone)) {
+                                                                    setCustomerData({ ...customerData, phone: normalizedPhone });
+                                                                }
+                                                            }}
+                                                            className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all"
+                                                            placeholder="0912345678"
+                                                            maxLength={10}
+                                                        />
+                                                    </div>
+                                                </div>
 
-                                    {!loadingQr && (!qrProgress || visibleQrCards.length === 0) ? (
-                                        <p className="text-sm text-gray-500">
-                                            Aún no tienes tarjetas escaneadas.
-                                        </p>
-                                    ) : (
-                                        <div className="overflow-x-auto scrollbar-hide -mx-6 px-6">
-                                            <div className="flex gap-4 pb-2 snap-x snap-mandatory">
-                                                {visibleQrCards.map((code) => {
-                                                    const redeemed = (qrProgress?.redeemedPrizeCodes || []).includes(code.id)
-                                                    const hasPrize = !!code.prize?.trim()
-                                                    const isBeingRedeemedInThisOrder = qrPrizeIdsInCart.includes(code.id)
-                                                    const canRedeem = hasPrize && !redeemed && !isBeingRedeemedInThisOrder
-                                                    const dark = isDarkColor(code.color)
-                                                    const cardBg = isBeingRedeemedInThisOrder ? '#E5E7EB' : (code.color || '#F3F4F6')
-                                                    const cardTextDark = isBeingRedeemedInThisOrder ? false : dark
-
-                                                    return (
-                                                        <div
-                                                            key={code.id}
-                                                            className="min-w-[260px] max-w-[260px] snap-start rounded-2xl p-4 shadow-sm border border-black/5"
-                                                            style={{ backgroundColor: cardBg }}
-                                                        >
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/80 border border-white/40 flex-shrink-0">
-                                                                    <img
-                                                                        src={code.image || business?.image || 'https://via.placeholder.com/80?text=QR'}
-                                                                        alt={code.prize || code.name}
-                                                                        className="w-full h-full object-cover"
-                                                                        loading="lazy"
-                                                                        decoding="async"
-                                                                        onError={(e) => {
-                                                                            const target = e.target as HTMLImageElement
-                                                                            target.src = business?.image || 'https://via.placeholder.com/80?text=QR'
-                                                                        }}
-                                                                    />
-                                                                </div>
-
-                                                                <div className="min-w-0 flex-1">
-                                                                    <p className={`text-sm font-black truncate ${cardTextDark ? 'text-white' : 'text-gray-900'}`}>🎫 {code.name}</p>
-                                                                    {hasPrize ? (
-                                                                        <p className={`text-xs truncate ${cardTextDark ? 'text-white/90' : 'text-gray-700'}`}>Premio: {code.prize}</p>
-                                                                    ) : (
-                                                                        <p className={`text-xs truncate ${cardTextDark ? 'text-white/70' : 'text-gray-500'}`}>Sin premio configurado</p>
-                                                                    )}
-                                                                    {isBeingRedeemedInThisOrder ? (
-                                                                        <p className="text-[10px] font-black uppercase tracking-widest mt-1 text-gray-500">En canje</p>
-                                                                    ) : redeemed ? (
-                                                                        <p className={`text-[10px] font-black uppercase tracking-widest mt-1 ${cardTextDark ? 'text-white/70' : 'text-gray-500'}`}>Canjeado</p>
-                                                                    ) : null}
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="mt-4">
+                                                {customerData.phone.trim() && (
+                                                    <div className="animate-fadeIn">
+                                                        <label className="block text-sm font-medium text-gray-700 mb-2">Ingresa tu PIN</label>
+                                                        <input
+                                                            type="password"
+                                                            value={loginPin}
+                                                            onChange={(e) => setLoginPin(e.target.value)}
+                                                            maxLength={6}
+                                                            className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+                                                            placeholder="••••••"
+                                                            onKeyPress={(e) => e.key === 'Enter' && loginPin.length >= 4 && handleCheckoutLoginWithPin()}
+                                                        />
+                                                        {pinAttempted && (
+                                                            <div className="text-right mt-1">
                                                                 <button
-                                                                    onClick={() => handleRedeemQrPrize(code)}
-                                                                    disabled={!canRedeem || redeemingQrId === code.id || isBeingRedeemedInThisOrder}
-                                                                    className={`w-full px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-colors disabled:cursor-not-allowed ${dark
-                                                                        ? 'bg-white text-gray-900 hover:bg-white/90 disabled:bg-white/50'
-                                                                        : 'bg-gray-900 text-white hover:bg-black disabled:bg-gray-300'
-                                                                        }`}
+                                                                    type="button"
+                                                                    onClick={handleCheckoutResetPin}
+                                                                    className="text-xs text-gray-500 hover:text-red-500 transition-colors"
                                                                 >
-                                                                    {isBeingRedeemedInThisOrder
-                                                                        ? 'En carrito'
-                                                                        : (redeemingQrId === code.id ? 'Canjeando...' : (hasPrize ? 'Canjear' : 'No disponible'))}
+                                                                    ¿Olvidaste tu PIN?
                                                                 </button>
                                                             </div>
+                                                        )}
+                                                        {loginPinError && <p className="text-red-500 text-sm mt-1">{loginPinError}</p>}
+
+                                                        <div className="mt-3">
+                                                            <button
+                                                                onClick={handleCheckoutLoginWithPin}
+                                                                disabled={loginPin.length < 4 || loginPinLoading}
+                                                                className="w-full px-4 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                            >
+                                                                {loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}
+                                                            </button>
                                                         </div>
-                                                    )
-                                                })}
+                                                    </div>
+                                                )}
                                             </div>
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h4 className="font-bold text-gray-900">Tarjetas escaneadas</h4>
+                                                {loadingQr && (
+                                                    <span className="text-xs text-gray-400 font-bold">Cargando...</span>
+                                                )}
+                                            </div>
+
+                                            {qrError && (
+                                                <div className="mb-3 text-xs text-red-600 font-bold">
+                                                    {qrError}
+                                                </div>
+                                            )}
+
+                                            {!loadingQr && (!qrProgress || visibleQrCards.length === 0) ? (
+                                                <p className="text-sm text-gray-500">
+                                                    Aún no tienes tarjetas escaneadas.
+                                                </p>
+                                            ) : (
+                                                <div className="overflow-x-auto scrollbar-hide -mx-6 px-6">
+                                                    <div className="flex gap-4 pb-2 snap-x snap-mandatory">
+                                                        {visibleQrCards.map((code) => {
+                                                            const redeemed = (qrProgress?.redeemedPrizeCodes || []).includes(code.id)
+                                                            const hasPrize = !!code.prize?.trim()
+                                                            const isBeingRedeemedInThisOrder = qrPrizeIdsInCart.includes(code.id)
+                                                            const canRedeem = hasPrize && !redeemed && !isBeingRedeemedInThisOrder
+                                                            const dark = isDarkColor(code.color)
+                                                            const cardBg = isBeingRedeemedInThisOrder ? '#E5E7EB' : (code.color || '#F3F4F6')
+                                                            const cardTextDark = isBeingRedeemedInThisOrder ? false : dark
+
+                                                            return (
+                                                                <div
+                                                                    key={code.id}
+                                                                    className="min-w-[260px] max-w-[260px] snap-start rounded-2xl p-4 shadow-sm border border-black/5"
+                                                                    style={{ backgroundColor: cardBg }}
+                                                                >
+                                                                    <div className="flex items-center gap-3">
+                                                                        <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/80 border border-white/40 flex-shrink-0">
+                                                                            <img
+                                                                                src={code.image || business?.image || 'https://via.placeholder.com/80?text=QR'}
+                                                                                alt={code.prize || code.name}
+                                                                                className="w-full h-full object-cover"
+                                                                                loading="lazy"
+                                                                                decoding="async"
+                                                                                onError={(e) => {
+                                                                                    const target = e.target as HTMLImageElement
+                                                                                    target.src = business?.image || 'https://via.placeholder.com/80?text=QR'
+                                                                                }}
+                                                                            />
+                                                                        </div>
+
+                                                                        <div className="min-w-0 flex-1">
+                                                                            <p className={`text-sm font-black truncate ${cardTextDark ? 'text-white' : 'text-gray-900'}`}>🎫 {code.name}</p>
+                                                                            {hasPrize ? (
+                                                                                <p className={`text-xs truncate ${cardTextDark ? 'text-white/90' : 'text-gray-700'}`}>Premio: {code.prize}</p>
+                                                                            ) : (
+                                                                                <p className={`text-xs truncate ${cardTextDark ? 'text-white/70' : 'text-gray-500'}`}>Sin premio configurado</p>
+                                                                            )}
+                                                                            {isBeingRedeemedInThisOrder ? (
+                                                                                <p className="text-[10px] font-black uppercase tracking-widest mt-1 text-gray-500">En canje</p>
+                                                                            ) : redeemed ? (
+                                                                                <p className={`text-[10px] font-black uppercase tracking-widest mt-1 ${cardTextDark ? 'text-white/70' : 'text-gray-500'}`}>Canjeado</p>
+                                                                            ) : null}
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="mt-4">
+                                                                        <button
+                                                                            onClick={() => handleRedeemQrPrize(code)}
+                                                                            disabled={!canRedeem || redeemingQrId === code.id || isBeingRedeemedInThisOrder}
+                                                                            className={`w-full px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-colors disabled:cursor-not-allowed ${dark
+                                                                                ? 'bg-white text-gray-900 hover:bg-white/90 disabled:bg-white/50'
+                                                                                : 'bg-gray-900 text-white hover:bg-black disabled:bg-gray-300'
+                                                                                }`}
+                                                                        >
+                                                                            {isBeingRedeemedInThisOrder
+                                                                                ? 'En carrito'
+                                                                                : (redeemingQrId === code.id ? 'Canjeando...' : (hasPrize ? 'Canjear' : 'No disponible'))}
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
