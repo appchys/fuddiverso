@@ -1650,9 +1650,9 @@ export function CheckoutContent({
                       <i className="bi bi-lightning-charge-fill"></i>
                     </div>
                     <span className="font-bold">Lo antes posible</span>
-                    {!isStoreOpen(business) && (
-                      <span className="text-xs text-gray-500 mt-1">Tienda cerrada</span>
-                    )}
+                    <span className={`text-xs mt-1 ${timingData.type === 'immediate' ? 'text-white/80' : 'text-gray-500'}`}>
+                      {isStoreOpen(business) ? 'Aprox 30 minutos' : 'Tienda cerrada'}
+                    </span>
                     {timingData.type === 'immediate' && isStoreOpen(business) && (
                       <div className="absolute top-2 right-2 text-white text-xs">
                         <i className="bi bi-check-circle-fill"></i>
@@ -1928,63 +1928,74 @@ export function CheckoutContent({
               </h3>
 
               <div className="space-y-4 mb-6">
-                {cartItems.map((item: any, index: number) => (
-                  <div
-                    key={index}
-                    className={`flex gap-3 p-3 rounded-xl transition-all ${item.qrCodeId
-                      ? 'bg-blue-50/50 border border-blue-100 shadow-sm'
-                      : item.esPremio
-                        ? 'bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200 shadow-sm'
-                        : 'bg-gray-50 border border-gray-50 hover:border-gray-200'
-                      }`}
-                  >
-                    {/* Item Image Preview if available, else icon */}
-                    <div className="w-12 h-12 rounded-lg bg-white border border-gray-200 flex-shrink-0 flex items-center justify-center overflow-hidden shadow-sm">
-                      {item.image ? (
-                        <img src={item.image} alt={item.productName || item.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <i className={`bi bi-box2-fill text-xl ${item.qrCodeId ? 'text-blue-400' : item.esPremio ? 'text-amber-400' : 'text-gray-300'}`}></i>
-                      )}
-                    </div>
+                {[...cartItems]
+                  .sort((a, b) => {
+                    if (a.esPremio && !b.esPremio) return 1;
+                    if (!a.esPremio && b.esPremio) return -1;
+                    return 0;
+                  })
+                  .map((item: any, index: number) => {
+                    const isTarjeta = !!item.qrCodeId;
+                    const isRegalo = item.esPremio && !isTarjeta;
+                    const displayName = isRegalo || isTarjeta
+                      ? item.name
+                      : (item.variantName ? item.variantName : (item.productName || item.name));
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-start gap-1">
-                        <div className="flex-1 min-w-0">
-                          {item.variantName ? (
-                            <>
-                              <p className={`text-sm font-bold truncate ${item.qrCodeId ? 'text-blue-900' : item.esPremio ? 'text-amber-900' : 'text-gray-900'}`}>
-                                {item.variantName}
-                              </p>
-                              <p className="text-[11px] text-gray-500 uppercase font-bold tracking-wider">{item.productName}</p>
-                            </>
-                          ) : (
-                            <p className={`text-sm font-bold truncate ${item.qrCodeId ? 'text-blue-900' : item.esPremio ? 'text-amber-900' : 'text-gray-900'}`}>
-                              {item.productName || item.name}
-                            </p>
-                          )}
+                    return (
+                      <div
+                        key={index}
+                        className={`flex gap-3 p-3 rounded-xl transition-all ${isTarjeta
+                          ? 'bg-blue-50/50 border border-blue-100 shadow-sm'
+                          : isRegalo
+                            ? 'bg-amber-50/50 border border-amber-100 shadow-sm'
+                            : 'bg-gray-50 border border-gray-50 hover:border-gray-200'
+                          }`}
+                      >
+                        {/* Item Image Preview */}
+                        <div className="w-12 h-12 rounded-lg bg-white border border-gray-200 flex-shrink-0 flex items-center justify-center overflow-hidden shadow-sm">
+                          <img
+                            src={item.image || embeddedBusiness?.image}
+                            alt={displayName}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement
+                              if (target.src !== embeddedBusiness?.image) target.src = embeddedBusiness?.image || ''
+                            }}
+                          />
                         </div>
-                        <p className={`text-sm font-bold whitespace-nowrap ${item.qrCodeId ? 'text-blue-700' : item.esPremio ? 'text-amber-700' : 'text-gray-900'}`}>
-                          {item.price > 0 ? `$${(item.price * item.quantity).toFixed(2)}` : '¡Gratis!'}
-                        </p>
-                      </div>
 
-                      <div className="flex items-center justify-between mt-1">
-                        <p className="text-xs text-gray-500 flex items-center gap-1">
-                          <span className="font-medium bg-gray-200/50 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">x{item.quantity}</span>
-                        </p>
-                        {item.qrCodeId ? (
-                          <span className="text-[10px] bg-blue-500 text-white px-1.5 py-0.5 rounded font-bold uppercase tracking-tighter">
-                            TARJETA
-                          </span>
-                        ) : item.esPremio ? (
-                          <span className="text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded font-bold uppercase tracking-tighter">
-                            REGALO
-                          </span>
-                        ) : null}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-start gap-1">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
+                                <p className={`text-sm font-bold truncate leading-tight ${isTarjeta ? 'text-blue-900' : isRegalo ? 'text-amber-900' : 'text-gray-900'}`}>
+                                  {displayName}
+                                </p>
+                                {isTarjeta ? (
+                                  <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-black uppercase tracking-wider border border-blue-200">
+                                    Tarjeta
+                                  </span>
+                                ) : isRegalo ? (
+                                  <span className="text-[9px] bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
+                                    Regalo
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                            <p className={`text-sm font-medium whitespace-nowrap ${isTarjeta ? 'text-blue-700' : isRegalo ? 'text-amber-700' : 'text-gray-600'}`}>
+                              {item.price > 0 ? `$${(item.price * item.quantity).toFixed(2)}` : '¡Gratis!'}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center justify-between mt-1">
+                            <p className="text-xs text-gray-500">
+                              <span className="font-medium bg-gray-200/50 text-gray-500 px-1.5 py-0.5 rounded text-[10px]">x{item.quantity}</span>
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                ))}
+                    );
+                  })}
               </div>
 
               <div className="space-y-3 pt-6 border-t border-gray-100">
