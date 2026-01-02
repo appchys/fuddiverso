@@ -11,7 +11,9 @@ import {
     searchClientByPhone,
     setClientPin,
     clearClientPin,
-    registerClientForgotPin
+    registerClientForgotPin,
+    createClient,
+    updateClient
 } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 import { CheckoutContent } from '@/components/CheckoutContent'
@@ -56,6 +58,12 @@ export default function CartSidebar({
     const [loginPinLoading, setLoginPinLoading] = useState(false)
     const [pinAttempted, setPinAttempted] = useState(false)
     const [clientFound, setClientFound] = useState<any | null>(null)
+    const [clientSearching, setClientSearching] = useState(false)
+    const [showNameField, setShowNameField] = useState(false)
+    const [registerPin, setRegisterPin] = useState('')
+    const [registerPinConfirm, setRegisterPinConfirm] = useState('')
+    const [registerError, setRegisterError] = useState('')
+    const [registerLoading, setRegisterLoading] = useState(false)
 
     const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
     const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
@@ -300,6 +308,115 @@ export default function CartSidebar({
         return simpleHash(pin)
     }
 
+    // Función para buscar cliente por teléfono (Misma lógica que CheckoutContent)
+    async function handlePhoneSearch(phone: string) {
+        if (!phone.trim()) {
+            setClientFound(null);
+            setShowNameField(false);
+            return;
+        }
+
+        const normalizedPhone = normalizeEcuadorianPhone(phone);
+        setPinAttempted(false);
+
+        if (!validateEcuadorianPhone(normalizedPhone)) {
+            setClientFound(null);
+            setShowNameField(false);
+            return;
+        }
+
+        setClientSearching(true);
+        try {
+            const client = await searchClientByPhone(normalizedPhone);
+            if (client) {
+                setClientFound(client);
+                setCustomerData(prev => ({
+                    ...prev,
+                    name: client.pinHash ? (client.nombres || '') : '',
+                    phone: normalizedPhone
+                }));
+                setShowNameField(!client.pinHash);
+            } else {
+                setClientFound(null);
+                setShowNameField(true);
+                setCustomerData(prev => ({
+                    ...prev,
+                    name: '',
+                    phone: normalizedPhone
+                }));
+            }
+        } catch (error) {
+            console.error('Error searching client in cart:', error);
+            setClientFound(null);
+            setShowNameField(true);
+        } finally {
+            setClientSearching(false);
+        }
+    }
+
+    // Handle registering or setting PIN from cart (Misma lógica que CheckoutContent)
+    const handleCheckoutRegisterOrSetPin = async () => {
+        setRegisterError('')
+        const requireName = !clientFound || (clientFound && !clientFound.pinHash)
+        if (requireName && (!customerData.name || !customerData.name.trim())) {
+            setRegisterError('Ingresa tu nombre')
+            return
+        }
+        if (!/^[0-9]{4,6}$/.test(registerPin)) {
+            setRegisterError('El PIN debe contener entre 4 y 6 dígitos')
+            return
+        }
+        if (registerPin !== registerPinConfirm) {
+            setRegisterError('Los PIN no coinciden')
+            return
+        }
+
+        setRegisterLoading(true)
+        try {
+            const pinHash = await hashPin(registerPin)
+            const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
+
+            if (clientFound && clientFound.id) {
+                try {
+                    if (customerData.name && customerData.name.trim()) {
+                        await updateClient(clientFound.id, { nombres: customerData.name.trim() })
+                    }
+                } catch (e) {
+                    console.warn('Could not update client name before setting PIN in cart', e)
+                }
+                await setClientPin(clientFound.id, pinHash)
+                const updated = await searchClientByPhone(normalizedPhone)
+                if (updated) {
+                    login(updated as any)
+                    setClientFound(updated)
+                    setShowNameField(false)
+
+                    // Actualizar sesión local
+                    localStorage.setItem('loginPhone', normalizedPhone)
+                    localStorage.setItem('clientData', JSON.stringify(updated))
+                    setLocalClientId(normalizedPhone)
+                    setLocalClientProfile(updated)
+                }
+            } else {
+                const newClient = await createClient({ celular: normalizedPhone, nombres: customerData.name, pinHash })
+                login(newClient as any)
+                setClientFound(newClient as any)
+                setShowNameField(false)
+
+                // Actualizar sesión local
+                localStorage.setItem('loginPhone', normalizedPhone)
+                localStorage.setItem('clientData', JSON.stringify(newClient))
+                setLocalClientId(normalizedPhone)
+                setLocalClientProfile(newClient)
+            }
+        } catch (e: any) {
+            console.error('Error in cart registration:', e)
+            setRegisterError('Error al procesar el registro: ' + (e.message || 'Intenta de nuevo'))
+        } finally {
+            setRegisterLoading(false)
+        }
+    }
+
     // Función para login con PIN
     const handleCheckoutLoginWithPin = async () => {
         if (!loginPin || loginPin.length < 4) {
@@ -313,7 +430,9 @@ export default function CartSidebar({
 
         try {
             const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
-            const client = await searchClientByPhone(normalizedPhone)
+
+            // Ya deberíamos tener clientFound por handlePhoneSearch, pero por seguridad verificamos
+            const client = clientFound || await searchClientByPhone(normalizedPhone)
 
             if (!client) {
                 setLoginPinError('No se encontró un cliente con este teléfono')
@@ -322,9 +441,6 @@ export default function CartSidebar({
                 return
             }
 
-            // Guardar el cliente encontrado para usar en hashPin
-            setClientFound(client)
-
             if (!client.pinHash) {
                 setLoginPinError('Este cliente no tiene un PIN configurado')
                 setPinAttempted(true)
@@ -332,61 +448,58 @@ export default function CartSidebar({
                 return
             }
 
-            const hashedPin = await hashPin(loginPin)
-            if (hashedPin !== client.pinHash) {
-                setLoginPinError('PIN incorrecto')
-                setPinAttempted(true)
-                setLoginPinLoading(false)
-                return
-            }
+            const currentHash = await hashPin(loginPin)
 
-            // Login exitoso
-            login(client)
-
-            try {
+            if (currentHash === client.pinHash) {
+                // Éxito
                 localStorage.setItem('loginPhone', normalizedPhone)
                 localStorage.setItem('clientData', JSON.stringify(client))
-            } catch (e) {
-                console.error('Error saving additional data to localStorage:', e)
-            }
+                setLocalClientId(normalizedPhone)
+                setLocalClientProfile(client)
 
-            setLocalClientProfile(client)
-            setLocalClientId(normalizedPhone)
-            setLoginPin('')
-            setLoginPinError('')
-            setPinAttempted(false)
-            setCustomerData({ ...customerData, name: client.nombres || '' })
-        } catch (e) {
-            console.error('Error during login:', e)
-            setLoginPinError('Error al iniciar sesión')
-            setPinAttempted(true)
+                // Sincronizar con AuthContext global
+                login(client)
+
+                // Resetear estados locales
+                setLoginPin('')
+                setLoginPinError('')
+                setPinAttempted(false)
+            } else {
+                setLoginPinError('PIN incorrecto')
+                setPinAttempted(true)
+            }
+        } catch (error) {
+            console.error('Error during checkout login:', error)
+            setLoginPinError('Ocurrió un error al verificar el PIN')
         } finally {
             setLoginPinLoading(false)
         }
     }
 
-    // Función para resetear PIN
+    // Función para resetear PIN (Misma lógica que CheckoutContent)
     const handleCheckoutResetPin = async () => {
-        if (!customerData.phone) {
-            alert('Por favor ingresa tu número de teléfono')
-            return
-        }
+        if (!clientFound?.id) return;
 
-        const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
-        const confirmReset = confirm(`¿Estás seguro de que quieres resetear tu PIN para el número ${normalizedPhone}? Se eliminará tu PIN actual.`)
-
+        const confirmReset = confirm('¿Estás seguro de que quieres resetear tu PIN? Se eliminará tu PIN actual y deberás crear uno nuevo.')
         if (!confirmReset) return
 
         try {
-            await clearClientPin(normalizedPhone)
-            await registerClientForgotPin(normalizedPhone)
-            alert('Tu PIN ha sido eliminado. Por favor contacta con el negocio para crear uno nuevo.')
-            setPinAttempted(false)
+            setLoginPinLoading(true)
+            await registerClientForgotPin(clientFound.id)
+            await clearClientPin(clientFound.id)
+
+            // Refrescar UI para mostrar flujo de crear PIN
+            setClientFound((prev: any | null) => (prev ? { ...prev, pinHash: null } : prev))
             setLoginPin('')
             setLoginPinError('')
+            setShowNameField(true)
+
+            alert('Tu PIN ha sido eliminado. Ahora puedes crear uno nuevo.')
         } catch (e) {
-            console.error('Error resetting PIN:', e)
-            alert('Error al resetear el PIN. Por favor intenta de nuevo.')
+            console.error('Error al limpiar PIN en carrito:', e)
+            setLoginPinError('No se pudo restablecer el PIN. Intenta nuevamente.')
+        } finally {
+            setLoginPinLoading(false)
         }
     }
 
@@ -498,109 +611,99 @@ export default function CartSidebar({
                                     </button>
                                 </div>
                             ) : (
-                                <div className="space-y-6">
-                                    {(() => {
-                                        const grouped: Record<string, any[]> = {}
-                                        cart.forEach(item => {
-                                            if (item.esPremio) {
-                                                if (!grouped['___premio___']) grouped['___premio___'] = []
-                                                grouped['___premio___'].push(item)
-                                                return
-                                            }
-                                            const key = item.productName || item.name
-                                            if (!grouped[key]) grouped[key] = []
-                                            grouped[key].push(item)
-                                        })
-
-                                        return Object.entries(grouped)
-                                            .sort(([a]) => (a === '___premio___' ? 1 : -1))
-                                            .map(([productName, items], groupIndex) => {
-                                                const isPremio = productName === '___premio___'
-                                                const firstItem = items[0]
+                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                                    <div className="divide-y divide-gray-50">
+                                        {[...cart]
+                                            .sort((a, b) => {
+                                                if (a.esPremio && !b.esPremio) return 1;
+                                                if (!a.esPremio && b.esPremio) return -1;
+                                                return 0;
+                                            })
+                                            .map((item, index) => {
+                                                const isTarjeta = !!item.qrCodeId;
+                                                const isRegalo = item.esPremio && !isTarjeta;
+                                                // Se muestra solo la variante si existe, o el nombre del producto si es único
+                                                const displayName = isRegalo || isTarjeta
+                                                    ? item.name
+                                                    : (item.variantName ? item.variantName : (item.productName || item.name));
 
                                                 return (
-                                                    <div key={productName} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-                                                        {/* Header del producto */}
-                                                        {!isPremio && (
-                                                            <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-50">
-                                                                <div className="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
-                                                                    <img
-                                                                        src={firstItem.image || business?.image}
-                                                                        alt={productName}
-                                                                        className="w-full h-full object-cover"
-                                                                        onError={(e) => {
-                                                                            const target = e.target as HTMLImageElement
-                                                                            if (target.src !== business?.image) target.src = business?.image || ''
-                                                                        }}
-                                                                    />
-                                                                </div>
-                                                                <h4 className="font-bold text-gray-900">{productName}</h4>
+                                                    <div
+                                                        key={`${item.id}-${item.variantName || index}`}
+                                                        className={`p-4 flex items-center gap-3 transition-all ${isTarjeta ? 'bg-blue-50/30' : isRegalo ? 'bg-amber-50/30' : ''}`}
+                                                    >
+                                                        {/* Imagen del producto */}
+                                                        <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-50 flex-shrink-0 border border-gray-100">
+                                                            <img
+                                                                src={item.image || business?.image}
+                                                                alt={displayName}
+                                                                className="w-full h-full object-cover"
+                                                                onError={(e) => {
+                                                                    const target = e.target as HTMLImageElement
+                                                                    if (target.src !== business?.image) target.src = business?.image || ''
+                                                                }}
+                                                            />
+                                                        </div>
+
+                                                        {/* Información del item */}
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
+                                                                <p className={`font-bold text-sm leading-tight ${isTarjeta ? 'text-blue-900' : isRegalo ? 'text-amber-900' : 'text-gray-900'}`}>
+                                                                    {displayName}
+                                                                </p>
+                                                                {isTarjeta ? (
+                                                                    <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-black uppercase tracking-wider border border-blue-200">
+                                                                        Tarjeta
+                                                                    </span>
+                                                                ) : isRegalo ? (
+                                                                    <span className="text-[9px] bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
+                                                                        Regalo
+                                                                    </span>
+                                                                ) : null}
                                                             </div>
-                                                        )}
+                                                            <div className="flex items-center justify-between mt-1">
+                                                                <span className="font-medium text-gray-600 text-sm">
+                                                                    {item.price === 0 ? 'Gratis' : `$${(item.price * item.quantity).toFixed(2)}`}
+                                                                </span>
+                                                            </div>
+                                                        </div>
 
-                                                        {/* Items del producto */}
-                                                        <div className="space-y-3">
-                                                            {items.map((item) => (
-                                                                <div
-                                                                    key={`${item.id}-${item.variantName || 'original'}`}
-                                                                    className={`flex items-start gap-3 ${item.esPremio ? 'bg-amber-50/50 p-3 rounded-xl border border-amber-100' : ''}`}
-                                                                >
-                                                                    {/* Info */}
-                                                                    <div className="flex-1 min-w-0 pt-1">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <p className={`font-medium text-sm leading-snug ${item.esPremio ? 'text-amber-900' : 'text-gray-700'}`}>
-                                                                                {item.esPremio ? item.name : (item.variantName || item.name)}
-                                                                            </p>
-                                                                            {item.esPremio && (
-                                                                                <span className="text-[10px] bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded font-bold uppercase tracking-wide">
-                                                                                    Regalo
-                                                                                </span>
-                                                                            )}
-                                                                        </div>
-                                                                        <div className="font-bold text-gray-900 mt-1">
-                                                                            {item.price === 0 ? 'Gratis' : `$${(item.price * item.quantity).toFixed(2)}`}
-                                                                        </div>
-                                                                    </div>
-
-                                                                    {/* Controles */}
-                                                                    <div className="flex items-center gap-3">
-                                                                        {!item.esPremio ? (
-                                                                            <div className="flex items-center bg-gray-100 rounded-lg p-1">
-                                                                                <button
-                                                                                    onClick={() => updateQuantity(item.id, item.quantity - 1, item.variantName)}
-                                                                                    className="w-7 h-7 flex items-center justify-center bg-white rounded-md text-gray-600 shadow-sm hover:text-red-500 transition-colors disabled:opacity-50"
-                                                                                    disabled={item.quantity <= 1}
-                                                                                >
-                                                                                    −
-                                                                                </button>
-                                                                                <span className="w-8 text-center font-bold text-sm text-gray-900">
-                                                                                    {item.quantity}
-                                                                                </span>
-                                                                                <button
-                                                                                    onClick={() => updateQuantity(item.id, item.quantity + 1, item.variantName)}
-                                                                                    className="w-7 h-7 flex items-center justify-center bg-white rounded-md text-gray-600 shadow-sm hover:text-green-600 transition-colors"
-                                                                                >
-                                                                                    +
-                                                                                </button>
-                                                                            </div>
-                                                                        ) : (
-                                                                            <span className="font-bold text-amber-900 text-sm px-2">x1</span>
-                                                                        )}
-
-                                                                        <button
-                                                                            onClick={() => removeFromCart(item.id, item.variantName)}
-                                                                            className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                                                        >
-                                                                            <i className="bi bi-trash"></i>
-                                                                        </button>
-                                                                    </div>
+                                                        {/* Controles de cantidad y eliminar */}
+                                                        <div className="flex items-center gap-2">
+                                                            {!item.esPremio ? (
+                                                                <div className="flex items-center bg-gray-100 rounded-lg p-0.5 scale-90">
+                                                                    <button
+                                                                        onClick={() => updateQuantity(item.id, item.quantity - 1, item.variantName)}
+                                                                        className="w-7 h-7 flex items-center justify-center bg-white rounded-md text-gray-600 shadow-sm hover:text-red-500 disabled:opacity-50"
+                                                                        disabled={item.quantity <= 1}
+                                                                    >
+                                                                        −
+                                                                    </button>
+                                                                    <span className="w-7 text-center font-bold text-sm text-gray-900">
+                                                                        {item.quantity}
+                                                                    </span>
+                                                                    <button
+                                                                        onClick={() => updateQuantity(item.id, item.quantity + 1, item.variantName)}
+                                                                        className="w-7 h-7 flex items-center justify-center bg-white rounded-md text-gray-600 shadow-sm hover:text-green-600"
+                                                                    >
+                                                                        +
+                                                                    </button>
                                                                 </div>
-                                                            ))}
+                                                            ) : (
+                                                                <span className={`font-bold text-xs px-2 ${isTarjeta ? 'text-blue-900' : 'text-amber-900'}`}>x1</span>
+                                                            )}
+
+                                                            <button
+                                                                onClick={() => removeFromCart(item.id, item.variantName)}
+                                                                className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                            >
+                                                                <i className="bi bi-trash"></i>
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 )
-                                            })
-                                    })()}
+                                            })}
+                                    </div>
                                 </div>
                             )}
 
@@ -622,65 +725,136 @@ export default function CartSidebar({
                                             <div className="space-y-4">
                                                 <div>
                                                     <label className="block text-sm font-medium text-gray-700 mb-2">Número de Celular</label>
-                                                    <div className="relative">
-                                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                                                            <i className="bi bi-phone"></i>
-                                                        </span>
-                                                        <input
-                                                            type="tel"
-                                                            value={customerData.phone}
-                                                            onChange={(e) => {
-                                                                const phone = e.target.value;
-                                                                setCustomerData({ ...customerData, phone });
-                                                            }}
-                                                            onBlur={(e) => {
-                                                                const phone = e.target.value;
-                                                                const normalizedPhone = normalizeEcuadorianPhone(phone);
-                                                                if (validateEcuadorianPhone(normalizedPhone)) {
-                                                                    setCustomerData({ ...customerData, phone: normalizedPhone });
-                                                                }
-                                                            }}
-                                                            className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all"
-                                                            placeholder="0912345678"
-                                                            maxLength={10}
-                                                        />
+                                                    <div className="flex gap-2">
+                                                        <div className="relative flex-1">
+                                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                                                                <i className="bi bi-phone"></i>
+                                                            </span>
+                                                            <input
+                                                                type="tel"
+                                                                value={customerData.phone}
+                                                                onChange={(e) => {
+                                                                    const phone = e.target.value;
+                                                                    setCustomerData({ ...customerData, phone });
+                                                                    handlePhoneSearch(phone);
+                                                                }}
+                                                                onBlur={(e) => {
+                                                                    const phone = e.target.value;
+                                                                    const normalizedPhone = normalizeEcuadorianPhone(phone);
+                                                                    if (validateEcuadorianPhone(normalizedPhone)) {
+                                                                        setCustomerData({ ...customerData, phone: normalizedPhone });
+                                                                    }
+                                                                }}
+                                                                className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all"
+                                                                placeholder="0912345678"
+                                                                maxLength={10}
+                                                                disabled={!!clientFound}
+                                                            />
+                                                        </div>
+                                                        {clientFound && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setClientFound(null)
+                                                                    setCustomerData({ name: '', phone: '' })
+                                                                    setShowNameField(false)
+                                                                    setPinAttempted(false)
+                                                                }}
+                                                                className="px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                                                            >
+                                                                Cambiar
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
 
                                                 {customerData.phone.trim() && (
                                                     <div className="animate-fadeIn">
-                                                        <label className="block text-sm font-medium text-gray-700 mb-2">Ingresa tu PIN</label>
-                                                        <input
-                                                            type="password"
-                                                            value={loginPin}
-                                                            onChange={(e) => setLoginPin(e.target.value)}
-                                                            maxLength={6}
-                                                            className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
-                                                            placeholder="••••••"
-                                                            onKeyPress={(e) => e.key === 'Enter' && loginPin.length >= 4 && handleCheckoutLoginWithPin()}
-                                                        />
-                                                        {pinAttempted && (
-                                                            <div className="text-right mt-1">
+                                                        {clientSearching && (
+                                                            <p className="text-blue-500 text-xs mb-2">Buscando cliente...</p>
+                                                        )}
+
+                                                        {!clientSearching && clientFound && clientFound.pinHash && (
+                                                            <div className="space-y-3">
+                                                                <p className="text-sm text-gray-700">Hola <strong>{clientFound.nombres || clientFound.celular}</strong></p>
+                                                                <label className="block text-sm font-medium text-gray-700">Ingresa tu PIN</label>
+                                                                <input
+                                                                    type="password"
+                                                                    value={loginPin}
+                                                                    onChange={(e) => setLoginPin(e.target.value)}
+                                                                    maxLength={6}
+                                                                    className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+                                                                    placeholder="••••"
+                                                                    onKeyPress={(e) => e.key === 'Enter' && loginPin.length >= 4 && handleCheckoutLoginWithPin()}
+                                                                />
+                                                                {pinAttempted && (
+                                                                    <div className="text-right">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={handleCheckoutResetPin}
+                                                                            className="text-xs text-gray-500 hover:text-red-500 transition-colors"
+                                                                        >
+                                                                            ¿Olvidaste tu PIN?
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                                {loginPinError && <p className="text-red-500 text-xs">{loginPinError}</p>}
                                                                 <button
-                                                                    type="button"
-                                                                    onClick={handleCheckoutResetPin}
-                                                                    className="text-xs text-gray-500 hover:text-red-500 transition-colors"
+                                                                    onClick={handleCheckoutLoginWithPin}
+                                                                    disabled={loginPin.length < 4 || loginPinLoading}
+                                                                    className="w-full px-4 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors disabled:opacity-50"
                                                                 >
-                                                                    ¿Olvidaste tu PIN?
+                                                                    {loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}
                                                                 </button>
                                                             </div>
                                                         )}
-                                                        {loginPinError && <p className="text-red-500 text-sm mt-1">{loginPinError}</p>}
 
-                                                        <div className="mt-3">
-                                                            <button
-                                                                onClick={handleCheckoutLoginWithPin}
-                                                                disabled={loginPin.length < 4 || loginPinLoading}
-                                                                className="w-full px-4 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                            >
-                                                                {loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}
-                                                            </button>
-                                                        </div>
+                                                        {!clientSearching && (showNameField || (clientFound && !clientFound.pinHash)) && (
+                                                            <div className="space-y-3">
+                                                                {clientFound && (
+                                                                    <p className="text-sm text-gray-700">Hola <strong>{clientFound.celular}</strong>. Por favor completa tus datos:</p>
+                                                                )}
+                                                                <div>
+                                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Nombre Completo *</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={customerData.name}
+                                                                        onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
+                                                                        className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+                                                                        placeholder="Juan Pérez"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Crea un PIN (4-6 dígitos)</label>
+                                                                    <input
+                                                                        type="password"
+                                                                        value={registerPin}
+                                                                        onChange={(e) => setRegisterPin(e.target.value)}
+                                                                        maxLength={6}
+                                                                        className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+                                                                        placeholder="••••"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar PIN</label>
+                                                                    <input
+                                                                        type="password"
+                                                                        value={registerPinConfirm}
+                                                                        onChange={(e) => setRegisterPinConfirm(e.target.value)}
+                                                                        maxLength={6}
+                                                                        className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+                                                                        placeholder="••••"
+                                                                    />
+                                                                </div>
+                                                                {registerError && <p className="text-red-500 text-xs">{registerError}</p>}
+                                                                <button
+                                                                    onClick={handleCheckoutRegisterOrSetPin}
+                                                                    disabled={registerLoading}
+                                                                    className="w-full px-4 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors disabled:opacity-50"
+                                                                >
+                                                                    {registerLoading ? 'Procesando...' : (clientFound ? 'Activar cuenta' : 'Registrarse')}
+                                                                </button>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>

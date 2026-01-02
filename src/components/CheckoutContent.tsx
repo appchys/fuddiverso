@@ -1931,9 +1931,11 @@ export function CheckoutContent({
                 {cartItems.map((item: any, index: number) => (
                   <div
                     key={index}
-                    className={`flex gap-3 p-3 rounded-xl transition-all ${item.esPremio
-                      ? 'bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200 shadow-sm'
-                      : 'bg-gray-50 border border-gray-50 hover:border-gray-200'
+                    className={`flex gap-3 p-3 rounded-xl transition-all ${item.qrCodeId
+                      ? 'bg-blue-50/50 border border-blue-100 shadow-sm'
+                      : item.esPremio
+                        ? 'bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200 shadow-sm'
+                        : 'bg-gray-50 border border-gray-50 hover:border-gray-200'
                       }`}
                   >
                     {/* Item Image Preview if available, else icon */}
@@ -1941,7 +1943,7 @@ export function CheckoutContent({
                       {item.image ? (
                         <img src={item.image} alt={item.productName || item.name} className="w-full h-full object-cover" />
                       ) : (
-                        <i className={`bi bi-box2-fill text-xl ${item.esPremio ? 'text-amber-400' : 'text-gray-300'}`}></i>
+                        <i className={`bi bi-box2-fill text-xl ${item.qrCodeId ? 'text-blue-400' : item.esPremio ? 'text-amber-400' : 'text-gray-300'}`}></i>
                       )}
                     </div>
 
@@ -1950,18 +1952,18 @@ export function CheckoutContent({
                         <div className="flex-1 min-w-0">
                           {item.variantName ? (
                             <>
-                              <p className={`text-sm font-bold truncate ${item.esPremio ? 'text-amber-900' : 'text-gray-900'}`}>
+                              <p className={`text-sm font-bold truncate ${item.qrCodeId ? 'text-blue-900' : item.esPremio ? 'text-amber-900' : 'text-gray-900'}`}>
                                 {item.variantName}
                               </p>
                               <p className="text-[11px] text-gray-500 uppercase font-bold tracking-wider">{item.productName}</p>
                             </>
                           ) : (
-                            <p className={`text-sm font-bold truncate ${item.esPremio ? 'text-amber-900' : 'text-gray-900'}`}>
+                            <p className={`text-sm font-bold truncate ${item.qrCodeId ? 'text-blue-900' : item.esPremio ? 'text-amber-900' : 'text-gray-900'}`}>
                               {item.productName || item.name}
                             </p>
                           )}
                         </div>
-                        <p className={`text-sm font-bold whitespace-nowrap ${item.esPremio ? 'text-amber-700' : 'text-gray-900'}`}>
+                        <p className={`text-sm font-bold whitespace-nowrap ${item.qrCodeId ? 'text-blue-700' : item.esPremio ? 'text-amber-700' : 'text-gray-900'}`}>
                           {item.price > 0 ? `$${(item.price * item.quantity).toFixed(2)}` : '¡Gratis!'}
                         </p>
                       </div>
@@ -1970,11 +1972,15 @@ export function CheckoutContent({
                         <p className="text-xs text-gray-500 flex items-center gap-1">
                           <span className="font-medium bg-gray-200/50 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">x{item.quantity}</span>
                         </p>
-                        {item.esPremio && (
-                          <span className="text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded font-bold uppercase tracking-tighter">
-                            PREMIO
+                        {item.qrCodeId ? (
+                          <span className="text-[10px] bg-blue-500 text-white px-1.5 py-0.5 rounded font-bold uppercase tracking-tighter">
+                            TARJETA
                           </span>
-                        )}
+                        ) : item.esPremio ? (
+                          <span className="text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded font-bold uppercase tracking-tighter">
+                            REGALO
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </div>
