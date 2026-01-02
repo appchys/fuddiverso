@@ -1,8 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { QRCode, UserQRProgress } from '@/types'
+import { getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize } from '@/lib/database'
+import { normalizeEcuadorianPhone } from '@/lib/validation'
 
 interface CartSidebarProps {
     isOpen: boolean
@@ -11,6 +14,7 @@ interface CartSidebarProps {
     business: any
     removeFromCart: (productId: string, variantName?: string | null) => void
     updateQuantity: (productId: string, quantity: number, variantName?: string | null) => void
+    addItemToCart: (item: any) => void
 }
 
 export default function CartSidebar({
@@ -19,14 +23,244 @@ export default function CartSidebar({
     cart,
     business,
     removeFromCart,
-    updateQuantity
+    updateQuantity,
+    addItemToCart
 }: CartSidebarProps) {
     const { user } = useAuth()
 
-    if (!isOpen) return null
+    const [localClientId, setLocalClientId] = useState<string | null>(null)
+    const [localClientProfile, setLocalClientProfile] = useState<any | null>(null)
+
+    const [qrCodes, setQrCodes] = useState<QRCode[]>([])
+    const [qrProgress, setQrProgress] = useState<UserQRProgress | null>(null)
+    const [loadingQr, setLoadingQr] = useState(false)
+    const [redeemingQrId, setRedeemingQrId] = useState<string | null>(null)
+    const [qrError, setQrError] = useState<string>('')
+    const [lastQrPrizeIdInCart, setLastQrPrizeIdInCart] = useState<string[]>([])
 
     const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
     const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+
+    useEffect(() => {
+        if (!isOpen) return
+        if (typeof window === 'undefined') return
+
+        try {
+            const fromLoginPhone = localStorage.getItem('loginPhone')
+            const fromClientData = localStorage.getItem('clientData')
+            const fromAuthUser = localStorage.getItem('fuddi_shop_user')
+
+            if (fromLoginPhone) {
+                setLocalClientId(fromLoginPhone)
+            }
+
+            if (fromClientData) {
+                const parsed = JSON.parse(fromClientData)
+                if (parsed) {
+                    setLocalClientProfile(parsed)
+                    if (parsed?.celular) {
+                        setLocalClientId(parsed.celular)
+                    }
+                }
+            }
+
+            if (fromAuthUser) {
+                const parsed = JSON.parse(fromAuthUser)
+                if (parsed) {
+                    setLocalClientProfile(parsed)
+                    if (parsed?.celular) {
+                        setLocalClientId(parsed.celular)
+                    }
+                }
+            }
+
+            if (!fromLoginPhone && !fromClientData && !fromAuthUser) {
+                setLocalClientId(null)
+                setLocalClientProfile(null)
+            }
+        } catch (e) {
+            console.error('Error reading local client data for cart sidebar:', e)
+            setLocalClientId(null)
+            setLocalClientProfile(null)
+        }
+    }, [isOpen])
+
+    const rawClientId = ((user as any)?.celular as string | undefined) || (localClientId || undefined)
+    const clientId = rawClientId ? normalizeEcuadorianPhone(rawClientId) : undefined
+    const businessId = business?.id as string | undefined
+
+    useEffect(() => {
+        const loadQrData = async () => {
+            if (!isOpen) return
+            if (!businessId || !clientId) {
+                setQrCodes([])
+                setQrProgress(null)
+                setQrError('')
+                return
+            }
+
+            try {
+                setLoadingQr(true)
+                setQrError('')
+                const [codes, progress] = await Promise.all([
+                    getQRCodesByBusiness(businessId, true),
+                    getUserQRProgress(clientId, businessId)
+                ])
+                setQrCodes(codes)
+                setQrProgress(progress)
+            } catch (e) {
+                console.error('Error loading QR data for cart sidebar:', e)
+                setQrCodes([])
+                setQrProgress(null)
+                setQrError('No se pudieron cargar tus tarjetas')
+            } finally {
+                setLoadingQr(false)
+            }
+        }
+
+        void loadQrData()
+    }, [isOpen, businessId, clientId])
+
+    const eligibleQrPrizes = useMemo(() => {
+        if (!qrProgress) return []
+        const redeemed = qrProgress.redeemedPrizeCodes || []
+        return qrCodes
+            .filter(c => qrProgress.scannedCodes?.includes(c.id))
+            .filter(c => !!c.prize?.trim())
+            .filter(c => !redeemed.includes(c.id))
+    }, [qrCodes, qrProgress])
+
+    const scannedQrCards = useMemo(() => {
+        if (!qrProgress) return []
+        const scanned = qrProgress.scannedCodes || []
+        return qrCodes.filter(c => scanned.includes(c.id))
+    }, [qrCodes, qrProgress])
+
+    const qrPrizeIdsInCart = useMemo(() => {
+        return cart
+            .filter((i: any) => i?.esPremio === true && (i?.qrCodeId || String(i?.id || '').startsWith('premio-qr-')))
+            .map((item: any) => {
+                if (item.qrCodeId) return String(item.qrCodeId)
+                if (typeof item.id === 'string' && item.id.startsWith('premio-qr-')) return item.id.replace('premio-qr-', '')
+                return null
+            })
+            .filter(Boolean) as string[]
+    }, [cart])
+
+    const hasQrPrizeInCart = useMemo(() => qrPrizeIdsInCart.length > 0, [qrPrizeIdsInCart])
+
+    const visibleQrCards = useMemo(() => {
+        const redeemed = qrProgress?.redeemedPrizeCodes || []
+        return scannedQrCards.filter((c) => {
+            const isRedeemed = redeemed.includes(c.id)
+            if (!isRedeemed) return true
+            return qrPrizeIdsInCart.includes(c.id)
+        })
+    }, [qrProgress, scannedQrCards, qrPrizeIdsInCart])
+
+    useEffect(() => {
+        if (!isOpen) return
+        setLastQrPrizeIdInCart(qrPrizeIdsInCart)
+    }, [isOpen, qrPrizeIdsInCart])
+
+    useEffect(() => {
+        if (!isOpen) return
+        if (!businessId || !clientId) return
+
+        const prevIds = lastQrPrizeIdInCart
+        const currentIds = qrPrizeIdsInCart
+        const removedIds = prevIds.filter((id: string) => !currentIds.includes(id))
+        if (removedIds.length === 0) return
+
+        void Promise.all(removedIds.map((id: string) => unredeemQRCodePrize(clientId, businessId, id)))
+            .catch((e) => console.error('Error auto-unredeeming QR prizes from cart sidebar:', e))
+            .finally(() => {
+                void getUserQRProgress(clientId, businessId)
+                    .then((p) => setQrProgress(p))
+                    .catch((e) => console.error('Error refreshing QR progress after auto-unredeem:', e))
+                setLastQrPrizeIdInCart(currentIds)
+            })
+    }, [isOpen, businessId, clientId, lastQrPrizeIdInCart, qrPrizeIdsInCart])
+
+    useEffect(() => {
+        if (!isOpen) return
+        if (!businessId || !clientId) return
+
+        void getUserQRProgress(clientId, businessId)
+            .then((p) => setQrProgress(p))
+            .catch((e) => console.error('Error refreshing QR progress after cart change:', e))
+    }, [isOpen, businessId, clientId, cart])
+
+    const handleRedeemQrPrize = async (qrCode: QRCode) => {
+        if (!businessId || !clientId) return
+        if (!qrCode.prize?.trim()) {
+            setQrError('Este código no tiene premio configurado')
+            return
+        }
+
+        if (qrPrizeIdsInCart.includes(qrCode.id)) {
+            setQrError('Esta tarjeta ya está agregada en tu carrito')
+            return
+        }
+
+        setRedeemingQrId(qrCode.id)
+        setQrError('')
+        try {
+            const result = await redeemQRCodePrize(clientId, businessId, qrCode.id)
+            if (!result.success) {
+                setQrError(result.message || 'No se pudo canjear la tarjeta')
+                return
+            }
+
+            const premioId = `premio-qr-${qrCode.id}`
+            addItemToCart({
+                id: premioId,
+                name: `🎁 ${qrCode.prize}`,
+                variantName: null,
+                productName: `🎁 ${qrCode.prize}`,
+                description: `Premio canjeado por tarjeta: ${qrCode.name}`,
+                price: 0,
+                isAvailable: true,
+                esPremio: true,
+                quantity: 1,
+                image: business?.image || 'https://via.placeholder.com/150?text=Premio',
+                businessId: businessId,
+                businessName: business?.name,
+                businessImage: business?.image,
+                qrCodeId: qrCode.id
+            })
+
+            const refreshed = await getUserQRProgress(clientId, businessId)
+            setQrProgress(refreshed)
+        } catch (e) {
+            console.error('Error redeeming QR prize from cart sidebar:', e)
+            setQrError('Error al canjear la tarjeta')
+        } finally {
+            setRedeemingQrId(null)
+        }
+    }
+
+    const clientProfile = (user as any) || localClientProfile
+    const clientDisplayName = (clientProfile?.nombres || '').trim() || 'Cliente'
+    const clientInitials = clientDisplayName
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((p: string) => p[0]?.toUpperCase())
+        .join('')
+
+    const isDarkColor = (hex?: string) => {
+        if (!hex) return false
+        const c = hex.replace('#', '')
+        if (c.length !== 6) return false
+        const r = parseInt(c.slice(0, 2), 16)
+        const g = parseInt(c.slice(2, 4), 16)
+        const b = parseInt(c.slice(4, 6), 16)
+        const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+        return luminance < 0.55
+    }
+
+    if (!isOpen) return null
 
     return (
         <div className="fixed inset-0 z-50 overflow-hidden">
@@ -54,21 +288,20 @@ export default function CartSidebar({
                                 </div>
 
                                 {/* Right: User Profile */}
-                                {/* Right: User Profile */}
-                                {user && (
+                                {(clientProfile || clientId) && (
                                     <div className="w-10 h-10 rounded-full overflow-hidden border border-gray-200 bg-gray-100 flex items-center justify-center">
-                                        {user.photoURL ? (
+                                        {clientProfile?.photoURL ? (
                                             <img
-                                                src={user.photoURL}
-                                                alt={user.nombres}
+                                                src={clientProfile.photoURL}
+                                                alt={clientDisplayName}
                                                 className="w-full h-full object-cover"
                                                 onError={(e) => {
-                                                    const target = e.target as HTMLImageElement;
-                                                    target.style.display = 'none';
-                                                    target.parentElement?.classList.add('flex', 'items-center', 'justify-center');
-                                                    // Inserte el icono fallback si falla la carga (opcional, pero buena práctica)
+                                                    const target = e.target as HTMLImageElement
+                                                    target.style.display = 'none'
                                                 }}
                                             />
+                                        ) : clientInitials ? (
+                                            <span className="text-xs font-black text-gray-700">{clientInitials}</span>
                                         ) : (
                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
                                                 <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
@@ -101,7 +334,6 @@ export default function CartSidebar({
                                 <div className="space-y-6">
                                     {(() => {
                                         const grouped: Record<string, any[]> = {}
-
                                         cart.forEach(item => {
                                             if (item.esPremio) {
                                                 if (!grouped['___premio___']) grouped['___premio___'] = []
@@ -202,6 +434,96 @@ export default function CartSidebar({
                                                 )
                                             })
                                     })()}
+                                </div>
+                            )}
+
+                            {clientId && (
+                                <div className="mt-8">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h4 className="font-bold text-gray-900">Tarjetas escaneadas</h4>
+                                        {loadingQr && (
+                                            <span className="text-xs text-gray-400 font-bold">Cargando...</span>
+                                        )}
+                                    </div>
+
+                                    {qrError && (
+                                        <div className="mb-3 text-xs text-red-600 font-bold">
+                                            {qrError}
+                                        </div>
+                                    )}
+
+                                    {!loadingQr && (!qrProgress || visibleQrCards.length === 0) ? (
+                                        <p className="text-sm text-gray-500">
+                                            Aún no tienes tarjetas escaneadas.
+                                        </p>
+                                    ) : (
+                                        <div className="overflow-x-auto scrollbar-hide -mx-6 px-6">
+                                            <div className="flex gap-4 pb-2 snap-x snap-mandatory">
+                                                {visibleQrCards.map((code) => {
+                                                    const redeemed = (qrProgress?.redeemedPrizeCodes || []).includes(code.id)
+                                                    const hasPrize = !!code.prize?.trim()
+                                                    const isBeingRedeemedInThisOrder = qrPrizeIdsInCart.includes(code.id)
+                                                    const canRedeem = hasPrize && !redeemed && !isBeingRedeemedInThisOrder
+                                                    const dark = isDarkColor(code.color)
+                                                    const cardBg = isBeingRedeemedInThisOrder ? '#E5E7EB' : (code.color || '#F3F4F6')
+                                                    const cardTextDark = isBeingRedeemedInThisOrder ? false : dark
+
+                                                    return (
+                                                        <div
+                                                            key={code.id}
+                                                            className="min-w-[260px] max-w-[260px] snap-start rounded-2xl p-4 shadow-sm border border-black/5"
+                                                            style={{ backgroundColor: cardBg }}
+                                                        >
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/80 border border-white/40 flex-shrink-0">
+                                                                    <img
+                                                                        src={code.image || business?.image || 'https://via.placeholder.com/80?text=QR'}
+                                                                        alt={code.prize || code.name}
+                                                                        className="w-full h-full object-cover"
+                                                                        loading="lazy"
+                                                                        decoding="async"
+                                                                        onError={(e) => {
+                                                                            const target = e.target as HTMLImageElement
+                                                                            target.src = business?.image || 'https://via.placeholder.com/80?text=QR'
+                                                                        }}
+                                                                    />
+                                                                </div>
+
+                                                                <div className="min-w-0 flex-1">
+                                                                    <p className={`text-sm font-black truncate ${cardTextDark ? 'text-white' : 'text-gray-900'}`}>🎫 {code.name}</p>
+                                                                    {hasPrize ? (
+                                                                        <p className={`text-xs truncate ${cardTextDark ? 'text-white/90' : 'text-gray-700'}`}>Premio: {code.prize}</p>
+                                                                    ) : (
+                                                                        <p className={`text-xs truncate ${cardTextDark ? 'text-white/70' : 'text-gray-500'}`}>Sin premio configurado</p>
+                                                                    )}
+                                                                    {isBeingRedeemedInThisOrder ? (
+                                                                        <p className="text-[10px] font-black uppercase tracking-widest mt-1 text-gray-500">En canje</p>
+                                                                    ) : redeemed ? (
+                                                                        <p className={`text-[10px] font-black uppercase tracking-widest mt-1 ${cardTextDark ? 'text-white/70' : 'text-gray-500'}`}>Canjeado</p>
+                                                                    ) : null}
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="mt-4">
+                                                                <button
+                                                                    onClick={() => handleRedeemQrPrize(code)}
+                                                                    disabled={!canRedeem || redeemingQrId === code.id || isBeingRedeemedInThisOrder}
+                                                                    className={`w-full px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-colors disabled:cursor-not-allowed ${dark
+                                                                        ? 'bg-white text-gray-900 hover:bg-white/90 disabled:bg-white/50'
+                                                                        : 'bg-gray-900 text-white hover:bg-black disabled:bg-gray-300'
+                                                                        }`}
+                                                                >
+                                                                    {isBeingRedeemedInThisOrder
+                                                                        ? 'En carrito'
+                                                                        : (redeemingQrId === code.id ? 'Canjeando...' : (hasPrize ? 'Canjear' : 'No disponible'))}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

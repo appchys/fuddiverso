@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { getProduct, getBusinessByProduct, getProductsByBusiness } from '@/lib/database'
+import { getProduct, getBusinessByProduct, getProductsByBusiness, unredeemQRCodePrize } from '@/lib/database'
+import { normalizeEcuadorianPhone } from '@/lib/validation'
 import type { Product, Business } from '@/types/index'
 import CartSidebar from '@/components/CartSidebar'
 
@@ -225,9 +226,28 @@ export default function ProductPageByUsername() {
   const removeFromCart = (productIdToRemove: string, variantName?: string | null) => {
     if (!business?.id) return
 
+    const itemToRemove = cart.find(item => item.id === productIdToRemove && item.variantName === variantName)
+    const isPremioQr = itemToRemove?.esPremio === true && (itemToRemove?.qrCodeId || String(itemToRemove?.id || '').startsWith('premio-qr-'))
+    const qrCodeIdToUnredeem = itemToRemove?.qrCodeId || (typeof itemToRemove?.id === 'string' && itemToRemove.id.startsWith('premio-qr-')
+      ? itemToRemove.id.replace('premio-qr-', '')
+      : null)
+
     const newCart = cart.filter(item => !(item.id === productIdToRemove && item.variantName === variantName))
     setCart(newCart)
     updateCartInStorage(business.id, newCart)
+
+    if (isPremioQr && qrCodeIdToUnredeem) {
+      try {
+        const rawPhone = localStorage.getItem('loginPhone') || ''
+        const phone = normalizeEcuadorianPhone(rawPhone)
+        if (phone) {
+          void unredeemQRCodePrize(phone, business.id, qrCodeIdToUnredeem)
+            .catch((e) => console.error('Error unredeeming QR prize after cart removal:', e))
+        }
+      } catch (e) {
+        console.error('Error reading loginPhone for unredeem:', e)
+      }
+    }
   }
 
   const updateQuantity = (productIdToUpdate: string, newQuantity: number, variantName?: string | null) => {
@@ -567,6 +587,20 @@ export default function ProductPageByUsername() {
         business={business}
         removeFromCart={removeFromCart}
         updateQuantity={updateQuantity}
+        addItemToCart={(item: any) => {
+          if (!business?.id) return
+
+          const existingItem = cart.find((i: any) => i.id === item.id && i.variantName === (item.variantName ?? null))
+          const newCart = existingItem
+            ? cart.map((i: any) => (i.id === item.id && i.variantName === (item.variantName ?? null))
+              ? { ...i, quantity: (i.quantity || 1) + (item.quantity || 1) }
+              : i
+            )
+            : [...cart, { ...item, quantity: item.quantity || 1 }]
+
+          setCart(newCart)
+          updateCartInStorage(business.id, newCart)
+        }}
       />
 
       {/* Notificación temporal - Premium Toast */}

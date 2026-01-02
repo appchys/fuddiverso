@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Head from 'next/head'
-import { Business, Product } from '@/types'
-import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore } from '@/lib/database'
+import { Business, Product, QRCode, UserQRProgress } from '@/types'
+import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize } from '@/lib/database'
 import CartSidebar from '@/components/CartSidebar'
 import { isStoreOpen } from '@/lib/store-utils'
 
@@ -374,11 +374,17 @@ function RestaurantContent() {
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<any>(null)
   const [isVariantModalOpen, setIsVariantModalOpen] = useState(false)
-  const [notification, setNotification] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
-    show: false,
-    message: '',
-    type: 'success'
-  })
+  const [clientPhone, setClientPhone] = useState<string | null>(null)
+  const [qrCodes, setQrCodes] = useState<QRCode[]>([])
+  const [qrProgress, setQrProgress] = useState<UserQRProgress | null>(null)
+  const [redeemingQrId, setRedeemingQrId] = useState<string | null>(null)
+  const [notification, setNotification] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>(
+    {
+      show: false,
+      message: '',
+      type: 'success'
+    }
+  )
   const [premioAgregado, setPremioAgregado] = useState(false)
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
@@ -442,6 +448,40 @@ function RestaurantContent() {
       loadRestaurantData()
     }
   }, [username])
+
+  useEffect(() => {
+    try {
+      const storedPhone = localStorage.getItem('loginPhone')
+      setClientPhone(storedPhone)
+    } catch {
+      setClientPhone(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    const loadQrData = async () => {
+      if (!business?.id || !clientPhone) {
+        setQrCodes([])
+        setQrProgress(null)
+        return
+      }
+
+      try {
+        const [codes, progress] = await Promise.all([
+          getQRCodesByBusiness(business.id, true),
+          getUserQRProgress(clientPhone, business.id)
+        ])
+        setQrCodes(codes)
+        setQrProgress(progress)
+      } catch (e) {
+        console.error('Error loading QR data:', e)
+        setQrCodes([])
+        setQrProgress(null)
+      }
+    }
+
+    void loadQrData()
+  }, [business?.id, clientPhone])
 
   // Flush pending visits stored locally when we mount and when we go online
   useEffect(() => {
@@ -603,6 +643,9 @@ function RestaurantContent() {
     // Verificar si el ítem a eliminar es un premio
     const itemToRemove = cart.find(item => item.id === productId && item.variantName === variantName)
     const isPremio = itemToRemove?.esPremio === true
+    const qrCodeIdToUnredeem = itemToRemove?.qrCodeId || (typeof itemToRemove?.id === 'string' && itemToRemove.id.startsWith('premio-qr-')
+      ? itemToRemove.id.replace('premio-qr-', '')
+      : null)
 
     const newCart = cart.filter(item => !(item.id === productId && item.variantName === variantName))
     setCart(newCart)
@@ -611,6 +654,13 @@ function RestaurantContent() {
     // Si se eliminó un premio, permitir reclamarlo de nuevo
     if (isPremio) {
       setPremioAgregado(false)
+
+      if (qrCodeIdToUnredeem && clientPhone) {
+        void unredeemQRCodePrize(clientPhone, business.id, qrCodeIdToUnredeem)
+          .then(() => getUserQRProgress(clientPhone, business.id))
+          .then((p) => setQrProgress(p))
+          .catch((e) => console.error('Error unredeeming QR prize after cart removal:', e))
+      }
     }
   }
 
@@ -654,7 +704,63 @@ function RestaurantContent() {
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
   const cartItemsCount = cart.filter(item => !item.esPremio).reduce((sum, item) => sum + item.quantity, 0)
 
+  const addQrPrizeToCart = async (qrCode: QRCode) => {
+    if (!business?.id) return
+    if (!clientPhone) {
+      showNotification('Inicia sesión para canjear tu tarjeta', 'error')
+      return
+    }
+    if (!qrCode.prize?.trim()) {
+      showNotification('Este código no tiene premio configurado', 'error')
+      return
+    }
 
+    const premioId = `premio-qr-${qrCode.id}`
+    const alreadyInCart = cart.some((item: any) => item.esPremio === true && item.id === premioId)
+    if (alreadyInCart) {
+      showNotification('Este premio ya está en tu carrito', 'error')
+      return
+    }
+
+    setRedeemingQrId(qrCode.id)
+    try {
+      const result = await redeemQRCodePrize(clientPhone, business.id, qrCode.id)
+      if (!result.success) {
+        showNotification(result.message || 'No se pudo canjear el premio', 'error')
+        return
+      }
+
+      const premioQr = {
+        id: premioId,
+        name: `🎁 ${qrCode.prize}`,
+        variantName: null,
+        productName: `🎁 ${qrCode.prize}`,
+        description: `Premio canjeado por tarjeta: ${qrCode.name}`,
+        price: 0,
+        isAvailable: true,
+        esPremio: true,
+        quantity: 1,
+        image: business.image || 'https://via.placeholder.com/150?text=Premio',
+        businessId: business.id,
+        businessName: business.name,
+        businessImage: business.image,
+        qrCodeId: qrCode.id
+      }
+
+      const newCart = [...cart, premioQr]
+      setCart(newCart)
+      updateCartInStorage(business.id, newCart)
+      showNotification('Premio agregado al carrito', 'success')
+
+      const refreshed = await getUserQRProgress(clientPhone, business.id)
+      setQrProgress(refreshed)
+    } catch (e) {
+      console.error('Error redeeming QR prize:', e)
+      showNotification('Error al canjear el premio', 'error')
+    } finally {
+      setRedeemingQrId(null)
+    }
+  }
 
   // Función para copiar enlace
   const copyStoreLink = async () => {
@@ -837,6 +943,49 @@ function RestaurantContent() {
             </h2>
 
             <div className="space-y-8">
+              {clientPhone && qrProgress && qrCodes.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Tarjetas y Premios</h3>
+                  <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+                    {(() => {
+                      const redeemed = qrProgress.redeemedPrizeCodes || []
+                      const eligible = qrCodes
+                        .filter(c => qrProgress.scannedCodes.includes(c.id))
+                        .filter(c => !!c.prize?.trim())
+                        .filter(c => !redeemed.includes(c.id))
+
+                      if (eligible.length === 0) {
+                        return (
+                          <p className="text-gray-500 text-sm">
+                            No tienes premios disponibles por canjear.
+                          </p>
+                        )
+                      }
+
+                      return (
+                        <div className="space-y-3">
+                          {eligible.map((code) => (
+                            <div key={code.id} className="flex items-center justify-between gap-4 bg-white rounded-xl p-4 border border-gray-100">
+                              <div className="min-w-0">
+                                <p className="font-bold text-gray-900 truncate">🎫 {code.name}</p>
+                                <p className="text-sm text-gray-600 truncate">Premio: {code.prize}</p>
+                              </div>
+                              <button
+                                onClick={() => addQrPrizeToCart(code)}
+                                disabled={redeemingQrId === code.id}
+                                className="px-4 py-2 rounded-xl bg-red-600 text-white text-xs font-black uppercase hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                              >
+                                {redeemingQrId === code.id ? 'Agregando...' : 'Agregar al carrito'}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })()}
+                  </div>
+                </div>
+              )}
+
               {business.description && (
                 <div>
                   <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Descripción</h3>
@@ -961,8 +1110,21 @@ function RestaurantContent() {
         business={business}
         removeFromCart={removeFromCart}
         updateQuantity={updateQuantity}
-      />
+        addItemToCart={(item: any) => {
+          if (!business?.id) return
 
+          const existingItem = cart.find((i: any) => i.id === item.id && i.variantName === (item.variantName ?? null))
+          const newCart = existingItem
+            ? cart.map((i: any) => (i.id === item.id && i.variantName === (item.variantName ?? null))
+              ? { ...i, quantity: (i.quantity || 1) + (item.quantity || 1) }
+              : i
+            )
+            : [...cart, { ...item, quantity: item.quantity || 1 }]
+
+          setCart(newCart)
+          updateCartInStorage(business.id, newCart)
+        }}
+      />
 
       {/* Modal de variantes */}
       <VariantModal

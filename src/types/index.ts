@@ -207,6 +207,7 @@ export interface QRCode {
   id: string
   name: string
   points: number
+  prize?: string
   image?: string
   color?: string // Color de fondo personalizable en formato hexadecimal
   isActive: boolean
@@ -221,6 +222,7 @@ export interface UserQRProgress {
   completed: boolean
   lastScanned?: Date | Timestamp
   rewardClaimed: boolean
+  redeemedPrizeCodes?: string[]
   businessId: string
   createdAt: Date
   updatedAt?: Date

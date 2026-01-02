@@ -27,6 +27,7 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
   const [showModal, setShowModal] = useState(false)
   const [editingCodeId, setEditingCodeId] = useState<string | null>(null) // null para creación
   const [newCodeName, setNewCodeName] = useState('')
+  const [newCodePrize, setNewCodePrize] = useState('')
   const [newCodePoints, setNewCodePoints] = useState(10)
   const [newCodeIsActive, setNewCodeIsActive] = useState(true)
   const [newCodeColor, setNewCodeColor] = useState('#f3f4f6') // Color del código QR
@@ -147,6 +148,7 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
       // Modo edición
       setEditingCodeId(code.id)
       setNewCodeName(code.name)
+      setNewCodePrize(code.prize || '')
       setNewCodePoints(code.points)
       setNewCodeIsActive(code.isActive)
       setNewCodeColor(code.color || '#f3f4f6')
@@ -157,6 +159,7 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
       // Modo creación
       setEditingCodeId(null)
       setNewCodeName('')
+      setNewCodePrize('')
       setNewCodePoints(10)
       setNewCodeIsActive(true)
       setNewCodeColor('#f3f4f6')
@@ -193,10 +196,15 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
 
       const codeData: any = {
         name: newCodeName.trim(),
+        prize: newCodePrize.trim(),
         points: newCodePoints,
         isActive: newCodeIsActive,
         color: newCodeColor,
         businessId: businessId
+      }
+
+      if (!codeData.prize) {
+        delete codeData.prize
       }
 
       // Solo incluir la URL de la imagen si existe
@@ -216,6 +224,7 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
 
       // Limpiar formulario y cerrar modal
       setNewCodeName('')
+      setNewCodePrize('')
       setNewCodePoints(10)
       setNewCodeIsActive(true)
       setNewCodeColor('#f3f4f6')
@@ -506,6 +515,12 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
                     {qrCode.name}
                   </h3>
 
+                  {qrCode.prize && (
+                    <p className="text-center text-xs text-gray-600 mb-3 px-2 line-clamp-2">
+                      Premio: {qrCode.prize}
+                    </p>
+                  )}
+
                   {/* Código QR */}
                   <div className="bg-white rounded-lg p-3 mb-2 flex items-center justify-center border-2 border-gray-200">
                     {qrImages[qrCode.id] ? (
@@ -574,6 +589,17 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                 />
                 {nameError && <p className="text-red-500 text-sm mt-1">{nameError}</p>}
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Premio (Opcional)</label>
+                <textarea
+                  value={newCodePrize}
+                  onChange={(e) => setNewCodePrize(e.target.value)}
+                  placeholder="Ej: 1 café gratis / 10% de descuento / Producto sorpresa"
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
               </div>
 
               <div className="mb-4">
@@ -671,6 +697,7 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
                   onClick={() => {
                     setShowModal(false)
                     setNewCodeName('')
+                    setNewCodePrize('')
                     setNewCodePoints(10)
                     setNewCodeIsActive(true)
                     setNameError('')

@@ -68,6 +68,48 @@ export async function createExpense(expense: Omit<ExpenseEntry, 'id' | 'createdA
   }
 }
 
+export async function unredeemQRCodePrize(userId: string, businessId: string, qrCodeId: string): Promise<{
+  success: boolean
+  message: string
+}> {
+  try {
+    const progress = await getUserQRProgress(userId, businessId)
+
+    if (!progress) {
+      return { success: false, message: 'No tienes progreso registrado' }
+    }
+
+    const redeemed = progress.redeemedPrizeCodes || []
+    if (!redeemed.includes(qrCodeId)) {
+      return { success: true, message: 'Premio ya estaba disponible' }
+    }
+
+    const q = query(
+      collection(db, 'userQRProgress'),
+      where('userId', '==', userId),
+      where('businessId', '==', businessId),
+      limit(1)
+    )
+    const snapshot = await getDocs(q)
+
+    if (snapshot.empty) {
+      return { success: false, message: 'No tienes progreso registrado' }
+    }
+
+    const docRef = snapshot.docs[0].ref
+    const updated = redeemed.filter(id => id !== qrCodeId)
+    await updateDoc(docRef, {
+      redeemedPrizeCodes: updated,
+      updatedAt: serverTimestamp()
+    })
+
+    return { success: true, message: 'Premio disponible nuevamente' }
+  } catch (error) {
+    console.error('Error unredeeming QR prize:', error)
+    return { success: false, message: 'Error al revertir el canje' }
+  }
+}
+
 /**
  * Obtener egresos de un negocio en un rango de fechas
  */
@@ -2784,20 +2826,26 @@ export async function createQRCode(qrCode: Omit<QRCode, 'id' | 'createdAt'>): Pr
 /**
  * Obtener todos los códigos QR de un negocio
  */
-export async function getQRCodesByBusiness(businessId: string): Promise<QRCode[]> {
+export async function getQRCodesByBusiness(businessId: string, includeInactive: boolean = false): Promise<QRCode[]> {
   try {
-    const q = query(
-      collection(db, 'qrCodes'),
-      where('businessId', '==', businessId),
-      where('isActive', '==', true)
-    )
+    const colRef = collection(db, 'qrCodes')
+    const constraints = [where('businessId', '==', businessId)]
+
+    if (!includeInactive) {
+      constraints.push(where('isActive', '==', true))
+    }
+
+    const q = query(colRef, ...constraints)
     const snapshot = await getDocs(q)
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate() || new Date(),
-      updatedAt: doc.data().updatedAt?.toDate()
-    } as QRCode))
+    return snapshot.docs.map(doc => {
+      const data = doc.data() as any
+      return {
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt?.toDate() || new Date(),
+        updatedAt: data.updatedAt?.toDate()
+      } as QRCode
+    })
   } catch (error) {
     console.error('Error getting QR codes:', error)
     throw error
@@ -2852,6 +2900,7 @@ export async function getUserQRProgress(userId: string, businessId: string): Pro
       completed: doc.data().completed || false,
       lastScanned: doc.data().lastScanned?.toDate(),
       rewardClaimed: doc.data().rewardClaimed || false,
+      redeemedPrizeCodes: doc.data().redeemedPrizeCodes || [],
       businessId: doc.data().businessId,
       createdAt: doc.data().createdAt?.toDate() || new Date(),
       updatedAt: doc.data().updatedAt?.toDate()
@@ -2859,6 +2908,52 @@ export async function getUserQRProgress(userId: string, businessId: string): Pro
   } catch (error) {
     console.error('Error getting user QR progress:', error)
     throw error
+  }
+}
+
+export async function redeemQRCodePrize(userId: string, businessId: string, qrCodeId: string): Promise<{
+  success: boolean
+  message: string
+}> {
+  try {
+    const progress = await getUserQRProgress(userId, businessId)
+
+    if (!progress) {
+      return { success: false, message: 'No tienes progreso registrado' }
+    }
+
+    if (!progress.scannedCodes?.includes(qrCodeId)) {
+      return { success: false, message: 'Aún no has escaneado este código' }
+    }
+
+    const alreadyRedeemed = (progress.redeemedPrizeCodes || []).includes(qrCodeId)
+    if (alreadyRedeemed) {
+      return { success: false, message: 'Este premio ya fue canjeado' }
+    }
+
+    const q = query(
+      collection(db, 'userQRProgress'),
+      where('userId', '==', userId),
+      where('businessId', '==', businessId),
+      limit(1)
+    )
+    const snapshot = await getDocs(q)
+
+    if (snapshot.empty) {
+      return { success: false, message: 'No tienes progreso registrado' }
+    }
+
+    const docRef = snapshot.docs[0].ref
+    const updated = [...(progress.redeemedPrizeCodes || []), qrCodeId]
+    await updateDoc(docRef, {
+      redeemedPrizeCodes: updated,
+      updatedAt: serverTimestamp()
+    })
+
+    return { success: true, message: 'Premio agregado' }
+  } catch (error) {
+    console.error('Error redeeming QR prize:', error)
+    return { success: false, message: 'Error al canjear el premio' }
   }
 }
 
