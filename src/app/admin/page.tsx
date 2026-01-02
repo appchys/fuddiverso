@@ -304,6 +304,8 @@ export default function AdminDashboard() {
             {businesses.slice(0, 5).map((business, index) => {
               const businessOrders = orders.filter(order => order?.businessId === business?.id)
               const businessRevenue = businessOrders.reduce((sum: number, order: any) => sum + (order?.total || 0), 0)
+              const storeCreatedOrders = businessOrders.filter((order: any) => order?.createdByAdmin).length
+              const clientCreatedOrders = businessOrders.length - storeCreatedOrders
               
               return (
                 <div key={business?.id || index} className="flex items-center justify-between">
@@ -323,7 +325,10 @@ export default function AdminDashboard() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">{business?.name || 'Sin nombre'}</p>
-                      <p className="text-sm text-gray-600">{businessOrders.length} pedidos</p>
+                      <p className="text-sm text-gray-600">
+                        {businessOrders.length} pedidos 
+                        (Tienda: {storeCreatedOrders} · Cliente: {clientCreatedOrders})
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center space-x-6">
