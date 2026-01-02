@@ -1,11 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 import { QRCode, UserQRProgress } from '@/types'
 import { getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize } from '@/lib/database'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
+import { CheckoutContent } from '@/components/CheckoutContent'
 
 interface CartSidebarProps {
     isOpen: boolean
@@ -28,6 +28,8 @@ export default function CartSidebar({
 }: CartSidebarProps) {
     const { user } = useAuth()
 
+    const [view, setView] = useState<'cart' | 'checkout'>('cart')
+
     const [localClientId, setLocalClientId] = useState<string | null>(null)
     const [localClientProfile, setLocalClientProfile] = useState<any | null>(null)
 
@@ -43,6 +45,7 @@ export default function CartSidebar({
 
     useEffect(() => {
         if (!isOpen) return
+        setView('cart')
         if (typeof window === 'undefined') return
 
         try {
@@ -84,6 +87,13 @@ export default function CartSidebar({
             setLocalClientProfile(null)
         }
     }, [isOpen])
+
+    useEffect(() => {
+        if (user) return
+
+        setLocalClientId(null)
+        setLocalClientProfile(null)
+    }, [user])
 
     const rawClientId = ((user as any)?.celular as string | undefined) || (localClientId || undefined)
     const clientId = rawClientId ? normalizeEcuadorianPhone(rawClientId) : undefined
@@ -275,7 +285,13 @@ export default function CartSidebar({
                                 {/* Left: Back Button + Store Name */}
                                 <div className="flex items-center gap-3">
                                     <button
-                                        onClick={onClose}
+                                        onClick={() => {
+                                            if (view === 'checkout') {
+                                                setView('cart')
+                                            } else {
+                                                onClose()
+                                            }
+                                        }}
                                         className="p-2 -ml-2 text-gray-800 hover:bg-gray-100 rounded-full transition-colors"
                                     >
                                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -283,7 +299,7 @@ export default function CartSidebar({
                                         </svg>
                                     </button>
                                     <h3 className="text-lg font-bold text-gray-900 leading-none">
-                                        {business?.name}
+                                        {view === 'checkout' ? 'Checkout' : business?.name}
                                     </h3>
                                 </div>
 
@@ -316,7 +332,18 @@ export default function CartSidebar({
 
                         {/* Cart Content */}
                         <div className="flex-1 px-6 py-6">
-                            {cart.length === 0 ? (
+                            {view === 'checkout' ? (
+                                <CheckoutContent
+                                    embeddedBusinessId={business?.id}
+                                    embeddedBusiness={business}
+                                    embeddedCartItems={cart}
+                                    onEmbeddedBack={() => setView('cart')}
+                                    onClearCart={() => {
+                                        setView('cart')
+                                        onClose()
+                                    }}
+                                />
+                            ) : cart.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-20 text-center">
                                     <div className="w-32 h-32 bg-white rounded-full shadow-sm flex items-center justify-center mb-6">
                                         <i className="bi bi-cart text-5xl text-gray-300"></i>
@@ -437,7 +464,7 @@ export default function CartSidebar({
                                 </div>
                             )}
 
-                            {clientId && (
+                            {view === 'cart' && clientId && (
                                 <div className="mt-8">
                                     <div className="flex items-center justify-between mb-3">
                                         <h4 className="font-bold text-gray-900">Tarjetas escaneadas</h4>
@@ -529,7 +556,7 @@ export default function CartSidebar({
                         </div>
 
                         {/* Footer */}
-                        {cart.length > 0 && (
+                        {cart.length > 0 && view === 'cart' && (
                             <div className="mt-auto bg-white border-t border-gray-100 p-6 pb-8 space-y-6">
                                 {/* Resumen */}
                                 <div className="space-y-3">
@@ -551,13 +578,13 @@ export default function CartSidebar({
 
                                 {/* Actions */}
                                 {cartTotal > 0 ? (
-                                    <Link
-                                        href={`/checkout?businessId=${business!.id}`}
+                                    <button
+                                        type="button"
                                         className="block w-full bg-gray-900 text-white py-4 rounded-2xl hover:bg-gray-800 transition-all duration-200 text-center font-bold text-lg shadow-xl shadow-gray-200 transform active:scale-[0.98]"
-                                        onClick={onClose}
+                                        onClick={() => setView('checkout')}
                                     >
                                         Continuar con el pedido
-                                    </Link>
+                                    </button>
                                 ) : (
                                     <button
                                         onClick={onClose}
