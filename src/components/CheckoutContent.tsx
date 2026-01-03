@@ -16,7 +16,9 @@ import {
   getDeliveryFeeForLocation,
   registerOrderConsumption,
   clearClientPin,
-  registerClientForgotPin
+  registerClientForgotPin,
+  getQRCodesByBusiness,
+  getUserQRProgress
 } from '@/lib/database'
 import { Business } from '@/types'
 import LocationMap from '@/components/LocationMap'
@@ -233,13 +235,15 @@ export function CheckoutContent({
   embeddedBusiness,
   embeddedCartItems,
   onEmbeddedBack,
-  onClearCart
+  onClearCart,
+  onAddItem
 }: {
   embeddedBusinessId?: string
   embeddedBusiness?: Business | null
   embeddedCartItems?: any[]
   onEmbeddedBack?: () => void
   onClearCart?: () => void
+  onAddItem?: (item: any) => void
 } = {}) {
   // Tipos locales para estados
   type PaymentData = {
@@ -267,6 +271,17 @@ export function CheckoutContent({
   type CustomerData = {
     name: string
     phone: string
+  }
+
+  const isDarkColor = (hex?: string) => {
+    if (!hex) return false
+    const c = hex.replace('#', '')
+    if (c.length !== 6) return false
+    const r = parseInt(c.slice(0, 2), 16)
+    const g = parseInt(c.slice(2, 4), 16)
+    const b = parseInt(c.slice(4, 6), 16)
+    const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+    return luminance < 0.55
   }
 
   // Estado y hooks necesarios para el componente
@@ -298,6 +313,13 @@ export function CheckoutContent({
   const [customerData, setCustomerData] = useState<CustomerData>({ name: '', phone: '' })
 
   const [clientLocations, setClientLocations] = useState<ClientLocation[]>([])
+
+  // Estado para QR
+  const [qrCodes, setQrCodes] = useState<any[]>([])
+  const [qrProgress, setQrProgress] = useState<any>(null)
+  const [loadingQr, setLoadingQr] = useState(false)
+  const [qrError, setQrError] = useState('')
+  const [redeemingQrId, setRedeemingQrId] = useState<string | null>(null)
   const [selectedLocation, setSelectedLocation] = useState<ClientLocation | null>(null)
 
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false)
@@ -788,6 +810,75 @@ export function CheckoutContent({
     closeLocationModal()
   }
 
+  // Effect para cargar datos QR
+  useEffect(() => {
+    const loadQrData = async () => {
+      const effectiveClientId = clientFound?.id || (user as any)?.celular
+
+      if (!business?.id || !effectiveClientId) {
+        setQrCodes([])
+        setQrProgress(null)
+        setQrError('')
+        return
+      }
+
+      try {
+        setLoadingQr(true)
+        setQrError('')
+        const [codes, progress] = await Promise.all([
+          getQRCodesByBusiness(business.id, true),
+          getUserQRProgress(effectiveClientId, business.id)
+        ])
+        setQrCodes(codes)
+        setQrProgress(progress)
+      } catch (e) {
+        console.error('Error loading QR data:', e)
+        setQrCodes([])
+        setQrProgress(null)
+        setQrError('No se pudieron cargar tus tarjetas')
+      } finally {
+        setLoadingQr(false)
+      }
+    }
+
+    loadQrData()
+  }, [business?.id, clientFound?.id, user])
+
+  const handleRedeemQrPrize = async (code: any) => {
+    if (!code.prize) return
+    setRedeemingQrId(code.id)
+
+    // Simular delay y agregar al carrito
+    setTimeout(() => {
+      const newItem = {
+        id: `qr-${code.id}`,
+        name: code.prize,
+        price: 0,
+        quantity: 1,
+        image: code.image || business?.image,
+        esPremio: true,
+        qrCodeId: code.id
+      }
+
+      if (onAddItem) {
+        onAddItem(newItem)
+      } else {
+        // Fallback simple para modo standalone
+        if (business?.id) {
+          const savedCarts = localStorage.getItem('carts')
+          const parsedCarts = savedCarts ? JSON.parse(savedCarts) : {}
+          const newCart = [...getCartItems(), newItem]
+          parsedCarts[business.id] = newCart
+          localStorage.setItem('carts', JSON.stringify(parsedCarts))
+          // En modo standalone esto podría requerir recargar la página o usar un evento custom
+          window.location.reload()
+        }
+      }
+
+      setRedeemingQrId(null)
+    }, 500)
+  }
+
   useEffect(() => {
     // Cargar datos del negocio y carrito desde localStorage
     if (isEmbedded) return
@@ -862,6 +953,9 @@ export function CheckoutContent({
   const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0)
   const deliveryCost = getDeliveryCost()
   const total = subtotal + deliveryCost
+
+  const qrPrizeIdsInCart = cartItems.filter((i: any) => i.qrCodeId).map((i: any) => i.qrCodeId)
+  const visibleQrCards = qrCodes.filter(code => code.prize && code.prize.trim() !== '')
 
   const validateStep = (step: number) => {
     const newErrors: Record<string, string> = {}
@@ -1260,7 +1354,7 @@ export function CheckoutContent({
     <div className={isEmbedded ? 'min-h-full bg-gray-50' : 'min-h-screen bg-gray-50'}>
       {!isEmbedded && (
         <div className="px-4 sm:px-6 pt-6 pb-4 bg-white sticky top-0 z-10 border-b border-gray-100 shadow-sm mb-6">
-          <div className="max-w-4xl mx-auto flex items-center">
+          <div className="max-w-xl mx-auto flex items-center">
             <Link
               href={business?.username ? `/app/${business.username}` : '/'}
               className="p-2 -ml-2 text-gray-800 hover:bg-gray-100 rounded-full transition-colors flex items-center gap-2"
@@ -1274,14 +1368,14 @@ export function CheckoutContent({
         </div>
       )}
 
-      <div className={isEmbedded ? 'max-w-4xl mx-auto py-4 px-4 sm:px-6' : 'max-w-4xl mx-auto py-4 sm:py-8 px-4 sm:px-6'}>
+      <div className={isEmbedded ? 'max-w-xl mx-auto py-2 px-3 sm:px-6' : 'max-w-xl mx-auto py-2 sm:py-6 px-3 sm:px-6'}>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+        <div className="grid grid-cols-1 gap-3 sm:gap-6">
           {/* Main Content */}
-          <div className="lg:col-span-2 py-2 max-w-4xl mx-auto space-y-6">
+          <div className="py-1 w-full space-y-3">
 
             {/* Step 1: Customer Info */}
-            <div id="step-1" className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <div id="step-1" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
               <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
                 <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">1</span>
                 Tus Datos
@@ -1483,7 +1577,7 @@ export function CheckoutContent({
 
             {/* Step 2: Delivery */}
             {/* Step 2: Delivery */}
-            <div id="step-2" className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <div id="step-2" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
               <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
                 <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">2</span>
                 Entrega
@@ -1610,7 +1704,7 @@ export function CheckoutContent({
             </div>
 
             {/* Step 3: Timing */}
-            <div id="step-3" className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <div id="step-3" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
               <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
                 <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">3</span>
                 Horario
@@ -1736,7 +1830,7 @@ export function CheckoutContent({
             </div>
 
             {/* Step 4: Payment */}
-            <div id="step-4" className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <div id="step-4" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
               <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
                 <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">4</span>
                 Pago
@@ -1917,9 +2011,9 @@ export function CheckoutContent({
           </div>
 
           {/* Sidebar - Responsive Order Summary */}
-          <div className="lg:space-y-6 space-y-4">
+          <div className="space-y-3 h-fit">
             {/* Order Summary */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sticky top-28">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
               <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center justify-between">
                 Resumen del Pedido
                 <span className="text-xs font-medium px-2.5 py-1 bg-gray-100 text-gray-600 rounded-full">
@@ -1998,6 +2092,8 @@ export function CheckoutContent({
                   })}
               </div>
 
+
+
               <div className="space-y-3 pt-6 border-t border-gray-100">
                 {/* Subtotal */}
                 <div className="flex justify-between items-center text-sm">
@@ -2031,13 +2127,99 @@ export function CheckoutContent({
                 </div>
               </div>
             </div>
+
+            {/* Scanned Cards Section - Now Independent */}
+            {visibleQrCards.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-lg font-bold text-gray-900">Tarjetas escaneadas</h4>
+                  {loadingQr && (
+                    <span className="text-xs text-gray-400 font-bold">Cargando...</span>
+                  )}
+                </div>
+
+                {qrError && (
+                  <div className="mb-3 text-xs text-red-600 font-bold">
+                    {qrError}
+                  </div>
+                )}
+
+                <div className="overflow-x-auto scrollbar-hide -mx-6 px-6">
+                  <div className="flex gap-4 pb-2 snap-x snap-mandatory">
+                    {visibleQrCards.map((code) => {
+                      const redeemed = (qrProgress?.redeemedPrizeCodes || []).includes(code.id)
+                      const hasPrize = !!code.prize?.trim()
+                      const isBeingRedeemedInThisOrder = qrPrizeIdsInCart.includes(code.id)
+                      const canRedeem = hasPrize && !redeemed && !isBeingRedeemedInThisOrder
+                      const dark = isDarkColor(code.color)
+                      const cardBg = isBeingRedeemedInThisOrder ? '#E5E7EB' : (code.color || '#F3F4F6')
+                      const cardTextDark = isBeingRedeemedInThisOrder ? false : dark
+
+                      return (
+                        <div
+                          key={code.id}
+                          className="min-w-[260px] max-w-[260px] snap-start rounded-2xl p-4 shadow-sm border border-black/5"
+                          style={{ backgroundColor: cardBg }}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/80 border border-white/40 flex-shrink-0">
+                              <img
+                                src={code.image || business?.image || 'https://via.placeholder.com/80?text=QR'}
+                                alt={code.prize || code.name}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement
+                                  target.src = business?.image || 'https://via.placeholder.com/80?text=QR'
+                                }}
+                              />
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <p className={`text-sm font-black truncate ${cardTextDark ? 'text-white' : 'text-gray-900'}`}>🎫 {code.name}</p>
+                              {hasPrize ? (
+                                <p className={`text-xs truncate ${cardTextDark ? 'text-white/90' : 'text-gray-700'}`}>Premio: {code.prize}</p>
+                              ) : (
+                                <p className={`text-xs truncate ${cardTextDark ? 'text-white/70' : 'text-gray-500'}`}>Sin premio configurado</p>
+                              )}
+                              {isBeingRedeemedInThisOrder ? (
+                                <p className="text-[10px] font-black uppercase tracking-widest mt-1 text-gray-500">En canje</p>
+                              ) : redeemed ? (
+                                <p className={`text-[10px] font-black uppercase tracking-widest mt-1 ${cardTextDark ? 'text-white/70' : 'text-gray-500'}`}>Canjeado</p>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="mt-4">
+                            <button
+                              onClick={() => handleRedeemQrPrize(code)}
+                              disabled={!canRedeem || redeemingQrId === code.id || isBeingRedeemedInThisOrder}
+                              className={`w-full px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-colors disabled:cursor-not-allowed ${dark
+                                ? 'bg-white text-gray-900 hover:bg-white/90 disabled:bg-white/50'
+                                : 'bg-gray-900 text-white hover:bg-black disabled:bg-gray-300'
+                                }`}
+                            >
+                              {isBeingRedeemedInThisOrder
+                                ? 'En carrito'
+                                : (redeemingQrId === code.id ? 'Canjeando...' : (hasPrize ? 'Canjear' : 'No disponible'))}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
 
         {/* Navigation buttons removed: users change steps using the progress indicators above */}
 
         {/* Confirmación final (no flotante) */}
-        <div className="max-w-4xl mx-auto mt-6 px-4">
+        <div className="max-w-xl mx-auto mt-6 px-4">
           <div className="bg-white rounded-lg shadow-md p-4 flex justify-center">
             <div className="w-full sm:w-auto text-center">
               <button
