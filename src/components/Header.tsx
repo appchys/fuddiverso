@@ -9,6 +9,7 @@ import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 import ClientLoginModal from '@/components/ClientLoginModal'
+import UserSidebar from './UserSidebar'
 
 // Componente para mostrar carritos activos
 function CartIndicator() {
@@ -145,138 +146,7 @@ function CartIndicator() {
 }
 
 // Componente para mostrar carritos en el menú de perfil
-function CartMenuOption({ onClose }: { onClose: () => void }) {
-  const [activeCarts, setActiveCarts] = useState<{ [key: string]: any[] }>({})
-  const [showCarts, setShowCarts] = useState(false)
-
-  useEffect(() => {
-    const loadCarts = () => {
-      const cartsData = localStorage.getItem('carts')
-      if (cartsData) {
-        try {
-          const allCarts = JSON.parse(cartsData)
-          // Filtrar solo carritos que tienen productos
-          const filteredCarts: { [key: string]: any[] } = {}
-          Object.entries(allCarts).forEach(([businessId, cart]: [string, any]) => {
-            if (Array.isArray(cart) && cart.length > 0) {
-              filteredCarts[businessId] = cart
-            }
-          })
-          setActiveCarts(filteredCarts)
-        } catch (e) {
-          console.error('Error parsing carts:', e)
-        }
-      }
-    }
-
-    loadCarts()
-
-    // Escuchar cambios en localStorage
-    const handleStorageChange = () => loadCarts()
-    window.addEventListener('storage', handleStorageChange)
-
-    // También verificar cada segundo para cambios locales
-    const interval = setInterval(loadCarts, 1000)
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange)
-      clearInterval(interval)
-    }
-  }, [])
-
-  const activeCartsCount = Object.keys(activeCarts).length
-  const totalItems = Object.values(activeCarts).reduce((total, cart) =>
-    total + cart.reduce((sum, item) => sum + item.quantity, 0), 0
-  )
-
-  const handleDeleteCart = (businessId: string) => {
-    try {
-      const cartsData = localStorage.getItem('carts')
-      if (!cartsData) return
-      const allCarts = JSON.parse(cartsData)
-      if (allCarts[businessId]) {
-        delete allCarts[businessId]
-        localStorage.setItem('carts', JSON.stringify(allCarts))
-        // Update local state immediately
-        setActiveCarts(prev => {
-          const copy = { ...prev }
-          delete copy[businessId]
-          return copy
-        })
-      }
-    } catch (e) {
-      console.error('Error deleting cart for business:', businessId, e)
-    }
-  }
-
-  return (
-    <>
-      <button
-        onClick={() => setShowCarts(!showCarts)}
-        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center justify-between"
-      >
-        <div className="flex items-center">
-          <i className="bi bi-cart mr-2"></i>
-          Mis Carritos
-        </div>
-        {totalItems > 0 && (
-          <span className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5 font-bold">
-            {totalItems > 99 ? '99+' : totalItems}
-          </span>
-        )}
-      </button>
-
-      {showCarts && activeCartsCount > 0 && (
-        <div className="bg-gray-50 border-t border-b max-h-64 overflow-y-auto">
-          <div className="px-4 py-2 bg-gray-100">
-            <p className="text-xs text-gray-600">{activeCartsCount} {activeCartsCount === 1 ? 'carrito activo' : 'carritos activos'}</p>
-          </div>
-
-          <div className="divide-y">
-            {Object.entries(activeCarts).map(([businessId, cart]) => {
-              const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
-              const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
-              const businessName = cart[0]?.businessName || 'Tienda'
-              const logo = cart[0]?.businessImage || '/default-restaurant-og.svg'
-
-              return (
-                <div key={businessId} className="p-3 hover:bg-gray-100">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center min-w-0">
-                      <img src={logo} alt={businessName} className="w-6 h-6 rounded object-cover mr-2" />
-                      <h4 className="font-medium text-gray-900 text-xs truncate">{businessName}</h4>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-red-600">${cartTotal.toFixed(2)}</span>
-                      <button
-                        aria-label="Eliminar carrito"
-                        onClick={() => handleDeleteCart(businessId)}
-                        className="p-1 text-gray-400 hover:text-red-600 rounded"
-                        title="Eliminar"
-                      >
-                        <i className="bi bi-trash text-sm"></i>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">{cartItemsCount} productos</span>
-                    <Link
-                      href={`/checkout?businessId=${businessId}`}
-                      className="text-xs bg-red-500 text-white px-3 py-1 rounded-lg hover:bg-red-600 transition-colors"
-                      onClick={onClose}
-                    >
-                      Finalizar
-                    </Link>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-    </>
-  )
-}
+// CartIndicator and other components below...
 
 type HeaderProps = {
   initialShowLoginModal?: boolean;
@@ -284,7 +154,7 @@ type HeaderProps = {
 
 export default function Header({ initialShowLoginModal = false }: HeaderProps) {
   const { user, logout } = useAuth()
-  const [showDropdown, setShowDropdown] = useState(false)
+  const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(initialShowLoginModal)
   const [showMobileSearch, setShowMobileSearch] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -343,7 +213,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
     localStorage.removeItem('clientData')
     // Opcional: Limpiar carritos si quieres resetear todo al logout (descomenta si aplica)
     // localStorage.removeItem('carts')
-    setShowDropdown(false)
+    setIsUserSidebarOpen(false)
     router.push('/')
   }
 
@@ -422,124 +292,47 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                 </button>
               )}
 
-              {user ? (
-                <div className="relative">
-                  <button
-                    onClick={() => setShowDropdown(!showDropdown)}
-                    className="flex items-center space-x-2 p-1 rounded-full hover:bg-gray-100 transition-colors group"
-                    aria-label="Menú de usuario"
-                  >
-                    {/* Contenedor del avatar */}
-                    <div className="relative w-9 h-9">
-                      {/* Imagen de perfil - solo se muestra si hay photoURL */}
-                      {user.photoURL && (
-                        <img
-                          src={user.photoURL}
-                          alt={user.nombres || 'Usuario'}
-                          className="w-full h-full rounded-full object-cover"
-                          onError={(e) => {
-                            // Si falla la carga de la imagen, forzamos mostrar las iniciales
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                            const initials = target.nextElementSibling as HTMLElement;
-                            if (initials) initials.style.display = 'flex';
-                          }}
-                        />
-                      )}
-                      {/* Iniciales - siempre presentes pero ocultas si hay imagen */}
-                      <div
-                        className={`absolute inset-0 rounded-full flex items-center justify-center text-white font-medium ${user.photoURL ? 'hidden' : 'flex'}`}
-                        style={{ backgroundColor: user.photoURL ? 'transparent' : '#f97316' }}
-                      >
-                        {getInitials(user.nombres || 'Usuario')}
-                      </div>
-                    </div>
-
-                    {/* Nombre del usuario (oculto en móviles) */}
-                    <span className="text-gray-700 text-sm font-medium hidden sm:block">
-                      {user.nombres || 'Usuario'}
-                    </span>
-                    <i className="bi bi-chevron-down text-gray-400 text-xs group-hover:text-gray-600 transition-colors"></i>
-                  </button>
-
-                  {/* Dropdown Menu */}
-                  {showDropdown && (
-                    <div className="absolute right-0 mt-2 w-72 bg-white rounded-md shadow-lg py-1 z-50 border">
-                      <div className="px-4 py-2 border-b">
-                        <p className="text-sm font-medium text-gray-900">{user.nombres}</p>
-                        <p className="text-sm text-gray-500">{user.celular}</p>
-                      </div>
-
-                      <Link
-                        href="/profile"
-                        onClick={() => {
-                          setShowDropdown(false)
-                        }}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
-                      >
-                        <i className="bi bi-person mr-2"></i>
-                        Mi Perfil
-                      </Link>
-
-                      <Link
-                        href="/my-orders"
-                        onClick={() => {
-                          setShowDropdown(false)
-                        }}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
-                      >
-                        <i className="bi bi-bag mr-2"></i>
-                        Mis Pedidos
-                      </Link>
-
-                      <Link
-                        href="/my-locations"
-                        onClick={() => {
-                          setShowDropdown(false)
-                        }}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
-                      >
-                        <i className="bi bi-geo-alt mr-2"></i>
-                        Mis Ubicaciones
-                      </Link>
-
-                      <Link
-                        href="/collection"
-                        onClick={() => {
-                          setShowDropdown(false)
-                        }}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
-                      >
-                        <i className="bi bi-collection mr-2"></i>
-                        Mis Stickers
-                      </Link>
-
-                      {/* Mis Carritos con dropdown integrado */}
-                      <CartMenuOption onClose={() => setShowDropdown(false)} />
-
-                      <div className="border-t">
-                        <button
-                          onClick={handleLogout}
-                          className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center"
+              <div className="relative">
+                <button
+                  onClick={() => setIsUserSidebarOpen(true)}
+                  className="flex items-center space-x-2 p-1 rounded-full hover:bg-gray-100 transition-colors group"
+                  aria-label="Menú de usuario"
+                >
+                  {user ? (
+                    <>
+                      {/* Contenedor del avatar */}
+                      <div className="relative w-9 h-9">
+                        {/* Imagen de perfil - solo se muestra si hay photoURL */}
+                        {user.photoURL && (
+                          <img
+                            src={user.photoURL}
+                            alt={user.nombres || 'Usuario'}
+                            className="w-full h-full rounded-full object-cover"
+                            onError={(e) => {
+                              // Si falla la carga de la imagen, forzamos mostrar las iniciales
+                              const target = e.target as HTMLImageElement;
+                              target.style.display = 'none';
+                              const initials = target.nextElementSibling as HTMLElement;
+                              if (initials) initials.style.display = 'flex';
+                            }}
+                          />
+                        )}
+                        {/* Iniciales - siempre presentes pero ocultas si hay imagen */}
+                        <div
+                          className={`w-full h-full rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-black shadow-inner ${user.photoURL ? 'hidden' : 'flex'}`}
                         >
-                          <i className="bi bi-box-arrow-right mr-2"></i>
-                          Cerrar Sesión
-                        </button>
+                          {user.nombres ? user.nombres.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase() : 'U'}
+                        </div>
                       </div>
+                      <i className="bi bi-chevron-down text-gray-400 text-xs group-hover:text-gray-600 transition-colors"></i>
+                    </>
+                  ) : (
+                    <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 border border-gray-200 group-hover:bg-gray-200 transition-colors">
+                      <i className="bi bi-person text-xl"></i>
                     </div>
                   )}
-                </div>
-              ) : (
-                <div className="flex items-center">
-                  <button
-                    onClick={() => setShowLoginModal(true)}
-                    className="w-9 h-9 flex items-center justify-center bg-gray-200 text-gray-600 rounded-full hover:bg-gray-300 transition-colors"
-                    title="Iniciar Sesión"
-                  >
-                    <i className="bi bi-person-fill text-lg"></i>
-                  </button>
-                </div>
-              )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -593,11 +386,10 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
         )}
       </header>
 
-      {/* Modal de Login con ClientLoginModal */}
-      <ClientLoginModal
-        isOpen={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-        onLoginSuccess={handleLoginSuccess}
+      <UserSidebar
+        isOpen={isUserSidebarOpen}
+        onClose={() => setIsUserSidebarOpen(false)}
+        onLogin={() => setShowLoginModal(true)}
       />
     </>
   )

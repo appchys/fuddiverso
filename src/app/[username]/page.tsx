@@ -7,6 +7,8 @@ import Head from 'next/head'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
 import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize } from '@/lib/database'
 import CartSidebar from '@/components/CartSidebar'
+import UserSidebar from '@/components/UserSidebar'
+import ClientLoginModal from '@/components/ClientLoginModal'
 import { isStoreOpen } from '@/lib/store-utils'
 
 // Componente para structured data JSON-LD
@@ -389,6 +391,8 @@ function RestaurantContent() {
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
   const [activeTab, setActiveTab] = useState<'catalogo' | 'perfil'>('catalogo')
+  const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
+  const [showLoginModal, setShowLoginModal] = useState(false)
 
   useEffect(() => {
     const loadRestaurantData = async () => {
@@ -839,6 +843,14 @@ function RestaurantContent() {
       <div className="bg-white shadow-sm">
         {/* Portada con logo superpuesto */}
         <div className="relative w-full h-36 sm:h-48 bg-gray-200">
+          {/* Hamburger Menu Icon */}
+          <button
+            onClick={() => setIsUserSidebarOpen(true)}
+            className="absolute top-4 left-4 z-20 w-10 h-10 flex items-center justify-center rounded-full bg-white/20 backdrop-blur-md text-white border border-white/20 hover:bg-white/30 transition-all active:scale-95 shadow-sm"
+            aria-label="Menú de usuario"
+          >
+            <i className="bi bi-list text-xl"></i>
+          </button>
           {business.coverImage ? (
             <>
               <div className={`absolute inset-0 animate-pulse bg-gray-200 ${coverLoaded ? 'hidden' : 'block'}`}></div>
@@ -1161,6 +1173,20 @@ function RestaurantContent() {
           `}</style>
         </div>
       )}
+      <UserSidebar
+        isOpen={isUserSidebarOpen}
+        onClose={() => setIsUserSidebarOpen(false)}
+        onLogin={() => setShowLoginModal(true)}
+      />
+
+      <ClientLoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onLoginSuccess={(phone) => {
+          setClientPhone(phone)
+          setShowLoginModal(false)
+        }}
+      />
     </div>
   )
 }
