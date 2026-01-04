@@ -1298,6 +1298,31 @@ export async function getBusinessByUsername(username: string): Promise<Business 
   }
 }
 
+/**
+ * Obtener un cliente por su ID
+ */
+export async function getClientById(clientId: string): Promise<FirestoreClient | null> {
+  try {
+    const docSnap = await getDoc(doc(db, 'clients', clientId))
+    if (docSnap.exists()) {
+      const data = docSnap.data()
+      return {
+        id: docSnap.id,
+        nombres: data.nombres || '',
+        celular: data.celular || '',
+        email: data.email || '',
+        photoURL: data.photoURL || '',
+        fecha_de_registro: data.fecha_de_registro || '',
+        pinHash: data.pinHash || null
+      } as FirestoreClient
+    }
+    return null
+  } catch (error) {
+    console.error('Error getting client by ID:', error)
+    return null
+  }
+}
+
 // Nueva función para obtener ubicaciones del cliente
 export async function getClientLocations(clientId: string): Promise<ClientLocation[]> {
   try {
@@ -1354,6 +1379,8 @@ export async function searchClientByPhone(phone: string): Promise<FirestoreClien
         id: doc.id,
         nombres: clientData.nombres || '',
         celular: clientData.celular || phone,
+        email: clientData.email || '',
+        photoURL: clientData.photoURL || '',
         fecha_de_registro: clientData.fecha_de_registro || new Date().toISOString(),
         pinHash: clientData.pinHash || null
       };

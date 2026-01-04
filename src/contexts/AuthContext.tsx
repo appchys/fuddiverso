@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { FirestoreClient } from '@/lib/database'
+import { FirestoreClient, getClientById } from '@/lib/database'
 
 interface AuthContextType {
   user: FirestoreClient | null
@@ -16,16 +16,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<FirestoreClient | null>(null)
 
   useEffect(() => {
-    // Cargar usuario desde localStorage al iniciar
-    const savedUser = localStorage.getItem('fuddi_shop_user')
-    if (savedUser) {
-      try {
-        setUser(JSON.parse(savedUser))
-      } catch (error) {
-        console.error('Error parsing saved user:', error)
-        localStorage.removeItem('fuddi_shop_user')
+    const syncUser = async () => {
+      // Cargar usuario desde localStorage al iniciar
+      const savedUser = localStorage.getItem('fuddi_shop_user')
+      if (savedUser) {
+        try {
+          const localUser = JSON.parse(savedUser) as FirestoreClient
+          setUser(localUser)
+
+          // Intentar sincronizar con la base de datos para obtener datos actualizados (como photoURL)
+          if (localUser.id) {
+            const freshUser = await getClientById(localUser.id)
+            if (freshUser) {
+              setUser(freshUser)
+              localStorage.setItem('fuddi_shop_user', JSON.stringify(freshUser))
+            }
+          }
+        } catch (error) {
+          console.error('Error parsing/syncing saved user:', error)
+          localStorage.removeItem('fuddi_shop_user')
+        }
       }
     }
+
+    syncUser()
   }, [])
 
   const login = (userData: FirestoreClient) => {
