@@ -114,3 +114,69 @@ export function getStoreScheduleForDate(business: Business | null, dateStr: stri
         dayName: dayTranslations[dayOfWeek] || dayOfWeek
     }
 }
+
+/**
+ * Calcula el próximo slot disponible para programar un pedido.
+ * Busca en los próximos 7 días el primer horario de apertura válido.
+ */
+export function getNextAvailableSlot(business: Business | null): { date: string, time: string } | null {
+    if (!business) return null
+
+    const now = new Date()
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+    // Si está cerrado manualmente, empezamos a buscar desde mañana
+    let startDayOffset = 0
+    if (business.manualStoreStatus === 'closed') {
+        startDayOffset = 1
+    }
+
+    // Buscar en los próximos 7 días
+    for (let i = startDayOffset; i < 7; i++) {
+        const d = new Date(now)
+        d.setDate(d.getDate() + i)
+        const dayName = dayNames[d.getDay()]
+        const schedule = business.schedule?.[dayName]
+
+        if (schedule && schedule.isOpen) {
+            const year = d.getFullYear()
+            const month = String(d.getMonth() + 1).padStart(2, '0')
+            const day = String(d.getDate()).padStart(2, '0')
+            const dateStr = `${year}-${month}-${day}`
+
+            // Si es hoy, verificar horas
+            if (i === 0) {
+                const currentMinutes = now.getHours() * 60 + now.getMinutes()
+
+                const [closeH, closeM] = normalizeTime(schedule.close).split(':').map(Number)
+                const closeMinutes = closeH * 60 + closeM
+
+                const [openH, openM] = normalizeTime(schedule.open).split(':').map(Number)
+                const openMinutes = openH * 60 + openM
+
+                // Margen de 30 min mínimo para pedidos programados
+                const bufferMinutes = 30
+                const potentialStartMinutes = currentMinutes + bufferMinutes
+
+                // Si es antes de abrir, el slot es la hora de apertura
+                if (potentialStartMinutes < openMinutes) {
+                    return { date: dateStr, time: schedule.open }
+                }
+
+                // Si estamos dentro del tiempo operativo (y hay tiempo antes del cierre)
+                if (potentialStartMinutes < closeMinutes) {
+                    const h = Math.floor(potentialStartMinutes / 60)
+                    const m = potentialStartMinutes % 60
+                    const nextTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+                    return { date: dateStr, time: nextTime }
+                }
+
+                // Si ya no hay tiempo hoy, el loop continuará a mañana
+            } else {
+                // Para días futuros, devolvemos la hora de apertura
+                return { date: dateStr, time: schedule.open }
+            }
+        }
+    }
+    return null
+}

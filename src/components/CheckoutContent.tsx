@@ -27,7 +27,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { Timestamp } from 'firebase/firestore'
-import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate } from '@/lib/store-utils'
+import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate, getNextAvailableSlot } from '@/lib/store-utils'
 
 // Componente para subir comprobante de transferencia
 function TransferReceiptUploader({
@@ -954,6 +954,43 @@ export function CheckoutContent({
   const deliveryCost = getDeliveryCost()
   const total = subtotal + deliveryCost
 
+  // Calcular fecha mínima para programación
+  const getMinScheduledDate = () => {
+    const now = new Date();
+
+    // Si la tienda está cerrada manualmente, la programación inicia desde mañana
+    if (business?.manualStoreStatus === 'closed') {
+      now.setDate(now.getDate() + 1);
+    }
+
+    // Formato YYYY-MM-DD usando hora local
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  const getDateLabel = () => {
+    if (!timingData.scheduledDate) return 'Fecha'
+
+    const now = new Date()
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${year}-${month}-${day}`;
+
+    const tomorrow = new Date(now)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const tYear = tomorrow.getFullYear();
+    const tMonth = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const tDay = String(tomorrow.getDate()).padStart(2, '0');
+    const tomorrowStr = `${tYear}-${tMonth}-${tDay}`;
+
+    if (timingData.scheduledDate === todayStr) return 'Hoy'
+    if (timingData.scheduledDate === tomorrowStr) return 'Mañana'
+    return 'Fecha'
+  }
+
   const qrPrizeIdsInCart = cartItems.filter((i: any) => i.qrCodeId).map((i: any) => i.qrCodeId)
   const visibleQrCards = qrCodes.filter(code => code.prize && code.prize.trim() !== '')
 
@@ -1756,7 +1793,20 @@ export function CheckoutContent({
 
                   <button
                     type="button"
-                    onClick={() => setTimingData({ ...timingData, type: 'scheduled' })}
+                    onClick={() => {
+                      // Si ya tiene datos, solo cambiar tipo (o mantenerlos)
+                      // Si no tiene datos, calcular el próximo slot disponible
+                      if (timingData.scheduledDate && timingData.scheduledTime) {
+                        setTimingData({ ...timingData, type: 'scheduled' })
+                      } else {
+                        const nextSlot = getNextAvailableSlot(business)
+                        setTimingData({
+                          type: 'scheduled',
+                          scheduledDate: nextSlot?.date || '',
+                          scheduledTime: nextSlot?.time || ''
+                        })
+                      }
+                    }}
                     className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${timingData.type === 'scheduled'
                       ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
                       : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
@@ -1777,10 +1827,10 @@ export function CheckoutContent({
                 {timingData.type === 'scheduled' && (
                   <div className="grid grid-cols-2 gap-4 animate-fadeIn">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Fecha</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">{getDateLabel()}</label>
                       <input
                         type="date"
-                        min={new Date().toISOString().split('T')[0]}
+                        min={getMinScheduledDate()}
                         value={timingData.scheduledDate}
                         onChange={(e) => setTimingData({ ...timingData, scheduledDate: e.target.value })}
                         className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 ${timingData.scheduledDate && timingData.scheduledTime && !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)
@@ -2021,7 +2071,7 @@ export function CheckoutContent({
                 </span>
               </h3>
 
-              <div className="space-y-4 mb-6">
+              <div className="flex flex-col mb-6">
                 {[...cartItems]
                   .sort((a, b) => {
                     if (a.esPremio && !b.esPremio) return 1;
@@ -2038,11 +2088,11 @@ export function CheckoutContent({
                     return (
                       <div
                         key={index}
-                        className={`flex gap-3 p-3 rounded-xl transition-all ${isTarjeta
-                          ? 'bg-blue-50/50 border border-blue-100 shadow-sm'
+                        className={`flex gap-3 transition-all ${isTarjeta
+                          ? 'p-3 mb-3 rounded-xl bg-blue-50/50 border border-blue-100 shadow-sm'
                           : isRegalo
-                            ? 'bg-amber-50/50 border border-amber-100 shadow-sm'
-                            : 'bg-gray-50 border border-gray-50 hover:border-gray-200'
+                            ? 'p-3 mb-3 rounded-xl bg-amber-50/50 border border-amber-100 shadow-sm'
+                            : 'py-3 border-b border-gray-100 last:border-0'
                           }`}
                       >
                         {/* Item Image Preview */}
