@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { QRCode, UserQRProgress } from '@/types'
 import {
@@ -39,6 +40,8 @@ export default function CartSidebar({
     addItemToCart
 }: CartSidebarProps) {
     const { user, login } = useAuth()
+    const pathname = usePathname()
+    const router = useRouter()
 
     const [view, setView] = useState<'cart' | 'checkout'>('cart')
 
@@ -746,7 +749,15 @@ export default function CartSidebar({
                                     </button>
                                 ) : (
                                     <button
-                                        onClick={onClose}
+                                        onClick={() => {
+                                            const storePath = `/${business?.username}`
+                                            if (pathname === storePath || pathname.startsWith(`${storePath}/`)) {
+                                                onClose()
+                                            } else {
+                                                router.push(storePath)
+                                                onClose()
+                                            }
+                                        }}
                                         className="block w-full bg-gray-100 text-gray-500 py-4 rounded-2xl hover:bg-gray-200 transition-all duration-200 font-medium text-lg"
                                     >
                                         Agrega productos para continuar

@@ -122,7 +122,7 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
       {/* Botón compartir producto (solo visible en hover) */}
       <button
         onClick={handleCopyProductLink}
-        className="absolute top-3 right-3 p-1.5 text-gray-400 hover:text-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
+        className="absolute top-3 right-3 p-1.5 text-gray-400 hover:text-red-500 rounded-full opacity-0 md:group-hover:opacity-100 transition-opacity z-10 hidden md:block"
         title="Copiar enlace del producto"
       >
         <i className="bi bi-link-45deg text-lg"></i>
@@ -134,7 +134,7 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
         <img
           src={product.image || businessImage}
           alt={product.name}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+          className="w-full h-full object-cover transition-transform duration-500 md:group-hover:scale-110"
           loading="lazy"
           decoding="async"
           onLoad={() => setImgLoaded(true)}
@@ -193,7 +193,7 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
                 </button>
               </div>
             ) : (
-              <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-lg transform group-hover:scale-110 group-hover:bg-red-600 transition-all duration-300">
+              <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-lg transform md:group-hover:scale-110 md:group-hover:bg-red-600 transition-all duration-300">
                 <i className="bi bi-plus-lg text-sm"></i>
               </div>
             )}

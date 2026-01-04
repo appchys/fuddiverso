@@ -10,8 +10,11 @@ import {
   getAllUserQRProgress,
   getBusiness,
   getQRCodesByBusiness,
+  redeemQRCodePrize,
+  unredeemQRCodePrize,
   storage
 } from '@/lib/database'
+import CartSidebar from '@/components/CartSidebar'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone } from '@/lib/validation'
@@ -26,6 +29,13 @@ interface EnrichedCard {
   scannedCount: number
   totalCards: number
   lastScanned?: Date
+  scannedQRs: {
+    id: string
+    name: string
+    prize?: string
+    image?: string
+    status: 'available' | 'in_cart' | 'redeemed'
+  }[]
 }
 
 export default function ProfilePage() {
@@ -36,6 +46,10 @@ export default function ProfilePage() {
   // DATA STATES
   const [locations, setLocations] = useState<any[]>([])
   const [cardsData, setCardsData] = useState<EnrichedCard[]>([])
+  const [isCartOpen, setIsCartOpen] = useState(false)
+  const [selectedBusiness, setSelectedBusiness] = useState<any>(null)
+  const [selectedBusinessCart, setSelectedBusinessCart] = useState<any[]>([])
+  const [redeemingQrId, setRedeemingQrId] = useState<string | null>(null)
 
   // EDIT PROFILE STATES
   const [isEditing, setIsEditing] = useState(false)
@@ -91,13 +105,39 @@ export default function ProfilePage() {
           // Obtener total de tarjetas activas del negocio para calcular total
           const allCodes = await getQRCodesByBusiness(p.businessId, true) // active only
 
+          // Cargar carrito del negocio para ver qué hay en reserva local
+          const savedCarts = localStorage.getItem('carts')
+          const allCarts = savedCarts ? JSON.parse(savedCarts) : {}
+          const businessCart = allCarts[p.businessId] || []
+
+          // Obtener los detalles de los códigos que el usuario ya ha escaneado
+          const scannedQRs = allCodes
+            .filter(code => (p.scannedCodes || []).includes(code.id))
+            .map(code => {
+              const isRedeemed = (p.redeemedPrizeCodes || []).includes(code.id)
+              const isInCart = businessCart.some((item: any) => item.qrCodeId === code.id || item.id === `premio-qr-${code.id}`)
+
+              let status: 'available' | 'in_cart' | 'redeemed' = 'available'
+              if (isInCart) status = 'in_cart'
+              else if (isRedeemed) status = 'redeemed' // Si está en redeemedPrizeCodes pero no en carrito, se asume canje previo completado
+
+              return {
+                id: code.id,
+                name: code.name,
+                prize: code.prize,
+                image: code.image,
+                status
+              }
+            })
+
           return {
             businessName: business?.name || 'Negocio Desconocido',
             businessImage: business?.image,
             businessId: p.businessId,
             scannedCount: p.scannedCodes.length,
             totalCards: allCodes.length,
-            lastScanned: p.lastScanned
+            lastScanned: p.lastScanned,
+            scannedQRs
           }
         } catch (err) {
           return null
@@ -198,8 +238,140 @@ export default function ProfilePage() {
       console.error('Error uploading avatar:', error)
       setMessage({ type: 'error', text: 'Error al subir la imagen' })
     } finally {
-      setUploadingAvatar(false)
+      setLoading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  // CART HELPERS FOR CARTSIDEBAR
+  const updateCartInStorage = (businessId: string, businessCart: any[]) => {
+    const savedCarts = localStorage.getItem('carts')
+    const allCarts = savedCarts ? JSON.parse(savedCarts) : {}
+    if (businessCart.length === 0) {
+      delete allCarts[businessId]
+    } else {
+      allCarts[businessId] = businessCart
+    }
+    localStorage.setItem('carts', JSON.stringify(allCarts))
+    // Despachar evento para que otros componentes (como el Header) se enteren
+    window.dispatchEvent(new Event('storage'))
+  }
+
+  const removeFromCart = (productId: string, variantName?: string | null) => {
+    if (!selectedBusiness?.id) return
+
+    // Si es un premio, intentar "des-canjear" en DB
+    const itemToRemove = selectedBusinessCart.find(item => item.id === productId && item.variantName === variantName)
+    if (itemToRemove?.esPremio && itemToRemove.qrCodeId && user?.celular) {
+      void unredeemQRCodePrize(normalizeEcuadorianPhone(user.celular), selectedBusiness.id, itemToRemove.qrCodeId)
+        .then(() => loadProfileData())
+        .catch(e => console.error('Error unredeeming on remove:', e))
+    }
+
+    const newCart = selectedBusinessCart.filter(item => !(item.id === productId && item.variantName === variantName))
+    setSelectedBusinessCart(newCart)
+    updateCartInStorage(selectedBusiness.id, newCart)
+  }
+
+  const updateQuantity = (productId: string, quantity: number, variantName?: string | null) => {
+    if (!selectedBusiness?.id) return
+    if (quantity <= 0) {
+      removeFromCart(productId, variantName)
+      return
+    }
+    const newCart = selectedBusinessCart.map(item =>
+      (item.id === productId && item.variantName === variantName)
+        ? { ...item, quantity }
+        : item
+    )
+    setSelectedBusinessCart(newCart)
+    updateCartInStorage(selectedBusiness.id, newCart)
+  }
+
+  const addItemToCart = (item: any) => {
+    if (!selectedBusiness?.id) return
+    const existing = selectedBusinessCart.find(i => i.id === item.id && i.variantName === item.variantName)
+    let newCart
+    if (existing) {
+      newCart = selectedBusinessCart.map(i => (i.id === item.id && i.variantName === item.variantName) ? { ...i, quantity: i.quantity + 1 } : i)
+    } else {
+      newCart = [...selectedBusinessCart, { ...item, quantity: 1 }]
+    }
+    setSelectedBusinessCart(newCart)
+    updateCartInStorage(selectedBusiness.id, newCart)
+  }
+
+  const handleRedeem = async (card: EnrichedCard, qr: any) => {
+    if (!user?.celular || !user.id) return
+    const phone = normalizeEcuadorianPhone(user.celular)
+
+    // Si ya está en carrito, solo abrir sidebar
+    if (qr.status === 'in_cart') {
+      const business = await getBusiness(card.businessId)
+      setSelectedBusiness(business)
+      const savedCarts = localStorage.getItem('carts')
+      const allCarts = savedCarts ? JSON.parse(savedCarts) : {}
+      setSelectedBusinessCart(allCarts[card.businessId] || [])
+      setIsCartOpen(true)
+      return
+    }
+
+    if (qr.status === 'redeemed') {
+      setMessage({ type: 'error', text: 'Esta tarjeta ya ha sido canjeada anteriormente' })
+      return
+    }
+
+    setRedeemingQrId(qr.id)
+    try {
+      const result = await redeemQRCodePrize(phone, card.businessId, qr.id)
+      // Si el error es que ya fue canjeado pero no lo tenemos en el carrito, es un canje real previo.
+      if (!result.success && !result.message?.includes('ya fue canjeado')) {
+        setMessage({ type: 'error', text: result.message || 'No se pudo canjear' })
+        return
+      }
+
+      // 1. Obtener datos del negocio para el sidebar
+      const business = await getBusiness(card.businessId)
+      setSelectedBusiness(business)
+
+      // 2. Cargar carrito actual
+      const savedCarts = localStorage.getItem('carts')
+      const allCarts = savedCarts ? JSON.parse(savedCarts) : {}
+      const currentCart = allCarts[card.businessId] || []
+
+      // 3. Crear item de premio
+      const premioId = `premio-qr-${qr.id}`
+      const premioQr = {
+        id: premioId,
+        name: `🎁 ${qr.name}`,
+        variantName: null,
+        productName: `🎁 ${qr.name}`,
+        description: `Premio canjeado por tarjeta: ${qr.name}`,
+        price: 0,
+        isAvailable: true,
+        esPremio: true,
+        quantity: 1,
+        image: qr.image || business?.image || '/placeholder.png',
+        businessId: card.businessId,
+        businessName: business?.name || card.businessName,
+        businessImage: business?.image || card.businessImage,
+        qrCodeId: qr.id
+      }
+
+      const newCart = [...currentCart, premioQr]
+      setSelectedBusinessCart(newCart)
+      updateCartInStorage(card.businessId, newCart)
+
+      // 4. Abrir sidebar y refrescar info
+      setIsCartOpen(true)
+      loadProfileData()
+      setMessage({ type: 'success', text: '¡Tarjeta canjeada con éxito!' })
+
+    } catch (e) {
+      console.error('Error redeeming:', e)
+      setMessage({ type: 'error', text: 'Error al procesar el canje' })
+    } finally {
+      setRedeemingQrId(null)
     }
   }
 
@@ -353,19 +525,61 @@ export default function ProfilePage() {
                       Última visita: {card.lastScanned ? new Date(card.lastScanned).toLocaleDateString() : 'Nunca'}
                     </p>
 
-                    <div className="flex justify-center items-center gap-1 mb-2">
-                      {/* Puntos visuales simples */}
-                      {Array.from({ length: Math.min(card.totalCards || 5, 5) }).map((_, idx) => (
-                        <div
-                          key={idx}
-                          className={`w-3 h-3 rounded-full ${idx < card.scannedCount ? 'bg-green-500' : 'bg-gray-200'}`}
-                        />
-                      ))}
-                      {card.totalCards > 5 && <span className="text-xs text-gray-400 ml-1">+</span>}
-                    </div>
+
                     <p className="text-sm font-medium text-gray-700">
                       {card.scannedCount} tarjetas escaneadas
                     </p>
+
+                    {/* Detalle de tarjetas escaneadas */}
+                    {card.scannedQRs.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-gray-50 flex flex-col gap-3">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider text-left">Tus Beneficios</p>
+                        {card.scannedQRs.map((qr) => (
+                          <div key={qr.id} className="flex items-center gap-3 text-left bg-gray-50 rounded-lg p-2 transition-transform hover:scale-[1.02]">
+                            <div className="w-10 h-10 rounded-md overflow-hidden bg-white shadow-sm flex-shrink-0">
+                              <img
+                                src={qr.image || card.businessImage || '/placeholder.png'}
+                                alt={qr.name}
+                                className="w-full h-full object-cover"
+                                onError={(e: any) => e.target.src = 'https://via.placeholder.com/150'}
+                              />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-gray-900 truncate">{qr.name}</p>
+                              <p className="text-[10px] text-green-600 font-semibold truncate flex items-center gap-1">
+                                <i className="bi bi-gift-fill text-[8px]"></i>
+                                {qr.prize || 'Sin premio especificado'}
+                              </p>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRedeem(card, qr);
+                              }}
+                              disabled={redeemingQrId === qr.id || qr.status === 'redeemed'}
+                              className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${qr.status === 'in_cart'
+                                ? 'bg-orange-100 text-orange-600 border border-orange-200 shadow-none'
+                                : qr.status === 'redeemed'
+                                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
+                                  : redeemingQrId === qr.id
+                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                    : 'bg-green-600 text-white hover:bg-green-700 shadow-sm active:scale-95'
+                                }`}
+                            >
+                              {redeemingQrId === qr.id ? (
+                                <div className="animate-spin h-3 w-3 border-2 border-gray-400 border-t-transparent rounded-full mx-auto"></div>
+                              ) : qr.status === 'in_cart' ? (
+                                'En canje'
+                              ) : qr.status === 'redeemed' ? (
+                                'Canjeado'
+                              ) : (
+                                'Canjear'
+                              )}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
@@ -509,6 +723,18 @@ export default function ProfilePage() {
         )}
 
       </div>
+      {/* CART SIDEBAR PARA CANJES */}
+      {selectedBusiness && (
+        <CartSidebar
+          isOpen={isCartOpen}
+          onClose={() => setIsCartOpen(false)}
+          cart={selectedBusinessCart}
+          business={selectedBusiness}
+          removeFromCart={removeFromCart}
+          updateQuantity={updateQuantity}
+          addItemToCart={addItemToCart}
+        />
+      )}
     </div>
   )
 }
