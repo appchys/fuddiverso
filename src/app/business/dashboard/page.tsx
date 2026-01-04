@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { Business, Product, Order, ProductVariant, ClientLocation } from '@/types'
+import { Business, Product, Order, ProductVariant, ClientLocation, PaymentInfo } from '@/types'
+import { User as FirebaseUser } from 'firebase/auth'
 import { auth, db } from '@/lib/firebase'
 import { printOrder } from '@/lib/print-utils'
 import { doc, updateDoc, Timestamp } from 'firebase/firestore'
@@ -58,8 +59,26 @@ const QRCodesContent = dynamic(() => import('@/app/business/qr-codes/qr-codes-co
 
 export default function BusinessDashboard() {
   const router = useRouter()
-  const { user, businessId, ownerId, isAuthenticated, authLoading, logout, setBusinessId } = useBusinessAuth()
-  const { permission, requestPermission, showNotification, isSupported, isIOS, needsUserAction } = usePushNotifications()
+  const { 
+    user, 
+    businessId, 
+    ownerId, 
+    isAuthenticated, 
+    authLoading, 
+    logout, 
+    setBusinessId 
+  } = useBusinessAuth()
+  // Asegurar valores por defecto para usePushNotifications
+  const pushNotifications = usePushNotifications()
+  const { 
+    permission = 'default', 
+    requestPermission = () => Promise.resolve('default'), 
+    showNotification = (options: { title: string; body: string; icon?: string }) => 
+      console.log('Notificación simulada:', options),
+    isSupported = false, 
+    isIOS = false, 
+    needsUserAction = false 
+  } = pushNotifications || {}
   const [showCostReports, setShowCostReports] = useState(false)
   const [business, setBusiness] = useState<Business | null>(null)
   const [businesses, setBusinesses] = useState<Business[]>([])
@@ -82,6 +101,7 @@ export default function BusinessDashboard() {
   const [editedBusiness, setEditedBusiness] = useState<Business | null>(null)
   const [uploadingCover, setUploadingCover] = useState(false)
   const [uploadingProfile, setUploadingProfile] = useState(false)
+  const [uploadingLocation, setUploadingLocation] = useState(false)
   const [businessCategories, setBusinessCategories] = useState<string[]>([])
   const [showAddAdminModal, setShowAddAdminModal] = useState(false)
   const [newAdminData, setNewAdminData] = useState({
@@ -139,18 +159,28 @@ export default function BusinessDashboard() {
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<Product | null>(null)
   const [isVariantModalOpen, setIsVariantModalOpen] = useState(false)
 
-  // (Eliminado) Estados para modal de edición de órdenes: ahora reemplazado por ManualOrderSidebar
+  // Estados para el modal de edición de órdenes
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null)
+  const [showEditModal, setShowEditModal] = useState(false)
 
   // Estados para modal de detalles del pedido
   const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(false)
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<Order | null>(null)
   const [showEditPaymentModal, setShowEditPaymentModal] = useState(false)
+  const [showReceiptPreviewModal, setShowReceiptPreviewModal] = useState(false)
   const [paymentEditingOrder, setPaymentEditingOrder] = useState<Order | null>(null)
-  const [editPaymentData, setEditPaymentData] = useState({
+
+  // Asegurar que el estado de edición de pago tenga el tipo correcto
+  interface EditPaymentData extends Pick<PaymentInfo, 'method' | 'paymentStatus'> {
+    cashAmount: number;
+    transferAmount: number;
+  }
+  
+  const [editPaymentData, setEditPaymentData] = useState<EditPaymentData>({
     method: 'cash' as 'cash' | 'transfer' | 'mixed',
     cashAmount: 0,
     transferAmount: 0,
-    paymentStatus: 'pending' as 'pending' | 'validating' | 'paid'
+    paymentStatus: 'pending' as PaymentInfo['paymentStatus']
   })
 
   // Perf: mark mount (dev-safe, avoids console.time duplicate warnings in StrictMode)
@@ -771,13 +801,93 @@ export default function BusinessDashboard() {
         order.id === orderId ? {
           ...order,
           payment: {
-            ...order.payment,
+            ...order.payment!,
             paymentStatus: 'paid'
           }
         } : order
       ))
     } catch (error) {
       alert('Error al actualizar el estado de pago')
+    }
+  }
+
+  const handleValidatePayment = async (orderId: string) => {
+    try {
+      const orderRef = doc(db, 'orders', orderId)
+      await updateDoc(orderRef, {
+        'payment.paymentStatus': 'paid' as const
+      })
+
+      // Actualizar estado local
+      const updatedOrders = orders.map(order => 
+        order.id === orderId ? {
+          ...order,
+          payment: {
+            ...order.payment!,
+            paymentStatus: 'paid' as const
+          }
+        } : order
+      );
+      setOrders(updatedOrders);
+
+      // Si el pedido es el que se está editando, actualizar también ese estado
+      if (paymentEditingOrder?.id === orderId) {
+        setPaymentEditingOrder({
+          ...paymentEditingOrder,
+          payment: {
+            ...paymentEditingOrder.payment!,
+            paymentStatus: 'paid' as const
+          }
+        });
+        setEditPaymentData(prev => ({ 
+          ...prev, 
+          paymentStatus: 'paid' as const 
+        }));
+      }
+
+      setShowReceiptPreviewModal(false);
+    } catch (error) {
+      alert('Error al validar el pago');
+    }
+  }
+
+  const handleRejectPayment = async (orderId: string) => {
+    try {
+      const orderRef = doc(db, 'orders', orderId)
+      await updateDoc(orderRef, {
+        'payment.paymentStatus': 'rejected' as const
+      })
+
+      // Actualizar estado local
+      const updatedOrders = orders.map(order => 
+        order.id === orderId ? {
+          ...order,
+          payment: {
+            ...order.payment!,
+            paymentStatus: 'rejected' as const
+          }
+        } : order
+      );
+      setOrders(updatedOrders);
+
+      // Si el pedido es el que se está editando, actualizar también ese estado
+      if (paymentEditingOrder?.id === orderId) {
+        setPaymentEditingOrder({
+          ...paymentEditingOrder,
+          payment: {
+            ...paymentEditingOrder.payment!,
+            paymentStatus: 'rejected' as const
+          }
+        });
+        setEditPaymentData(prev => ({ 
+          ...prev, 
+          paymentStatus: 'rejected' as const 
+        }));
+      }
+
+      setShowReceiptPreviewModal(false);
+    } catch (error) {
+      alert('Error al rechazar el pago');
     }
   }
 
@@ -843,6 +953,11 @@ export default function BusinessDashboard() {
       const updatedBusiness = { ...business, coverImage: imageUrl };
       setBusiness(updatedBusiness);
 
+      // Si se está editando, actualizar también el estado de edición
+      if (editedBusiness && editedBusiness.id === business.id) {
+        setEditedBusiness({ ...editedBusiness, coverImage: imageUrl });
+      }
+
       // Actualizar en la lista de negocios
       setBusinesses(prev => prev.map(b =>
         b.id === business.id ? updatedBusiness : b
@@ -876,6 +991,11 @@ export default function BusinessDashboard() {
       const updatedBusiness = { ...business, image: imageUrl };
       setBusiness(updatedBusiness);
 
+      // Si se está editando, actualizar también el estado de edición
+      if (editedBusiness && editedBusiness.id === business.id) {
+        setEditedBusiness({ ...editedBusiness, image: imageUrl });
+      }
+
       // Actualizar en la lista de negocios
       setBusinesses(prev => prev.map(b =>
         b.id === business.id ? updatedBusiness : b
@@ -887,6 +1007,44 @@ export default function BusinessDashboard() {
       alert('Error al subir la imagen de perfil. Inténtalo de nuevo.');
     } finally {
       setUploadingProfile(false);
+    }
+  };
+
+  // Función para subir foto del local
+  const handleLocationImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !business) return;
+
+    setUploadingLocation(true);
+    try {
+      // Subir imagen a Firebase Storage
+      const timestamp = Date.now();
+      const path = `businesses/locations/${business.id}_${timestamp}_${file.name}`;
+      const imageUrl = await uploadImage(file, path);
+
+      // Actualizar el negocio en Firebase
+      await updateBusiness(business.id, { locationImage: imageUrl });
+
+      // Actualizar estado local
+      const updatedBusiness = { ...business, locationImage: imageUrl };
+      setBusiness(updatedBusiness);
+
+      // Si se está editando, actualizar también el estado de edición
+      if (editedBusiness && editedBusiness.id === business.id) {
+        setEditedBusiness({ ...editedBusiness, locationImage: imageUrl });
+      }
+
+      // Actualizar en la lista de negocios
+      setBusinesses(prev => prev.map(b =>
+        b.id === business.id ? updatedBusiness : b
+      ));
+
+      updateBusinessCache(updatedBusiness);
+
+    } catch (error) {
+      alert('Error al subir la foto del local. Inténtalo de nuevo.');
+    } finally {
+      setUploadingLocation(false);
     }
   };
 
@@ -2180,7 +2338,7 @@ export default function BusinessDashboard() {
       }
 
       const orderData = {
-        businessId: business.id,
+        businessId: businessId || '',
         items: manualOrderData.selectedProducts.map(item => ({
           productId: item.id,
           name: item.name,
@@ -2787,10 +2945,12 @@ export default function BusinessDashboard() {
                 isEditingProfile={isEditingProfile}
                 uploadingCover={uploadingCover}
                 uploadingProfile={uploadingProfile}
+                uploadingLocation={uploadingLocation}
                 products={products}
                 categories={businessCategories}
                 onCoverImageUpload={handleCoverImageUpload}
                 onProfileImageUpload={handleProfileImageUpload}
+                onLocationImageUpload={handleLocationImageUpload}
                 onEditProfile={handleEditProfile}
                 onCancelEdit={handleCancelEdit}
                 onSaveProfile={handleSaveProfile}
@@ -3267,10 +3427,9 @@ export default function BusinessDashboard() {
                   {paymentEditingOrder.payment?.receiptImageUrl && (
                     <div className="ml-4">
                       <p className="text-xs text-gray-500 mb-1 text-center">Comprobante</p>
-                      <a
-                        href={paymentEditingOrder.payment.receiptImageUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => setShowReceiptPreviewModal(true)}
                         className="block relative group"
                         title="Ver comprobante completo"
                       >
@@ -3282,7 +3441,7 @@ export default function BusinessDashboard() {
                         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all rounded-lg">
                           <i className="bi bi-zoom-in text-white opacity-0 group-hover:opacity-100 drop-shadow-md"></i>
                         </div>
-                      </a>
+                      </button>
                     </div>
                   )}
                 </div>
@@ -3479,7 +3638,6 @@ export default function BusinessDashboard() {
           <i className="bi bi-plus-lg text-lg"></i>
         </button>
 
-        {/* Sidebar para crear pedido manual */}
         <ManualOrderSidebar
           isOpen={showManualOrderModal}
           onClose={() => setShowManualOrderModal(false)}
@@ -3490,6 +3648,65 @@ export default function BusinessDashboard() {
           editOrder={editingOrderForSidebar || undefined}
           onOrderUpdated={loadOrders}
         />
+
+        {/* Modal de Previsualización de Comprobante con Validación */}
+        {showReceiptPreviewModal && paymentEditingOrder?.payment?.receiptImageUrl && (
+          <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[70] p-4">
+            <div className="relative max-w-4xl w-full h-full flex flex-col items-center justify-center">
+              {/* Botón cerrar */}
+              <button
+                onClick={() => setShowReceiptPreviewModal(false)}
+                className="absolute -top-1 right-0 text-white text-4xl p-4 hover:text-gray-300 transition-colors z-10"
+              >
+                ×
+              </button>
+
+              <div className="w-full h-full flex flex-col bg-white rounded-2xl overflow-hidden shadow-2xl">
+                {/* Header info */}
+                <div className="p-4 border-b flex items-center justify-between bg-gray-50">
+                  <div>
+                    <h3 className="font-bold text-gray-900">Comprobante de Pago</h3>
+                    <p className="text-sm text-gray-600">
+                      Cliente: {paymentEditingOrder.customer?.name} - Total: ${(paymentEditingOrder.total || 0).toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleRejectPayment(paymentEditingOrder.id)}
+                      className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors font-bold text-sm flex items-center gap-2"
+                    >
+                      <i className="bi bi-x-circle"></i>
+                      Rechazar
+                    </button>
+                    <button
+                      onClick={() => handleValidatePayment(paymentEditingOrder.id)}
+                      className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors font-bold text-sm flex items-center gap-2 shadow-lg shadow-emerald-200"
+                    >
+                      <i className="bi bi-check-circle"></i>
+                      Validar
+                    </button>
+                  </div>
+                </div>
+
+                {/* Imagen */}
+                <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-gray-200">
+                  <img
+                    src={paymentEditingOrder.payment.receiptImageUrl}
+                    alt="Comprobante completo"
+                    className="max-w-full max-h-full object-contain shadow-lg"
+                  />
+                </div>
+
+                {/* Footer contextual */}
+                <div className="p-3 bg-gray-50 text-center border-t">
+                  <p className="text-xs text-gray-500 italic">
+                    Al validar, el estado del pago cambiará automáticamente a "Pagado"
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div >
     </div >
   )

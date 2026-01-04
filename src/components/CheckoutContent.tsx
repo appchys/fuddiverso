@@ -333,6 +333,7 @@ export function CheckoutContent({
 
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [calculatingTariff, setCalculatingTariff] = useState(false)
+  const [showStoreImageModal, setShowStoreImageModal] = useState(false)
 
   const effectiveClientId = user?.id || clientFound?.id || ''
 
@@ -1780,8 +1781,19 @@ export function CheckoutContent({
                 {deliveryData.type === 'pickup' && (
                   <div className="animate-fadeIn">
                     <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 flex items-start gap-3">
-                      <div className="w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400 flex-shrink-0">
-                        <i className="bi bi-shop text-2xl"></i>
+                      <div
+                        className={`w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400 flex-shrink-0 overflow-hidden ${business?.locationImage ? 'cursor-pointer hover:ring-2 hover:ring-red-400 transition-all' : ''}`}
+                        onClick={() => business?.locationImage && setShowStoreImageModal(true)}
+                      >
+                        {business?.locationImage ? (
+                          <img
+                            src={business.locationImage}
+                            alt={business.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <i className="bi bi-shop text-2xl"></i>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-gray-900">Retirar en:</p>
@@ -2367,6 +2379,33 @@ export function CheckoutContent({
           initialAddingState={isAddingNewLocation}
           selectedLocationId={selectedLocation?.id}
         />
+
+        {/* Modal para ver la foto del local a pantalla completa */}
+        {showStoreImageModal && business?.locationImage && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 animate-fadeIn"
+            onClick={() => setShowStoreImageModal(false)}
+          >
+            <div className="relative max-w-4xl w-full">
+              <button
+                className="absolute -top-12 right-0 text-white text-3xl hover:text-gray-300 transition-colors"
+                onClick={() => setShowStoreImageModal(false)}
+              >
+                <i className="bi bi-x-lg"></i>
+              </button>
+              <img
+                src={business.locationImage}
+                alt="Foto del local"
+                className="w-full h-auto max-h-[80vh] object-contain rounded-xl shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              />
+              <div className="mt-4 text-center">
+                <p className="text-white font-bold text-lg">{business.name}</p>
+                <p className="text-gray-300 text-sm">{business.address}</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div >
   )

@@ -470,9 +470,27 @@ export default function OrderPublicClient({ orderId }: Props) {
               )}
             </>
           ) : (
-            <p className="text-sm text-gray-700">
-              <span className="font-medium">Tipo:</span> Retiro en tienda
-            </p>
+            <div className="flex items-start gap-3 mt-1">
+              <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400 flex-shrink-0 overflow-hidden">
+                {business?.locationImage ? (
+                  <img
+                    src={business.locationImage}
+                    alt={business.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <i className="bi bi-shop text-xl"></i>
+                )}
+              </div>
+              <div>
+                <p className="text-sm font-bold text-gray-900">{business?.name}</p>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  <i className="bi bi-geo-alt mr-1"></i>
+                  {business?.address || 'Retiro en tienda'}
+                </p>
+                <p className="text-[10px] text-blue-600 font-medium mt-1 uppercase tracking-wider">Retiro en tienda</p>
+              </div>
+            </div>
           )}
         </div>
 

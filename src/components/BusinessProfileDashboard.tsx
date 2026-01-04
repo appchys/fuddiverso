@@ -11,10 +11,12 @@ interface BusinessProfileDashboardProps {
   isEditingProfile: boolean
   uploadingCover: boolean
   uploadingProfile: boolean
+  uploadingLocation: boolean
   products: Product[]
   categories: string[]
   onCoverImageUpload: (event: React.ChangeEvent<HTMLInputElement>) => void
   onProfileImageUpload: (event: React.ChangeEvent<HTMLInputElement>) => void
+  onLocationImageUpload: (event: React.ChangeEvent<HTMLInputElement>) => void
   onEditProfile: () => void
   onCancelEdit: () => void
   onSaveProfile: () => void
@@ -32,10 +34,12 @@ export default function BusinessProfileDashboard({
   isEditingProfile,
   uploadingCover,
   uploadingProfile,
+  uploadingLocation,
   products,
   categories,
   onCoverImageUpload,
   onProfileImageUpload,
+  onLocationImageUpload,
   onEditProfile,
   onCancelEdit,
   onSaveProfile,
@@ -317,6 +321,51 @@ export default function BusinessProfileDashboard({
                   />
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Foto del Local</label>
+                  <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-red-400 transition-colors group relative overflow-hidden">
+                    {displayBusiness.locationImage ? (
+                      <div className="relative w-full aspect-video rounded-lg overflow-hidden">
+                        <img
+                          src={displayBusiness.locationImage}
+                          alt="Foto del local"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <label className="cursor-pointer bg-white text-gray-900 px-4 py-2 rounded-full text-sm font-bold shadow-lg transform translate-y-2 group-hover:translate-y-0 transition-transform">
+                            {uploadingLocation ? 'Subiendo...' : 'Cambiar Foto'}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={onLocationImageUpload}
+                              disabled={uploadingLocation}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1 text-center">
+                        <i className="bi bi-shop text-4xl text-gray-400 mb-2"></i>
+                        <div className="flex text-sm text-gray-600">
+                          <label className="relative cursor-pointer bg-white rounded-md font-medium text-red-600 hover:text-red-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-red-500">
+                            <span>{uploadingLocation ? 'Subiendo...' : 'Sube una foto'}</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={onLocationImageUpload}
+                              disabled={uploadingLocation}
+                              className="hidden"
+                            />
+                          </label>
+                          <p className="pl-1">o arrastra y suelta</p>
+                        </div>
+                        <p className="text-xs text-gray-500">PNG, JPG, GIF hasta 10MB</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Horario de atención */}
                 <div className="mt-6 pt-6 border-t border-gray-200">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Horario de Atención</h3>
@@ -419,6 +468,16 @@ export default function BusinessProfileDashboard({
                   <div className="text-xs sm:text-sm text-gray-500 inline-flex items-center justify-center">
                     <i className="bi bi-geo-alt mr-1"></i>
                     {displayBusiness.address}
+                  </div>
+                )}
+
+                {displayBusiness.locationImage && (
+                  <div className="mt-4 max-w-lg mx-auto rounded-xl overflow-hidden shadow-md border border-gray-100">
+                    <img
+                      src={displayBusiness.locationImage}
+                      alt="Foto del local"
+                      className="w-full aspect-video object-cover"
+                    />
                   </div>
                 )}
 

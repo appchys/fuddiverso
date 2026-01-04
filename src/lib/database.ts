@@ -1265,26 +1265,10 @@ export async function getBusinessByUsername(username: string): Promise<Business 
       console.log('✅ Business found:', businessData);
       const business: Business = {
         id: doc.id,
-        name: businessData.name || '',
-        username: businessData.username || '',
-        description: businessData.description || '',
-        address: businessData.address || '',
-        phone: businessData.phone || '',
-        email: businessData.email || '',
-        ownerId: businessData.ownerId || '',
-        image: businessData.image || '',
-        coverImage: businessData.coverImage || '',
-        categories: businessData.categories || [],
-        mapLocation: businessData.mapLocation || { lat: 0, lng: 0 },
-        references: businessData.references || '',
-        bankAccount: businessData.bankAccount || undefined,
-        schedule: businessData.schedule || {},
-        isActive: businessData.isActive || false,
-        manualStoreStatus: businessData.manualStoreStatus,
-        rewardSettings: businessData.rewardSettings,
+        ...businessData,
         createdAt: toSafeDate(businessData.createdAt),
         updatedAt: toSafeDate(businessData.updatedAt)
-      };
+      } as Business;
 
       console.log('✅ Business found:', business);
       return business;
@@ -1683,26 +1667,10 @@ export async function getBusinessesByOwner(ownerId: string): Promise<Business[]>
       const businessData = doc.data();
       businesses.push({
         id: doc.id,
-        name: businessData.name || '',
-        username: businessData.username || '',
-        description: businessData.description || '',
-        address: businessData.address || '',
-        phone: businessData.phone || '',
-        email: businessData.email || '',
-        ownerId: businessData.ownerId || '',
-        image: businessData.image || '',
-        coverImage: businessData.coverImage || '',
-        categories: businessData.categories || [],
-        mapLocation: businessData.mapLocation || { lat: 0, lng: 0 },
-        references: businessData.references || '',
-        bankAccount: businessData.bankAccount || undefined,
-        schedule: businessData.schedule || {},
-        isActive: businessData.isActive !== false,
-        manualStoreStatus: businessData.manualStoreStatus,
-        rewardSettings: businessData.rewardSettings,
+        ...businessData,
         createdAt: toSafeDate(businessData.createdAt),
         updatedAt: toSafeDate(businessData.updatedAt)
-      });
+      } as Business);
     });
 
     console.log(`✅ Found ${businesses.length} businesses for owner:`, businesses);
@@ -1790,27 +1758,11 @@ export async function getBusinessesByAdministrator(userEmail: string): Promise<B
       if (isAdmin) {
         adminBusinesses.push({
           id: doc.id,
-          name: businessData.name || '',
-          username: businessData.username || '',
-          email: businessData.email || '',
-          phone: businessData.phone || '',
-          address: businessData.address || '',
-          description: businessData.description || '',
-          image: businessData.image || '',
-          coverImage: businessData.coverImage || '',
-          categories: businessData.categories || [],
-          mapLocation: businessData.mapLocation || { lat: 0, lng: 0 },
-          references: businessData.references || '',
-          bankAccount: businessData.bankAccount || undefined,
-          schedule: businessData.schedule || {},
-          isActive: businessData.isActive !== false,
-          manualStoreStatus: businessData.manualStoreStatus,
-          rewardSettings: businessData.rewardSettings,
+          ...businessData,
           createdAt: toSafeDate(businessData.createdAt),
           updatedAt: toSafeDate(businessData.updatedAt),
-          ownerId: businessData.ownerId || '',
           administrators: administrators
-        });
+        } as Business);
       }
     });
 

@@ -12,6 +12,7 @@ export interface Business {
   administrators?: BusinessAdministrator[] // Lista de administradores
   image?: string // Imagen de perfil/logo de la tienda
   coverImage?: string // Imagen de portada de la tienda
+  locationImage?: string // Foto del local/establecimiento
   categories?: string[] // Categorías personalizadas del negocio
   mapLocation: {
     lat: number
@@ -154,7 +155,7 @@ export interface PaymentInfo {
   method: 'cash' | 'transfer' | 'mixed'
   selectedBank?: string
   receiptImageUrl?: string
-  paymentStatus?: 'pending' | 'validating' | 'paid'
+  paymentStatus?: 'pending' | 'validating' | 'paid' | 'rejected'
   // Campos para pago mixto
   cashAmount?: number
   transferAmount?: number
