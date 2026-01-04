@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 import { QRCode, UserQRProgress } from '@/types'
 import {
@@ -558,25 +559,27 @@ export default function CartSidebar({
 
                                 {/* Right: User Profile */}
                                 {(clientProfile || clientId) && (
-                                    <div className="w-10 h-10 rounded-full overflow-hidden border border-gray-200 bg-gray-100 flex items-center justify-center">
-                                        {clientProfile?.photoURL ? (
-                                            <img
-                                                src={clientProfile.photoURL}
-                                                alt={clientDisplayName}
-                                                className="w-full h-full object-cover"
-                                                onError={(e) => {
-                                                    const target = e.target as HTMLImageElement
-                                                    target.style.display = 'none'
-                                                }}
-                                            />
-                                        ) : clientInitials ? (
-                                            <span className="text-xs font-black text-gray-700">{clientInitials}</span>
-                                        ) : (
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
-                                                <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                                            </svg>
-                                        )}
-                                    </div>
+                                    <Link href="/profile" onClick={onClose}>
+                                        <div className="w-10 h-10 rounded-full overflow-hidden border border-gray-200 bg-gray-100 flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity">
+                                            {clientProfile?.photoURL ? (
+                                                <img
+                                                    src={clientProfile.photoURL}
+                                                    alt={clientDisplayName}
+                                                    className="w-full h-full object-cover"
+                                                    onError={(e) => {
+                                                        const target = e.target as HTMLImageElement
+                                                        target.style.display = 'none'
+                                                    }}
+                                                />
+                                            ) : clientInitials ? (
+                                                <span className="text-xs font-black text-gray-700">{clientInitials}</span>
+                                            ) : (
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                                                </svg>
+                                            )}
+                                        </div>
+                                    </Link>
                                 )}
                             </div>
 

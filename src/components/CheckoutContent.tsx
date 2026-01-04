@@ -336,6 +336,75 @@ export function CheckoutContent({
 
   const effectiveClientId = user?.id || clientFound?.id || ''
 
+  // Cargar datos del carrito específico de este negocio desde localStorage
+  const getCartItems = () => {
+    if (isEmbedded) return embeddedCartItems || []
+    if (typeof window === 'undefined') return []
+
+    const businessId = searchParams.get('businessId')
+    if (!businessId) return []
+
+    const cartsData = localStorage.getItem('carts')
+    if (!cartsData) return []
+
+    try {
+      const allCarts = JSON.parse(cartsData)
+      return allCarts[businessId] || []
+    } catch (e) {
+      console.error('Error parsing carts from localStorage', e)
+      return []
+    }
+  }
+
+  const [cartItems, setCartItems] = useState(() => {
+    if (typeof window === 'undefined') return []
+    return getCartItems()
+  })
+
+  // Sincronizar si cambian los props embebidos
+  useEffect(() => {
+    if (isEmbedded) {
+      setCartItems(embeddedCartItems || [])
+    }
+  }, [embeddedCartItems, isEmbedded])
+
+  const handleRemoveItem = (index: number) => {
+    const newItems = [...cartItems]
+    newItems.splice(index, 1)
+    setCartItems(newItems)
+
+    if (!isEmbedded) {
+      const businessId = searchParams.get('businessId')
+      if (businessId) {
+        try {
+          const cartsData = localStorage.getItem('carts')
+          if (cartsData) {
+            const allCarts = JSON.parse(cartsData)
+            allCarts[businessId] = newItems
+            localStorage.setItem('carts', JSON.stringify(allCarts))
+            window.dispatchEvent(new Event('storage'))
+          }
+        } catch (e) {
+          console.error('Error updating cart:', e)
+        }
+      }
+    }
+  }
+
+  // Función para calcular el costo de envío
+  const getDeliveryCost = () => {
+    if (!deliveryData.type) {
+      return 0 // Sin tipo de entrega seleccionado
+    }
+    if (deliveryData.type === 'pickup') {
+      return 0 // Retiro en tienda
+    }
+    if (deliveryData.type === 'delivery' && selectedLocation) {
+      return parseFloat(selectedLocation.tarifa)
+    }
+    return 0 // Delivery sin ubicación seleccionada
+  }
+
   // Indicar que estamos en cliente
   useEffect(() => { setIsClient(true); }, []);
 
@@ -850,6 +919,13 @@ export function CheckoutContent({
 
     // Simular delay y agregar al carrito
     setTimeout(() => {
+      // Verificar si ya existe en el carrito actual para evitar duplicados
+      const exists = cartItems.some((i: any) => i.qrCodeId === code.id)
+      if (exists) {
+        setRedeemingQrId(null)
+        return
+      }
+
       const newItem = {
         id: `qr-${code.id}`,
         name: code.prize,
@@ -863,15 +939,21 @@ export function CheckoutContent({
       if (onAddItem) {
         onAddItem(newItem)
       } else {
-        // Fallback simple para modo standalone
+        // Actualizar estado local
+        const newItems = [...cartItems, newItem]
+        setCartItems(newItems)
+
+        // Persistir en localStorage
         if (business?.id) {
-          const savedCarts = localStorage.getItem('carts')
-          const parsedCarts = savedCarts ? JSON.parse(savedCarts) : {}
-          const newCart = [...getCartItems(), newItem]
-          parsedCarts[business.id] = newCart
-          localStorage.setItem('carts', JSON.stringify(parsedCarts))
-          // En modo standalone esto podría requerir recargar la página o usar un evento custom
-          window.location.reload()
+          try {
+            const savedCarts = localStorage.getItem('carts')
+            const parsedCarts = savedCarts ? JSON.parse(savedCarts) : {}
+            parsedCarts[business.id] = newItems
+            localStorage.setItem('carts', JSON.stringify(parsedCarts))
+            window.dispatchEvent(new Event('storage'))
+          } catch (e) {
+            console.error('Error updating cart with prize:', e)
+          }
         }
       }
 
@@ -916,40 +998,7 @@ export function CheckoutContent({
   // Client-only guard: render nothing until mounted on client
   if (!isClient) return null;
 
-  // Cargar datos del carrito específico de este negocio desde localStorage
-  const getCartItems = () => {
-    if (isEmbedded) return embeddedCartItems || []
 
-    const businessId = searchParams.get('businessId')
-    if (!businessId) return []
-
-    const cartsData = localStorage.getItem('carts')
-    if (!cartsData) return []
-
-    try {
-      const allCarts = JSON.parse(cartsData)
-      return allCarts[businessId] || []
-    } catch (e) {
-      console.error('Error parsing carts from localStorage', e)
-      return []
-    }
-  }
-
-  // Función para calcular el costo de envío
-  const getDeliveryCost = () => {
-    if (!deliveryData.type) {
-      return 0 // Sin tipo de entrega seleccionado
-    }
-    if (deliveryData.type === 'pickup') {
-      return 0 // Retiro en tienda
-    }
-    if (deliveryData.type === 'delivery' && selectedLocation) {
-      return parseFloat(selectedLocation.tarifa)
-    }
-    return 0 // Delivery sin ubicación seleccionada
-  }
-
-  const cartItems = getCartItems()
   const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0)
   const deliveryCost = getDeliveryCost()
   const total = subtotal + deliveryCost
@@ -992,7 +1041,15 @@ export function CheckoutContent({
   }
 
   const qrPrizeIdsInCart = cartItems.filter((i: any) => i.qrCodeId).map((i: any) => i.qrCodeId)
-  const visibleQrCards = qrCodes.filter(code => code.prize && code.prize.trim() !== '')
+  const visibleQrCards = qrCodes.filter(code => {
+    if (!code.prize || code.prize.trim() === '') return false
+
+    const isRedeemed = (qrProgress?.redeemedPrizeCodes || []).includes(code.id)
+    const isInCart = qrPrizeIdsInCart.includes(code.id)
+
+    // Mostrar si NO está canjeada O SI está en el carrito (o proceso de canje)
+    return !isRedeemed || isInCart
+  })
 
   const validateStep = (step: number) => {
     const newErrors: Record<string, string> = {}
@@ -2088,12 +2145,7 @@ export function CheckoutContent({
                     return (
                       <div
                         key={index}
-                        className={`flex gap-3 transition-all ${isTarjeta
-                          ? 'p-3 mb-3 rounded-xl bg-blue-50/50 border border-blue-100 shadow-sm'
-                          : isRegalo
-                            ? 'p-3 mb-3 rounded-xl bg-amber-50/50 border border-amber-100 shadow-sm'
-                            : 'py-3 border-b border-gray-100 last:border-0'
-                          }`}
+                        className="flex gap-3 py-3 border-b border-gray-100 last:border-0 transition-all group"
                       >
                         {/* Item Image Preview */}
                         <div className="w-12 h-12 rounded-lg bg-white border border-gray-200 flex-shrink-0 flex items-center justify-center overflow-hidden shadow-sm">
@@ -2126,9 +2178,19 @@ export function CheckoutContent({
                                 ) : null}
                               </div>
                             </div>
-                            <p className={`text-sm font-medium whitespace-nowrap ${isTarjeta ? 'text-blue-700' : isRegalo ? 'text-amber-700' : 'text-gray-600'}`}>
-                              {item.price > 0 ? `$${(item.price * item.quantity).toFixed(2)}` : '¡Gratis!'}
-                            </p>
+
+                            <div className="flex items-center gap-3">
+                              <p className={`text-sm font-medium whitespace-nowrap ${isTarjeta ? 'text-blue-700' : isRegalo ? 'text-amber-700' : 'text-gray-600'}`}>
+                                {item.price > 0 ? `$${(item.price * item.quantity).toFixed(2)}` : '¡Gratis!'}
+                              </p>
+                              <button
+                                onClick={() => handleRemoveItem(index)}
+                                className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded-full hover:bg-gray-100"
+                                title="Quitar ítem"
+                              >
+                                <i className="bi bi-trash"></i>
+                              </button>
+                            </div>
                           </div>
 
                           <div className="flex items-center justify-between mt-1">

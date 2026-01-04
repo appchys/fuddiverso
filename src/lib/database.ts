@@ -18,6 +18,7 @@ import {
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
+export { storage }
 import { normalizeEcuadorianPhone } from './validation'
 import {
   signInWithRedirect,
@@ -1474,7 +1475,7 @@ export async function createClient(clientData: { celular: string; nombres: strin
   }
 }
 
-export async function updateClient(clientId: string, clientData: { celular?: string; nombres?: string; email?: string }) {
+export async function updateClient(clientId: string, clientData: { celular?: string; nombres?: string; email?: string; photoURL?: string }) {
   try {
     console.log('📝 Updating client:', clientId, clientData);
 
@@ -1484,6 +1485,7 @@ export async function updateClient(clientId: string, clientData: { celular?: str
     if (clientData.celular) updateData.celular = clientData.celular;
     if (clientData.nombres) updateData.nombres = clientData.nombres;
     if (clientData.email !== undefined) updateData.email = clientData.email;
+    if (clientData.photoURL !== undefined) updateData.photoURL = clientData.photoURL;
 
     await updateDoc(clientRef, updateData);
     console.log('✅ Client updated successfully');
@@ -2908,6 +2910,34 @@ export async function getUserQRProgress(userId: string, businessId: string): Pro
   } catch (error) {
     console.error('Error getting user QR progress:', error)
     throw error
+  }
+}
+
+/**
+ * Obtener TODO el progreso de un usuario (para todos los negocios)
+ */
+export async function getAllUserQRProgress(userId: string): Promise<UserQRProgress[]> {
+  try {
+    const q = query(
+      collection(db, 'userQRProgress'),
+      where('userId', '==', userId)
+    )
+    const snapshot = await getDocs(q)
+
+    return snapshot.docs.map(doc => ({
+      userId: doc.data().userId,
+      scannedCodes: doc.data().scannedCodes || [],
+      completed: doc.data().completed || false,
+      lastScanned: doc.data().lastScanned?.toDate(),
+      rewardClaimed: doc.data().rewardClaimed || false,
+      redeemedPrizeCodes: doc.data().redeemedPrizeCodes || [],
+      businessId: doc.data().businessId,
+      createdAt: doc.data().createdAt?.toDate() || new Date(),
+      updatedAt: doc.data().updatedAt?.toDate()
+    } as UserQRProgress))
+  } catch (error) {
+    console.error('Error getting all user QR progress:', error)
+    return []
   }
 }
 
