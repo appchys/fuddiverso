@@ -59,6 +59,7 @@ export default function ProductList({
   const [ingredientSearchTerm, setIngredientSearchTerm] = useState('')
   const [expandedVariantsForIngredients, setExpandedVariantsForIngredients] = useState<Set<string>>(new Set())
   const [activeTab, setActiveTab] = useState<'general' | 'ingredients'>('general')
+  const [variantVisibility, setVariantVisibility] = useState<Record<string, boolean>>({})
 
   const handleOpenNewProduct = () => {
     setEditingProduct(null)
@@ -92,6 +93,15 @@ export default function ProductList({
     })
     setVariants(product.variants || [])
     setIngredients((product.ingredients || []) as any)
+
+    // Cargar visibilidad de variantes
+    const visibility: Record<string, boolean> = {}
+    if (product.variants) {
+      product.variants.forEach(variant => {
+        visibility[variant.id] = variant.isAvailable !== false
+      })
+    }
+    setVariantVisibility(visibility)
 
     // Cargar ingredientes por variante
     const variantIngs: Record<string, Ingredient[]> = {}
@@ -172,11 +182,17 @@ export default function ProductList({
     }
 
     setVariants(prev => [...prev, newVariant])
+    setVariantVisibility(prev => ({ ...prev, [newVariant.id]: true }))
     setCurrentVariant({ name: '', price: '' })
   }
 
   const removeVariant = (variantId: string) => {
     setVariants(prev => prev.filter(v => v.id !== variantId))
+    setVariantVisibility(prev => {
+      const newVisibility = { ...prev }
+      delete newVisibility[variantId]
+      return newVisibility
+    })
   }
 
   const handleAddCategory = async () => {
@@ -385,10 +401,11 @@ export default function ProductList({
         imageUrl = await uploadImage(formData.image, path)
       }
 
-      // Agregar ingredientes a cada variante
+                              // Agregar ingredientes a cada variante
       const variantsWithIngredients = variants.map(variant => ({
         ...variant,
-        ingredients: variantIngredients[variant.id] || undefined
+        ingredients: variantIngredients[variant.id] || undefined,
+        isAvailable: variantVisibility[variant.id] !== false
       }))
 
       const productData = {
@@ -791,7 +808,7 @@ export default function ProductList({
 
                     {/* Variantes */}
                     <div className="border-t pt-6">
-                      <h4 className="font-semibold text-gray-900 mb-4">Variantes (Opcional)</h4>
+                      <h4 className="font-semibold text-gray-900 mb-4">Variantes</h4>
 
                       {variants.length > 0 && (
                         <div className="space-y-2 mb-4">
@@ -801,13 +818,26 @@ export default function ProductList({
                                 <p className="font-medium text-gray-900">{variant.name}</p>
                                 <p className="text-sm text-gray-600">${variant.price.toFixed(2)}</p>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => removeVariant(variant.id)}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                              >
-                                <i className="bi bi-trash"></i>
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setVariantVisibility(prev => ({ ...prev, [variant.id]: !prev[variant.id] }))}
+                                  className={`p-2 rounded-lg transition-colors ${variantVisibility[variant.id] !== false
+                                    ? 'text-orange-600 hover:bg-orange-50'
+                                    : 'text-green-600 hover:bg-green-50'
+                                    }`}
+                                  title={variantVisibility[variant.id] !== false ? 'Ocultar variante' : 'Mostrar variante'}
+                                >
+                                  <i className={`bi ${variantVisibility[variant.id] !== false ? 'bi-eye-slash' : 'bi-eye'}`}></i>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeVariant(variant.id)}
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                                >
+                                  <i className="bi bi-trash"></i>
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1109,6 +1139,22 @@ export default function ProductList({
                                         </span>
                                       </div>
                                     </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setVariantVisibility(prev => ({ ...prev, [variant.id]: !prev[variant.id] }))
+                                      }}
+                                      className={`p-2 rounded-lg transition-colors ${variantVisibility[variant.id] !== false
+                                        ? 'text-orange-600 hover:bg-orange-50'
+                                        : 'text-green-600 hover:bg-green-50'
+                                        }`}
+                                      title={variantVisibility[variant.id] !== false ? 'Ocultar variante' : 'Mostrar variante'}
+                                    >
+                                      <i className={`bi ${variantVisibility[variant.id] !== false ? 'bi-eye-slash' : 'bi-eye'}`}></i>
+                                    </button>
                                   </div>
                                 </button>
 

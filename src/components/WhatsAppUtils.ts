@@ -10,7 +10,7 @@ export const getNextStatus = (status: Order['status']): Order['status'] | null =
 }
 // Helper para formatear la fecha programada
 const formatScheduledDate = (timing: Order['timing']): string => {
-    if (timing?.type !== 'scheduled') return '⚡ Inmediato\n_(Aprox 30 minutos)_';
+    if (timing?.type !== 'scheduled') return '⚡ Inmediato';
 
     const time = timing.scheduledTime || '';
 

@@ -169,7 +169,7 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
               )}
               <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
                 ${(hasVariants
-                  ? Math.min(...product.variants.filter((v: any) => v.isAvailable).map((v: any) => v.price))
+                  ? Math.min(...product.variants.filter((v: any) => v.isAvailable !== false).map((v: any) => v.price))
                   : product.price).toFixed(2)}
               </span>
             </div>
@@ -271,7 +271,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
           {/* Sección de variantes desplazable */}
           <div className="px-4 sm:px-6 pb-4 overflow-y-auto flex-1 max-h-[60vh] sm:max-h-[40vh] custom-scrollbar">
             <div className="space-y-3 pr-2">
-              {product?.variants?.filter((v: any) => v.isAvailable).map((variant: any, i: number) => {
+              {product?.variants?.filter((v: any) => v.isAvailable !== false).map((variant: any, i: number) => {
                 const qty = getCartItemQuantity(product.id, variant.name)
 
                 return (
@@ -282,9 +282,9 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
                       }`}
                   >
                     <div className="flex-1 min-w-0">
-                      <h5 className="font-medium text-gray-900 truncate">{variant.name}</h5>
+                      <h5 className="font-medium text-gray-900">{variant.name}</h5>
                       {variant.description && (
-                        <p className="text-sm text-gray-600 truncate">{variant.description}</p>
+                        <p className="text-sm text-gray-600">{variant.description}</p>
                       )}
                       <div className="text-red-500 font-bold mt-1">${variant.price.toFixed(2)}</div>
                     </div>
