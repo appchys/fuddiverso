@@ -385,6 +385,16 @@ const [showAuthForm, setShowAuthForm] = useState(false)
                                         >
                                             Iniciar Sesión
                                         </button>
+                                        <div className="mt-4 pt-4 border-t border-gray-200">
+                                            <p className="text-xs text-gray-600 mb-2">¿Tienes un negocio?</p>
+                                            <Link
+                                                href="/business/dashboard"
+                                                onClick={onClose}
+                                                className="block w-full py-2 bg-orange-500 text-white rounded-xl text-xs font-bold hover:bg-orange-600 transition-all active:scale-95"
+                                            >
+                                                Regístrate aquí
+                                            </Link>
+                                        </div>
                                     </div>
                                 ) : (
                                     <div className="space-y-4">
@@ -534,83 +544,53 @@ const [showAuthForm, setShowAuthForm] = useState(false)
                         )}
                     </div>
 
-                    {/* Links Section */}
-                    <div className="flex-1 overflow-y-auto py-6 space-y-1">
-                        <Link
-                            href={user ? "/profile" : "#"}
-                            onClick={(e) => {
-                                if (!user) {
-                                    e.preventDefault()
-                                    onLogin?.()
-                                } else {
-                                    onClose()
-                                }
-                            }}
-                            className="flex items-center px-6 py-4 text-gray-700 hover:bg-white hover:text-gray-900 group transition-all border-l-4 border-transparent hover:border-orange-500"
-                        >
-                            <i className="bi bi-person-circle mr-4 text-xl text-gray-400 group-hover:text-orange-500 transition-colors"></i>
-                            <span className="font-semibold">Mi Perfil</span>
-                            {!user && <span className="ml-auto text-[8px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded uppercase font-bold tracking-tighter">Login</span>}
-                        </Link>
+{/* Links Section - Only show when user is logged in */}
+                    {user && (
+                        <div className="flex-1 overflow-y-auto py-6 space-y-1">
+                            <Link
+                                href="/profile"
+                                onClick={onClose}
+                                className="flex items-center px-6 py-4 text-gray-700 hover:bg-white hover:text-gray-900 group transition-all border-l-4 border-transparent hover:border-orange-500"
+                            >
+                                <i className="bi bi-person-circle mr-4 text-xl text-gray-400 group-hover:text-orange-500 transition-colors"></i>
+                                <span className="font-semibold">Mi Perfil</span>
+                            </Link>
 
-                        <Link
-                            href={user ? "/my-orders" : "#"}
-                            onClick={(e) => {
-                                if (!user) {
-                                    e.preventDefault()
-                                    onLogin?.()
-                                } else {
-                                    onClose()
-                                }
-                            }}
-                            className="flex items-center px-6 py-4 text-gray-700 hover:bg-white hover:text-gray-900 group transition-all border-l-4 border-transparent hover:border-orange-500"
-                        >
-                            <i className="bi bi-bag-check mr-4 text-xl text-gray-400 group-hover:text-orange-500 transition-colors"></i>
-                            <span className="font-semibold">Mis Pedidos</span>
-                            {!user && <span className="ml-auto text-[8px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded uppercase font-bold tracking-tighter">Login</span>}
-                        </Link>
+                            <Link
+                                href="/my-orders"
+                                onClick={onClose}
+                                className="flex items-center px-6 py-4 text-gray-700 hover:bg-white hover:text-gray-900 group transition-all border-l-4 border-transparent hover:border-orange-500"
+                            >
+                                <i className="bi bi-bag-check mr-4 text-xl text-gray-400 group-hover:text-orange-500 transition-colors"></i>
+                                <span className="font-semibold">Mis Pedidos</span>
+                            </Link>
 
-                        <Link
-                            href={user ? "/my-locations" : "#"}
-                            onClick={(e) => {
-                                if (!user) {
-                                    e.preventDefault()
-                                    onLogin?.()
-                                } else {
-                                    onClose()
-                                }
-                            }}
-                            className="flex items-center px-6 py-4 text-gray-700 hover:bg-white hover:text-gray-900 group transition-all border-l-4 border-transparent hover:border-orange-500"
-                        >
-                            <i className="bi bi-geo-alt mr-4 text-xl text-gray-400 group-hover:text-orange-500 transition-colors"></i>
-                            <span className="font-semibold">Mis Ubicaciones</span>
-                            {!user && <span className="ml-auto text-[8px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded uppercase font-bold tracking-tighter">Login</span>}
-                        </Link>
+                            <Link
+                                href="/my-locations"
+                                onClick={onClose}
+                                className="flex items-center px-6 py-4 text-gray-700 hover:bg-white hover:text-gray-900 group transition-all border-l-4 border-transparent hover:border-orange-500"
+                            >
+                                <i className="bi bi-geo-alt mr-4 text-xl text-gray-400 group-hover:text-orange-500 transition-colors"></i>
+                                <span className="font-semibold">Mis Ubicaciones</span>
+                            </Link>
 
-                        <Link
-                            href={user ? "/collection" : "#"}
-                            onClick={(e) => {
-                                if (!user) {
-                                    e.preventDefault()
-                                    onLogin?.()
-                                } else {
-                                    onClose()
-                                }
-                            }}
-                            className="flex items-center px-6 py-4 text-gray-700 hover:bg-white hover:text-gray-900 group transition-all border-l-4 border-transparent hover:border-orange-500"
-                        >
-                            <i className="bi bi-grid-1x2 mr-4 text-xl text-gray-400 group-hover:text-orange-500 transition-colors"></i>
-                            <span className="font-semibold">Mis Stickers</span>
-                            {!user && <span className="ml-auto text-[8px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded uppercase font-bold tracking-tighter">Login</span>}
-                        </Link>
+                            <Link
+                                href="/collection"
+                                onClick={onClose}
+                                className="flex items-center px-6 py-4 text-gray-700 hover:bg-white hover:text-gray-900 group transition-all border-l-4 border-transparent hover:border-orange-500"
+                            >
+                                <i className="bi bi-grid-1x2 mr-4 text-xl text-gray-400 group-hover:text-orange-500 transition-colors"></i>
+                                <span className="font-semibold">Mis Stickers</span>
+                            </Link>
 
-                        {/* Cart Dropdown Item */}
-                        <CartMenuOption onClose={onClose} />
-                    </div>
+                            {/* Cart Dropdown Item */}
+                            <CartMenuOption onClose={onClose} />
+                        </div>
+                    )}
 
-                    {/* Logout/Login Section */}
-                    <div className="p-6 bg-white border-t border-gray-100">
-                        {user ? (
+{/* Logout Section - Only show when user is logged in */}
+                    {user && (
+                        <div className="p-6 bg-white border-t border-gray-100">
                             <button
                                 onClick={handleLogout}
                                 className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl bg-red-50 text-red-600 font-bold hover:bg-red-100 transition-all border border-red-100"
@@ -618,19 +598,11 @@ const [showAuthForm, setShowAuthForm] = useState(false)
                                 <i className="bi bi-box-arrow-right text-lg"></i>
                                 Cerrar Sesión
                             </button>
-) : (
-                            <button
-                                onClick={() => setShowAuthForm(true)}
-                                className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl bg-gray-900 text-white font-bold hover:bg-gray-800 transition-all shadow-lg shadow-gray-200"
-                            >
-                                <i className="bi bi-person-fill"></i>
-                                Iniciar Sesión / Registrarse
-                            </button>
-                        )}
-                        <p className="text-center text-[10px] text-gray-400 mt-6 font-bold uppercase tracking-widest">
-                            v1.5.0 • Fuddi
-                        </p>
-                    </div>
+                            <p className="text-center text-[10px] text-gray-400 mt-6 font-bold uppercase tracking-widest">
+                                v1.5.0 • Fuddi
+                            </p>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
