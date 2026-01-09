@@ -223,8 +223,10 @@ export interface UserQRProgress {
   completed: boolean
   lastScanned?: Date | Timestamp
   rewardClaimed: boolean
-  redeemedPrizeCodes?: string[]
+  redeemedPrizeCodes?: string[] // Premios en carrito actual (temporal, se puede revertir)
+  completedRedemptions?: string[] // Premios canjeados en órdenes completadas (permanente)
   businessId: string
   createdAt: Date
   updatedAt?: Date
 }
+

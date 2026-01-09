@@ -96,7 +96,12 @@ export default function ProfilePage() {
     try {
       // Usar el número de celular normalizado como ID para buscar el progreso QR
       const effectiveId = user.celular ? normalizeEcuadorianPhone(user.celular) : user.id
+      console.log('🔍 [Profile] Cargando tarjetas para userId:', effectiveId)
+      console.log('👤 [Profile] user.celular:', user.celular)
+      console.log('👤 [Profile] user.id:', user.id)
+
       const progressList = await getAllUserQRProgress(effectiveId)
+      console.log('✅ [Profile] Progreso obtenido:', progressList.length, 'negocios')
 
       const enrichedPromises = progressList.map(async (p: any) => {
         try {
@@ -114,12 +119,14 @@ export default function ProfilePage() {
           const scannedQRs = allCodes
             .filter(code => (p.scannedCodes || []).includes(code.id))
             .map(code => {
+              const isCompleted = (p.completedRedemptions || []).includes(code.id)
               const isRedeemed = (p.redeemedPrizeCodes || []).includes(code.id)
               const isInCart = businessCart.some((item: any) => item.qrCodeId === code.id || item.id === `premio-qr-${code.id}`)
 
               let status: 'available' | 'in_cart' | 'redeemed' = 'available'
               if (isInCart) status = 'in_cart'
-              else if (isRedeemed) status = 'redeemed' // Si está en redeemedPrizeCodes pero no en carrito, se asume canje previo completado
+              else if (isCompleted) status = 'redeemed' // Completado permanentemente
+              else if (isRedeemed) status = 'in_cart' // En proceso de canje (en carrito)
 
               return {
                 id: code.id,

@@ -8,6 +8,7 @@ import QRScanner from '@/components/QRScanner'
 import ProgressTracker from '@/components/ProgressTracker'
 import ClientLoginModal from '@/components/ClientLoginModal'
 import { useAuth } from '@/contexts/AuthContext'
+import { normalizeEcuadorianPhone } from '@/lib/validation'
 
 export default function CollectionPage() {
   const router = useRouter()
@@ -23,19 +24,21 @@ export default function CollectionPage() {
   useEffect(() => {
     // Verificar si hay un usuario en el contexto primero
     if (user && user.celular) {
-      setUserId(user.celular)
+      const normalizedPhone = normalizeEcuadorianPhone(user.celular)
+      setUserId(normalizedPhone)
       const defaultBusinessId = '0FeNtdYThoTRMPJ6qaS7' // Reemplazar con el ID real
       setBusinessId(defaultBusinessId)
-      loadData(user.celular, defaultBusinessId)
+      loadData(normalizedPhone, defaultBusinessId)
     } else {
       // Si no, verificar localStorage
       const storedPhone = localStorage.getItem('loginPhone')
 
       if (storedPhone) {
-        setUserId(storedPhone)
+        const normalizedPhone = normalizeEcuadorianPhone(storedPhone)
+        setUserId(normalizedPhone)
         const defaultBusinessId = '0FeNtdYThoTRMPJ6qaS7' // Reemplazar con el ID real
         setBusinessId(defaultBusinessId)
-        loadData(storedPhone, defaultBusinessId)
+        loadData(normalizedPhone, defaultBusinessId)
       } else {
         setShowLoginModal(true)
         setLoading(false)
@@ -44,10 +47,11 @@ export default function CollectionPage() {
   }, [router, user])
 
   const handleLoginSuccess = (client: any) => {
-    setUserId(client.celular)
+    const normalizedPhone = normalizeEcuadorianPhone(client.celular)
+    setUserId(normalizedPhone)
     const defaultBusinessId = '0FeNtdYThoTRMPJ6qaS7'
     setBusinessId(defaultBusinessId)
-    loadData(client.celular, defaultBusinessId)
+    loadData(normalizedPhone, defaultBusinessId)
   }
 
   const loadData = async (uid: string, bizId: string) => {

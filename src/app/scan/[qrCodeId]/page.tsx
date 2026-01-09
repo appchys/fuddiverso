@@ -6,6 +6,7 @@ import { scanQRCode, getQRCodeById } from '@/lib/database'
 import { QRCode } from '@/types'
 import SimplePhoneLoginModal from '@/components/SimplePhoneLoginModal'
 import { useAuth } from '@/contexts/AuthContext'
+import { normalizeEcuadorianPhone } from '@/lib/validation'
 
 export default function ScanQRPage() {
   const params = useParams()
@@ -104,9 +105,8 @@ export default function ScanQRPage() {
     setProcessing(true)
 
     try {
-      // Usar el teléfono como userId temporal
-      // En producción, deberías tener un sistema de autenticación real
-      const userId = phone
+      // Normalizar el teléfono antes de usarlo como userId
+      const userId = normalizeEcuadorianPhone(phone)
       console.log('Calling scanQRCode with userId:', userId, 'qrCodeId:', qrCodeId)
 
       const scanResult = await scanQRCode(userId, qrCodeId)

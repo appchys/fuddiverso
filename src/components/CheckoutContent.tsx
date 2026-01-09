@@ -18,7 +18,8 @@ import {
   clearClientPin,
   registerClientForgotPin,
   getQRCodesByBusiness,
-  getUserQRProgress
+  getUserQRProgress,
+  completeQRRedemptions
 } from '@/lib/database'
 import { Business } from '@/types'
 import LocationMap from '@/components/LocationMap'
@@ -883,9 +884,21 @@ export function CheckoutContent({
   // Effect para cargar datos QR
   useEffect(() => {
     const loadQrData = async () => {
-      const effectiveClientId = clientFound?.id || (user as any)?.celular
+      console.log('🔍 [CheckoutContent] Iniciando carga de datos QR')
+      console.log('👤 [CheckoutContent] user:', user)
+      console.log('👤 [CheckoutContent] clientFound:', clientFound)
+
+      // Usar el número de celular normalizado como ID para buscar el progreso QR
+      // Esto debe coincidir con la lógica en profile/page.tsx
+      const effectiveClientId = user?.celular
+        ? normalizeEcuadorianPhone(user.celular)
+        : (clientFound?.celular ? normalizeEcuadorianPhone(clientFound.celular) : null)
+
+      console.log('🔑 [CheckoutContent] effectiveClientId calculado:', effectiveClientId)
+      console.log('🏪 [CheckoutContent] businessId:', business?.id)
 
       if (!business?.id || !effectiveClientId) {
+        console.log('⚠️ [CheckoutContent] Falta businessId o effectiveClientId, limpiando datos QR')
         setQrCodes([])
         setQrProgress(null)
         setQrError('')
@@ -895,14 +908,17 @@ export function CheckoutContent({
       try {
         setLoadingQr(true)
         setQrError('')
+        console.log('📡 [CheckoutContent] Llamando a getQRCodesByBusiness y getUserQRProgress...')
         const [codes, progress] = await Promise.all([
           getQRCodesByBusiness(business.id, true),
           getUserQRProgress(effectiveClientId, business.id)
         ])
+        console.log('✅ [CheckoutContent] Códigos QR obtenidos:', codes.length)
+        console.log('✅ [CheckoutContent] Progreso obtenido:', progress)
         setQrCodes(codes)
         setQrProgress(progress)
       } catch (e) {
-        console.error('Error loading QR data:', e)
+        console.error('❌ [CheckoutContent] Error loading QR data:', e)
         setQrCodes([])
         setQrProgress(null)
         setQrError('No se pudieron cargar tus tarjetas')
@@ -912,7 +928,7 @@ export function CheckoutContent({
     }
 
     loadQrData()
-  }, [business?.id, clientFound?.id, user])
+  }, [business?.id, clientFound?.celular, user?.celular])
 
   const handleRedeemQrPrize = async (code: any) => {
     if (!code.prize) return
@@ -1045,11 +1061,27 @@ export function CheckoutContent({
   const visibleQrCards = qrCodes.filter(code => {
     if (!code.prize || code.prize.trim() === '') return false
 
+    // IMPORTANTE: Solo mostrar tarjetas que el usuario ha escaneado
+    const isScanned = (qrProgress?.scannedCodes || []).includes(code.id)
+    if (!isScanned) return false
+
+    // No mostrar tarjetas que ya fueron completadas en órdenes anteriores
+    const isCompleted = (qrProgress?.completedRedemptions || []).includes(code.id)
+    if (isCompleted) return false
+
     const isRedeemed = (qrProgress?.redeemedPrizeCodes || []).includes(code.id)
     const isInCart = qrPrizeIdsInCart.includes(code.id)
 
     // Mostrar si NO está canjeada O SI está en el carrito (o proceso de canje)
     return !isRedeemed || isInCart
+  })
+
+  console.log('🎯 [CheckoutContent] Tarjetas visibles calculadas:', {
+    totalQrCodes: qrCodes.length,
+    scannedCodes: qrProgress?.scannedCodes || [],
+    completedRedemptions: qrProgress?.completedRedemptions || [],
+    visibleQrCards: visibleQrCards.length,
+    visibleQrCardsIds: visibleQrCards.map(c => c.id)
   })
 
   const validateStep = (step: number) => {
@@ -1367,6 +1399,22 @@ export function CheckoutContent({
       } catch (error) {
         console.error('Error registering order consumption:', error)
         // No interrumpir el flujo si hay error en consumo
+      }
+
+      // Marcar premios QR como completados permanentemente
+      try {
+        const qrPrizeIds = cartItems
+          .filter((item: any) => item.qrCodeId)
+          .map((item: any) => item.qrCodeId)
+
+        if (qrPrizeIds.length > 0 && user?.celular) {
+          const normalizedPhone = normalizeEcuadorianPhone(user.celular)
+          await completeQRRedemptions(normalizedPhone, businessId, qrPrizeIds)
+          console.log('✅ Premios QR marcados como completados:', qrPrizeIds)
+        }
+      } catch (error) {
+        console.error('Error completing QR redemptions:', error)
+        // No interrumpir el flujo si hay error
       }
 
       // Limpiar carrito específico de este negocio

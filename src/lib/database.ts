@@ -2862,6 +2862,8 @@ export async function getQRCodeById(qrCodeId: string): Promise<QRCode | null> {
  */
 export async function getUserQRProgress(userId: string, businessId: string): Promise<UserQRProgress | null> {
   try {
+    console.log('🔍 [getUserQRProgress] Buscando progreso QR para:', { userId, businessId })
+
     const q = query(
       collection(db, 'userQRProgress'),
       where('userId', '==', userId),
@@ -2870,24 +2872,37 @@ export async function getUserQRProgress(userId: string, businessId: string): Pro
     )
     const snapshot = await getDocs(q)
 
+    console.log('📊 [getUserQRProgress] Resultados encontrados:', snapshot.size)
+
     if (snapshot.empty) {
+      console.log('❌ [getUserQRProgress] No se encontró progreso para userId:', userId)
       return null
     }
 
     const doc = snapshot.docs[0]
-    return {
+    const progressData = {
       userId: doc.data().userId,
       scannedCodes: doc.data().scannedCodes || [],
       completed: doc.data().completed || false,
       lastScanned: doc.data().lastScanned?.toDate(),
       rewardClaimed: doc.data().rewardClaimed || false,
       redeemedPrizeCodes: doc.data().redeemedPrizeCodes || [],
+      completedRedemptions: doc.data().completedRedemptions || [],
       businessId: doc.data().businessId,
       createdAt: doc.data().createdAt?.toDate() || new Date(),
       updatedAt: doc.data().updatedAt?.toDate()
     } as UserQRProgress
+
+    console.log('✅ [getUserQRProgress] Progreso encontrado:', {
+      userId: progressData.userId,
+      scannedCodesCount: progressData.scannedCodes.length,
+      scannedCodes: progressData.scannedCodes,
+      redeemedPrizeCodes: progressData.redeemedPrizeCodes
+    })
+
+    return progressData
   } catch (error) {
-    console.error('Error getting user QR progress:', error)
+    console.error('❌ [getUserQRProgress] Error getting user QR progress:', error)
     throw error
   }
 }
@@ -2910,6 +2925,7 @@ export async function getAllUserQRProgress(userId: string): Promise<UserQRProgre
       lastScanned: doc.data().lastScanned?.toDate(),
       rewardClaimed: doc.data().rewardClaimed || false,
       redeemedPrizeCodes: doc.data().redeemedPrizeCodes || [],
+      completedRedemptions: doc.data().completedRedemptions || [],
       businessId: doc.data().businessId,
       createdAt: doc.data().createdAt?.toDate() || new Date(),
       updatedAt: doc.data().updatedAt?.toDate()
@@ -2920,11 +2936,66 @@ export async function getAllUserQRProgress(userId: string): Promise<UserQRProgre
   }
 }
 
+/**
+ * Marcar premios QR como completados permanentemente (cuando se finaliza una orden)
+ * Esto mueve los IDs de redeemedPrizeCodes a completedRedemptions
+ */
+export async function completeQRRedemptions(userId: string, businessId: string, qrCodeIds: string[]): Promise<{
+  success: boolean
+  message: string
+}> {
+  try {
+    console.log('🎁 [completeQRRedemptions] Marcando premios como completados:', { userId, businessId, qrCodeIds })
+
+    if (!qrCodeIds || qrCodeIds.length === 0) {
+      return { success: true, message: 'No hay premios para marcar' }
+    }
+
+    const q = query(
+      collection(db, 'userQRProgress'),
+      where('userId', '==', userId),
+      where('businessId', '==', businessId),
+      limit(1)
+    )
+    const snapshot = await getDocs(q)
+
+    if (snapshot.empty) {
+      console.log('⚠️ [completeQRRedemptions] No se encontró progreso para el usuario')
+      return { success: false, message: 'No se encontró progreso del usuario' }
+    }
+
+    const docRef = snapshot.docs[0].ref
+    const currentData = snapshot.docs[0].data()
+    const currentCompleted = currentData.completedRedemptions || []
+    const currentRedeemed = currentData.redeemedPrizeCodes || []
+
+    // Agregar los nuevos IDs a completedRedemptions (evitando duplicados)
+    const newCompleted = Array.from(new Set([...currentCompleted, ...qrCodeIds]))
+
+    // Remover los IDs de redeemedPrizeCodes ya que ahora están completados
+    const updatedRedeemed = currentRedeemed.filter((id: string) => !qrCodeIds.includes(id))
+
+    await updateDoc(docRef, {
+      completedRedemptions: newCompleted,
+      redeemedPrizeCodes: updatedRedeemed,
+      updatedAt: serverTimestamp()
+    })
+
+    console.log('✅ [completeQRRedemptions] Premios marcados como completados exitosamente')
+    return { success: true, message: 'Premios marcados como completados' }
+  } catch (error) {
+    console.error('❌ [completeQRRedemptions] Error:', error)
+    return { success: false, message: 'Error al marcar premios como completados' }
+  }
+}
+
 export async function redeemQRCodePrize(userId: string, businessId: string, qrCodeId: string): Promise<{
   success: boolean
   message: string
 }> {
   try {
+    console.log('🎁 [redeemQRCodePrize] Intentando canjear premio:', { userId, businessId, qrCodeId })
+
     const progress = await getUserQRProgress(userId, businessId)
 
     if (!progress) {
@@ -2935,9 +3006,18 @@ export async function redeemQRCodePrize(userId: string, businessId: string, qrCo
       return { success: false, message: 'Aún no has escaneado este código' }
     }
 
+    // Verificar si ya fue completado permanentemente (en una orden anterior)
+    const isCompleted = (progress.completedRedemptions || []).includes(qrCodeId)
+    if (isCompleted) {
+      console.log('⚠️ [redeemQRCodePrize] Premio ya fue canjeado en una orden anterior')
+      return { success: false, message: 'Este premio ya fue canjeado anteriormente' }
+    }
+
+    // Verificar si ya está en el carrito actual
     const alreadyRedeemed = (progress.redeemedPrizeCodes || []).includes(qrCodeId)
     if (alreadyRedeemed) {
-      return { success: false, message: 'Este premio ya fue canjeado' }
+      console.log('⚠️ [redeemQRCodePrize] Premio ya está en el carrito')
+      return { success: false, message: 'Este premio ya está en tu carrito' }
     }
 
     const q = query(
@@ -2959,9 +3039,10 @@ export async function redeemQRCodePrize(userId: string, businessId: string, qrCo
       updatedAt: serverTimestamp()
     })
 
+    console.log('✅ [redeemQRCodePrize] Premio agregado al carrito exitosamente')
     return { success: true, message: 'Premio agregado' }
   } catch (error) {
-    console.error('Error redeeming QR prize:', error)
+    console.error('❌ [redeemQRCodePrize] Error:', error)
     return { success: false, message: 'Error al canjear el premio' }
   }
 }
