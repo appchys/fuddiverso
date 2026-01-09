@@ -2120,14 +2120,14 @@ export function CheckoutContent({
                                       {paymentData.selectedBank === 'pichincha' && '2203257517'}
                                       {paymentData.selectedBank === 'pacifico' && '1063889358'}
                                       {paymentData.selectedBank === 'guayaquil' && '0030697477'}
-                                      {paymentData.selectedBank === 'produbanco' && '20000175331'}
+                                      {paymentData.selectedBank === 'produbanco' && '20059842774'}
                                     </p>
                                   </div>
                                 </div>
                                 <div>
                                   <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Cédula / RUC</p>
                                   <p className="font-medium text-gray-900 text-lg">
-                                    {paymentData.selectedBank === 'produbanco' ? '0940482169' : '0929057636'}
+                                    {paymentData.selectedBank === 'produbanco' ? '0929057636' : '0929057636'}
                                   </p>
                                 </div>
                               </div>
@@ -2135,7 +2135,7 @@ export function CheckoutContent({
                               <div>
                                 <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Titular de la Cuenta</p>
                                 <p className="font-medium text-gray-900 text-lg border-b border-gray-100 pb-1 inline-block">
-                                  {paymentData.selectedBank === 'produbanco' ? 'Liliana Ravelo Coloma' : 'Pedro Sánchez León'}
+                                  {paymentData.selectedBank === 'produbanco' ? 'Pedro Sánchez León' : 'Pedro Sánchez León'}
                                 </p>
                               </div>
                             </div>
