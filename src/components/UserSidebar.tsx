@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
+import { searchClientByPhone, createClient, updateClient, getClientLocations } from '@/lib/database'
+import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 
 interface UserSidebarProps {
     isOpen: boolean
@@ -137,8 +139,176 @@ function CartMenuOption({ onClose }: { onClose: () => void }) {
 }
 
 export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarProps) {
-    const { user, logout } = useAuth()
+    const { user, logout, login } = useAuth()
     const router = useRouter()
+
+    // Authentication states
+    const [customerData, setCustomerData] = useState({ name: '', phone: '' })
+    const [clientFound, setClientFound] = useState<any>(null)
+    const [clientSearching, setClientSearching] = useState(false)
+    const [showNameField, setShowNameField] = useState(false)
+    const [loginPin, setLoginPin] = useState('')
+    const [loginPinLoading, setLoginPinLoading] = useState(false)
+    const [loginPinError, setLoginPinError] = useState('')
+    const [registerPin, setRegisterPin] = useState('')
+    const [registerPinConfirm, setRegisterPinConfirm] = useState('')
+    const [registerLoading, setRegisterLoading] = useState(false)
+    const [registerError, setRegisterError] = useState('')
+    const [pinAttempted, setPinAttempted] = useState(false)
+const [showAuthForm, setShowAuthForm] = useState(false)
+
+    // Phone search function
+    async function handlePhoneSearch(phone: string) {
+        const normalizedPhone = normalizeEcuadorianPhone(phone);
+        
+        if (!validateEcuadorianPhone(normalizedPhone)) {
+            setClientFound(null);
+            setShowNameField(false);
+            return;
+        }
+
+        setClientSearching(true);
+        try {
+            const client = await searchClientByPhone(normalizedPhone);
+            if (client) {
+                setClientFound(client);
+                setCustomerData(prev => ({
+                    ...prev,
+                    name: client.pinHash ? (client.nombres || '') : '',
+                    phone: normalizedPhone
+                }));
+                setShowNameField(!client.pinHash);
+            } else {
+                setClientFound(null);
+                setShowNameField(true);
+                setCustomerData(prev => ({
+                    ...prev,
+                    name: '',
+                    phone: normalizedPhone
+                }));
+            }
+        } catch (error) {
+            console.error('Error searching client:', error);
+            setClientFound(null);
+            setShowNameField(true);
+        } finally {
+            setClientSearching(false);
+        }
+    }
+
+    // PIN hash function
+    async function hashPin(pin: string): Promise<string> {
+        const simpleHash = (str: string): string => {
+            let hash = 0
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i)
+                hash = ((hash << 5) - hash) + char
+                hash = hash & hash
+            }
+            return Math.abs(hash).toString(16).padStart(8, '0')
+        }
+
+        try {
+            if (typeof window !== 'undefined' && window.crypto?.subtle?.digest) {
+                if (clientFound?.pinHash?.length === 64) {
+                    const encoder = new TextEncoder()
+                    const data = encoder.encode(pin)
+                    const hashBuffer = await window.crypto.subtle.digest('SHA-256', data)
+                    const hashArray = Array.from(new Uint8Array(hashBuffer))
+                    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+                }
+            }
+        } catch (e) {
+            console.warn('Error using Web Crypto API, using simple hash', e)
+        }
+
+        return simpleHash(pin)
+    }
+
+    // Login with PIN
+    const handleLoginWithPin = async () => {
+        setLoginPinError('')
+        setPinAttempted(true)
+        
+        if (!clientFound) return
+        if (!/^[0-9]{4,6}$/.test(loginPin)) {
+            setLoginPinError('PIN inválido')
+            return
+        }
+        
+        setLoginPinLoading(true)
+        try {
+            const pinHash = await hashPin(loginPin)
+            if (pinHash === clientFound.pinHash) {
+                login(clientFound as any)
+                setCustomerData(prev => ({ 
+                    ...prev, 
+                    name: clientFound.nombres || '', 
+                    phone: normalizeEcuadorianPhone(prev.phone) 
+                }))
+                setShowNameField(false)
+                setLoginPin('')
+                setShowAuthForm(false)
+            } else {
+                setLoginPinError('PIN incorrecto')
+            }
+        } catch (error) {
+            console.error('Error validating PIN:', error)
+            setLoginPinError('Error al verificar PIN')
+        } finally {
+            setLoginPinLoading(false)
+        }
+    }
+
+    // Register or set PIN
+    const handleRegisterOrSetPin = async () => {
+        setRegisterError('')
+        const requireName = !clientFound || (clientFound && !clientFound.pinHash)
+        if (requireName && (!customerData.name || !customerData.name.trim())) {
+            setRegisterError('Ingresa tu nombre')
+            return
+        }
+        if (!/^[0-9]{4,6}$/.test(registerPin)) {
+            setRegisterError('El PIN debe contener entre 4 y 6 dígitos')
+            return
+        }
+        if (registerPin !== registerPinConfirm) {
+            setRegisterError('Los PIN no coinciden')
+            return
+        }
+
+        setRegisterLoading(true)
+        try {
+            const pinHash = await hashPin(registerPin)
+            const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
+
+            if (clientFound && clientFound.id) {
+                await updateClient(clientFound.id, { 
+                    nombres: customerData.name.trim(),
+                    pinHash 
+                })
+                const updatedClient = { ...clientFound, nombres: customerData.name.trim(), pinHash }
+                login(updatedClient as any)
+            } else {
+                const newClient = await createClient({
+                    celular: normalizedPhone,
+                    nombres: customerData.name,
+                    pinHash,
+                    fecha_de_registro: new Date().toISOString()
+                })
+                login(newClient as any)
+            }
+
+            setShowAuthForm(false)
+            setRegisterPin('')
+            setRegisterPinConfirm('')
+        } catch (error) {
+            console.error('Error in registration:', error)
+            setRegisterError('Error al procesar registro')
+        } finally {
+            setRegisterLoading(false)
+        }
+    }
 
     const handleLogout = () => {
         logout()
@@ -200,22 +370,166 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                     <p className="text-sm text-gray-500 font-medium">{user.celular}</p>
                                 </div>
                             </div>
-                        ) : (
-                            <div className="bg-gray-50 p-6 rounded-2xl border border-dashed border-gray-200 text-center">
-                                <div className="w-16 h-16 rounded-full bg-white mx-auto flex items-center justify-center text-gray-300 mb-3 shadow-sm">
-                                    <i className="bi bi-person text-3xl"></i>
-                                </div>
-                                <p className="text-sm font-bold text-gray-900 mb-1">¡Bienvenido a Fuddi!</p>
-                                <p className="text-xs text-gray-500 mb-4">Inicia sesión para ver tu perfil y pedidos.</p>
-                                <button
-                                    onClick={() => {
-                                        onClose()
-                                        onLogin?.()
-                                    }}
-                                    className="w-full py-2.5 bg-gray-900 text-white rounded-xl text-xs font-bold hover:bg-gray-800 transition-all active:scale-95"
-                                >
-                                    Iniciar Sesión
-                                </button>
+) : (
+                            <div className="bg-gray-50 p-6 rounded-2xl border border-dashed border-gray-200">
+                                {!showAuthForm ? (
+                                    <div className="text-center">
+                                        <div className="w-16 h-16 rounded-full bg-white mx-auto flex items-center justify-center text-gray-300 mb-3 shadow-sm">
+                                            <i className="bi bi-person text-3xl"></i>
+                                        </div>
+                                        <p className="text-sm font-bold text-gray-900 mb-1">¡Bienvenido a Fuddi!</p>
+                                        <p className="text-xs text-gray-500 mb-4">Inicia sesión para ver tu perfil y pedidos.</p>
+                                        <button
+                                            onClick={() => setShowAuthForm(true)}
+                                            className="w-full py-2.5 bg-gray-900 text-white rounded-xl text-xs font-bold hover:bg-gray-800 transition-all active:scale-95"
+                                        >
+                                            Iniciar Sesión
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        <div className="text-center mb-4">
+                                            <p className="text-sm font-bold text-gray-900">Iniciar Sesión</p>
+                                        </div>
+                                        
+                                        {/* Phone Input */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-2">
+                                                Teléfono *
+                                            </label>
+                                            <input
+                                                type="tel"
+                                                value={customerData.phone}
+                                                onChange={(e) => {
+                                                    const phone = e.target.value;
+                                                    setCustomerData({ ...customerData, phone });
+                                                    handlePhoneSearch(phone);
+                                                }}
+                                                onBlur={(e) => {
+                                                    const phone = e.target.value;
+                                                    const normalizedPhone = normalizeEcuadorianPhone(phone);
+                                                    if (validateEcuadorianPhone(normalizedPhone)) {
+                                                        setCustomerData({ ...customerData, phone: normalizedPhone });
+                                                    }
+                                                }}
+                                                placeholder="0987654321"
+                                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                            />
+                                        </div>
+
+                                        {/* Client Search Loading */}
+                                        {clientSearching && (
+                                            <div className="text-center py-2">
+                                                <i className="bi bi-hourglass-split text-gray-400 animate-spin"></i>
+                                                <p className="text-xs text-gray-500 mt-1">Buscando cliente...</p>
+                                            </div>
+                                        )}
+
+                                        {/* Existing Client with PIN */}
+                                        {!clientSearching && clientFound && clientFound.pinHash && (
+                                            <div className="space-y-3">
+                                                <p className="text-xs text-gray-700">
+                                                    Hola <strong>{clientFound.nombres || clientFound.celular}</strong>
+                                                </p>
+                                                <div>
+                                                    <label className="block text-xs font-medium text-gray-700 mb-2">
+                                                        Ingresa tu PIN
+                                                    </label>
+                                                    <input
+                                                        type="password"
+                                                        value={loginPin}
+                                                        onChange={(e) => setLoginPin(e.target.value)}
+                                                        maxLength={6}
+                                                        placeholder="••••"
+                                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                                        onKeyPress={(e) => e.key === 'Enter' && handleLoginWithPin()}
+                                                    />
+                                                    {loginPinError && (
+                                                        <p className="text-xs text-red-500 mt-1">{loginPinError}</p>
+                                                    )}
+                                                </div>
+                                                <button
+                                                    onClick={handleLoginWithPin}
+                                                    disabled={loginPinLoading || !loginPin}
+                                                    className="w-full py-2 bg-gray-900 text-white rounded-lg text-xs font-bold hover:bg-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    {loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* Existing Client without PIN or New Client */}
+                                        {!clientSearching && ((clientFound && !clientFound.pinHash) || (!clientFound && customerData.phone.trim())) && (
+                                            <div className="space-y-3">
+                                                <div>
+                                                    <label className="block text-xs font-medium text-gray-700 mb-2">
+                                                        Nombre Completo *
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={customerData.name}
+                                                        onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
+                                                        placeholder="Tu nombre"
+                                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-medium text-gray-700 mb-2">
+                                                        Crea un PIN (4-6 dígitos)
+                                                    </label>
+                                                    <input
+                                                        type="password"
+                                                        value={registerPin}
+                                                        onChange={(e) => setRegisterPin(e.target.value)}
+                                                        maxLength={6}
+                                                        placeholder="••••"
+                                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-medium text-gray-700 mb-2">
+                                                        Confirmar PIN
+                                                    </label>
+                                                    <input
+                                                        type="password"
+                                                        value={registerPinConfirm}
+                                                        onChange={(e) => setRegisterPinConfirm(e.target.value)}
+                                                        maxLength={6}
+                                                        placeholder="••••"
+                                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                                    />
+                                                </div>
+                                                {registerError && (
+                                                    <p className="text-xs text-red-500">{registerError}</p>
+                                                )}
+                                                <button
+                                                    onClick={handleRegisterOrSetPin}
+                                                    disabled={registerLoading || !customerData.name || !registerPin || !registerPinConfirm}
+                                                    className="w-full py-2 bg-gray-900 text-white rounded-lg text-xs font-bold hover:bg-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    {registerLoading ? 'Procesando...' : (clientFound ? 'Guardar PIN' : 'Registrarse')}
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        <button
+                                            onClick={() => {
+                                                setShowAuthForm(false)
+                                                setCustomerData({ name: '', phone: '' })
+                                                setClientFound(null)
+                                                setShowNameField(false)
+                                                setLoginPin('')
+                                                setRegisterPin('')
+                                                setRegisterPinConfirm('')
+                                                setLoginPinError('')
+                                                setRegisterError('')
+                                            }}
+                                            className="w-full py-2 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                                        >
+                                            Cancelar
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -304,12 +618,9 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                 <i className="bi bi-box-arrow-right text-lg"></i>
                                 Cerrar Sesión
                             </button>
-                        ) : (
+) : (
                             <button
-                                onClick={() => {
-                                    onClose()
-                                    onLogin?.()
-                                }}
+                                onClick={() => setShowAuthForm(true)}
                                 className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl bg-gray-900 text-white font-bold hover:bg-gray-800 transition-all shadow-lg shadow-gray-200"
                             >
                                 <i className="bi bi-person-fill"></i>

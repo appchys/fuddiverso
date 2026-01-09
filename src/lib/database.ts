@@ -1486,17 +1486,18 @@ export async function createClient(clientData: { celular: string; nombres: strin
   }
 }
 
-export async function updateClient(clientId: string, clientData: { celular?: string; nombres?: string; email?: string; photoURL?: string }) {
+export async function updateClient(clientId: string, clientData: { celular?: string; nombres?: string; email?: string; photoURL?: string; pinHash?: string }) {
   try {
     console.log('📝 Updating client:', clientId, clientData);
 
     const clientRef = doc(db, 'clients', clientId);
     const updateData: any = {};
 
-    if (clientData.celular) updateData.celular = clientData.celular;
+if (clientData.celular) updateData.celular = clientData.celular;
     if (clientData.nombres) updateData.nombres = clientData.nombres;
     if (clientData.email !== undefined) updateData.email = clientData.email;
     if (clientData.photoURL !== undefined) updateData.photoURL = clientData.photoURL;
+    if (clientData.pinHash !== undefined) updateData.pinHash = clientData.pinHash;
 
     await updateDoc(clientRef, updateData);
     console.log('✅ Client updated successfully');
