@@ -191,6 +191,7 @@ export interface Order {
     deliveredAt?: Date | Timestamp
     cancelledAt?: Date | Timestamp
   }
+  waSentToDelivery?: boolean
 }
 
 export interface Delivery {

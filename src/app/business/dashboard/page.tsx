@@ -785,6 +785,29 @@ export default function BusinessDashboard() {
     await handleStatusChange(orderId, 'delivered')
   }
 
+  const handleMarkGroupAsDelivered = async (status: string, ordersToUpdate: Order[]) => {
+    const statusName = getStatusDisplayName(status);
+    if (!window.confirm(`¿Marcar todos los pedidos en "${statusName}" como entregados (${ordersToUpdate.length} pedidos)?`)) {
+      return
+    }
+
+    try {
+      // Usar Promise.all para actualizar todos en paralelo
+      await Promise.all(ordersToUpdate.map(order => updateOrderStatus(order.id, 'delivered' as const)));
+
+      // Actualizar estado local de una sola vez
+      const updatedOrderIds = new Set(ordersToUpdate.map(o => o.id));
+      setOrders(prevOrders => prevOrders.map(order =>
+        updatedOrderIds.has(order.id) ? { ...order, status: 'delivered' as const } : order
+      ));
+
+      alert(`Se marcaron ${ordersToUpdate.length} pedidos como entregados.`);
+    } catch (error) {
+      console.error('Error marking group as delivered:', error);
+      alert('Hubo un error al actualizar algunos pedidos.');
+    }
+  }
+
   const handleMarkAsPaid = async (orderId: string) => {
     if (!window.confirm('¿Marcar este pedido como pagado por transferencia?')) {
       return
@@ -908,8 +931,17 @@ export default function BusinessDashboard() {
       );
     };
 
+    // Actualizar waSentToDelivery en la base de datos
+    try {
+      await updateOrder(order.id, { waSentToDelivery: true });
+      // Actualizar localmente antes de llamar a sendWhatsAppToDelivery para que la UI responda rápido
+      updateLocalOrder({ ...order, waSentToDelivery: true });
+    } catch (error) {
+      console.error('Error updating waSentToDelivery:', error);
+    }
+
     await sendWhatsAppToDelivery(
-      order,
+      { ...order, waSentToDelivery: true }, // Pasar la orden actualizada
       availableDeliveries,
       business,
       handleStatusChange,
@@ -1650,28 +1682,45 @@ export default function BusinessDashboard() {
                     {/* Título del estado - ahora clickeable */}
                     <tr key={`title-${status}`} className="bg-gray-50">
                       <td colSpan={9} className="px-3 py-2 sm:px-4 sm:py-3 border-b border-gray-200">
-                        <button
-                          onClick={() => toggleCategoryCollapse(status)}
-                          className="w-full text-left hover:bg-gray-100 rounded px-2 py-1 transition-colors"
-                        >
-                          <h3 className="text-sm sm:text-base font-semibold text-gray-900 flex items-center">
-                            <span className="mr-2">
-                              {status === 'pending' && '🕐'}
-                              {status === 'confirmed' && '✅'}
-                              {status === 'preparing' && '👨‍🍳'}
-                              {status === 'ready' && '🔔'}
-                              {status === 'delivered' && '📦'}
-                              {status === 'cancelled' && '❌'}
-                            </span>
-                            {getStatusDisplayName(status)}
-                            <span className="ml-2 bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded-full text-xs sm:text-sm">
-                              {statusOrders.length}
-                            </span>
-                            <span className="ml-auto">
-                              <i className={`bi ${collapsedCategories.has(status) ? 'bi-chevron-down' : 'bi-chevron-up'} text-gray-400`}></i>
-                            </span>
-                          </h3>
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => toggleCategoryCollapse(status)}
+                            className="flex-1 text-left hover:bg-gray-100 rounded px-2 py-1 transition-colors"
+                          >
+                            <h3 className="text-sm sm:text-base font-semibold text-gray-900 flex items-center">
+                              <span className="mr-2">
+                                {status === 'pending' && '🕐'}
+                                {status === 'confirmed' && '✅'}
+                                {status === 'preparing' && '👨‍🍳'}
+                                {status === 'ready' && '🔔'}
+                                {status === 'delivered' && '📦'}
+                                {status === 'cancelled' && '❌'}
+                              </span>
+                              {getStatusDisplayName(status)}
+                              <span className="ml-2 bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded-full text-xs sm:text-sm">
+                                {statusOrders.length}
+                              </span>
+                              <span className="ml-auto">
+                                <i className={`bi ${collapsedCategories.has(status) ? 'bi-chevron-down' : 'bi-chevron-up'} text-gray-400`}></i>
+                              </span>
+                            </h3>
+                          </button>
+
+                          {['pending', 'confirmed', 'preparing', 'ready'].includes(status) && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMarkGroupAsDelivered(status, statusOrders);
+                              }}
+                              className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors font-bold text-[10px] sm:text-xs flex items-center gap-1 shrink-0 shadow-sm border border-emerald-200"
+                              title="Marcar todos como entregados"
+                            >
+                              <i className="bi bi-check-all"></i>
+                              <span className="hidden xs:inline">Entregar todos</span>
+                              <span className="xs:hidden">Todos</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                     {/* Órdenes del estado - solo mostrar si no está colapsado */}
@@ -1846,7 +1895,8 @@ export default function BusinessDashboard() {
                           e.stopPropagation()
                           await handleSendWhatsAppAndAdvance(order)
                         }}
-                        className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
+                        className={`${order.waSentToDelivery ? 'text-green-600 hover:text-green-800 hover:bg-green-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'} p-1.5 rounded transition-colors`}
+                        title={order.waSentToDelivery ? 'Mensaje enviado' : 'Enviar WhatsApp'}
                       >
                         <i className="bi bi-whatsapp text-sm"></i>
                       </button>
@@ -1979,8 +2029,10 @@ export default function BusinessDashboard() {
                           e.stopPropagation()
                           await handleSendWhatsAppAndAdvance(order)
                         }}
-                        className="text-green-600 hover:text-green-800 p-1.5 rounded hover:bg-green-50"
-                        title={order.delivery?.type === 'delivery' ? 'Enviar WhatsApp al delivery' : 'Enviar WhatsApp a la tienda'}
+                        className={`${order.waSentToDelivery ? 'text-green-600 hover:text-green-800 hover:bg-green-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'} p-1.5 rounded transition-colors`}
+                        title={order.delivery?.type === 'delivery'
+                          ? (order.waSentToDelivery ? 'WhatsApp enviado al delivery' : 'Enviar WhatsApp al delivery')
+                          : (order.waSentToDelivery ? 'WhatsApp enviado a la tienda' : 'Enviar WhatsApp a la tienda')}
                       >
                         <i className="bi bi-whatsapp text-xl"></i>
                       </button>
