@@ -59,25 +59,25 @@ const QRCodesContent = dynamic(() => import('@/app/business/qr-codes/qr-codes-co
 
 export default function BusinessDashboard() {
   const router = useRouter()
-  const { 
-    user, 
-    businessId, 
-    ownerId, 
-    isAuthenticated, 
-    authLoading, 
-    logout, 
-    setBusinessId 
+  const {
+    user,
+    businessId,
+    ownerId,
+    isAuthenticated,
+    authLoading,
+    logout,
+    setBusinessId
   } = useBusinessAuth()
   // Asegurar valores por defecto para usePushNotifications
   const pushNotifications = usePushNotifications()
-  const { 
-    permission = 'default', 
-    requestPermission = () => Promise.resolve('default'), 
-    showNotification = (options: { title: string; body: string; icon?: string }) => 
+  const {
+    permission = 'default',
+    requestPermission = () => Promise.resolve('default'),
+    showNotification = (options: { title: string; body: string; icon?: string }) =>
       console.log('Notificación simulada:', options),
-    isSupported = false, 
-    isIOS = false, 
-    needsUserAction = false 
+    isSupported = false,
+    isIOS = false,
+    needsUserAction = false
   } = pushNotifications || {}
   const [showCostReports, setShowCostReports] = useState(false)
   const [business, setBusiness] = useState<Business | null>(null)
@@ -175,7 +175,7 @@ export default function BusinessDashboard() {
     cashAmount: number;
     transferAmount: number;
   }
-  
+
   const [editPaymentData, setEditPaymentData] = useState<EditPaymentData>({
     method: 'cash' as 'cash' | 'transfer' | 'mixed',
     cashAmount: 0,
@@ -813,41 +813,40 @@ export default function BusinessDashboard() {
 
   const handleValidatePayment = async (orderId: string) => {
     try {
-      const orderRef = doc(db, 'orders', orderId)
-      await updateDoc(orderRef, {
-        'payment.paymentStatus': 'paid' as const
+      if (!paymentEditingOrder) return
+
+      let paymentUpdate: any = {
+        method: editPaymentData.method,
+        paymentStatus: 'paid' as const
+      }
+
+      if (editPaymentData.method === 'mixed') {
+        paymentUpdate.cashAmount = editPaymentData.cashAmount
+        paymentUpdate.transferAmount = editPaymentData.transferAmount
+      }
+
+      const updatedPayment = {
+        ...paymentEditingOrder.payment,
+        ...paymentUpdate
+      }
+
+      await updateOrder(orderId, {
+        payment: updatedPayment
       })
 
       // Actualizar estado local
-      const updatedOrders = orders.map(order => 
-        order.id === orderId ? {
-          ...order,
-          payment: {
-            ...order.payment!,
-            paymentStatus: 'paid' as const
-          }
-        } : order
-      );
-      setOrders(updatedOrders);
+      setOrders(orders.map(order =>
+        order.id === orderId
+          ? { ...order, payment: updatedPayment }
+          : order
+      ))
 
-      // Si el pedido es el que se está editando, actualizar también ese estado
-      if (paymentEditingOrder?.id === orderId) {
-        setPaymentEditingOrder({
-          ...paymentEditingOrder,
-          payment: {
-            ...paymentEditingOrder.payment!,
-            paymentStatus: 'paid' as const
-          }
-        });
-        setEditPaymentData(prev => ({ 
-          ...prev, 
-          paymentStatus: 'paid' as const 
-        }));
-      }
-
-      setShowReceiptPreviewModal(false);
+      setShowReceiptPreviewModal(false)
+      setShowEditPaymentModal(false)
+      setPaymentEditingOrder(null)
     } catch (error) {
-      alert('Error al validar el pago');
+      console.error('Error validating payment:', error)
+      alert('Error al validar el pago')
     }
   }
 
@@ -859,7 +858,7 @@ export default function BusinessDashboard() {
       })
 
       // Actualizar estado local
-      const updatedOrders = orders.map(order => 
+      const updatedOrders = orders.map(order =>
         order.id === orderId ? {
           ...order,
           payment: {
@@ -879,9 +878,9 @@ export default function BusinessDashboard() {
             paymentStatus: 'rejected' as const
           }
         });
-        setEditPaymentData(prev => ({ 
-          ...prev, 
-          paymentStatus: 'rejected' as const 
+        setEditPaymentData(prev => ({
+          ...prev,
+          paymentStatus: 'rejected' as const
         }));
       }
 
