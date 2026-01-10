@@ -19,7 +19,8 @@ import {
   registerClientForgotPin,
   getQRCodesByBusiness,
   getUserQRProgress,
-  completeQRRedemptions
+  completeQRRedemptions,
+  serverTimestamp
 } from '@/lib/database'
 import { Business } from '@/types'
 import LocationMap from '@/components/LocationMap'
@@ -723,6 +724,13 @@ export function CheckoutContent({
         }
         // Set PIN
         await setClientPin(clientFound.id, pinHash)
+
+        // Registrar login/update desde Checkout
+        await updateClient(clientFound.id, {
+          lastLoginAt: serverTimestamp(),
+          loginSource: 'checkout'
+        })
+
         const updated = await searchClientByPhone(normalizedPhone)
         if (updated) {
           login(updated as any)
@@ -732,6 +740,16 @@ export function CheckoutContent({
         }
       } else {
         const newClient = await createClient({ celular: normalizedPhone, nombres: customerData.name, pinHash })
+
+        // Registrar registro/login desde Checkout
+        if (newClient && newClient.id) {
+          await updateClient(newClient.id, {
+            lastRegistrationAt: serverTimestamp(),
+            lastLoginAt: serverTimestamp(),
+            loginSource: 'checkout'
+          })
+        }
+
         login(newClient as any)
         setClientFound(newClient as any)
         setShowNameField(false)
@@ -774,6 +792,14 @@ export function CheckoutContent({
     try {
       const pinHash = await hashPin(loginPin)
       if (pinHash === clientFound.pinHash) {
+        // Registrar login desde Checkout
+        if (clientFound.id) {
+          await updateClient(clientFound.id, {
+            lastLoginAt: serverTimestamp(),
+            loginSource: 'checkout'
+          })
+        }
+
         login(clientFound as any)
         // Ensure checkout form reflects logged-in client
         setCustomerData(prev => ({ ...prev, name: clientFound.nombres || '', phone: normalizeEcuadorianPhone(prev.phone) }))

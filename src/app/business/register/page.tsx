@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { onAuthStateChanged, User } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
 import { validateEcuadorianPhone } from '@/lib/validation'
-import { createBusinessFromForm, uploadImage } from '@/lib/database'
+import { createBusinessFromForm, uploadImage, updateBusiness, serverTimestamp } from '@/lib/database'
 
 function BusinessRegisterForm() {
   const router = useRouter()
@@ -31,24 +31,24 @@ function BusinessRegisterForm() {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user)
       setCheckingAuth(false)
-      
+
       if (!user) {
         // Si no hay usuario autenticado, redirigir al login
         router.push('/business/login?redirect=/business/register')
       }
     })
-    
+
     return () => unsubscribe()
   }, [router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!currentUser) {
       setErrors({ submit: 'Debes estar logueado para crear un negocio' })
       return
     }
-    
+
     if (!validateForm()) {
       return
     }
@@ -57,7 +57,7 @@ function BusinessRegisterForm() {
 
     try {
       let imageUrl = ''
-      
+
       // Subir imagen si existe
       if (formData.image) {
         const imagePath = `businesses/${Date.now()}_${formData.image.name}`
@@ -81,7 +81,18 @@ function BusinessRegisterForm() {
       // Guardar información en localStorage para la sesión
       localStorage.setItem('businessId', businessId)
       localStorage.setItem('ownerId', currentUser.uid)
-      
+
+      // Marcar fecha de registro
+      try {
+        await updateBusiness(businessId, {
+          lastRegistrationAt: serverTimestamp(),
+          lastLoginAt: serverTimestamp(), // También cuenta como primer login
+          loginSource: 'business_portal'
+        });
+      } catch (err) {
+        console.error('Error recording business registration time:', err);
+      }
+
       // Redirigir al dashboard
       router.push('/business/dashboard')
 
@@ -134,7 +145,7 @@ function BusinessRegisterForm() {
       ...prev,
       [name]: value
     }))
-    
+
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }))
     }
@@ -199,9 +210,8 @@ function BusinessRegisterForm() {
                 name="name"
                 value={formData.name}
                 onChange={handleChange}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base ${
-                  errors.name ? 'border-red-500' : 'border-gray-300'
-                }`}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base ${errors.name ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 placeholder="Ej: Pizzería Don Mario"
               />
               {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
@@ -220,9 +230,8 @@ function BusinessRegisterForm() {
                   name="username"
                   value={formData.username}
                   onChange={handleChange}
-                  className={`w-full pl-8 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base ${
-                    errors.username ? 'border-red-500' : 'border-gray-300'
-                  }`}
+                  className={`w-full pl-8 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base ${errors.username ? 'border-red-500' : 'border-gray-300'
+                    }`}
                   placeholder="donmario"
                 />
               </div>
@@ -241,9 +250,8 @@ function BusinessRegisterForm() {
                 value={formData.description}
                 onChange={handleChange}
                 rows={3}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base ${
-                  errors.description ? 'border-red-500' : 'border-gray-300'
-                }`}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base ${errors.description ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 placeholder="Describe tu negocio..."
               />
               {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
@@ -260,9 +268,8 @@ function BusinessRegisterForm() {
                 name="phone"
                 value={formData.phone}
                 onChange={handleChange}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base ${
-                  errors.phone ? 'border-red-500' : 'border-gray-300'
-                }`}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base ${errors.phone ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 placeholder="0999999999"
               />
               {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone}</p>}
@@ -279,9 +286,8 @@ function BusinessRegisterForm() {
                 name="address"
                 value={formData.address}
                 onChange={handleChange}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base ${
-                  errors.address ? 'border-red-500' : 'border-gray-300'
-                }`}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base ${errors.address ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 placeholder="Dirección completa del negocio"
               />
               {errors.address && <p className="text-red-500 text-sm mt-1">{errors.address}</p>}
@@ -313,9 +319,8 @@ function BusinessRegisterForm() {
                 name="category"
                 value={formData.category}
                 onChange={handleChange}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base ${
-                  errors.category ? 'border-red-500' : 'border-gray-300'
-                }`}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base ${errors.category ? 'border-red-500' : 'border-gray-300'
+                  }`}
               >
                 <option value="">Selecciona una categoría</option>
                 <option value="Comida Rápida">Comida Rápida</option>
@@ -380,8 +385,8 @@ function BusinessRegisterForm() {
           </form>
 
           <div className="mt-6 sm:mt-8 text-center">
-            <Link 
-              href="/business/dashboard" 
+            <Link
+              href="/business/dashboard"
               className="text-red-600 hover:text-red-700 text-sm sm:text-base"
             >
               ← Volver al Dashboard

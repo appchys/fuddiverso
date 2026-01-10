@@ -18,7 +18,7 @@ import {
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
-export { storage }
+export { storage, serverTimestamp, Timestamp }
 import { normalizeEcuadorianPhone } from './validation'
 import {
   signInWithRedirect,
@@ -1233,6 +1233,9 @@ export interface FirestoreClient {
   updatedAt?: any;
   pinHash?: string | null;
   photoURL?: string; // URL de la imagen de perfil del usuario
+  lastLoginAt?: any;
+  lastRegistrationAt?: any;
+  loginSource?: string;
 }
 
 export interface ClientLocation {
@@ -1486,18 +1489,21 @@ export async function createClient(clientData: { celular: string; nombres: strin
   }
 }
 
-export async function updateClient(clientId: string, clientData: { celular?: string; nombres?: string; email?: string; photoURL?: string; pinHash?: string }) {
+export async function updateClient(clientId: string, clientData: { celular?: string; nombres?: string; email?: string; photoURL?: string; pinHash?: string; lastLoginAt?: any; lastRegistrationAt?: any; loginSource?: string }) {
   try {
     console.log('📝 Updating client:', clientId, clientData);
 
     const clientRef = doc(db, 'clients', clientId);
     const updateData: any = {};
 
-if (clientData.celular) updateData.celular = clientData.celular;
+    if (clientData.celular) updateData.celular = clientData.celular;
     if (clientData.nombres) updateData.nombres = clientData.nombres;
     if (clientData.email !== undefined) updateData.email = clientData.email;
     if (clientData.photoURL !== undefined) updateData.photoURL = clientData.photoURL;
     if (clientData.pinHash !== undefined) updateData.pinHash = clientData.pinHash;
+    if (clientData.lastLoginAt !== undefined) updateData.lastLoginAt = clientData.lastLoginAt;
+    if (clientData.lastRegistrationAt !== undefined) updateData.lastRegistrationAt = clientData.lastRegistrationAt;
+    if (clientData.loginSource !== undefined) updateData.loginSource = clientData.loginSource;
 
     await updateDoc(clientRef, updateData);
     console.log('✅ Client updated successfully');

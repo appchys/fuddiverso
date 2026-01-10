@@ -36,6 +36,9 @@ export interface Business {
   isActive: boolean
   createdAt: Date
   updatedAt: Date
+  lastLoginAt?: any
+  lastRegistrationAt?: any
+  loginSource?: string
   ratingAverage?: number // Calificación promedio
   ratingCount?: number // Cantidad de calificaciones
   rewardSettings?: {

@@ -102,7 +102,7 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe()
   }, [])
 
-  const login = (userData: BusinessUser, businessIdParam: string, ownerIdParam: string) => {
+  const login = async (userData: BusinessUser, businessIdParam: string, ownerIdParam: string) => {
     setUser(userData)
     setBusinessIdState(businessIdParam)
     setOwnerIdState(ownerIdParam)
@@ -111,6 +111,17 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('businessId', businessIdParam)
     localStorage.setItem('ownerId', ownerIdParam)
     localStorage.setItem('currentBusinessId', businessIdParam)
+
+    // Actualizar fecha de último login en el negocio
+    try {
+      const { updateBusiness, serverTimestamp } = await import('@/lib/database');
+      await updateBusiness(businessIdParam, {
+        lastLoginAt: serverTimestamp(),
+        loginSource: 'business_portal'
+      });
+    } catch (err) {
+      console.error('[Auth] Error updating business lastLoginAt:', err);
+    }
   }
 
   const logout = () => {

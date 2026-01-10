@@ -304,7 +304,7 @@ exports.createOrderNotification = onDocumentCreated("orders/{orderId}", async (e
     console.log(`🔔 Creando notificación para orden: ${orderId} en negocio: ${order.businessId}`);
 
     const customerName = order.customer?.name || 'Cliente';
-    
+
     const notificationData = {
       orderId: orderId,
       type: 'new_order',
@@ -331,5 +331,155 @@ exports.createOrderNotification = onDocumentCreated("orders/{orderId}", async (e
 
   } catch (error) {
     console.error(`❌ Error creando notificación para orden ${orderId}:`, error);
+  }
+});
+
+/**
+ * Cloud Function: Notificar cuando un nuevo CLIENTE se registra
+ */
+exports.onClientCreated = onDocumentCreated("clients/{clientId}", async (event) => {
+  const client = event.data.data();
+  const clientId = event.params.clientId;
+  const adminEmail = 'appchys.ec@gmail.com';
+
+  try {
+    console.log(`👤 Nuevo cliente registrado: ${client.nombres} (${client.celular})`);
+
+    const mailOptions = {
+      from: 'sistema@fuddi.shop',
+      to: adminEmail,
+      subject: `🆕 ¡Nuevo Cliente! [${client.loginSource || 'N/A'}] - ${client.nombres}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+          <h2 style="color: #aa1918;">🆕 Nuevo Registro de Cliente</h2>
+          <p>Se ha registrado un nuevo cliente en Fuddi desde: <strong>${client.loginSource || 'Desconocido'}</strong></p>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+            <tr><td style="padding: 5px;"><strong>Nombre:</strong></td><td>${client.nombres}</td></tr>
+            <tr><td style="padding: 5px;"><strong>WhatsApp:</strong></td><td>${client.celular}</td></tr>
+            <tr><td style="padding: 5px;"><strong>ID:</strong></td><td>${clientId}</td></tr>
+            <tr><td style="padding: 5px;"><strong>Origen:</strong></td><td>${client.loginSource || 'No especificado'}</td></tr>
+            <tr><td style="padding: 5px;"><strong>Fecha:</strong></td><td>${new Date().toLocaleString('es-EC')}</td></tr>
+          </table>
+          <p style="margin-top: 20px; font-size: 12px; color: #666;">Fuddiverso System Notification</p>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+  } catch (error) {
+    console.error('❌ Error enviando email de nuevo cliente:', error);
+  }
+});
+
+/**
+ * Cloud Function: Notificar cuando un CLIENTE ya existente inicia sesión
+ */
+exports.onClientUpdated = onDocumentUpdated("clients/{clientId}", async (event) => {
+  const before = event.data.before.data();
+  const after = event.data.after.data();
+  const adminEmail = 'appchys.ec@gmail.com';
+
+  // Solo notificar si cambió lastLoginAt y NO es un registro nuevo (lastRegistrationAt no cambió)
+  const loginChanged = after.lastLoginAt && (!before.lastLoginAt || !after.lastLoginAt.isEqual(before.lastLoginAt));
+  const isNewRegistration = after.lastRegistrationAt && (!before.lastRegistrationAt || !after.lastRegistrationAt.isEqual(before.lastRegistrationAt));
+
+  if (loginChanged && !isNewRegistration) {
+    try {
+      console.log(`🔑 Cliente inició sesión: ${after.nombres}`);
+
+      const mailOptions = {
+        from: 'sistema@fuddi.shop',
+        to: adminEmail,
+        subject: `🔑 Cliente inició sesión [${after.loginSource || 'N/A'}] - ${after.nombres}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+            <h2 style="color: #444;">🔑 Inicio de Sesión de Cliente</h2>
+            <p>Un cliente recurrente ha ingresado desde: <strong>${after.loginSource || 'Desconocido'}</strong></p>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+              <tr><td style="padding: 5px;"><strong>Nombre:</strong></td><td>${after.nombres}</td></tr>
+              <tr><td style="padding: 5px;"><strong>WhatsApp:</strong></td><td>${after.celular}</td></tr>
+              <tr><td style="padding: 5px;"><strong>Origen:</strong></td><td>${after.loginSource || 'No especificado'}</td></tr>
+              <tr><td style="padding: 5px;"><strong>Fecha:</strong></td><td>${new Date().toLocaleString('es-EC')}</td></tr>
+            </table>
+          </div>
+        `
+      };
+      await transporter.sendMail(mailOptions);
+    } catch (error) {
+      console.error('❌ Error enviando email de login de cliente:', error);
+    }
+  }
+});
+
+/**
+ * Cloud Function: Notificar cuando un nuevo NEGOCIO se registra
+ */
+exports.onBusinessCreated = onDocumentCreated("businesses/{businessId}", async (event) => {
+  const business = event.data.data();
+  const adminEmail = 'appchys.ec@gmail.com';
+
+  try {
+    console.log(`🏪 Nuevo negocio registrado: ${business.name}`);
+
+    const mailOptions = {
+      from: 'sistema@fuddi.shop',
+      to: adminEmail,
+      subject: `🏪 ¡Nuevo Negocio! [${business.loginSource || 'N/A'}] - ${business.name}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+          <h2 style="color: #aa1918;">🏪 Nuevo Registro de Negocio</h2>
+          <p>Un nuevo local se ha unido a Fuddiverso desde: <strong>${business.loginSource || 'Desconocido'}</strong></p>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+            <tr><td style="padding: 5px;"><strong>Negocio:</strong></td><td>${business.name}</td></tr>
+            <tr><td style="padding: 5px;"><strong>Email:</strong></td><td>${business.email}</td></tr>
+            <tr><td style="padding: 5px;"><strong>Teléfono:</strong></td><td>${business.phone}</td></tr>
+            <tr><td style="padding: 5px;"><strong>Origen:</strong></td><td>${business.loginSource || 'No especificado'}</td></tr>
+            <tr><td style="padding: 5px;"><strong>Vínculo:</strong></td><td>fuddi.shop/@${business.username}</td></tr>
+          </table>
+        </div>
+      `
+    };
+    await transporter.sendMail(mailOptions);
+  } catch (error) {
+    console.error('❌ Error enviando email de nuevo negocio:', error);
+  }
+});
+
+/**
+ * Cloud Function: Notificar cuando un NEGOCIO inicia sesión
+ */
+exports.onBusinessUpdated = onDocumentUpdated("businesses/{businessId}", async (event) => {
+  const before = event.data.before.data();
+  const after = event.data.after.data();
+  const adminEmail = 'appchys.ec@gmail.com';
+
+  const loginChanged = after.lastLoginAt && (!before.lastLoginAt || !after.lastLoginAt.isEqual(before.lastLoginAt));
+  const isNewRegistration = after.lastRegistrationAt && (!before.lastRegistrationAt || !after.lastRegistrationAt.isEqual(before.lastRegistrationAt));
+
+  if (loginChanged && !isNewRegistration) {
+    try {
+      console.log(`🔓 Negocio inició sesión: ${after.name}`);
+
+      const mailOptions = {
+        from: 'sistema@fuddi.shop',
+        to: adminEmail,
+        subject: `🔓 Negocio inició sesión [${after.loginSource || 'N/A'}] - ${after.name}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+            <h2 style="color: #444;">🔓 Inicio de Sesión de Negocio</h2>
+            <p>El administrador del negocio ha ingresado desde: <strong>${after.loginSource || 'Desconocido'}</strong></p>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+              <tr><td style="padding: 5px;"><strong>Negocio:</strong></td><td>${after.name}</td></tr>
+              <tr><td style="padding: 5px;"><strong>Email:</strong></td><td>${after.email}</td></tr>
+              <tr><td style="padding: 5px;"><strong>Origen:</strong></td><td>${after.loginSource || 'No especificado'}</td></tr>
+              <tr><td style="padding: 5px;"><strong>Fecha:</strong></td><td>${new Date().toLocaleString('es-EC')}</td></tr>
+            </table>
+          </div>
+        `
+      };
+      await transporter.sendMail(mailOptions);
+    } catch (error) {
+      console.error('❌ Error enviando email de login de negocio:', error);
+    }
   }
 });
