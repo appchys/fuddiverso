@@ -1771,18 +1771,24 @@ export function CheckoutContent({
                       // Fallback: si no hay ubicaciones guardadas, abrir modal para seleccionar/crear
                       openLocationModal();
                     }}
-                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${deliveryData.type === 'delivery'
-                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
-                      : !user
-                        ? 'border-gray-100 bg-gray-50 text-gray-400 opacity-60'
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${!user
+                      ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                      : deliveryData.type === 'delivery'
+                        ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
                         : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
                       }`}
                   >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${deliveryData.type === 'delivery' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${!user
+                      ? 'bg-gray-200 text-gray-400'
+                      : deliveryData.type === 'delivery' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'
+                      }`}>
                       <i className="bi bi-bicycle"></i>
                     </div>
                     <span className="font-bold">Domicilio</span>
-                    {deliveryData.type === 'delivery' && (
+                    <span className={`text-xs mt-1 ${deliveryData.type === 'delivery' ? 'text-white/80' : 'text-gray-500'}`}>
+                      {user ? 'Envío a tu casa' : 'Inicia sesión'}
+                    </span>
+                    {deliveryData.type === 'delivery' && user && (
                       <div className="absolute top-2 right-2 text-white text-xs">
                         <i className="bi bi-check-circle-fill"></i>
                       </div>
@@ -1797,25 +1803,26 @@ export function CheckoutContent({
                       setDeliveryData(prev => ({ ...prev, type: 'pickup', address: '', references: '', tarifa: '0' }));
                     }}
                     disabled={!business?.pickupSettings?.enabled}
-                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${deliveryData.type === 'pickup'
-                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
-                      : !business?.pickupSettings?.enabled
-                        ? 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed opacity-60'
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${!business?.pickupSettings?.enabled
+                      ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                      : deliveryData.type === 'pickup'
+                        ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
                         : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
                       }`}
                   >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${deliveryData.type === 'pickup' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${!business?.pickupSettings?.enabled
+                      ? 'bg-gray-200 text-gray-400'
+                      : deliveryData.type === 'pickup' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'
+                      }`}>
                       <i className="bi bi-shop"></i>
                     </div>
                     <span className="font-bold">Retiro en Tienda</span>
-                    {deliveryData.type === 'pickup' && (
+                    <span className={`text-xs mt-1 ${deliveryData.type === 'pickup' ? 'text-white/80' : 'text-gray-500'}`}>
+                      {business?.pickupSettings?.enabled ? 'Atención local' : 'No disponible'}
+                    </span>
+                    {deliveryData.type === 'pickup' && business?.pickupSettings?.enabled && (
                       <div className="absolute top-2 right-2 text-white text-xs">
                         <i className="bi bi-check-circle-fill"></i>
-                      </div>
-                    )}
-                    {!business?.pickupSettings?.enabled && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-gray-100/10 backdrop-blur-[1px]">
-                        <span className="bg-gray-800/80 text-white text-[10px] px-2 py-1 rounded font-bold">No disponible</span>
                       </div>
                     )}
                   </button>
