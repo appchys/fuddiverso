@@ -1340,48 +1340,64 @@ export default function ManualOrderSidebar({
                     {category}
                   </button>
                 ))}
+                <button
+                  onClick={() => setSelectedCategory('hidden')}
+                  className={`px-2 py-1 rounded transition-colors flex-shrink-0 ${selectedCategory === 'hidden'
+                    ? 'text-blue-600 font-medium'
+                    : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                >
+                  Ocultos
+                </button>
               </div>
             </div>
 
             <div className="grid grid-cols-4 gap-1 max-h-50 overflow-y-auto">
-              {getFilteredProducts().filter(p => p.isAvailable).map((product) => (
-                <div
-                  key={product.id}
-                  className="aspect-square p-1 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col"
-                  onClick={() => {
-                    if (product.variants && product.variants.length > 0) {
-                      setSelectedProductForVariants(product)
-                      setIsVariantModalOpen(true)
-                    } else {
-                      addProductToOrder(product)
-                    }
-                  }}
-                >
-                  {/* Imagen del producto */}
-                  <div className="w-full h-8 mb-1 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
-                    {product.image ? (
-                      <img
-                        src={product.image}
-                        alt={product.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <i className="bi bi-image text-gray-400 text-xs"></i>
-                      </div>
-                    )}
-                  </div>
+              {(() => {
+                const filtered = selectedCategory === 'hidden'
+                  ? products.filter(p => !p.isAvailable)
+                  : getFilteredProducts().filter(p => p.isAvailable);
 
-                  <div className="flex-1 flex flex-col justify-center text-center">
-                    <p className="text-xs font-medium leading-tight mb-1 line-clamp-2">{product.name}</p>
-                    {product.variants && product.variants.length > 0 ? (
-                      <i className="bi bi-chevron-down text-xs text-blue-600"></i>
-                    ) : (
-                      <p className="text-xs text-gray-500">${product.price}</p>
-                    )}
+                return filtered.map((product) => (
+                  <div
+                    key={product.id}
+                    className={`aspect-square p-1 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col ${!product.isAvailable ? 'opacity-50 grayscale' : ''
+                      }`}
+                    onClick={() => {
+                      if (product.variants && product.variants.length > 0) {
+                        setSelectedProductForVariants(product)
+                        setIsVariantModalOpen(true)
+                      } else {
+                        addProductToOrder(product)
+                      }
+                    }}
+                  >
+                    {/* Imagen del producto */}
+                    <div className="w-full h-8 mb-1 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
+                      {product.image ? (
+                        <img
+                          src={product.image}
+                          alt={product.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <i className="bi bi-image text-gray-400 text-xs"></i>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex-1 flex flex-col justify-center text-center">
+                      <p className="text-xs font-medium leading-tight mb-1 line-clamp-2">{product.name}</p>
+                      {product.variants && product.variants.length > 0 ? (
+                        <i className="bi bi-chevron-down text-xs text-blue-600"></i>
+                      ) : (
+                        <p className="text-xs text-gray-500">${product.price}</p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ));
+              })()}
             </div>
           </div>
 
