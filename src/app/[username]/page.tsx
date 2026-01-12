@@ -7,6 +7,9 @@ import Head from 'next/head'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
 import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize } from '@/lib/database'
 import CartSidebar from '@/components/CartSidebar'
+import { normalizeEcuadorianPhone } from '@/lib/validation'
+import LocationMap from '@/components/LocationMap'
+import { CheckoutContent } from '@/components/CheckoutContent'
 import UserSidebar from '@/components/UserSidebar'
 import ClientLoginModal from '@/components/ClientLoginModal'
 import { isStoreOpen } from '@/lib/store-utils'
@@ -1005,7 +1008,64 @@ function RestaurantContent() {
                 </div>
               )}
 
-              {/* Ubicación eliminada por solicitud del usuario */}
+              {/* Ubicación: Solo si el retiro está habilitado */}
+              {business.pickupSettings?.enabled && (
+                <div>
+                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Ubicación y Retiro</h3>
+                  <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 space-y-6">
+                    <div className="flex flex-col md:flex-row gap-6">
+                      {/* Foto del negocio */}
+                      {(business.pickupSettings.storePhotoUrl || business.locationImage) && (
+                        <div className="w-full md:w-1/3 aspect-video md:aspect-square rounded-xl overflow-hidden bg-gray-200 border border-gray-100 shadow-sm">
+                          <img
+                            src={business.pickupSettings.storePhotoUrl || business.locationImage}
+                            alt={business.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
+
+                      <div className="flex-1 space-y-4">
+                        <div>
+                          <p className="text-xs font-bold text-gray-400 uppercase mb-1">Dirección</p>
+                          <p className="text-gray-700 flex items-start gap-2 italic">
+                            <i className="bi bi-geo-alt-fill text-red-500 mt-1"></i>
+                            {business.address || 'Dirección no especificada'}
+                          </p>
+                        </div>
+
+                        {business.pickupSettings.references && (
+                          <div>
+                            <p className="text-xs font-bold text-gray-400 uppercase mb-1">Referencias</p>
+                            <p className="text-gray-700 text-sm leading-relaxed">
+                              {business.pickupSettings.references}
+                            </p>
+                          </div>
+                        )}
+
+                        {business.pickupSettings.latlong && (
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${business.pickupSettings.latlong}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-xs font-bold text-gray-700 bg-white hover:bg-gray-50 transition-all shadow-sm"
+                          >
+                            <i className="bi bi-map-fill text-red-500"></i>
+                            Ver en Google Maps
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Mini Mapa interactivo (solo visualización) */}
+                    {business.pickupSettings.latlong && (
+                      <div className="rounded-xl overflow-hidden border border-gray-200 shadow-inner h-48">
+                        <LocationMap latlong={business.pickupSettings.latlong} height="100%" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Horario de Atención</h3>

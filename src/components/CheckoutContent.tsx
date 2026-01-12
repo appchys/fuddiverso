@@ -1792,12 +1792,16 @@ export function CheckoutContent({
                   <button
                     type="button"
                     onClick={() => {
+                      if (!business?.pickupSettings?.enabled) return;
                       setSelectedLocation(null);
                       setDeliveryData(prev => ({ ...prev, type: 'pickup', address: '', references: '', tarifa: '0' }));
                     }}
+                    disabled={!business?.pickupSettings?.enabled}
                     className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${deliveryData.type === 'pickup'
                       ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
-                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                      : !business?.pickupSettings?.enabled
+                        ? 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed opacity-60'
+                        : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
                       }`}
                   >
                     <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${deliveryData.type === 'pickup' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
@@ -1809,6 +1813,11 @@ export function CheckoutContent({
                         <i className="bi bi-check-circle-fill"></i>
                       </div>
                     )}
+                    {!business?.pickupSettings?.enabled && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-gray-100/10 backdrop-blur-[1px]">
+                        <span className="bg-gray-800/80 text-white text-[10px] px-2 py-1 rounded font-bold">No disponible</span>
+                      </div>
+                    )}
                   </button>
                 </div>
 
@@ -1817,11 +1826,11 @@ export function CheckoutContent({
                   <div className="animate-fadeIn">
                     {selectedLocation ? (
                       <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 flex items-start gap-3 relative group">
-                        <div className="flex-shrink-0">
+                        <div className="flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
                           {selectedLocation.latlong ? (
-                            <LocationMap latlong={selectedLocation.latlong} height="80px" />
+                            <LocationMap latlong={selectedLocation.latlong} height="100%" />
                           ) : (
-                            <div className="w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400">
+                            <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400">
                               <i className="bi bi-geo-alt-fill text-2xl"></i>
                             </div>
                           )}
@@ -1854,29 +1863,50 @@ export function CheckoutContent({
                 {/* Store Location Info for Pickup */}
                 {deliveryData.type === 'pickup' && (
                   <div className="animate-fadeIn">
-                    <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 flex items-start gap-3">
-                      <div
-                        className={`w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400 flex-shrink-0 overflow-hidden ${business?.locationImage ? 'cursor-pointer hover:ring-2 hover:ring-red-400 transition-all' : ''}`}
-                        onClick={() => business?.locationImage && setShowStoreImageModal(true)}
-                      >
-                        {business?.locationImage ? (
-                          <img
-                            src={business.locationImage}
-                            alt={business.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <i className="bi bi-shop text-2xl"></i>
-                        )}
+                    <div className="bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+                      <div className="p-4 flex items-start gap-3">
+                        <div
+                          className={`w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400 flex-shrink-0 overflow-hidden ${(business?.pickupSettings?.storePhotoUrl || business?.locationImage) ? 'cursor-pointer hover:ring-2 hover:ring-red-400 transition-all' : ''}`}
+                          onClick={() => (business?.pickupSettings?.storePhotoUrl || business?.locationImage) && setShowStoreImageModal(true)}
+                        >
+                          {business?.pickupSettings?.storePhotoUrl ? (
+                            <img
+                              src={business.pickupSettings.storePhotoUrl}
+                              alt={business.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : business?.locationImage ? (
+                            <img
+                              src={business.locationImage}
+                              alt={business.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <i className="bi bi-shop text-2xl"></i>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0 text-left">
+                          <p className="font-medium text-gray-900">Retirar en:</p>
+                          <p className="text-lg font-bold text-gray-800">{business?.name}</p>
+                          <p className="text-sm text-gray-600 mt-1">
+                            <i className="bi bi-geo-alt mr-1"></i>
+                            {business?.address || 'Dirección no disponible'}
+                          </p>
+                          {business?.pickupSettings?.references && (
+                            <p className="text-xs text-gray-500 mt-2 italic">
+                              <i className="bi bi-info-circle mr-1"></i>
+                              Ref: {business.pickupSettings.references}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900">Retirar en:</p>
-                        <p className="text-lg font-bold text-gray-800">{business?.name}</p>
-                        <p className="text-sm text-gray-600 mt-1">
-                          <i className="bi bi-geo-alt mr-1"></i>
-                          {business?.address || 'Dirección no disponible'}
-                        </p>
-                      </div>
+
+                      {/* Mostrar mapa si hay coordenadas - Ahora dentro de la misma tarjeta */}
+                      {business?.pickupSettings?.latlong && (
+                        <div className="h-40 w-full border-t border-gray-100">
+                          <LocationMap latlong={business.pickupSettings.latlong} height="100%" />
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

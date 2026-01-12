@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from 'react'
 import { Business, Product, Ingredient } from '@/types'
-import { getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem } from '@/lib/database'
+import { getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, uploadImage } from '@/lib/database'
 import ProductList from './ProductList'
+import { GoogleMap, useCurrentLocation } from './GoogleMap'
 
 interface BusinessProfileDashboardProps {
   business: Business
@@ -53,6 +54,9 @@ export default function BusinessProfileDashboard({
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
   const [activeTab, setActiveTab] = useState<'general' | 'products' | 'fidelizacion'>(initialTab)
+
+  // Hook para ubicación
+  const { location, loading: locating, error: locationError, getCurrentLocation } = useCurrentLocation()
 
   // Estados para ingredientes del premio
   const [ingredientLibrary, setIngredientLibrary] = useState<IngredientLibraryItem[]>([])
@@ -155,6 +159,42 @@ export default function BusinessProfileDashboard({
   }, [showRewardIngredientSuggestions])
 
   const displayBusiness = isEditingProfile && editedBusiness ? editedBusiness : business
+
+  const handlePickupLocationChange = (lat: number, lng: number) => {
+    const currentSettings = displayBusiness.pickupSettings || { enabled: false, references: '', latlong: '', storePhotoUrl: '' }
+    onBusinessFieldChange('pickupSettings', {
+      ...currentSettings,
+      latlong: `${lat}, ${lng}`
+    })
+  }
+
+  const handleCaptureCurrentLocation = () => {
+    getCurrentLocation()
+  }
+
+  useEffect(() => {
+    if (location) {
+      handlePickupLocationChange(location.lat, location.lng)
+    }
+  }, [location])
+
+  const handleStorePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !business?.id) return
+
+    try {
+      const path = `businesses/${business.id}/pickup_photo_${Date.now()}`
+      const url = await uploadImage(file, path)
+      const currentSettings = displayBusiness.pickupSettings || { enabled: false, references: '', latlong: '', storePhotoUrl: '' }
+      onBusinessFieldChange('pickupSettings', {
+        ...currentSettings,
+        storePhotoUrl: url
+      })
+    } catch (error) {
+      console.error('Error al subir foto del negocio:', error)
+      alert('Error al subir la foto')
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -319,6 +359,118 @@ export default function BusinessProfileDashboard({
                     onChange={(e) => onBusinessFieldChange('address', e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                   />
+                </div>
+
+                {/* Sección de Entrega (Retiro en tienda) */}
+                <div className="mt-8 pt-6 border-t border-gray-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="text-left">
+                      <h3 className="text-lg font-semibold text-gray-900">Entrega</h3>
+                      <p className="text-sm text-gray-500">Configura las opciones para que tus clientes retiren sus pedidos.</p>
+                    </div>
+                    <div
+                      className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${displayBusiness.pickupSettings?.enabled ? 'bg-red-500' : 'bg-gray-200'}`}
+                      onClick={() => {
+                        const currentSettings = displayBusiness.pickupSettings || { enabled: false, references: '', latlong: '', storePhotoUrl: '' };
+                        onBusinessFieldChange('pickupSettings', { ...currentSettings, enabled: !currentSettings.enabled });
+                      }}
+                    >
+                      <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${displayBusiness.pickupSettings?.enabled ? 'translate-x-6' : ''}`}></div>
+                    </div>
+                  </div>
+
+                  <div className={`space-y-6 transition-opacity duration-200 ${displayBusiness.pickupSettings?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                    <div className="text-left">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Referencias para el retiro</label>
+                      <textarea
+                        value={displayBusiness.pickupSettings?.references || ''}
+                        onChange={(e) => {
+                          const currentSettings = displayBusiness.pickupSettings || { enabled: false, references: '', latlong: '', storePhotoUrl: '' };
+                          onBusinessFieldChange('pickupSettings', { ...currentSettings, references: e.target.value });
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                        rows={2}
+                        placeholder="Ej: Frente al parque central, local de color rojo"
+                      />
+                    </div>
+
+                    <div className="text-left">
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="block text-sm font-medium text-gray-700">Mapa de Ubicación</label>
+                        <button
+                          type="button"
+                          onClick={handleCaptureCurrentLocation}
+                          disabled={locating}
+                          className="text-xs font-bold text-red-600 hover:text-red-700 flex items-center gap-1"
+                        >
+                          <i className="bi bi-geo-alt-fill"></i>
+                          {locating ? 'Obteniendo...' : 'Usar mi ubicación actual'}
+                        </button>
+                      </div>
+                      <div className="rounded-xl overflow-hidden border border-gray-300">
+                        {(() => {
+                          const latlong = displayBusiness.pickupSettings?.latlong || '0, 0'
+                          const [lat, lng] = latlong.split(',').map(c => parseFloat(c.trim()) || 0)
+                          return (
+                            <GoogleMap
+                              latitude={lat}
+                              longitude={lng}
+                              height="300px"
+                              draggable={true}
+                              marker={true}
+                              onLocationChange={handlePickupLocationChange}
+                            />
+                          )
+                        })()}
+                      </div>
+                      <p className="text-[10px] text-gray-500 mt-2">
+                        Puedes mover el marcador en el mapa para ajustar la ubicación exacta de tu negocio.
+                      </p>
+                    </div>
+
+                    <div className="text-left">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Foto del Negocio</label>
+                      <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-red-400 transition-colors group relative overflow-hidden">
+                        {displayBusiness.pickupSettings?.storePhotoUrl ? (
+                          <div className="relative w-full aspect-video rounded-lg overflow-hidden">
+                            <img
+                              src={displayBusiness.pickupSettings.storePhotoUrl}
+                              alt="Foto del negocio para retiro"
+                              className="w-full h-full object-cover"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <label className="cursor-pointer bg-white text-gray-900 px-4 py-2 rounded-full text-sm font-bold shadow-lg transform translate-y-2 group-hover:translate-y-0 transition-transform">
+                                Cambiar Foto
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={handleStorePhotoUpload}
+                                  className="hidden"
+                                />
+                              </label>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-1 text-center">
+                            <i className="bi bi-camera text-4xl text-gray-400 mb-2"></i>
+                            <div className="flex text-sm text-gray-600 justify-center">
+                              <label className="relative cursor-pointer bg-white rounded-md font-medium text-red-600 hover:text-red-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-red-500">
+                                <span>Sube una foto</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={handleStorePhotoUpload}
+                                  className="hidden"
+                                />
+                              </label>
+                              <p className="pl-1">para tus clientes</p>
+                            </div>
+                            <p className="text-xs text-gray-500">PNG, JPG hasta 5MB</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div>

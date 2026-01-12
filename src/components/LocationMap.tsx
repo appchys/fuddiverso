@@ -23,15 +23,15 @@ export default function LocationMap({ latlong, height = "96px" }: { latlong: str
         );
     }
 
-    // Usar Google Static Maps API para evitar cargas múltiples de la API de Maps
-    const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${coordinates.lat},${coordinates.lng}&zoom=16&size=200x200&maptype=roadmap&markers=color:red%7C${coordinates.lat},${coordinates.lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
+    // Usar Google Static Maps API con un tamaño mayor para mejor resolución en anchos grandes
+    const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${coordinates.lat},${coordinates.lng}&zoom=16&size=600x300&maptype=roadmap&markers=color:red%7C${coordinates.lat},${coordinates.lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
 
     return (
-        <div className="w-full max-w-[96px] rounded-lg overflow-hidden border border-gray-200 shadow-sm relative">
+        <div className="w-full h-full overflow-hidden relative" style={{ minHeight: height }}>
             <img
                 src={staticMapUrl}
                 alt={`Mapa de ubicación ${coordinates.lat}, ${coordinates.lng}`}
-                className="w-full h-auto aspect-square object-cover"
+                className="w-full h-full object-cover"
             />
         </div>
     );

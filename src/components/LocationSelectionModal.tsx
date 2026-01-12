@@ -248,8 +248,8 @@ export default function LocationSelectionModal({
                                                 </div>
                                             </div>
 
-                                            <div className="flex-shrink-0 self-center">
-                                                <LocationMap latlong={location.latlong} height="64px" />
+                                            <div className="flex-shrink-0 self-center w-16 h-16 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+                                                <LocationMap latlong={location.latlong} height="100%" />
                                             </div>
                                         </div>
                                     ))}

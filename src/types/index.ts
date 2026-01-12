@@ -48,6 +48,12 @@ export interface Business {
     image?: string
     ingredients?: Ingredient[]
   }
+  pickupSettings?: {
+    enabled: boolean
+    references: string
+    latlong: string
+    storePhotoUrl: string
+  }
 }
 
 export interface BusinessAdministrator {
