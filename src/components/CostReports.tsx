@@ -6,6 +6,7 @@ import { calculateCostReport, CostReport, getOrdersByBusiness, getDeliveriesBySt
 
 interface CostReportsProps {
   business: Business | null
+  initialReportType?: ReportType
 }
 
 type ReportType = 'costs' | 'deliveries' | 'general'
@@ -36,14 +37,14 @@ const getEcuadorDate = () => {
   return ecuadorDate.toISOString().split('T')[0]
 }
 
-export default function CostReports({ business }: CostReportsProps) {
+export default function CostReports({ business, initialReportType = 'general' }: CostReportsProps) {
   const [report, setReport] = useState<CostReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [dateRange, setDateRange] = useState<'yesterday' | 'today' | 'week' | 'month' | 'custom'>('today')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [expandedIngredient, setExpandedIngredient] = useState<string | null>(null)
-  const [reportType, setReportType] = useState<ReportType>('general')
+  const [reportType, setReportType] = useState<ReportType>(initialReportType)
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
   const [selectedDelivery, setSelectedDelivery] = useState<string>('all')
   const [deliveryReports, setDeliveryReports] = useState<DeliveryReport[]>([])
@@ -60,7 +61,7 @@ export default function CostReports({ business }: CostReportsProps) {
   const getDateRange = () => {
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    
+
     switch (dateRange) {
       case 'yesterday':
         const yesterday = new Date(today)
@@ -135,11 +136,11 @@ export default function CostReports({ business }: CostReportsProps) {
 
   const loadReport = async () => {
     if (!business?.id) return
-    
+
     setLoading(true)
     try {
       const { start, end } = getDateRange()
-      
+
       // Cargar datos según el tipo de reporte
       if (reportType === 'costs') {
         const [reportData, expensesData] = await Promise.all([
@@ -154,7 +155,7 @@ export default function CostReports({ business }: CostReportsProps) {
           getOrdersByBusiness(business.id),
           getDeliveriesByStatus('activo')
         ])
-        
+
         // Filtrar órdenes por rango de fechas.
         // Si la orden es programada, usar timing.scheduledDate como fecha de referencia;
         // en caso contrario usar createdAt.
@@ -162,10 +163,10 @@ export default function CostReports({ business }: CostReportsProps) {
           const orderDate = getOrderReferenceDate(order)
           return orderDate >= start && orderDate <= end
         })
-        
+
         setOrders(filteredOrders)
         setDeliveries(deliveriesData)
-        
+
         // Calcular reportes por delivery
         calculateDeliveryReports(filteredOrders, deliveriesData)
       }
@@ -179,23 +180,23 @@ export default function CostReports({ business }: CostReportsProps) {
 
   const calculateDeliveryReports = (ordersData: Order[], deliveriesData: Delivery[]) => {
     const reports: DeliveryReport[] = []
-    
+
     // Reporte para cada delivery
     deliveriesData.forEach(delivery => {
       // Include all non-cancelled orders for this delivery
-      const deliveryOrders = ordersData.filter(order => 
-        order.delivery?.assignedDelivery === delivery.id && 
+      const deliveryOrders = ordersData.filter(order =>
+        order.delivery?.assignedDelivery === delivery.id &&
         order.status !== 'cancelled'
       )
-      
+
       if (deliveryOrders.length === 0) return
-      
+
       let cashCollected = 0
       let transferCollected = 0
       let totalDeliveryFees = 0
       let totalDeliveryTime = 0
       let ordersWithTime = 0
-      
+
       deliveryOrders.forEach(order => {
         // Calcular efectivo y transferencias
         if (order.payment?.method === 'cash') {
@@ -206,12 +207,12 @@ export default function CostReports({ business }: CostReportsProps) {
           cashCollected += order.payment?.cashAmount || 0
           transferCollected += order.payment?.transferAmount || 0
         }
-        
+
         // Calcular ganancia del delivery (costo de envío)
         if (order.delivery?.type === 'delivery') {
           totalDeliveryFees += order.delivery?.deliveryCost || 0
         }
-        
+
         // Calcular tiempo de entrega usando deliveredAt (o statusHistory.deliveredAt), con fallback a updatedAt
         // Solo para órdenes entregadas
         if (order.status === 'delivered') {
@@ -227,7 +228,7 @@ export default function CostReports({ business }: CostReportsProps) {
           }
         }
       })
-      
+
       reports.push({
         deliveryId: delivery.id,
         deliveryName: delivery.nombres,
@@ -240,7 +241,7 @@ export default function CostReports({ business }: CostReportsProps) {
         orders: deliveryOrders
       })
     })
-    
+
     setDeliveryReports(reports)
   }
 
@@ -294,92 +295,51 @@ export default function CostReports({ business }: CostReportsProps) {
           </div>
         </div>
 
-        {/* Selector de tipo de reporte */}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            onClick={() => setReportType('general')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              reportType === 'general'
-                ? 'bg-red-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            <i className="bi bi-graph-up me-2"></i>
-            General
-          </button>
-          <button
-            onClick={() => setReportType('deliveries')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              reportType === 'deliveries'
-                ? 'bg-red-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            <i className="bi bi-truck me-2"></i>
-            Por Delivery
-          </button>
-          <button
-            onClick={() => setReportType('costs')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              reportType === 'costs'
-                ? 'bg-red-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            <i className="bi bi-basket me-2"></i>
-            Costos e Ingredientes
-          </button>
-        </div>
 
         {/* Filtros de fecha */}
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             onClick={() => setDateRange('today')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              dateRange === 'today'
-                ? 'bg-red-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${dateRange === 'today'
+              ? 'bg-red-600 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
           >
             Hoy
           </button>
           <button
             onClick={() => setDateRange('yesterday')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              dateRange === 'yesterday'
-                ? 'bg-red-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${dateRange === 'yesterday'
+              ? 'bg-red-600 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
           >
             Ayer
           </button>
           <button
             onClick={() => setDateRange('week')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              dateRange === 'week'
-                ? 'bg-red-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${dateRange === 'week'
+              ? 'bg-red-600 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
           >
             7 días
           </button>
           <button
             onClick={() => setDateRange('month')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              dateRange === 'month'
-                ? 'bg-red-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${dateRange === 'month'
+              ? 'bg-red-600 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
           >
             30 días
           </button>
           <button
             onClick={() => setDateRange('custom')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              dateRange === 'custom'
-                ? 'bg-red-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${dateRange === 'custom'
+              ? 'bg-red-600 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
           >
             Personalizado
           </button>
@@ -446,7 +406,7 @@ export default function CostReports({ business }: CostReportsProps) {
       ) : reportType === 'general' ? (
         <GeneralReport orders={orders} />
       ) : reportType === 'deliveries' ? (
-        <DeliveryReportsView 
+        <DeliveryReportsView
           reports={deliveryReports.filter(r => selectedDelivery === 'all' || r.deliveryId === selectedDelivery)}
         />
       ) : report ? (
@@ -564,8 +524,8 @@ export default function CostReports({ business }: CostReportsProps) {
                           <span className="font-medium text-gray-900">{ingredient.ingredientName}</span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-gray-700">
-                          {Number.isInteger(ingredient.totalQuantity) 
-                            ? ingredient.totalQuantity 
+                          {Number.isInteger(ingredient.totalQuantity)
+                            ? ingredient.totalQuantity
                             : ingredient.totalQuantity.toFixed(2)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-gray-700">
@@ -673,11 +633,10 @@ export default function CostReports({ business }: CostReportsProps) {
                           ${product.profit.toFixed(2)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            margin >= 50 ? 'bg-green-100 text-green-800' :
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${margin >= 50 ? 'bg-green-100 text-green-800' :
                             margin >= 30 ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-red-100 text-red-800'
-                          }`}>
+                              'bg-red-100 text-red-800'
+                            }`}>
                             {margin.toFixed(1)}%
                           </span>
                         </td>
@@ -749,7 +708,7 @@ export default function CostReports({ business }: CostReportsProps) {
                       list="expense-concepts"
                       type="text"
                       value={newExpense.concept}
-                      onChange={(e) => setNewExpense({...newExpense, concept: e.target.value})}
+                      onChange={(e) => setNewExpense({ ...newExpense, concept: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                       required
                     />
@@ -768,7 +727,7 @@ export default function CostReports({ business }: CostReportsProps) {
                       step="0.01"
                       min="0"
                       value={newExpense.amount}
-                      onChange={(e) => setNewExpense({...newExpense, amount: e.target.value})}
+                      onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
                       onWheel={(e) => e.currentTarget.blur()} // Evitar cambios al hacer scroll
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                       required
@@ -780,7 +739,7 @@ export default function CostReports({ business }: CostReportsProps) {
                     </label>
                     <select
                       value={newExpense.paymentMethod}
-                      onChange={(e) => setNewExpense({...newExpense, paymentMethod: e.target.value})}
+                      onChange={(e) => setNewExpense({ ...newExpense, paymentMethod: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                     >
                       <option value="cash">Efectivo</option>
@@ -795,7 +754,7 @@ export default function CostReports({ business }: CostReportsProps) {
                       type="date"
                       value={newExpense.date}
                       onChange={(e) => {
-                        setNewExpense({...newExpense, date: e.target.value});
+                        setNewExpense({ ...newExpense, date: e.target.value });
                       }}
                       max="2030-12-31"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
@@ -808,10 +767,10 @@ export default function CostReports({ business }: CostReportsProps) {
                 <div className="mt-6 border-t border-gray-200 pt-4">
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="text-sm font-medium text-gray-700">
-                      Gastos {dateRange === 'today' ? 'de hoy' : 
-                             dateRange === 'week' ? 'últimos 7 días' :
-                             dateRange === 'month' ? 'últimos 30 días' :
-                             'del período'}
+                      Gastos {dateRange === 'today' ? 'de hoy' :
+                        dateRange === 'week' ? 'últimos 7 días' :
+                          dateRange === 'month' ? 'últimos 30 días' :
+                            'del período'}
                     </h4>
                   </div>
                   {filteredModalExpenses.length > 0 ? (
@@ -878,10 +837,10 @@ export default function CostReports({ business }: CostReportsProps) {
                       <div className="flex justify-between items-center mt-1">
                         <span className="text-xs text-gray-500">Promedio diario:</span>
                         <span className="text-sm font-medium text-gray-600">
-                          ${(filteredModalExpenses.reduce((sum, e) => sum + e.amount, 0) / 
-                             (dateRange === 'week' ? 7 : dateRange === 'month' ? 30 : 
+                          ${(filteredModalExpenses.reduce((sum, e) => sum + e.amount, 0) /
+                            (dateRange === 'week' ? 7 : dateRange === 'month' ? 30 :
                               Math.max(1, Math.ceil((new Date(customEndDate).getTime() - new Date(customStartDate).getTime()) / (1000 * 60 * 60 * 24)))
-                             )).toFixed(2)}
+                            )).toFixed(2)}
                         </span>
                       </div>
                     )}
@@ -918,7 +877,7 @@ function GeneralReport({ orders }: { orders: Order[] }) {
   const validOrders = orders.filter(o => o.status !== 'cancelled')
   const deliveredOrders = validOrders.filter(o => o.status === 'delivered')
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
-  
+
   // Cargar la lista de repartidores
   useEffect(() => {
     const loadDeliveries = async () => {
@@ -931,7 +890,7 @@ function GeneralReport({ orders }: { orders: Order[] }) {
     }
     loadDeliveries()
   }, [])
-  
+
   const totalRevenue = validOrders.reduce((sum, order) => sum + order.total, 0)
   const cashRevenue = validOrders.reduce((sum, order) => {
     if (order.payment?.method === 'cash') return sum + order.total
@@ -946,19 +905,19 @@ function GeneralReport({ orders }: { orders: Order[] }) {
   const deliveryOrders = validOrders.filter(o => o.delivery?.type === 'delivery')
   const pickupOrders = validOrders.filter(o => o.delivery?.type === 'pickup')
   const totalDeliveryFees = deliveryOrders.reduce((sum, order) => sum + (order.delivery?.deliveryCost || 0), 0)
-  
+
   // Calcular ganancias por repartidor
   const deliveryEarningsByDriver = useMemo(() => {
     const earnings: { [key: string]: DeliveryEarnings } = {}
-    
+
     deliveryOrders.forEach(order => {
       const driverId = order.delivery?.assignedDelivery
       if (!driverId) return
-      
+
       const driver = deliveries.find(d => d.id === driverId)
       const driverName = driver?.nombres || `Repartidor ${driverId}`
       const deliveryCost = order.delivery?.deliveryCost || 0
-      
+
       if (!earnings[driverId]) {
         earnings[driverId] = {
           id: driverId,
@@ -966,13 +925,13 @@ function GeneralReport({ orders }: { orders: Order[] }) {
           amount: 0
         }
       }
-      
+
       earnings[driverId].amount += deliveryCost
     })
-    
+
     return earnings
   }, [deliveryOrders, deliveries])
-  
+
   return (
     <>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
@@ -1021,7 +980,7 @@ function GeneralReport({ orders }: { orders: Order[] }) {
               <i className="bi bi-truck text-purple-600 text-xl"></i>
             </div>
           </div>
-          
+
           {/* Desglose por repartidor */}
           <div className="mt-4 space-y-2 max-h-48 overflow-y-auto pr-2">
             {Object.entries(deliveryEarningsByDriver)
@@ -1038,9 +997,9 @@ function GeneralReport({ orders }: { orders: Order[] }) {
                 </div>
               ))}
           </div>
-          
+
           <p className="text-xs text-gray-500 mt-3">
-            {deliveryOrders.length} {deliveryOrders.length === 1 ? 'entrega' : 'entregas'} • 
+            {deliveryOrders.length} {deliveryOrders.length === 1 ? 'entrega' : 'entregas'} •
             {Object.keys(deliveryEarningsByDriver).length} {Object.keys(deliveryEarningsByDriver).length === 1 ? 'repartidor' : 'repartidores'}
           </p>
         </div>
@@ -1058,7 +1017,7 @@ function GeneralReport({ orders }: { orders: Order[] }) {
               <span className="text-gray-600">Total Pedidos:</span>
               <span className="font-semibold">{validOrders.filter(o => o.delivery?.type === 'delivery').length}</span>
             </div>
-            
+
             <div className="space-y-1 pl-2 border-l-2 border-gray-100">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Efectivo:</span>
@@ -1104,7 +1063,7 @@ function GeneralReport({ orders }: { orders: Order[] }) {
               <span className="text-gray-600">Total Pedidos:</span>
               <span className="font-semibold">{validOrders.filter(o => o.delivery?.type === 'pickup').length}</span>
             </div>
-            
+
             <div className="space-y-1 pl-2 border-l-2 border-gray-100">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Efectivo:</span>
@@ -1135,7 +1094,7 @@ function GeneralReport({ orders }: { orders: Order[] }) {
         </div>
       </div>
 
-      
+
     </>
   )
 }
@@ -1143,7 +1102,7 @@ function GeneralReport({ orders }: { orders: Order[] }) {
 // Componente para reportes de delivery
 function DeliveryReportsView({ reports }: { reports: DeliveryReport[] }) {
   const [expandedDelivery, setExpandedDelivery] = useState<string | null>(null)
-  
+
   if (reports.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
@@ -1151,7 +1110,7 @@ function DeliveryReportsView({ reports }: { reports: DeliveryReport[] }) {
       </div>
     )
   }
-  
+
   return (
     <div className="space-y-4">
       {/* Resumen total */}
@@ -1302,7 +1261,7 @@ function DeliveryReportsView({ reports }: { reports: DeliveryReport[] }) {
                             const orderDate = order.createdAt instanceof Date ? order.createdAt : new Date(order.createdAt)
                             const deliveredDate = order.updatedAt instanceof Date ? order.updatedAt : new Date(order.updatedAt)
                             const deliveryTime = Math.round((deliveredDate.getTime() - orderDate.getTime()) / (1000 * 60))
-                            
+
                             return (
                               <div key={idx} className="bg-white p-4 rounded-lg border border-gray-200">
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
@@ -1318,12 +1277,12 @@ function DeliveryReportsView({ reports }: { reports: DeliveryReport[] }) {
                                     <span className="text-gray-500">Método de pago:</span>
                                     <p className="font-medium">
                                       {order.payment?.method === 'cash' ? '💵 Efectivo' :
-                                       order.payment?.method === 'transfer' ? '🏦 Transferencia' :
-                                       order.payment?.method === 'mixed' ? '💳 Mixto' : 'Sin especificar'}
+                                        order.payment?.method === 'transfer' ? '🏦 Transferencia' :
+                                          order.payment?.method === 'mixed' ? '💳 Mixto' : 'Sin especificar'}
                                     </p>
                                     {order.payment?.method === 'mixed' && (
                                       <p className="text-xs text-gray-600 mt-1">
-                                        Efectivo: ${order.payment?.cashAmount?.toFixed(2)} | 
+                                        Efectivo: ${order.payment?.cashAmount?.toFixed(2)} |
                                         Transferencia: ${order.payment?.transferAmount?.toFixed(2)}
                                       </p>
                                     )}

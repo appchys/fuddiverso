@@ -197,42 +197,7 @@ export default function BusinessProfileDashboard({
   }
 
   return (
-    <div className="space-y-6">
-      {/* Pestañas */}
-      <div className="border-b border-gray-200">
-        <div className="flex gap-8">
-          <button
-            onClick={() => setActiveTab('general')}
-            className={`pb-4 font-medium transition-colors ${activeTab === 'general'
-              ? 'text-red-600 border-b-2 border-red-600'
-              : 'text-gray-600 hover:text-gray-900'
-              }`}
-          >
-            <i className="bi bi-info-circle me-2"></i>
-            Generales
-          </button>
-          <button
-            onClick={() => setActiveTab('products')}
-            className={`pb-4 font-medium transition-colors ${activeTab === 'products'
-              ? 'text-red-600 border-b-2 border-red-600'
-              : 'text-gray-600 hover:text-gray-900'
-              }`}
-          >
-            <i className="bi bi-box-seam me-2"></i>
-            Productos
-          </button>
-          <button
-            onClick={() => setActiveTab('fidelizacion')}
-            className={`pb-4 font-medium transition-colors ${activeTab === 'fidelizacion'
-              ? 'text-red-600 border-b-2 border-red-600'
-              : 'text-gray-600 hover:text-gray-900'
-              }`}
-          >
-            <i className="bi bi-gift me-2"></i>
-            Fidelización
-          </button>
-        </div>
-      </div>
+    <div className="space-y-6 pt-4">
 
       {/* Contenido de la pestaña Generales */}
       {activeTab === 'general' && (

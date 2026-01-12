@@ -88,6 +88,10 @@ export default function BusinessDashboard() {
   const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes'>('orders')
+  const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion'>('general')
+  const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
+  const [reportsSubTab, setReportsSubTab] = useState<'general' | 'deliveries' | 'costs'>('general')
+  const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false)
   const [showManualOrderModal, setShowManualOrderModal] = useState(false) // Cerrado por defecto
   const [sidebarOpen, setSidebarOpen] = useState(false) // Cerrado por defecto
   const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today') // Nueva pestaña para pedidos
@@ -2549,19 +2553,45 @@ export default function BusinessDashboard() {
                 </span>
               </button>
 
-              <button
-                onClick={() => {
-                  setActiveTab('profile')
-                  setSidebarOpen(false)
-                }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'profile'
-                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                  : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-              >
-                <i className="bi bi-shop me-3 text-lg"></i>
-                <span className="font-medium">Perfil / Tienda</span>
-              </button>
+              <div>
+                <button
+                  onClick={() => setIsTiendaMenuOpen(!isTiendaMenuOpen)}
+                  className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'profile'
+                    ? 'bg-red-50 text-red-600'
+                    : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                >
+                  <i className="bi bi-shop me-3 text-lg"></i>
+                  <span className="font-medium">Tienda</span>
+                  <i className={`bi bi-chevron-down ml-auto transition-transform ${isTiendaMenuOpen ? 'rotate-180' : ''}`}></i>
+                </button>
+
+                {(isTiendaMenuOpen || activeTab === 'profile') && (
+                  <div className="ml-9 mt-1 space-y-1">
+                    {[
+                      { id: 'general', label: 'Generales', icon: 'bi-info-circle' },
+                      { id: 'products', label: 'Productos', icon: 'bi-box-seam' },
+                      { id: 'fidelizacion', label: 'Fidelización', icon: 'bi-gift' }
+                    ].map((sub) => (
+                      <button
+                        key={sub.id}
+                        onClick={() => {
+                          setActiveTab('profile')
+                          setProfileSubTab(sub.id as any)
+                          setSidebarOpen(false)
+                        }}
+                        className={`w-full flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${activeTab === 'profile' && profileSubTab === sub.id
+                          ? 'text-red-600 bg-red-50 font-bold'
+                          : 'text-gray-600 hover:bg-gray-50'
+                          }`}
+                      >
+                        <i className={`bi ${sub.icon} me-2`}></i>
+                        {sub.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <button
                 onClick={() => {
@@ -2577,19 +2607,45 @@ export default function BusinessDashboard() {
                 <span className="font-medium">Administradores</span>
               </button>
 
-              <button
-                onClick={() => {
-                  setActiveTab('reports')
-                  setSidebarOpen(false)
-                }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'reports'
-                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                  : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-              >
-                <i className="bi bi-graph-up me-3 text-lg"></i>
-                <span className="font-medium">Reportes</span>
-              </button>
+              <div>
+                <button
+                  onClick={() => setIsReportsMenuOpen(!isReportsMenuOpen)}
+                  className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'reports'
+                    ? 'bg-red-50 text-red-600'
+                    : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                >
+                  <i className="bi bi-graph-up me-3 text-lg"></i>
+                  <span className="font-medium">Reportes</span>
+                  <i className={`bi bi-chevron-down ml-auto transition-transform ${isReportsMenuOpen ? 'rotate-180' : ''}`}></i>
+                </button>
+
+                {(isReportsMenuOpen || activeTab === 'reports') && (
+                  <div className="ml-9 mt-1 space-y-1">
+                    {[
+                      { id: 'general', label: 'General', icon: 'bi-graph-up' },
+                      { id: 'deliveries', label: 'Por delivery', icon: 'bi-truck' },
+                      { id: 'costs', label: 'Costos e ingredientes', icon: 'bi-basket' }
+                    ].map((sub) => (
+                      <button
+                        key={sub.id}
+                        onClick={() => {
+                          setActiveTab('reports')
+                          setReportsSubTab(sub.id as any)
+                          setSidebarOpen(false)
+                        }}
+                        className={`w-full flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${activeTab === 'reports' && reportsSubTab === sub.id
+                          ? 'text-red-600 bg-red-50 font-bold'
+                          : 'text-gray-600 hover:bg-gray-50'
+                          }`}
+                      >
+                        <i className={`bi ${sub.icon} me-2`}></i>
+                        {sub.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <button
                 onClick={() => {
@@ -2984,6 +3040,7 @@ export default function BusinessDashboard() {
             {/* Profile Tab */}
             {activeTab === 'profile' && business && (
               <BusinessProfileDashboard
+                key={profileSubTab}
                 business={business}
                 editedBusiness={editedBusiness}
                 isEditingProfile={isEditingProfile}
@@ -3003,7 +3060,7 @@ export default function BusinessDashboard() {
                 onToggleDayOpen={toggleDayOpen}
                 onProductsChange={setProducts}
                 onCategoriesChange={setBusinessCategories}
-                initialTab="general"
+                initialTab={profileSubTab}
               />
             )}
 
@@ -3233,7 +3290,11 @@ export default function BusinessDashboard() {
 
             {/* Reports Tab */}
             {activeTab === 'reports' && (
-              <CostReports business={business} />
+              <CostReports
+                key={reportsSubTab}
+                business={business}
+                initialReportType={reportsSubTab}
+              />
             )}
 
             {/* Inventory Tab */}
