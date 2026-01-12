@@ -458,10 +458,13 @@ export default function ManualOrderSidebar({
   // Abrir modal para editar cliente
   const handleEditClient = async () => {
     try {
-      const client = await searchClientByPhone(manualOrderData.customerPhone)
+      const phoneToSearch = normalizePhone(manualOrderData.customerPhone)
+      const client = await searchClientByPhone(phoneToSearch)
       if (client) {
         setEditingClient(client)
         setShowEditClient(true)
+      } else {
+        alert('No se pudo encontrar el registro del cliente para editar')
       }
     } catch (error) {
       console.error('Error al cargar datos del cliente:', error)
@@ -472,11 +475,13 @@ export default function ManualOrderSidebar({
   // Actualizar datos del cliente
   const handleUpdateClient = async () => {
     if (!editingClient || !editingClient.nombres?.trim() || !editingClient.celular?.trim()) {
+      alert('Por favor complete todos los campos obligatorios')
       return
     }
 
     const celular = normalizePhone(editingClient.celular.trim())
-    if (celular.length < 10) {
+    if (celular.length < 9) {
+      alert('El número de teléfono no parece válido')
       return
     }
 
@@ -485,12 +490,17 @@ export default function ManualOrderSidebar({
       const nombres = editingClient.nombres.trim()
 
       // Verificar si el teléfono ya existe para otro cliente
-      if (celular !== manualOrderData.customerPhone) {
+      const originalPhone = normalizePhone(manualOrderData.customerPhone)
+      if (celular !== originalPhone) {
         const existingClient = await searchClientByPhone(celular)
         if (existingClient && existingClient.id !== editingClient.id) {
+          alert('Este número de teléfono ya está registrado con otro cliente')
+          setUpdatingClient(false)
           return
         }
       }
+
+      console.log('🔄 Actualizando cliente:', editingClient.id, { nombres, celular })
 
       // Actualizar el cliente en la base de datos
       await updateClient(editingClient.id, {
@@ -498,19 +508,23 @@ export default function ManualOrderSidebar({
         celular
       })
 
-      // Actualizar los datos en el estado
+      // Actualizar los datos en el estado local
       setManualOrderData(prev => ({
         ...prev,
         customerName: nombres,
         customerPhone: celular
       }))
 
-      // Actualizar también el estado del cliente editado
-      setEditingClient(prev => prev ? { ...prev, nombres } : null)
-
+      // Limpiar estado de edición y cerrar modal
+      setEditingClient(null)
       setShowEditClient(false)
+
+      // Feedback visual
+      alert('Información del cliente actualizada con éxito')
+
     } catch (error) {
       console.error('Error actualizando cliente:', error)
+      alert('Error al actualizar el cliente: ' + (error instanceof Error ? error.message : 'Error desconocido'))
     } finally {
       setUpdatingClient(false)
     }
