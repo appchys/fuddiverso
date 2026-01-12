@@ -16,7 +16,7 @@ const center = {
 }
 
 // Define libraries as a constant outside the component to prevent reloading
-const GOOGLE_MAPS_LIBRARIES: ("drawing" | "geometry" | "places" | "visualization")[] = ["drawing"]
+const GOOGLE_MAPS_LIBRARIES: ("drawing" | "geometry" | "places" | "visualization")[] = ["drawing", "geometry"]
 
 export default function CoverageZonesPage() {
   const [zones, setZones] = useState<CoverageZone[]>([])
@@ -139,7 +139,7 @@ export default function CoverageZonesPage() {
         })
         showNotification('Zona creada correctamente', 'success')
       }
-      
+
       loadZones()
       resetForm()
     } catch (error) {
@@ -197,6 +197,69 @@ export default function CoverageZonesPage() {
     setIsDrawingMode(false)
   }
 
+  const removePoint = (index: number) => {
+    const newPoints = [...markers]
+    newPoints.splice(index, 1)
+    setMarkers(newPoints)
+    setCurrentPolygon(newPoints)
+  }
+
+  const handleMarkerDrag = useCallback((index: number, latLng: google.maps.LatLng) => {
+    const lat = latLng.lat()
+    const lng = latLng.lng()
+    const newPoint = { lat, lng }
+
+    setMarkers(prev => {
+      const next = [...prev]
+      next[index] = newPoint
+      return next
+    })
+    setCurrentPolygon(prev => {
+      const next = [...prev]
+      next[index] = newPoint
+      return next
+    })
+  }, [])
+
+  const handlePolygonClick = useCallback((event: google.maps.MapMouseEvent) => {
+    if (!isCreating || isDrawingMode || !event.latLng || currentPolygon.length < 2) return
+
+    const clickLatLng = event.latLng
+    let bestIndex = -1
+    let minExcess = Infinity
+
+    // Encontrar el borde más cercano al clic
+    for (let i = 0; i < currentPolygon.length; i++) {
+      const p1 = currentPolygon[i]
+      const p2 = currentPolygon[(i + 1) % currentPolygon.length]
+
+      const pos1 = new google.maps.LatLng(p1.lat, p1.lng)
+      const pos2 = new google.maps.LatLng(p2.lat, p2.lng)
+
+      // Calcular la distancia total p1 -> clic -> p2
+      const d12 = google.maps.geometry.spherical.computeDistanceBetween(pos1, pos2)
+      const d1c = google.maps.geometry.spherical.computeDistanceBetween(pos1, clickLatLng)
+      const dc2 = google.maps.geometry.spherical.computeDistanceBetween(clickLatLng, pos2)
+
+      // El "exceso" nos dice qué tan cerca del segmento está el clic
+      const excess = (d1c + dc2) - d12
+      if (excess < minExcess) {
+        minExcess = excess
+        bestIndex = i + 1
+      }
+    }
+
+    // Si el clic está razonablemente cerca de una línea (ej. menos de 50 metros de "exceso")
+    // O si simplemente hacemos clic en el polígono, insertamos el punto
+    if (bestIndex !== -1) {
+      const newPoint = { lat: clickLatLng.lat(), lng: clickLatLng.lng() }
+      const newPath = [...currentPolygon]
+      newPath.splice(bestIndex, 0, newPoint)
+      setMarkers(newPath)
+      setCurrentPolygon(newPath)
+    }
+  }, [isCreating, isDrawingMode, currentPolygon])
+
   const onLoad = useCallback((map: google.maps.Map) => {
     setMap(map)
   }, [])
@@ -238,7 +301,7 @@ export default function CoverageZonesPage() {
             {/* Lista de zonas */}
             <div>
               <h2 className="text-lg font-semibold mb-4">Zonas Existentes ({zones.length})</h2>
-              
+
               {zones.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <i className="bi bi-geo text-4xl text-gray-300 mb-2"></i>
@@ -250,11 +313,10 @@ export default function CoverageZonesPage() {
                   {zones.map((zone) => (
                     <div
                       key={zone.id}
-                      className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                        selectedZone?.id === zone.id
-                          ? 'border-red-500 bg-red-50'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
+                      className={`p-4 border rounded-lg cursor-pointer transition-colors ${selectedZone?.id === zone.id
+                        ? 'border-red-500 bg-red-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                        }`}
                       onClick={() => editZone(zone)}
                     >
                       <div className="flex justify-between items-start">
@@ -264,11 +326,10 @@ export default function CoverageZonesPage() {
                           <p className="text-xs text-gray-500 mt-1">
                             {zone.polygon.length} puntos del polígono
                           </p>
-                          <span className={`inline-block px-2 py-1 text-xs rounded-full mt-2 ${
-                            zone.isActive 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-red-100 text-red-800'
-                          }`}>
+                          <span className={`inline-block px-2 py-1 text-xs rounded-full mt-2 ${zone.isActive
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-red-100 text-red-800'
+                            }`}>
                             {zone.isActive ? 'Activa' : 'Inactiva'}
                           </span>
                         </div>
@@ -358,9 +419,11 @@ export default function CoverageZonesPage() {
                     {/* Mostrar marcadores del polígono en creación */}
                     {markers.map((marker, index) => (
                       <Marker
-                        key={index}
+                        key={`point-${index}`}
                         position={marker}
-                        label={(index + 1).toString()}
+                        draggable={isCreating}
+                        onDrag={(e) => e.latLng && handleMarkerDrag(index, e.latLng)}
+                        onDragEnd={(e) => e.latLng && handleMarkerDrag(index, e.latLng)}
                         icon={{
                           url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
                             <svg width="30" height="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
@@ -377,12 +440,14 @@ export default function CoverageZonesPage() {
                     {currentPolygon.length > 2 && (
                       <Polygon
                         paths={currentPolygon}
+                        onClick={handlePolygonClick}
                         options={{
                           fillColor: '#ff0000',
                           fillOpacity: 0.3,
                           strokeColor: '#ff0000',
                           strokeOpacity: 1,
-                          strokeWeight: 2
+                          strokeWeight: 2,
+                          clickable: true
                         }}
                       />
                     )}
@@ -390,9 +455,9 @@ export default function CoverageZonesPage() {
 
                   {/* Instrucciones de uso */}
                   {isDrawingMode && (
-                    <div className="absolute top-4 left-4 bg-white p-3 rounded-lg shadow-lg border max-w-xs">
+                    <div className="absolute top-4 left-4 bg-white p-3 rounded-lg shadow-lg border max-w-xs transition-all animate-in fade-in slide-in-from-top-2">
                       <div className="flex items-start gap-2">
-                        <i className="bi bi-info-circle text-blue-500 mt-1"></i>
+                        <i className="bi bi-pencil-fill text-blue-500 mt-1"></i>
                         <div className="text-sm">
                           <p className="font-medium text-gray-800">Modo Dibujo Activo</p>
                           <p className="text-gray-600 mt-1">
@@ -400,6 +465,25 @@ export default function CoverageZonesPage() {
                           </p>
                           <p className="text-xs text-gray-500 mt-1">
                             Puntos actuales: {markers.length}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {isCreating && !isDrawingMode && markers.length > 0 && (
+                    <div className="absolute top-4 left-4 bg-white p-3 rounded-lg shadow-lg border max-w-xs transition-all animate-in fade-in slide-in-from-top-2">
+                      <div className="flex items-start gap-2">
+                        <i className="bi bi-arrows-move text-blue-500 mt-1"></i>
+                        <div className="text-sm">
+                          <p className="font-medium text-gray-800">Modo Edición</p>
+                          <p className="text-gray-600 mt-1">
+                            • Arrastra los puntos rojos para moverlos.<br />
+                            • Haz clic en una línea para añadir un punto.<br />
+                            • Elimina puntos desde la lista inferior.
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Total de puntos: {markers.length}
                           </p>
                         </div>
                       </div>
@@ -452,7 +536,7 @@ export default function CoverageZonesPage() {
               <h3 className="text-lg font-semibold mb-4">
                 {selectedZone ? 'Editar Zona' : 'Nueva Zona'}
               </h3>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -466,7 +550,7 @@ export default function CoverageZonesPage() {
                     placeholder="Ej: Centro Norte, Samborondón, etc."
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Tarifa de envío ($) *
@@ -496,8 +580,15 @@ export default function CoverageZonesPage() {
                       </p>
                       <div className="max-h-24 overflow-y-auto">
                         {currentPolygon.map((point, index) => (
-                          <div key={index} className="text-xs text-gray-600">
-                            Punto {index + 1}: {point.lat.toFixed(6)}, {point.lng.toFixed(6)}
+                          <div key={index} className="text-xs text-gray-600 flex justify-between items-center group py-1 border-b border-gray-100 last:border-0">
+                            <span>Punto {index + 1}: {point.lat.toFixed(6)}, {point.lng.toFixed(6)}</span>
+                            <button
+                              onClick={() => removePoint(index)}
+                              className="text-red-500 hover:text-red-700 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Eliminar este punto"
+                            >
+                              <i className="bi bi-trash text-sm"></i>
+                            </button>
                           </div>
                         ))}
                       </div>
@@ -505,7 +596,7 @@ export default function CoverageZonesPage() {
                   ) : (
                     <p className="text-sm text-gray-500">
                       <i className="bi bi-geo mr-1"></i>
-                      {isDrawingMode 
+                      {isDrawingMode
                         ? `Haz clic en el mapa para agregar puntos (${markers.length} puntos)`
                         : 'Usa el botón "Dibujar Zona" para definir el área de cobertura'
                       }
@@ -525,7 +616,7 @@ export default function CoverageZonesPage() {
                   <span className="text-sm font-medium text-gray-700">Zona activa</span>
                 </label>
               </div>
-              
+
               <div className="flex justify-end gap-4">
                 <button
                   onClick={resetForm}
@@ -563,13 +654,12 @@ export default function CoverageZonesPage() {
               </ul>
             </div>
             <div>
-              <h4 className="font-medium mb-2">⚙️ Funcionamiento:</h4>
+              <h4 className="font-medium mb-2">⚙️ Edición:</h4>
               <ul className="space-y-1">
-                <li>• Las zonas definen áreas de entrega</li>
+                <li>• Arrastra puntos existentes para moverlos</li>
+                <li>• Elimina puntos específicos en la lista</li>
                 <li>• Cada zona tiene tarifa personalizada</li>
                 <li>• Se calculan automáticamente en checkout</li>
-                <li>• Si no hay zona: tarifa por defecto</li>
-                <li>• Zonas inactivas no se usan</li>
               </ul>
             </div>
           </div>
@@ -578,9 +668,8 @@ export default function CoverageZonesPage() {
 
       {/* Notificaciones */}
       {notification.show && (
-        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg ${
-          notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
-        } text-white`}>
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg ${notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+          } text-white`}>
           <div className="flex items-center gap-2">
             <i className={`bi ${notification.type === 'success' ? 'bi-check-circle' : 'bi-exclamation-circle'}`}></i>
             {notification.message}
