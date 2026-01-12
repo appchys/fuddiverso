@@ -500,8 +500,6 @@ export default function ManualOrderSidebar({
         }
       }
 
-      console.log('🔄 Actualizando cliente:', editingClient.id, { nombres, celular })
-
       // Actualizar el cliente en la base de datos
       await updateClient(editingClient.id, {
         nombres,
@@ -590,11 +588,9 @@ export default function ManualOrderSidebar({
 
   // Función para normalizar coordenadas (eliminar espacios, convertir comas decimales a puntos)
   const normalizeLatLong = (coords: string): string => {
-    console.log('🔧 normalizeLatLong - Input:', coords);
 
     // Primero, trim y eliminar espacios después de comas
     let normalized = coords.trim();
-    console.log('   Después de trim:', normalized);
 
     // El problema: -1,8732619, -79,9795561 tiene 3 comas:
     // - Una como separador decimal de lat
@@ -610,7 +606,6 @@ export default function ManualOrderSidebar({
         commaPositions.push(i);
       }
     }
-    console.log('   Posiciones de comas:', commaPositions);
 
     // Si hay exactamente 3 comas (decimal lat, separador, decimal lng)
     if (commaPositions.length === 3) {
@@ -619,51 +614,48 @@ export default function ManualOrderSidebar({
       const lat = normalized.substring(0, separatorIndex).replace(/,/g, '.');
       const lng = normalized.substring(separatorIndex + 1).replace(/,/g, '.');
       normalized = `${lat.trim()},${lng.trim()}`;
-      console.log('   3 comas detectadas - Lat:', lat, 'Lng:', lng);
+
     }
     // Si hay exactamente 1 coma (solo separador, sin decimales)
     else if (commaPositions.length === 1) {
       // Ya está bien, solo eliminar espacios alrededor de la coma
       normalized = normalized.replace(/\s*,\s*/, ',');
-      console.log('   1 coma detectada - OK');
+
     }
     // Si hay 2 comas - podría ser ambiguo, intentamos lo mejor
     else if (commaPositions.length === 2) {
       // Asumir que la primera es la coma del lat, la segunda es el separador
       // Pero esto es ambiguo, así que intentaremos detectar
       normalized = normalized.replace(/\s+/g, ''); // Remover todos los espacios
-      console.log('   2 comas detectadas');
+
     }
 
-    console.log('   Output normalizado:', normalized);
     return normalized;
   }
 
   // Función para validar coordenadas tradicionales (lat,lng)
   // Soporta formatos como: 1.123456,79.654321 o 1,123456,79,654321
   const validateCoordinates = (coords: string): boolean => {
-    console.log('✓ validateCoordinates - Input:', coords);
+
     if (!coords) return false;
     const normalized = normalizeLatLong(coords);
-    console.log('  Normalizado:', normalized);
 
     // Patrón que acepta puntos O comas como separadores decimales
     // Antes de normalizar: -1,8732619, -79,9795561
     // Después de normalizar: -1.8732619,-79.9795561
     const coordPattern = /^-?\d{1,3}\.?\d*,-?\d{1,3}\.?\d*$/;
     const patternMatch = coordPattern.test(normalized);
-    console.log('  ¿Cumple patrón?:', patternMatch, '- Patrón:', coordPattern);
 
     if (!patternMatch) {
-      console.log('  ❌ No cumple patrón');
+
       return false;
     }
 
     // Validar rangos de latitud (-90 a 90) y longitud (-180 a 180)
     const [lat, lng] = normalized.split(',').map(Number);
-    console.log('  Lat:', lat, 'Lng:', lng);
+
     const isValid = lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
-    console.log('  ¿Rango válido?:', isValid);
+
     return isValid;
   };
 
@@ -701,21 +693,21 @@ export default function ManualOrderSidebar({
 
   // Función para manejar cambio en enlace de Google Maps
   const handleGoogleMapsLinkChange = (link: string) => {
-    console.log('📍 handleGoogleMapsLinkChange - Input:', link);
+
     setNewLocationData(prev => ({ ...prev, googleMapsLink: link }));
 
     if (link.trim()) {
       // Verificar si es un Plus Code
-      console.log('🔍 Verificando si es Plus Code...');
+
       if (isPlusCode(link)) {
-        console.log('✅ Es Plus Code');
+
         const plusCode = extractPlusCode(link);
         if (!plusCode) {
-          console.log('❌ Plus Code inválido');
+
           return;
         }
         if (plusCode) {
-          console.log('✅ Plus Code válido:', plusCode);
+
           setNewLocationData(prev => ({
             ...prev,
             latlong: `pluscode:${plusCode}`,
@@ -726,12 +718,12 @@ export default function ManualOrderSidebar({
       }
 
       // Si no es un Plus Code, intentar extraer coordenadas de un enlace
-      console.log('🔍 Intentando extraer de enlace de Google Maps...');
+
       const coordinates = extractCoordinatesFromGoogleMaps(link);
-      console.log('📌 Coordenadas extraídas:', coordinates);
+
       if (coordinates) {
         const normalized = normalizeLatLong(coordinates);
-        console.log('✅ Coordenadas normalizadas:', normalized);
+
         setNewLocationData(prev => ({
           ...prev,
           latlong: normalized
@@ -740,21 +732,21 @@ export default function ManualOrderSidebar({
       }
 
       // Si no es un enlace válido, verificar si es una coordenada directa
-      console.log('🔍 Verificando si es coordenada directa...');
-      console.log('   Input sin normalizar:', link);
+
+
       const normalized = normalizeLatLong(link);
-      console.log('   Input normalizado:', normalized);
+
       const isValid = validateCoordinates(link);
-      console.log('   ¿Es válida?:', isValid);
+
       if (isValid) {
         const finalLatLong = normalizeLatLong(link);
-        console.log('✅ Coordenada directa válida:', finalLatLong);
+
         setNewLocationData(prev => ({
           ...prev,
           latlong: finalLatLong
         }));
       } else {
-        console.log('❌ No es una coordenada válida');
+
       }
     }
   };

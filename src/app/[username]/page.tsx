@@ -401,11 +401,7 @@ function RestaurantContent() {
     const loadRestaurantData = async () => {
       // No setLoading(true) aquí para zero-load feel, pero mantén el estado para skeletons
       try {
-        console.log('🔍 Loading restaurant data for username:', username)
-
         const businessData = await getBusinessByUsername(username)
-        console.log('📊 Business data received:', businessData)
-
         if (!businessData) {
           setError('Restaurante no encontrado')
           return
@@ -420,7 +416,6 @@ function RestaurantContent() {
             sessionStorage.setItem(sessionKey, '1')
             try {
               await incrementVisitFirestore(businessData.id)
-              console.log('Visit counter incremented in Firestore for', businessData.id)
             } catch (e) {
               // Fallback: acumular en pendingVisits
               const pendingRaw = localStorage.getItem('pendingVisits')
@@ -433,15 +428,9 @@ function RestaurantContent() {
         } catch (e) {
           console.error('Error handling visit increment:', e)
         }
-        console.log('🖼️ Cover image from business:', businessData.coverImage)
-
         const productsData = await getProductsByBusiness(businessData.id)
-        console.log('📦 Products data received:', productsData.length, 'products')
-
         // Filtrar solo productos disponibles
         const availableProducts = productsData.filter(product => product.isAvailable)
-        console.log('✅ Available products:', availableProducts.length, 'of', productsData.length)
-
         setProducts(availableProducts)
       } catch (err) {
         console.error('Error loading restaurant data:', err)

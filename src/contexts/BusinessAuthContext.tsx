@@ -33,7 +33,6 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
   const [authLoading, setAuthLoading] = useState<boolean>(true)
 
   useEffect(() => {
-    console.time('[Auth] init');
     // Cargar datos desde localStorage al iniciar
     const savedBusinessId = localStorage.getItem('businessId')
     const savedOwnerId = localStorage.getItem('ownerId')
@@ -43,9 +42,6 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
 
     // Escuchar cambios en el estado de autenticación de Firebase
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      console.timeEnd('[Auth] init');
-      console.time('[Auth] onAuthStateChanged handler');
-
       if (firebaseUser) {
         // Tenemos usuario en Firebase
         let currentBusinessId = savedBusinessId
@@ -53,7 +49,6 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
 
         // Si faltan datos en localStorage, intentamos recuperarlos de la DB
         if (!currentBusinessId || !currentOwnerId) {
-          console.debug('[Auth] Missing localStorage, attempting recovery from DB...');
           try {
             const { getBusinessByOwner } = await import('@/lib/database');
             const biz = await getBusinessByOwner(firebaseUser.uid);
@@ -64,7 +59,6 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
               localStorage.setItem('businessId', currentBusinessId);
               localStorage.setItem('ownerId', currentOwnerId);
               localStorage.setItem('currentBusinessId', currentBusinessId);
-              console.debug('[Auth] Recovered business session:', currentBusinessId);
             }
           } catch (err) {
             console.error('[Auth] Error during session recovery:', err);
@@ -81,7 +75,6 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
         setAuthLoading(false)
 
         if (currentBusinessId && currentOwnerId) {
-          console.log('[Auth] Auth complete with businessId:', currentBusinessId);
         } else {
           console.warn('[Auth] Firebase user logged in but no business found');
         }
@@ -94,9 +87,7 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('ownerId')
         localStorage.removeItem('currentBusinessId')
         setAuthLoading(false)
-        console.debug('[Auth] No Firebase user, cleared localStorage');
       }
-      console.timeEnd('[Auth] onAuthStateChanged handler');
     })
 
     return () => unsubscribe()

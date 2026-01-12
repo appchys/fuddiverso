@@ -145,8 +145,6 @@ export default function DeliveriesAdmin() {
 
       // Guardar en Firebase
       const deliveryId = await createDelivery(deliveryData)
-      console.log('Delivery created with ID:', deliveryId)
-
       // Recargar la lista
       await loadDeliveries()
 

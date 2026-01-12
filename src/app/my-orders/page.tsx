@@ -180,7 +180,6 @@ export default function MyOrdersPage() {
 
   const handleOrderReceived = (orderId: string) => {
     // TODO: Implementar actualización del estado del pedido a "delivered"
-    console.log('Pedido recibido:', orderId)
     // Aquí puedes agregar la lógica para actualizar el estado en Firebase
   }
 

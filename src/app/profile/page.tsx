@@ -100,13 +100,7 @@ export default function ProfilePage() {
     try {
       // Usar el número de celular normalizado como ID para buscar el progreso QR
       const effectiveId = user.celular ? normalizeEcuadorianPhone(user.celular) : user.id
-      console.log('🔍 [Profile] Cargando tarjetas para userId:', effectiveId)
-      console.log('👤 [Profile] user.celular:', user.celular)
-      console.log('👤 [Profile] user.id:', user.id)
-
       const progressList = await getAllUserQRProgress(effectiveId)
-      console.log('✅ [Profile] Progreso obtenido:', progressList.length, 'negocios')
-
       const enrichedPromises = progressList.map(async (p: any) => {
         try {
           // Obtener datos del negocio

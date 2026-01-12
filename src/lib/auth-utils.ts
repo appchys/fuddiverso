@@ -6,16 +6,12 @@ import { deleteUser, signInWithEmailAndPassword } from 'firebase/auth';
 
 export async function deleteTestUser(email: string, password: string) {
   try {
-    console.log('🧹 Intentando eliminar usuario de prueba:', email);
-    
     // Primero iniciar sesión con el usuario
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
     
     // Luego eliminar el usuario
     await deleteUser(user);
-    
-    console.log('✅ Usuario eliminado exitosamente');
     return { success: true, message: 'Usuario eliminado' };
     
   } catch (error: any) {
@@ -38,8 +34,6 @@ export async function checkEmailExists(email: string) {
   try {
     // Intentar crear un usuario temporal para verificar si el email existe
     // (Esta no es la forma más elegante, pero Firebase no tiene una API directa para esto)
-    
-    console.log('🔍 Verificando si el email existe:', email);
     return false; // Por ahora retornamos false
     
   } catch (error) {

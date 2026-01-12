@@ -54,10 +54,7 @@ export default function AdminDashboard() {
       setLoading(true)
       
       // Cargar todos los pedidos y negocios con manejo de errores mejorado
-      console.log('Loading businesses...')
       const allBusinesses = await getAllBusinesses()
-      console.log('Businesses loaded:', allBusinesses.length)
-      
       // Filtrar negocios válidos
       const validBusinesses = allBusinesses.filter(business => business && business.id && business.name)
       setBusinesses(validBusinesses)
@@ -88,11 +85,7 @@ export default function AdminDashboard() {
       } catch (e) {
         console.error('Error loading visits for businesses:', e)
       }
-
-      console.log('Loading orders...')
       const allOrders = await getAllOrders()
-      console.log('Orders loaded:', allOrders.length)
-      
       // Filtrar pedidos válidos
       const validOrders = allOrders.filter(order => 
         order && 
@@ -102,7 +95,6 @@ export default function AdminDashboard() {
         typeof order.total === 'number' &&
         order.createdAt
       )
-      console.log('Valid orders:', validOrders.length)
       setOrders(validOrders)
 
       // Calcular estadísticas

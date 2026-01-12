@@ -26,14 +26,14 @@ export default function ScanQRPage() {
 
   const loadQRCode = async () => {
     try {
-      console.log('Loading QR code:', qrCodeId)
+
       setLoading(true)
       const code = await getQRCodeById(qrCodeId)
-      console.log('QR code loaded:', code)
+
       setQrCode(code)
 
       if (!code) {
-        console.log('QR code not found')
+
         setLoading(false)
         setResult({
           success: false,
@@ -43,7 +43,7 @@ export default function ScanQRPage() {
       }
 
       if (!code.isActive) {
-        console.log('QR code is not active')
+
         setLoading(false)
         setResult({
           success: false,
@@ -54,24 +54,23 @@ export default function ScanQRPage() {
 
       // Verificar si ya está logueado (primero en contexto, luego en localStorage)
       if (user && user.celular) {
-        console.log('User from context:', user.celular)
-        console.log('Calling handleScan from context user')
+
+
         setLoading(false)
         await handleScan(user.celular, code)
-        console.log('handleScan completed (from context)')
+
       } else {
         const storedPhone = localStorage.getItem('loginPhone')
-        console.log('Stored phone:', storedPhone)
-        console.log('Stored phone type:', typeof storedPhone)
-        console.log('Stored phone truthy?:', !!storedPhone)
+
+
 
         if (storedPhone) {
-          console.log('Calling handleScan from stored phone')
+
           setLoading(false)
           await handleScan(storedPhone, code)
-          console.log('handleScan completed (from localStorage)')
+
         } else {
-          console.log('No stored phone, showing login modal')
+
           setLoading(false)
           setShowLoginModal(true)
         }
@@ -92,38 +91,33 @@ export default function ScanQRPage() {
   }
 
   const handleScan = async (phone: string, code: QRCode | null = qrCode) => {
-    console.log('=== handleScan called ===')
-    console.log('Phone:', phone)
-    console.log('QR Code:', code)
+
+
 
     if (!code) {
-      console.log('ERROR: No QR code loaded, returning')
+
       return
     }
 
-    console.log('Setting processing to true')
     setProcessing(true)
 
     try {
       // Normalizar el teléfono antes de usarlo como userId
       const userId = normalizeEcuadorianPhone(phone)
-      console.log('Calling scanQRCode with userId:', userId, 'qrCodeId:', qrCodeId)
 
       const scanResult = await scanQRCode(userId, qrCodeId)
-      console.log('Scan result received:', scanResult)
 
       setResult(scanResult)
-      console.log('Result state updated')
 
       if (scanResult.success) {
-        console.log('Scan successful, scheduling redirect to /collection in 1.5s')
+
         // Redirigir a la página de colección después de mostrar el mensaje
         setTimeout(() => {
-          console.log('Redirecting to /collection now')
+
           router.push('/collection')
         }, 1500)
       } else {
-        console.log('Scan failed:', scanResult.message)
+
       }
     } catch (error) {
       console.error('Error scanning QR:', error)
@@ -132,7 +126,7 @@ export default function ScanQRPage() {
         message: 'Error al procesar el código QR'
       })
     } finally {
-      console.log('Setting processing to false')
+
       setProcessing(false)
     }
   }
@@ -147,8 +141,6 @@ export default function ScanQRPage() {
       </div>
     )
   }
-
-  console.log('Render state:', { loading, showLoginModal, processing, result })
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-red-50 to-red-100 flex items-center justify-center p-4">

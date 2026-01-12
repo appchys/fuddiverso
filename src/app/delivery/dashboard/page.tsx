@@ -58,7 +58,7 @@ export default function DeliveryDashboard() {
       
       // Debug log opcional (remueve en prod)
       if (process.env.NODE_ENV === 'development') {
-        console.log(`[Timing] Pedido ${order.id}: scheduledDate=${date.toISOString()}, type=${order.timing.type}`);
+
       }
       return date;
     }
@@ -103,7 +103,7 @@ export default function DeliveryDashboard() {
     const orderDate = getOrderDate(o)
     // Debug log opcional
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[Resumen] Pedido ${o.id}: orderDate=${orderDate.toISOString()}, status=delivered, en rango? ${orderDate >= rangeStart && orderDate <= rangeEnd}`)
+
     }
     return orderDate >= rangeStart && orderDate <= rangeEnd
   })
@@ -133,11 +133,9 @@ export default function DeliveryDashboard() {
   // Cargar datos del delivery y pedidos
   useEffect(() => {
     if (!deliveryId) {
-      console.log('[Dashboard] No deliveryId found')
+
       return
     }
-
-    console.log('[Dashboard] Loading data for deliveryId:', deliveryId)
 
     const loadData = async () => {
       try {
@@ -145,11 +143,9 @@ export default function DeliveryDashboard() {
           getDeliveryById(deliveryId),
           getOrdersByDelivery(deliveryId)
         ])
-        
-        console.log('[Dashboard] Delivery data:', deliveryData)
-        console.log('[Dashboard] Orders found:', ordersData.length)
-        console.log('[Dashboard] Orders data:', ordersData)
-        
+
+
+
         setDelivery(deliveryData)
         setOrders(ordersData)
       } catch (error) {

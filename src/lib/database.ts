@@ -224,8 +224,6 @@ function formatDateDDMMYYYY(d?: Date | string) {
 // Funciones para Negocios
 export async function createBusiness(businessData: Omit<Business, 'id' | 'createdAt'>) {
   try {
-    console.log('🔄 Attempting to create business:', businessData);
-
     // Validar datos requeridos
     if (!businessData.name || !businessData.email || !businessData.phone || !businessData.address) {
       throw new Error('Faltan datos requeridos: nombre, email, teléfono y dirección son obligatorios.');
@@ -239,8 +237,6 @@ export async function createBusiness(businessData: Omit<Business, 'id' | 'create
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
-
-    console.log('✅ Business created successfully with ID:', docRef.id);
     return docRef.id;
   } catch (error: any) {
     console.error('❌ Error creating business:', error);
@@ -325,18 +321,12 @@ export async function getBusiness(businessId: string): Promise<Business | null> 
 
 export async function getBusinessByOwner(ownerId: string): Promise<Business | null> {
   try {
-    console.log('🔍 Searching for business with ownerId:', ownerId);
-
     const q = query(
       collection(db, 'businesses'),
       where('ownerId', '==', ownerId),
       limit(1)
     )
     const querySnapshot = await getDocs(q)
-
-    console.log('📊 Query result is empty:', querySnapshot.empty);
-    console.log('📊 Query size:', querySnapshot.size);
-
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0]
       const businessData = {
@@ -344,12 +334,8 @@ export async function getBusinessByOwner(ownerId: string): Promise<Business | nu
         ...doc.data(),
         createdAt: toSafeDate(doc.data().createdAt)
       } as Business
-
-      console.log('✅ Found business:', businessData.name, 'ID:', businessData.id);
       return businessData
     }
-
-    console.log('❌ No business found for ownerId:', ownerId);
     return null
   } catch (error) {
     console.error('❌ Error getting business by owner:', error)
@@ -926,8 +912,6 @@ export async function updateOrder(orderId: string, orderData: Partial<Omit<Order
 
 export async function deleteOrder(orderId: string) {
   try {
-    console.log('🗑️ Eliminando orden y recuperando stock:', orderId);
-
     // Buscar y eliminar movimientos de stock asociados a esta orden (Recuperación)
     try {
       const movementsRef = collection(db, 'ingredientStockMovements')
@@ -935,7 +919,6 @@ export async function deleteOrder(orderId: string) {
       const snapshot = await getDocs(q)
 
       if (!snapshot.empty) {
-        console.log(`♻️ Recuperando stock de ${snapshot.size} ingredientes...`);
         const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref))
         await Promise.all(deletePromises)
       }
@@ -945,7 +928,6 @@ export async function deleteOrder(orderId: string) {
 
     const docRef = doc(db, 'orders', orderId)
     await deleteDoc(docRef)
-    console.log('✅ Orden eliminada y stock recuperado');
   } catch (error) {
     console.error('❌ Error al eliminar orden:', error);
     throw error;
@@ -955,8 +937,6 @@ export async function deleteOrder(orderId: string) {
 // Función para obtener información del repartidor
 export async function getDelivery(deliveryId: string): Promise<Delivery | null> {
   try {
-    console.log('🔍 Getting delivery person:', deliveryId);
-
     const docRef = doc(db, 'deliveries', deliveryId)
     const docSnap = await getDoc(docRef)
 
@@ -972,12 +952,8 @@ export async function getDelivery(deliveryId: string): Promise<Delivery | null> 
         fechaRegistro: deliveryData.fechaRegistro || '',
         uid: deliveryData.uid || ''
       }
-
-      console.log('✅ Delivery person found:', delivery);
       return delivery
     }
-
-    console.log('❌ No delivery person found with ID:', deliveryId);
     return null
   } catch (error) {
     console.error('Error getting delivery person:', error)
@@ -1120,15 +1096,10 @@ export async function signInWithGoogle(): Promise<UserCredential> {
 // Función para manejar el resultado del redirect
 export async function handleGoogleRedirectResult() {
   try {
-    console.log('🔍 Getting redirect result...');
     const result = await getRedirectResult(auth);
 
     if (result?.user) {
-      console.log('✅ Redirect result found for user:', result.user.email);
-      console.log('🆔 User UID from redirect:', result.user.uid);
-
       // Verificar acceso completo del usuario (propietario o administrador)
-      console.log('🔍 Checking user business access...');
       const businessAccess = await getUserBusinessAccess(
         result.user.email || '',
         result.user.uid
@@ -1158,14 +1129,12 @@ export async function handleGoogleRedirectResult() {
         adminBusinesses: businessAccess.adminBusinesses
       }
     } else {
-      console.log('ℹ️ No redirect result found');
       return null;
     }
 
   } catch (error: any) {
     // Si el error es porque no hay redirect result, no es realmente un error
     if (error.code === 'auth/no-auth-event') {
-      console.log('ℹ️ No auth event found (normal if not coming from redirect)');
       return null;
     }
 
@@ -1251,8 +1220,6 @@ export interface ClientLocation {
 // Nueva función para obtener un negocio por su username
 export async function getBusinessByUsername(username: string): Promise<Business | null> {
   try {
-    console.log('🔍 Searching business by username:', username);
-
     const q = query(
       collection(db, 'businesses'),
       where('username', '==', username),
@@ -1260,24 +1227,17 @@ export async function getBusinessByUsername(username: string): Promise<Business 
     );
 
     const querySnapshot = await getDocs(q);
-    console.log('📊 Query results:', querySnapshot.size, 'documents found');
-
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0];
       const businessData = doc.data();
-      console.log('✅ Business found:', businessData);
       const business: Business = {
         id: doc.id,
         ...businessData,
         createdAt: toSafeDate(businessData.createdAt),
         updatedAt: toSafeDate(businessData.updatedAt)
       } as Business;
-
-      console.log('✅ Business found:', business);
       return business;
     }
-
-    console.log('❌ No business found with username:', username);
     return null;
   } catch (error) {
     console.error('Error searching business by username:', error);
@@ -1313,8 +1273,6 @@ export async function getClientById(clientId: string): Promise<FirestoreClient |
 // Nueva función para obtener ubicaciones del cliente
 export async function getClientLocations(clientId: string): Promise<ClientLocation[]> {
   try {
-    console.log('🔍 Getting client locations for client ID:', clientId);
-
     const q = query(
       collection(db, 'ubicaciones'),
       where('id_cliente', '==', clientId)
@@ -1335,8 +1293,6 @@ export async function getClientLocations(clientId: string): Promise<ClientLocati
         photo: locationData.photo || ''
       });
     });
-
-    console.log(`✅ Found ${locations.length} locations for client:`, locations);
     return locations;
   } catch (error) {
     // Si hay un error de permisos u otro, devolver un array vacío para
@@ -1349,8 +1305,6 @@ export async function getClientLocations(clientId: string): Promise<ClientLocati
 // Nueva función para buscar clientes por teléfono
 export async function searchClientByPhone(phone: string): Promise<FirestoreClient | null> {
   try {
-    console.log('🔍 Searching client by phone:', phone);
-
     const q = query(
       collection(db, 'clients'),
       where('celular', '==', phone),
@@ -1371,12 +1325,8 @@ export async function searchClientByPhone(phone: string): Promise<FirestoreClien
         fecha_de_registro: clientData.fecha_de_registro || new Date().toISOString(),
         pinHash: clientData.pinHash || null
       };
-
-      console.log('✅ Client found:', client);
       return client;
     }
-
-    console.log('❌ No client found with phone:', phone);
     return null;
   } catch (error) {
     console.error('Error searching client by phone:', error);
@@ -1386,8 +1336,6 @@ export async function searchClientByPhone(phone: string): Promise<FirestoreClien
 
 export async function verifyClientName(phone: string): Promise<string | null> {
   try {
-    console.log('🔍 Verifying client name by phone:', phone);
-
     const q = query(
       collection(db, 'clients'),
       where('celular', '==', phone),
@@ -1398,11 +1346,8 @@ export async function verifyClientName(phone: string): Promise<string | null> {
 
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0];
-      console.log('✅ Client name found:', doc.data().nombres);
       return doc.data().nombres || null;
     }
-
-    console.log('❌ No client found with phone:', phone);
     return null;
   } catch (error) {
     console.error('Error verifying client name by phone:', error);
@@ -1413,7 +1358,6 @@ export async function verifyClientName(phone: string): Promise<string | null> {
 // Establecer o actualizar el pinHash de un cliente
 export async function setClientPin(clientId: string, pinHash: string) {
   try {
-    console.log('🔐 Setting PIN for client:', clientId)
     const clientRef = doc(db, 'clients', clientId)
     await updateDoc(clientRef, { pinHash, updatedAt: serverTimestamp() })
     return true
@@ -1426,7 +1370,6 @@ export async function setClientPin(clientId: string, pinHash: string) {
 // Limpiar el PIN del cliente (dejarlo en null)
 export async function clearClientPin(clientId: string) {
   try {
-    console.log('🧹 Clearing PIN for client:', clientId)
     const clientRef = doc(db, 'clients', clientId)
     await updateDoc(clientRef, { pinHash: null, updatedAt: serverTimestamp() })
     return true
@@ -1439,7 +1382,6 @@ export async function clearClientPin(clientId: string) {
 // Registrar evento de olvido de PIN en el cliente
 export async function registerClientForgotPin(clientId: string) {
   try {
-    console.log('📝 Registering forgot PIN event for client:', clientId)
     const clientRef = doc(db, 'clients', clientId)
     await updateDoc(clientRef, {
       forgotPinCount: firestoreIncrement(1),
@@ -1454,8 +1396,6 @@ export async function registerClientForgotPin(clientId: string) {
 
 export async function createClient(clientData: { celular: string; nombres: string; fecha_de_registro?: string; id?: string; pinHash?: string }) {
   try {
-    console.log('📝 Creating client:', clientData);
-
     // Formatear fecha_de_registro como DD/MM/YYYY para mantener compatibilidad con la base histórica
     // Usar el helper superior `formatDateDDMMYYYY` definido en el módulo
 
@@ -1474,8 +1414,6 @@ export async function createClient(clientData: { celular: string; nombres: strin
 
     // Ensure the document has the correct id field
     await updateDoc(doc(db, 'clients', clientRef.id), { id: clientRef.id });
-
-    console.log('✅ Client created with ID:', clientRef.id);
     return {
       id: clientRef.id,
       celular: clientData.celular,
@@ -1491,8 +1429,6 @@ export async function createClient(clientData: { celular: string; nombres: strin
 
 export async function updateClient(clientId: string, clientData: { celular?: string; nombres?: string; email?: string; photoURL?: string; pinHash?: string; lastLoginAt?: any; lastRegistrationAt?: any; loginSource?: string }) {
   try {
-    console.log('📝 Updating client:', clientId, clientData);
-
     const clientRef = doc(db, 'clients', clientId);
     const updateData: any = {};
 
@@ -1506,8 +1442,6 @@ export async function updateClient(clientId: string, clientData: { celular?: str
     if (clientData.loginSource !== undefined) updateData.loginSource = clientData.loginSource;
 
     await updateDoc(clientRef, updateData);
-    console.log('✅ Client updated successfully');
-
     return true;
   } catch (error) {
     console.error('❌ Error updating client:', error);
@@ -1517,8 +1451,6 @@ export async function updateClient(clientId: string, clientData: { celular?: str
 
 export async function getOrdersByClient(clientPhone: string): Promise<any[]> {
   try {
-    console.log('🔍 Getting orders for client phone:', clientPhone);
-
     const q = query(
       collection(db, 'orders'),
       where('customer.phone', '==', clientPhone),
@@ -1526,8 +1458,6 @@ export async function getOrdersByClient(clientPhone: string): Promise<any[]> {
     );
 
     const querySnapshot = await getDocs(q);
-    console.log('📊 Orders found:', querySnapshot.size);
-
     const orders = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
@@ -1544,8 +1474,6 @@ export async function getOrdersByClient(clientPhone: string): Promise<any[]> {
 
 export async function getLocationsByClient(clientPhone: string): Promise<ClientLocation[]> {
   try {
-    console.log('🔍 Getting locations for client phone:', clientPhone);
-
     // Primero encontrar el ID del cliente usando su número de celular
     const clientQuery = query(
       collection(db, 'clients'),
@@ -1555,14 +1483,11 @@ export async function getLocationsByClient(clientPhone: string): Promise<ClientL
     const clientSnapshot = await getDocs(clientQuery);
 
     if (clientSnapshot.empty) {
-      console.log('❌ No client found with phone:', clientPhone);
       return [];
     }
 
     const clientDoc = clientSnapshot.docs[0];
     const clientId = clientDoc.data().id;
-    console.log('✅ Client found, ID:', clientId);
-
     // Ahora buscar las ubicaciones usando el ID del cliente
     const locationQuery = query(
       collection(db, 'ubicaciones'),
@@ -1570,8 +1495,6 @@ export async function getLocationsByClient(clientPhone: string): Promise<ClientL
     );
 
     const querySnapshot = await getDocs(locationQuery);
-    console.log('📊 Locations found:', querySnapshot.size);
-
     const locations = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
@@ -1586,9 +1509,7 @@ export async function getLocationsByClient(clientPhone: string): Promise<ClientL
 
 export async function deleteLocation(locationId: string): Promise<void> {
   try {
-    console.log('🗑️ Deleting location:', locationId);
     await deleteDoc(doc(db, 'ubicaciones', locationId));
-    console.log('✅ Location deleted successfully');
   } catch (error) {
     console.error('❌ Error deleting location:', error);
     throw error;
@@ -1597,10 +1518,8 @@ export async function deleteLocation(locationId: string): Promise<void> {
 
 export async function updateLocation(locationId: string, locationData: Partial<ClientLocation>): Promise<void> {
   try {
-    console.log('📝 Updating location:', locationId, locationData);
     const locationRef = doc(db, 'ubicaciones', locationId);
     await updateDoc(locationRef, locationData);
-    console.log('✅ Location updated successfully');
   } catch (error) {
     console.error('❌ Error updating location:', error);
     throw error;
@@ -1610,15 +1529,11 @@ export async function updateLocation(locationId: string, locationData: Partial<C
 // Función para crear nueva ubicación de cliente
 export async function createClientLocation(locationData: { id_cliente: string, latlong: string, referencia: string, tarifa: string, sector: string, photo?: string }): Promise<string> {
   try {
-    console.log('📍 Creating new client location:', locationData);
-
     // Si id_cliente parece ser un número de teléfono, necesitamos convertirlo al ID real
     let clientId = locationData.id_cliente;
 
     // Si parece ser un número de celular, buscar el ID real del cliente
     if (locationData.id_cliente.length > 8 && /^\d+$/.test(locationData.id_cliente)) {
-      console.log('🔍 Converting phone number to client ID:', locationData.id_cliente);
-
       const clientQuery = query(
         collection(db, 'clients'),
         where('celular', '==', locationData.id_cliente)
@@ -1629,9 +1544,7 @@ export async function createClientLocation(locationData: { id_cliente: string, l
       if (!clientSnapshot.empty) {
         const clientDoc = clientSnapshot.docs[0];
         clientId = clientDoc.data().id;
-        console.log('✅ Found client ID:', clientId);
       } else {
-        console.log('❌ No client found with phone:', locationData.id_cliente);
         throw new Error('Cliente no encontrado');
       }
     }
@@ -1648,7 +1561,6 @@ export async function createClientLocation(locationData: { id_cliente: string, l
     });
 
     const docRef = await addDoc(collection(db, 'ubicaciones'), cleanedData);
-    console.log('✅ Client location created with ID:', docRef.id);
     return docRef.id;
   } catch (error) {
     console.error('❌ Error creating client location:', error);
@@ -1659,8 +1571,6 @@ export async function createClientLocation(locationData: { id_cliente: string, l
 // Función para obtener todas las tiendas de un usuario
 export async function getBusinessesByOwner(ownerId: string): Promise<Business[]> {
   try {
-    console.log('🔍 Getting businesses for owner ID:', ownerId);
-
     const q = query(
       collection(db, 'businesses'),
       where('ownerId', '==', ownerId),
@@ -1679,8 +1589,6 @@ export async function getBusinessesByOwner(ownerId: string): Promise<Business[]>
         updatedAt: toSafeDate(businessData.updatedAt)
       } as Business);
     });
-
-    console.log(`✅ Found ${businesses.length} businesses for owner:`, businesses);
     return businesses;
   } catch (error) {
     console.error('❌ Error getting businesses by owner:', error);
@@ -1739,8 +1647,6 @@ export async function getVisitsForBusiness(businessId: string): Promise<number> 
 // Función para verificar si un usuario es administrador de alguna tienda
 export async function getBusinessesByAdministrator(userEmail: string): Promise<Business[]> {
   try {
-    console.log('🔍 Checking if user is administrator:', userEmail);
-
     const q = query(
       collection(db, 'businesses'),
       where('administrators', 'array-contains-any', [
@@ -1772,8 +1678,6 @@ export async function getBusinessesByAdministrator(userEmail: string): Promise<B
         } as Business);
       }
     });
-
-    console.log(`✅ Found ${adminBusinesses.length} businesses where user is administrator`);
     return adminBusinesses;
   } catch (error) {
     console.error('❌ Error getting businesses by administrator:', error);
@@ -1788,8 +1692,6 @@ export async function getUserBusinessAccess(userEmail: string, userId: string): 
   hasAccess: boolean;
 }> {
   try {
-    console.log('🔍 Checking user business access for:', userEmail, userId);
-
     // Verificar tiendas como propietario
     const ownedBusinesses = await getBusinessesByOwner(userId);
 
@@ -1982,7 +1884,6 @@ export async function createDelivery(deliveryData: Omit<Delivery, 'id'>): Promis
     }
 
     const docRef = await addDoc(collection(db, 'deliveries'), deliveryDoc)
-    console.log('Delivery created successfully with ID:', docRef.id)
     return docRef.id
   } catch (error) {
     console.error('Error creating delivery:', error)
@@ -2068,7 +1969,6 @@ export async function updateDelivery(deliveryId: string, updates: Partial<Delive
     delete updateData.id
 
     await updateDoc(docRef, updateData)
-    console.log('Delivery updated successfully')
   } catch (error) {
     console.error('Error updating delivery:', error)
     throw error
@@ -2087,7 +1987,6 @@ export async function toggleDeliveryStatus(deliveryId: string): Promise<void> {
 
     const newStatus = delivery.estado === 'activo' ? 'inactivo' : 'activo'
     await updateDelivery(deliveryId, { estado: newStatus })
-    console.log(`Delivery status changed to: ${newStatus}`)
   } catch (error) {
     console.error('Error toggling delivery status:', error)
     throw error
@@ -2101,7 +2000,6 @@ export async function deleteDelivery(deliveryId: string): Promise<void> {
   try {
     const docRef = doc(db, 'deliveries', deliveryId)
     await deleteDoc(docRef)
-    console.log('Delivery deleted successfully')
   } catch (error) {
     console.error('Error deleting delivery:', error)
     throw error
@@ -2186,8 +2084,6 @@ export async function getDeliveryByEmail(email: string): Promise<Delivery | null
  */
 export async function getOrdersByDelivery(deliveryId: string): Promise<Order[]> {
   try {
-    console.log('[getOrdersByDelivery] Buscando pedidos para deliveryId:', deliveryId)
-
     // Primero intentar con orderBy (requiere índice compuesto)
     let q = query(
       collection(db, 'orders'),
@@ -2209,9 +2105,6 @@ export async function getOrdersByDelivery(deliveryId: string): Promise<Order[]> 
       )
       querySnapshot = await getDocs(q)
     }
-
-    console.log('[getOrdersByDelivery] Documentos encontrados:', querySnapshot.size)
-
     const orders: Order[] = []
 
     querySnapshot.forEach((doc) => {
@@ -2266,7 +2159,6 @@ export async function linkDeliveryWithAuth(deliveryId: string, uid: string): Pro
       uid: uid,
       updatedAt: serverTimestamp()
     })
-    console.log('Delivery linked with auth UID:', uid)
   } catch (error) {
     console.error('Error linking delivery with auth:', error)
     throw error
@@ -2869,8 +2761,6 @@ export async function getQRCodeById(qrCodeId: string): Promise<QRCode | null> {
  */
 export async function getUserQRProgress(userId: string, businessId: string): Promise<UserQRProgress | null> {
   try {
-    console.log('🔍 [getUserQRProgress] Buscando progreso QR para:', { userId, businessId })
-
     const q = query(
       collection(db, 'userQRProgress'),
       where('userId', '==', userId),
@@ -2878,11 +2768,7 @@ export async function getUserQRProgress(userId: string, businessId: string): Pro
       limit(1)
     )
     const snapshot = await getDocs(q)
-
-    console.log('📊 [getUserQRProgress] Resultados encontrados:', snapshot.size)
-
     if (snapshot.empty) {
-      console.log('❌ [getUserQRProgress] No se encontró progreso para userId:', userId)
       return null
     }
 
@@ -2952,8 +2838,6 @@ export async function completeQRRedemptions(userId: string, businessId: string, 
   message: string
 }> {
   try {
-    console.log('🎁 [completeQRRedemptions] Marcando premios como completados:', { userId, businessId, qrCodeIds })
-
     if (!qrCodeIds || qrCodeIds.length === 0) {
       return { success: true, message: 'No hay premios para marcar' }
     }
@@ -2967,7 +2851,6 @@ export async function completeQRRedemptions(userId: string, businessId: string, 
     const snapshot = await getDocs(q)
 
     if (snapshot.empty) {
-      console.log('⚠️ [completeQRRedemptions] No se encontró progreso para el usuario')
       return { success: false, message: 'No se encontró progreso del usuario' }
     }
 
@@ -2987,8 +2870,6 @@ export async function completeQRRedemptions(userId: string, businessId: string, 
       redeemedPrizeCodes: updatedRedeemed,
       updatedAt: serverTimestamp()
     })
-
-    console.log('✅ [completeQRRedemptions] Premios marcados como completados exitosamente')
     return { success: true, message: 'Premios marcados como completados' }
   } catch (error) {
     console.error('❌ [completeQRRedemptions] Error:', error)
@@ -3001,8 +2882,6 @@ export async function redeemQRCodePrize(userId: string, businessId: string, qrCo
   message: string
 }> {
   try {
-    console.log('🎁 [redeemQRCodePrize] Intentando canjear premio:', { userId, businessId, qrCodeId })
-
     const progress = await getUserQRProgress(userId, businessId)
 
     if (!progress) {
@@ -3016,14 +2895,12 @@ export async function redeemQRCodePrize(userId: string, businessId: string, qrCo
     // Verificar si ya fue completado permanentemente (en una orden anterior)
     const isCompleted = (progress.completedRedemptions || []).includes(qrCodeId)
     if (isCompleted) {
-      console.log('⚠️ [redeemQRCodePrize] Premio ya fue canjeado en una orden anterior')
       return { success: false, message: 'Este premio ya fue canjeado anteriormente' }
     }
 
     // Verificar si ya está en el carrito actual
     const alreadyRedeemed = (progress.redeemedPrizeCodes || []).includes(qrCodeId)
     if (alreadyRedeemed) {
-      console.log('⚠️ [redeemQRCodePrize] Premio ya está en el carrito')
       return { success: false, message: 'Este premio ya está en tu carrito' }
     }
 
@@ -3045,8 +2922,6 @@ export async function redeemQRCodePrize(userId: string, businessId: string, qrCo
       redeemedPrizeCodes: updated,
       updatedAt: serverTimestamp()
     })
-
-    console.log('✅ [redeemQRCodePrize] Premio agregado al carrito exitosamente')
     return { success: true, message: 'Premio agregado' }
   } catch (error) {
     console.error('❌ [redeemQRCodePrize] Error:', error)
@@ -3066,8 +2941,6 @@ async function createQRScanNotification(
   isCompleted: boolean
 ): Promise<void> {
   try {
-    console.log('[createQRScanNotification] Creando notificación de escaneo de QR')
-
     // Obtener el nombre del cliente normalizando el teléfono
     let clientName = 'Cliente'
     try {
@@ -3081,7 +2954,6 @@ async function createQRScanNotification(
         clientName = clientData.nombres || 'Cliente'
       }
     } catch (error) {
-      console.debug('[createQRScanNotification] Error obteniendo nombre del cliente:', error)
       // Continuar con nombre genérico si hay error
     }
 
@@ -3106,8 +2978,6 @@ async function createQRScanNotification(
     // Guardar directamente en Firestore usando el SDK cliente
     const notificationsRef = collection(db, 'businesses', businessId, 'notifications')
     const docRef = await addDoc(notificationsRef, notificationData)
-
-    console.log('[createQRScanNotification] Notificación guardada con ID:', docRef.id)
   } catch (error) {
     console.error('[createQRScanNotification] Error saving QR scan notification:', error)
     // No fallar el escaneo si hay error en notificación
@@ -3322,8 +3192,6 @@ export async function createRatingNotification(
   clientPhone?: string
 ): Promise<void> {
   try {
-    console.log('[createRatingNotification] Creando notificación de calificación')
-
     const notificationData = {
       type: 'rating' as const,
       orderId,
@@ -3340,8 +3208,6 @@ export async function createRatingNotification(
     // Guardar directamente en Firestore usando el SDK cliente
     const notificationsRef = collection(db, 'businesses', businessId, 'notifications')
     const docRef = await addDoc(notificationsRef, notificationData)
-
-    console.log('[createRatingNotification] Notificación guardada con ID:', docRef.id)
   } catch (error) {
     console.error('[createRatingNotification] Error saving rating notification:', error)
     // No fallar si la notificación no se guarda

@@ -61,7 +61,6 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
 
       makeBeep(audioContext)
     } catch (error) {
-      console.debug('[NotificationsBell] No se pudo reproducir sonido:', error)
     }
   }
 
@@ -87,7 +86,6 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
 
     gain.gain.setValueAtTime(0.1, now + 0.2)
     gain.gain.setValueAtTime(0, now + 0.21)
-    console.log('[NotificationsBell] Sonido de notificación reproducido')
   }
 
   // Escuchar notificaciones en tiempo real desde Firebase
@@ -185,8 +183,6 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
       await updateDoc(notifRef, {
         read: true
       })
-
-      console.log(`[NotificationsBell] Notificación ${notificationId} marcada como leída`)
     } catch (error) {
       console.error(
         `[NotificationsBell] Error marking notification ${notificationId} as read:`,

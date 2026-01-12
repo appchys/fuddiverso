@@ -910,21 +910,12 @@ export function CheckoutContent({
   // Effect para cargar datos QR
   useEffect(() => {
     const loadQrData = async () => {
-      console.log('🔍 [CheckoutContent] Iniciando carga de datos QR')
-      console.log('👤 [CheckoutContent] user:', user)
-      console.log('👤 [CheckoutContent] clientFound:', clientFound)
-
       // Usar el número de celular normalizado como ID para buscar el progreso QR
       // Esto debe coincidir con la lógica en profile/page.tsx
       const effectiveClientId = user?.celular
         ? normalizeEcuadorianPhone(user.celular)
         : (clientFound?.celular ? normalizeEcuadorianPhone(clientFound.celular) : null)
-
-      console.log('🔑 [CheckoutContent] effectiveClientId calculado:', effectiveClientId)
-      console.log('🏪 [CheckoutContent] businessId:', business?.id)
-
       if (!business?.id || !effectiveClientId) {
-        console.log('⚠️ [CheckoutContent] Falta businessId o effectiveClientId, limpiando datos QR')
         setQrCodes([])
         setQrProgress(null)
         setQrError('')
@@ -934,13 +925,10 @@ export function CheckoutContent({
       try {
         setLoadingQr(true)
         setQrError('')
-        console.log('📡 [CheckoutContent] Llamando a getQRCodesByBusiness y getUserQRProgress...')
         const [codes, progress] = await Promise.all([
           getQRCodesByBusiness(business.id, true),
           getUserQRProgress(effectiveClientId, business.id)
         ])
-        console.log('✅ [CheckoutContent] Códigos QR obtenidos:', codes.length)
-        console.log('✅ [CheckoutContent] Progreso obtenido:', progress)
         setQrCodes(codes)
         setQrProgress(progress)
       } catch (e) {
@@ -1436,7 +1424,6 @@ export function CheckoutContent({
         if (qrPrizeIds.length > 0 && user?.celular) {
           const normalizedPhone = normalizeEcuadorianPhone(user.celular)
           await completeQRRedemptions(normalizedPhone, businessId, qrPrizeIds)
-          console.log('✅ Premios QR marcados como completados:', qrPrizeIds)
         }
       } catch (error) {
         console.error('Error completing QR redemptions:', error)

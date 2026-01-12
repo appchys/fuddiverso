@@ -194,7 +194,6 @@ export default function BusinessDashboard() {
     })
     return () => {
       const dt = performance.now() - t0
-      console.debug('[Dashboard] mount->ready', dt.toFixed(2), 'ms')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -213,7 +212,6 @@ export default function BusinessDashboard() {
       router.replace('/business/login');
     }
     const dt = performance.now() - t0
-    console.debug('[Dashboard] authGuard', dt.toFixed(2), 'ms')
   }, [authLoading, isAuthenticated, router]);
 
   // Cleanup del timeout al desmontar
@@ -372,7 +370,6 @@ export default function BusinessDashboard() {
         router.push('/business/login');
       } finally {
         const dt = performance.now() - t0
-        console.debug('[Dashboard] loadBusinesses', dt.toFixed(2), 'ms')
         setLoading(false);
       }
     };
@@ -423,7 +420,6 @@ export default function BusinessDashboard() {
         ])
 
         const pdt = performance.now() - p0
-        console.debug('[Dashboard] fetch products/categories/orders (parallel):', pdt.toFixed(2), 'ms')
         setProducts(productsData)
         setBusinessCategories(categoriesData)
         try {
@@ -487,7 +483,6 @@ export default function BusinessDashboard() {
         // Error loading business data
       } finally {
         const dt = performance.now() - t0
-        console.debug('[Dashboard] loadBusinessData', dt.toFixed(2), 'ms')
       }
     };
 
@@ -521,7 +516,6 @@ export default function BusinessDashboard() {
         // Error loading deliveries (getDeliveriesByStatus ya devuelve [] en caso de fallo)
       } finally {
         const dt = performance.now() - t0
-        console.debug('[Dashboard] loadDeliveries', dt.toFixed(2), 'ms')
       }
     }
 
@@ -1314,7 +1308,6 @@ export default function BusinessDashboard() {
 
           // Guardar de nuevo en localStorage
           localStorage.setItem(cacheKey, JSON.stringify(cached));
-          console.debug('[Dashboard] Cache updated with new store status');
         }
       } catch (e) {
         console.error('Error updating cache:', e);

@@ -13,16 +13,10 @@ export default function TestDataPage() {
     setLoading(true)
     setError(null)
     try {
-      console.log('Testing data loading...')
-      
       const [allOrders, allBusinesses] = await Promise.all([
         getAllOrders(),
         getAllBusinesses()
       ])
-
-      console.log('Orders loaded:', allOrders)
-      console.log('Businesses loaded:', allBusinesses)
-
       setOrders(allOrders)
       setBusinesses(allBusinesses)
     } catch (err: any) {

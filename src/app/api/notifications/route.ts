@@ -14,7 +14,6 @@ try {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
     try {
       serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
-      console.log('[Firebase Admin] Credenciales cargadas desde variable de entorno')
     } catch (e) {
       console.warn('[Firebase Admin] Error al parsear JSON desde .env:', e)
     }
@@ -30,7 +29,6 @@ try {
       if (fs.existsSync(credentialsPath)) {
         const credentials = fs.readFileSync(credentialsPath, 'utf-8')
         serviceAccount = JSON.parse(credentials)
-        console.log('[Firebase Admin] Credenciales cargadas desde archivo')
       }
     } catch (e) {
       console.warn('[Firebase Admin] Error al leer archivo de credenciales:', e)
@@ -42,7 +40,6 @@ try {
       credential: cert(serviceAccount)
     }, 'notifications')
     adminDb = getAdminFirestore(adminApp)
-    console.log('[Firebase Admin] Firebase Admin inicializado exitosamente')
   } else {
     console.warn('[Firebase Admin] No se pudo cargar serviceAccount')
   }
@@ -67,9 +64,6 @@ export async function POST(request: NextRequest) {
       scannedCount,
       isCompleted
     } = data
-
-    console.log('[POST /api/notifications] Recibiendo notificación:', { businessId, type, title })
-
     if (!businessId) {
       console.warn('[POST /api/notifications] businessId es requerido')
       return NextResponse.json(
@@ -107,9 +101,6 @@ export async function POST(request: NextRequest) {
 
       await adminDb.collection('businesses').doc(businessId)
         .collection('notifications').add(notification)
-
-      console.log('[POST /api/notifications] Notificación guardada exitosamente')
-
       return NextResponse.json(
         { success: true, message: 'Notification saved' },
         { status: 201 }

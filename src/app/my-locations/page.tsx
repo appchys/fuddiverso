@@ -74,7 +74,6 @@ export default function MyLocationsPage() {
       const clientSnapshot = await getDocs(clientQuery);
       
       if (clientSnapshot.empty) {
-        console.log('❌ No client found with phone:', celular);
         return null;
       }
 

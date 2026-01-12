@@ -36,7 +36,6 @@ export const usePushNotifications = () => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
         .then((reg) => {
-          console.log('Service Worker registrado:', reg)
           setRegistration(reg)
           return reg.pushManager.getSubscription()
         })
@@ -53,7 +52,6 @@ export const usePushNotifications = () => {
 
   const requestPermission = async (): Promise<boolean> => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
-      console.log('Este navegador no soporta notificaciones')
       return false
     }
 

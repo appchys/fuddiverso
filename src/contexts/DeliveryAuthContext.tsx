@@ -29,7 +29,7 @@ export function DeliveryAuthProvider({ children }: { children: ReactNode }) {
   const [authLoading, setAuthLoading] = useState<boolean>(true)
 
   useEffect(() => {
-    console.time('[DeliveryAuth] init')
+
     // Cargar datos desde localStorage al iniciar
     const savedDeliveryId = localStorage.getItem('deliveryId')
     
@@ -37,9 +37,8 @@ export function DeliveryAuthProvider({ children }: { children: ReactNode }) {
 
     // Escuchar cambios en el estado de autenticación de Firebase
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      console.timeEnd('[DeliveryAuth] init')
-      console.time('[DeliveryAuth] onAuthStateChanged handler')
-      
+
+
       if (firebaseUser && savedDeliveryId) {
         setUser({
           uid: firebaseUser.uid,
@@ -48,14 +47,14 @@ export function DeliveryAuthProvider({ children }: { children: ReactNode }) {
           photoURL: firebaseUser.photoURL
         })
         setAuthLoading(false)
-        console.debug('[DeliveryAuth] Firebase user present, localStorage complete')
+
       } else if (!firebaseUser) {
         // Si el usuario no está autenticado en Firebase, limpiar todo
         setUser(null)
         setDeliveryIdState(null)
         localStorage.removeItem('deliveryId')
         setAuthLoading(false)
-        console.debug('[DeliveryAuth] No Firebase user, cleared localStorage')
+
       } else {
         // Tenemos firebaseUser pero faltan datos en localStorage
         setUser({
@@ -67,7 +66,7 @@ export function DeliveryAuthProvider({ children }: { children: ReactNode }) {
         setAuthLoading(false)
         console.warn('[DeliveryAuth] Firebase user present but missing localStorage delivery')
       }
-      console.timeEnd('[DeliveryAuth] onAuthStateChanged handler')
+
     })
 
     return () => unsubscribe()

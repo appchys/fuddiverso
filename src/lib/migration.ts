@@ -13,17 +13,12 @@ import {
  * y en el panel de gestión de stock.
  */
 export async function migrateProductIngredientsToLibrary(businessId: string) {
-    console.log(`🚀 Iniciando migración de ingredientes para el negocio: ${businessId}`);
-
     try {
         // 1. Obtener todos los productos del negocio
         const productsSnapshot = await getDocs(collection(db, 'products'));
         const allProducts = productsSnapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() } as any))
             .filter(p => p.businessId === businessId);
-
-        console.log(`📦 Encontrados ${allProducts.length} productos para este negocio.`);
-
         const unifiedIngredients = new Map<string, {
             name: string,
             unitCost: number,
@@ -64,9 +59,6 @@ export async function migrateProductIngredientsToLibrary(businessId: string) {
                 });
             }
         });
-
-        console.log(`🔍 Encontrados ${unifiedIngredients.size} ingredientes únicos para migrar.`);
-
         // 3. Guardar en la biblioteca de ingredientes (businessIngredients)
         let migratedCount = 0;
         const entries = Array.from(unifiedIngredients.entries());
@@ -87,10 +79,7 @@ export async function migrateProductIngredientsToLibrary(businessId: string) {
             }, { merge: true });
 
             migratedCount++;
-            console.log(`✅ Migrado: ${ingData.name}`);
         }
-
-        console.log(`✨ Migración completada con éxito. ${migratedCount} ingredientes migrados.`);
         return { success: true, count: migratedCount };
 
     } catch (error) {
