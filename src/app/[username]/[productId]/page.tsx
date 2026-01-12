@@ -7,6 +7,8 @@ import { getProduct, getBusinessByProduct, getProductsByBusiness, unredeemQRCode
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import type { Product, Business } from '@/types/index'
 import CartSidebar from '@/components/CartSidebar'
+import UserSidebar from '@/components/UserSidebar'
+import ClientLoginModal from '@/components/ClientLoginModal'
 
 export default function ProductPageByUsername() {
   const params = useParams()
@@ -28,6 +30,9 @@ export default function ProductPageByUsername() {
     message: '',
     type: 'success'
   })
+  const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
+  const [showLoginModal, setShowLoginModal] = useState(false)
+  const [clientPhone, setClientPhone] = useState<string | null>(null)
 
   useEffect(() => {
     const loadProduct = async () => {
@@ -600,6 +605,22 @@ export default function ProductPageByUsername() {
 
           setCart(newCart)
           updateCartInStorage(business.id, newCart)
+        }}
+        onOpenUserSidebar={() => setIsUserSidebarOpen(true)}
+      />
+
+      <UserSidebar
+        isOpen={isUserSidebarOpen}
+        onClose={() => setIsUserSidebarOpen(false)}
+        onLogin={() => setShowLoginModal(true)}
+      />
+
+      <ClientLoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onLoginSuccess={(phone) => {
+          setClientPhone(phone)
+          setShowLoginModal(false)
         }}
       />
 

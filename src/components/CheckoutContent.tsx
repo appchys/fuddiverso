@@ -2059,185 +2059,6 @@ export function CheckoutContent({
               </div>
             </div>
 
-            {/* Step 4: Payment */}
-            <div id="step-4" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
-              <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">4</span>
-                Pago
-              </h2>
-
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Efectivo */}
-                  <button
-                    type="button"
-                    onClick={() => setPaymentData({ ...paymentData, method: 'cash' })}
-                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${paymentData.method === 'cash'
-                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
-                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
-                      }`}
-                  >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${paymentData.method === 'cash' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
-                      <i className="bi bi-cash-coin"></i>
-                    </div>
-                    <span className="font-bold">Efectivo</span>
-                    {paymentData.method === 'cash' && (
-                      <div className="absolute top-2 right-2 text-white text-xs">
-                        <i className="bi bi-check-circle-fill"></i>
-                      </div>
-                    )}
-                  </button>
-                  {/* Transferencia */}
-                  <button
-                    type="button"
-                    onClick={() => setPaymentData({ ...paymentData, method: 'transfer' })}
-                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${paymentData.method === 'transfer'
-                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
-                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
-                      }`}
-                  >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${paymentData.method === 'transfer' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
-                      <i className="bi bi-bank"></i>
-                    </div>
-                    <span className="font-bold">Transferencia</span>
-                    {paymentData.method === 'transfer' && (
-                      <div className="absolute top-2 right-2 text-white text-xs">
-                        <i className="bi bi-check-circle-fill"></i>
-                      </div>
-                    )}
-                  </button>
-                </div>
-
-                {errors.paymentMethod && (
-                  <p className="text-red-500 text-sm flex items-center">
-                    <i className="bi bi-exclamation-triangle mr-1"></i>
-                    {errors.paymentMethod}
-                  </p>
-                )}
-
-                {paymentData.method === 'transfer' && (
-                  <div className="mt-6 bg-gray-50 p-4 rounded-lg animate-fadeIn">
-                    {/* Solo mostrar datos bancarios si NO hay comprobante adjunto */}
-                    {!paymentData.receiptImageUrl && (
-                      <>
-                        <h3 className="font-medium mb-4">💳 Datos para realizar la transferencia</h3>
-
-                        {/* Selector de banco */}
-                        <div className="mb-4">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Selecciona el banco:
-                          </label>
-                          <div className="grid grid-cols-2 gap-3">
-                            {[
-                              { id: 'pichincha', label: 'Pichincha', colorClass: 'bg-yellow-100 text-yellow-600', activeClass: 'bg-yellow-400 border-yellow-500 text-gray-900' },
-                              { id: 'pacifico', label: 'Pacifico', colorClass: 'bg-blue-100 text-blue-600', activeClass: 'bg-blue-600 border-blue-700 text-white' },
-                              { id: 'guayaquil', label: 'Guayaquil', colorClass: 'bg-pink-100 text-pink-600', activeClass: 'bg-pink-600 border-pink-700 text-white' },
-                              { id: 'produbanco', label: 'Produbanco', colorClass: 'bg-green-100 text-green-600', activeClass: 'bg-green-600 border-green-700 text-white' },
-                            ].map((bank) => (
-                              <button
-                                key={bank.id}
-                                type="button"
-                                onClick={() => setPaymentData({ ...paymentData, selectedBank: bank.id })}
-                                className={`w-full h-24 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${paymentData.selectedBank === bank.id
-                                  ? `${bank.activeClass} shadow-md`
-                                  : 'border-gray-100 bg-white text-gray-500 hover:border-gray-300'
-                                  }`}
-                              >
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${paymentData.selectedBank === bank.id ? 'bg-white/30 text-inherit' : bank.colorClass}`}>
-                                  <i className="bi bi-bank"></i>
-                                </div>
-                                <span className="text-xs font-bold text-center leading-tight">
-                                  {bank.label}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                          {errors.selectedBank && (
-                            <p className="text-red-500 text-xs mt-1 flex items-center">
-                              <i className="bi bi-exclamation-triangle mr-1"></i>
-                              {errors.selectedBank}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Mostrar datos bancarios según selección */}
-                        {paymentData.selectedBank && (
-                          <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm mt-4">
-                            <div className="space-y-5">
-                              {/* Header del Banco */}
-                              <div className="pb-4 border-b border-gray-100">
-                                <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Banco Destino</p>
-                                <p className="font-bold text-gray-900 text-xl flex items-center gap-2">
-                                  {paymentData.selectedBank === 'pichincha' && 'Banco Pichincha'}
-                                  {paymentData.selectedBank === 'pacifico' && 'Banco del Pacífico'}
-                                  {paymentData.selectedBank === 'guayaquil' && 'Banco Guayaquil'}
-                                  {paymentData.selectedBank === 'produbanco' && 'Banco Produbanco'}
-                                </p>
-                              </div>
-
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                <div>
-                                  <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Cuenta de Ahorros</p>
-                                  <div className="flex items-center gap-2">
-                                    <p className="font-mono text-xl font-bold text-gray-900 bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-block">
-                                      {paymentData.selectedBank === 'pichincha' && '2203257517'}
-                                      {paymentData.selectedBank === 'pacifico' && '1063889358'}
-                                      {paymentData.selectedBank === 'guayaquil' && '0030697477'}
-                                      {paymentData.selectedBank === 'produbanco' && '20059842774'}
-                                    </p>
-                                  </div>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Cédula / RUC</p>
-                                  <p className="font-medium text-gray-900 text-lg">
-                                    {paymentData.selectedBank === 'produbanco' ? '0929057636' : '0929057636'}
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div>
-                                <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Titular de la Cuenta</p>
-                                <p className="font-medium text-gray-900 text-lg border-b border-gray-100 pb-1 inline-block">
-                                  {paymentData.selectedBank === 'produbanco' ? 'Pedro Sánchez León' : 'Pedro Sánchez León'}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="mt-6 p-4 bg-gray-900 text-white rounded-xl shadow-lg flex gap-3 items-start">
-                              <i className="bi bi-cash-stack text-xl"></i>
-                              <div>
-                                <p className="font-bold text-lg mb-1">Total a transferir: ${total.toFixed(2)}</p>
-                                <p className="text-sm text-gray-300 leading-snug">
-                                  Realiza la transferencia exacta y sube tu comprobante a continuación para confirmar tu pedido.
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-
-                    {/* Componente para subir comprobante - SIEMPRE VISIBLE */}
-                    {paymentData.selectedBank && clientFound && (
-                      <TransferReceiptUploader
-                        onReceiptUpload={handleReceiptUpload}
-                        uploadedImageUrl={paymentData.receiptImageUrl || null}
-                        isUploading={uploadingReceipt}
-                        clientId={clientFound.id}
-                      />
-                    )}
-
-                    {/* Error del comprobante */}
-                    {errors.receiptImage && (
-                      <p className="text-red-500 text-xs mt-2 flex items-center">
-                        <i className="bi bi-exclamation-triangle mr-1"></i>
-                        {errors.receiptImage}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
 
           {/* Sidebar - Responsive Order Summary */}
@@ -2447,6 +2268,186 @@ export function CheckoutContent({
                 </div>
               </div>
             )}
+
+            {/* Step 4: Payment */}
+            <div id="step-4" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
+              <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">4</span>
+                Pago
+              </h2>
+
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Efectivo */}
+                  <button
+                    type="button"
+                    onClick={() => setPaymentData({ ...paymentData, method: 'cash' })}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${paymentData.method === 'cash'
+                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                      }`}
+                  >
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${paymentData.method === 'cash' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
+                      <i className="bi bi-cash-coin"></i>
+                    </div>
+                    <span className="font-bold">Efectivo</span>
+                    {paymentData.method === 'cash' && (
+                      <div className="absolute top-2 right-2 text-white text-xs">
+                        <i className="bi bi-check-circle-fill"></i>
+                      </div>
+                    )}
+                  </button>
+                  {/* Transferencia */}
+                  <button
+                    type="button"
+                    onClick={() => setPaymentData({ ...paymentData, method: 'transfer' })}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${paymentData.method === 'transfer'
+                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                      }`}
+                  >
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${paymentData.method === 'transfer' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
+                      <i className="bi bi-bank"></i>
+                    </div>
+                    <span className="font-bold">Transferencia</span>
+                    {paymentData.method === 'transfer' && (
+                      <div className="absolute top-2 right-2 text-white text-xs">
+                        <i className="bi bi-check-circle-fill"></i>
+                      </div>
+                    )}
+                  </button>
+                </div>
+
+                {errors.paymentMethod && (
+                  <p className="text-red-500 text-sm flex items-center">
+                    <i className="bi bi-exclamation-triangle mr-1"></i>
+                    {errors.paymentMethod}
+                  </p>
+                )}
+
+                {paymentData.method === 'transfer' && (
+                  <div className="mt-6 bg-gray-50 p-4 rounded-lg animate-fadeIn">
+                    {/* Solo mostrar datos bancarios si NO hay comprobante adjunto */}
+                    {!paymentData.receiptImageUrl && (
+                      <>
+                        <h3 className="font-medium mb-4">💳 Datos para realizar la transferencia</h3>
+
+                        {/* Selector de banco */}
+                        <div className="mb-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Selecciona el banco:
+                          </label>
+                          <div className="grid grid-cols-2 gap-3">
+                            {[
+                              { id: 'pichincha', label: 'Pichincha', colorClass: 'bg-yellow-100 text-yellow-600', activeClass: 'bg-yellow-400 border-yellow-500 text-gray-900' },
+                              { id: 'pacifico', label: 'Pacifico', colorClass: 'bg-blue-100 text-blue-600', activeClass: 'bg-blue-600 border-blue-700 text-white' },
+                              { id: 'guayaquil', label: 'Guayaquil', colorClass: 'bg-pink-100 text-pink-600', activeClass: 'bg-pink-600 border-pink-700 text-white' },
+                              { id: 'produbanco', label: 'Produbanco', colorClass: 'bg-green-100 text-green-600', activeClass: 'bg-green-600 border-green-700 text-white' },
+                            ].map((bank) => (
+                              <button
+                                key={bank.id}
+                                type="button"
+                                onClick={() => setPaymentData({ ...paymentData, selectedBank: bank.id })}
+                                className={`w-full h-24 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${paymentData.selectedBank === bank.id
+                                  ? `${bank.activeClass} shadow-md`
+                                  : 'border-gray-100 bg-white text-gray-500 hover:border-gray-300'
+                                  }`}
+                              >
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${paymentData.selectedBank === bank.id ? 'bg-white/30 text-inherit' : bank.colorClass}`}>
+                                  <i className="bi bi-bank"></i>
+                                </div>
+                                <span className="text-xs font-bold text-center leading-tight">
+                                  {bank.label}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                          {errors.selectedBank && (
+                            <p className="text-red-500 text-xs mt-1 flex items-center">
+                              <i className="bi bi-exclamation-triangle mr-1"></i>
+                              {errors.selectedBank}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Mostrar datos bancarios según selección */}
+                        {paymentData.selectedBank && (
+                          <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm mt-4">
+                            <div className="space-y-5">
+                              {/* Header del Banco */}
+                              <div className="pb-4 border-b border-gray-100">
+                                <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Banco Destino</p>
+                                <p className="font-bold text-gray-900 text-xl flex items-center gap-2">
+                                  {paymentData.selectedBank === 'pichincha' && 'Banco Pichincha'}
+                                  {paymentData.selectedBank === 'pacifico' && 'Banco del Pacífico'}
+                                  {paymentData.selectedBank === 'guayaquil' && 'Banco Guayaquil'}
+                                  {paymentData.selectedBank === 'produbanco' && 'Banco Produbanco'}
+                                </p>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                <div>
+                                  <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Cuenta de Ahorros</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-mono text-xl font-bold text-gray-900 bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-block">
+                                      {paymentData.selectedBank === 'pichincha' && '2203257517'}
+                                      {paymentData.selectedBank === 'pacifico' && '1063889358'}
+                                      {paymentData.selectedBank === 'guayaquil' && '0030697477'}
+                                      {paymentData.selectedBank === 'produbanco' && '20059842774'}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Cédula / RUC</p>
+                                  <p className="font-medium text-gray-900 text-lg">
+                                    {paymentData.selectedBank === 'produbanco' ? '0929057636' : '0929057636'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div>
+                                <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Titular de la Cuenta</p>
+                                <p className="font-medium text-gray-900 text-lg border-b border-gray-100 pb-1 inline-block">
+                                  {paymentData.selectedBank === 'produbanco' ? 'Pedro Sánchez León' : 'Pedro Sánchez León'}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="mt-6 p-4 bg-gray-900 text-white rounded-xl shadow-lg flex gap-3 items-start">
+                              <i className="bi bi-cash-stack text-xl"></i>
+                              <div>
+                                <p className="font-bold text-lg mb-1">Total a transferir: ${total.toFixed(2)}</p>
+                                <p className="text-sm text-gray-300 leading-snug">
+                                  Realiza la transferencia exacta y sube tu comprobante a continuación para confirmar tu pedido.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* Componente para subir comprobante - SIEMPRE VISIBLE */}
+                    {paymentData.selectedBank && clientFound && (
+                      <TransferReceiptUploader
+                        onReceiptUpload={handleReceiptUpload}
+                        uploadedImageUrl={paymentData.receiptImageUrl || null}
+                        isUploading={uploadingReceipt}
+                        clientId={clientFound.id}
+                      />
+                    )}
+
+                    {/* Error del comprobante */}
+                    {errors.receiptImage && (
+                      <p className="text-red-500 text-xs mt-2 flex items-center">
+                        <i className="bi bi-exclamation-triangle mr-1"></i>
+                        {errors.receiptImage}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
 
           </div>
         </div>

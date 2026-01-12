@@ -1196,6 +1196,7 @@ function RestaurantContent() {
           setCart(newCart)
           updateCartInStorage(business.id, newCart)
         }}
+        onOpenUserSidebar={() => setIsUserSidebarOpen(true)}
       />
 
       {/* Modal de variantes */}

@@ -359,7 +359,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
 
             {/* Sidebar Content */}
             <div
-                className={`absolute right-0 top-0 h-full w-full sm:w-[450px] bg-gray-50 shadow-2xl transform transition-transform duration-300 ease-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+                className={`absolute left-0 top-0 h-full w-full sm:w-[450px] bg-gray-50 shadow-2xl transform transition-transform duration-300 ease-out ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide">
                     {/* Header */}

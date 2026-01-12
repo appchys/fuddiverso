@@ -20,6 +20,8 @@ import { optimizeImage } from '@/lib/image-utils'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone } from '@/lib/validation'
 import Link from 'next/link'
 import { useRef } from 'react'
+import UserSidebar from '@/components/UserSidebar'
+import ClientLoginModal from '@/components/ClientLoginModal'
 
 // Tipos auxiliares para la vista
 interface EnrichedCard {
@@ -63,6 +65,8 @@ export default function ProfilePage() {
   })
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
+  const [showLoginModal, setShowLoginModal] = useState(false)
 
   // INIT
   useEffect(() => {
@@ -740,8 +744,24 @@ export default function ProfilePage() {
           removeFromCart={removeFromCart}
           updateQuantity={updateQuantity}
           addItemToCart={addItemToCart}
+          onOpenUserSidebar={() => setIsUserSidebarOpen(true)}
         />
       )}
+
+      <UserSidebar
+        isOpen={isUserSidebarOpen}
+        onClose={() => setIsUserSidebarOpen(false)}
+        onLogin={() => setShowLoginModal(true)}
+      />
+
+      <ClientLoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onLoginSuccess={(phone) => {
+          setShowLoginModal(false)
+          loadProfileData()
+        }}
+      />
     </div>
   )
 }
