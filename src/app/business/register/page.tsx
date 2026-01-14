@@ -96,6 +96,9 @@ function BusinessRegisterForm() {
       localStorage.setItem('businessId', businessId)
       localStorage.setItem('ownerId', currentUser.uid)
 
+      // Limpiar el caché de acceso a negocios para que el dashboard fuerce un refresco
+      localStorage.removeItem(`businessAccess:${currentUser.uid}`)
+
       // Marcar fecha de registro
       try {
         await updateBusiness(businessId, {

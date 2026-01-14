@@ -225,8 +225,8 @@ function formatDateDDMMYYYY(d?: Date | string) {
 export async function createBusiness(businessData: Omit<Business, 'id' | 'createdAt'>) {
   try {
     // Validar datos requeridos
-    if (!businessData.name || !businessData.email || !businessData.phone || !businessData.address) {
-      throw new Error('Faltan datos requeridos: nombre, email, teléfono y dirección son obligatorios.');
+    if (!businessData.name || !businessData.email || !businessData.phone) {
+      throw new Error('Faltan datos requeridos: nombre, email y teléfono son obligatorios.');
     }
 
     // Filtrar valores undefined antes de enviar a Firestore
