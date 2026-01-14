@@ -266,6 +266,7 @@ export async function createBusinessFromForm(formData: {
   description: string;
   category?: string;
   image?: string;
+  coverImage?: string;
   references?: string;
   ownerId?: string;
 }) {
@@ -277,6 +278,7 @@ export async function createBusinessFromForm(formData: {
     address: formData.address,
     description: formData.description,
     image: formData.image,
+    coverImage: formData.coverImage,
     ownerId: formData.ownerId,
     references: formData.references || '',
     categories: [],
