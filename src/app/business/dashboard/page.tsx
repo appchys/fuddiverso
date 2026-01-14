@@ -493,6 +493,31 @@ export default function BusinessDashboard() {
     loadBusinessData();
   }, [selectedBusinessId]);
 
+  // Manejar navegación profunda desde URL (tab y subtab)
+  useEffect(() => {
+    if (loading || !selectedBusinessId) return;
+
+    const query = new URLSearchParams(window.location.search);
+    const tab = query.get('tab');
+    const subtab = query.get('subtab');
+
+    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes'].includes(tab)) {
+      setActiveTab(tab as any);
+      if (tab === 'profile') {
+        setIsTiendaMenuOpen(true);
+        if (subtab && ['general', 'products', 'fidelizacion'].includes(subtab)) {
+          setProfileSubTab(subtab as any);
+        }
+      }
+      if (tab === 'reports') {
+        setIsReportsMenuOpen(true);
+        if (subtab && ['general', 'deliveries', 'costs'].includes(subtab)) {
+          setReportsSubTab(subtab as any);
+        }
+      }
+    }
+  }, [loading, selectedBusinessId]);
+
   // Función para recargar solo las órdenes
   const loadOrders = async () => {
     if (!selectedBusinessId) return;
@@ -3730,29 +3755,33 @@ export default function BusinessDashboard() {
 
 
 
-        {/* Botón flotante para crear pedido */}
-        <button
-          onClick={() => {
-            setManualSidebarMode('create')
-            setEditingOrderForSidebar(null)
-            setShowManualOrderModal(true)
-          }}
-          className="fixed bottom-4 right-4 bg-red-600 hover:bg-red-700 text-white rounded-full w-12 h-12 shadow-lg transition-colors z-50 flex items-center justify-center"
-          title="Crear Pedido"
-        >
-          <i className="bi bi-plus-lg text-lg"></i>
-        </button>
+        {/* Botón flotante para crear pedido - Solo visible en pedidos */}
+        {activeTab === 'orders' && (
+          <>
+            <button
+              onClick={() => {
+                setManualSidebarMode('create')
+                setEditingOrderForSidebar(null)
+                setShowManualOrderModal(true)
+              }}
+              className="fixed bottom-4 right-4 bg-red-600 hover:bg-red-700 text-white rounded-full w-12 h-12 shadow-lg transition-colors z-50 flex items-center justify-center"
+              title="Crear Pedido"
+            >
+              <i className="bi bi-plus-lg text-lg"></i>
+            </button>
 
-        <ManualOrderSidebar
-          isOpen={showManualOrderModal}
-          onClose={() => setShowManualOrderModal(false)}
-          business={business}
-          products={products}
-          onOrderCreated={loadOrders}
-          mode={manualSidebarMode}
-          editOrder={editingOrderForSidebar || undefined}
-          onOrderUpdated={loadOrders}
-        />
+            <ManualOrderSidebar
+              isOpen={showManualOrderModal}
+              onClose={() => setShowManualOrderModal(false)}
+              business={business}
+              products={products}
+              onOrderCreated={loadOrders}
+              mode={manualSidebarMode}
+              editOrder={editingOrderForSidebar || undefined}
+              onOrderUpdated={loadOrders}
+            />
+          </>
+        )}
 
         {/* Modal de Previsualización de Comprobante con Validación */}
         {showReceiptPreviewModal && paymentEditingOrder?.payment?.receiptImageUrl && (

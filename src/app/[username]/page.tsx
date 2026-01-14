@@ -1227,7 +1227,7 @@ function RestaurantContent() {
 
               {isOwner ? (
                 <Link
-                  href="/business/dashboard"
+                  href="/business/dashboard?tab=profile&subtab=products"
                   className="inline-flex items-center gap-3 px-8 py-4 bg-gray-900 text-white font-black rounded-2xl shadow-[0_10px_20px_rgba(0,0,0,0.1)] hover:shadow-[0_15px_30px_rgba(0,0,0,0.2)] hover:-translate-y-1 transition-all active:scale-95 group"
                 >
                   <i className="bi bi-plus-circle text-2xl text-red-500"></i>

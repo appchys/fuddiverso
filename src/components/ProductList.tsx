@@ -401,7 +401,7 @@ export default function ProductList({
         imageUrl = await uploadImage(formData.image, path)
       }
 
-                              // Agregar ingredientes a cada variante
+      // Agregar ingredientes a cada variante
       const variantsWithIngredients = variants.map(variant => ({
         ...variant,
         ingredients: variantIngredients[variant.id] || undefined,
@@ -500,71 +500,74 @@ export default function ProductList({
                 : 'bg-gray-50 border-gray-300 opacity-60'
                 }`}
             >
-              <div className="flex gap-4">
-                {/* Imagen */}
-                <div className={`w-16 h-16 flex-shrink-0 rounded-lg flex items-center justify-center overflow-hidden ${product.isAvailable ? 'bg-gray-200' : 'bg-gray-300'
-                  }`}>
-                  {product.image ? (
-                    <img src={product.image} alt={product.name} className={`w-full h-full object-cover ${!product.isAvailable ? 'opacity-70' : ''
-                      }`} />
-                  ) : (
-                    <i className={`bi bi-box-seam text-xl ${product.isAvailable ? 'text-gray-400' : 'text-gray-500'
-                      }`}></i>
-                  )}
-                </div>
-
-                {/* Información */}
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className={`font-semibold ${product.isAvailable ? 'text-gray-900' : 'text-gray-600'
-                      }`}>{product.name}</h3>
-                    {!product.isAvailable && (
-                      <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
-                        No disponible
-                      </span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start sm:items-center gap-4 min-w-0 flex-1">
+                  {/* Imagen */}
+                  <div className={`w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 rounded-xl flex items-center justify-center overflow-hidden shadow-sm ${product.isAvailable ? 'bg-gray-200' : 'bg-gray-300'
+                    }`}>
+                    {product.image ? (
+                      <img src={product.image} alt={product.name} className={`w-full h-full object-cover ${!product.isAvailable ? 'opacity-70' : ''
+                        }`} />
+                    ) : (
+                      <i className={`bi bi-box-seam text-2xl ${product.isAvailable ? 'text-gray-400' : 'text-gray-500'
+                        }`}></i>
                     )}
                   </div>
-                  <p className={`text-sm mt-1 line-clamp-2 ${product.isAvailable ? 'text-gray-600' : 'text-gray-500'
-                    }`}>{product.description}</p>
-                  <div className="flex items-center gap-3 mt-2">
-                    <span className={`text-sm font-semibold ${product.isAvailable ? 'text-gray-900' : 'text-gray-600'
-                      }`}>${product.price.toFixed(2)}</span>
-                    <span className={`text-xs ${product.isAvailable ? 'text-gray-500' : 'text-gray-400'
-                      }`}>{product.category}</span>
-                    {product.variants && product.variants.length > 0 && (
-                      <span className={`text-xs px-2 py-0.5 rounded ${product.isAvailable ? 'bg-blue-50 text-blue-700' : 'bg-gray-300 text-gray-600'
-                        }`}>
-                        {product.variants.length} variante{product.variants.length !== 1 ? 's' : ''}
+
+                  {/* Información */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className={`font-bold text-base sm:text-lg truncate ${product.isAvailable ? 'text-gray-900' : 'text-gray-600'
+                        }`}>{product.name}</h3>
+                      {!product.isAvailable && (
+                        <span className="text-[10px] sm:text-xs font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-full uppercase">
+                          No disponible
+                        </span>
+                      )}
+                    </div>
+                    <p className={`text-xs sm:text-sm mt-1 line-clamp-1 sm:line-clamp-2 ${product.isAvailable ? 'text-gray-600' : 'text-gray-500'
+                      }`}>{product.description}</p>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
+                      <span className={`text-sm sm:text-base font-black ${product.isAvailable ? 'text-gray-900' : 'text-gray-600'
+                        }`}>${product.price.toFixed(2)}</span>
+                      <span className={`text-[10px] sm:text-xs font-medium px-2 py-0.5 bg-gray-100 rounded text-gray-500 uppercase tracking-wider`}>
+                        {product.category}
                       </span>
-                    )}
+                      {product.variants && product.variants.length > 0 && (
+                        <span className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded ${product.isAvailable ? 'bg-blue-100 text-blue-700' : 'bg-gray-300 text-gray-600'
+                          }`}>
+                          {product.variants.length} variante{product.variants.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 {/* Botones de acción */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-end gap-1 sm:gap-2 pt-3 sm:pt-0 border-t sm:border-0 border-gray-100 flex-shrink-0">
                   <button
                     onClick={() => handleToggleAvailability(product.id, product.isAvailable)}
-                    className={`p-2 rounded-lg transition-colors ${product.isAvailable
-                      ? 'text-orange-600 hover:bg-orange-50'
-                      : 'text-green-600 hover:bg-green-50'
+                    className={`p-2.5 sm:p-2 rounded-xl transition-all active:scale-95 ${product.isAvailable
+                      ? 'text-orange-600 bg-orange-50 hover:bg-orange-100'
+                      : 'text-green-600 bg-green-50 hover:bg-green-100'
                       }`}
                     title={product.isAvailable ? 'Ocultar' : 'Mostrar'}
                   >
-                    <i className={`bi ${product.isAvailable ? 'bi-eye-slash' : 'bi-eye'}`}></i>
+                    <i className={`bi ${product.isAvailable ? 'bi-eye-slash' : 'bi-eye'} text-lg sm:text-base`}></i>
                   </button>
                   <button
                     onClick={() => handleEditProduct(product)}
-                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    className="p-2.5 sm:p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-all active:scale-95"
                     title="Editar"
                   >
-                    <i className="bi bi-pencil"></i>
+                    <i className="bi bi-pencil text-lg sm:text-base"></i>
                   </button>
                   <button
                     onClick={() => handleDeleteProduct(product.id)}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    className="p-2.5 sm:p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-all active:scale-95"
                     title="Eliminar"
                   >
-                    <i className="bi bi-trash"></i>
+                    <i className="bi bi-trash text-lg sm:text-base"></i>
                   </button>
                 </div>
               </div>
@@ -679,7 +682,7 @@ export default function ProductList({
                           value={formData.name}
                           onChange={handleInputChange}
                           placeholder="Nombre del producto"
-                          className={`w-full text-3xl font-bold text-gray-900 border-b-2 focus:outline-none transition-colors py-2 px-0 ${errors.name ? 'border-red-500 text-red-600' : 'border-transparent hover:border-gray-300 focus:border-red-500'
+                          className={`w-full text-2xl sm:text-3xl font-bold text-gray-900 border-b-2 focus:outline-none transition-colors py-2 px-0 ${errors.name ? 'border-red-500 text-red-600' : 'border-transparent hover:border-gray-300 focus:border-red-500'
                             }`}
                         />
                         {formData.name && (
@@ -712,7 +715,7 @@ export default function ProductList({
                     {/* Precio - Grande y destacado */}
                     <div>
                       <div className="relative">
-                        <span className="absolute left-0 top-2 text-4xl font-bold text-gray-900">$</span>
+                        <span className="absolute left-0 top-2 text-3xl sm:text-4xl font-bold text-gray-900">$</span>
                         <input
                           type="number"
                           step="0.01"
@@ -721,7 +724,7 @@ export default function ProductList({
                           value={formData.price}
                           onChange={handleInputChange}
                           placeholder="0.00"
-                          className={`w-full pl-12 pr-0 py-2 text-4xl font-bold border-b-2 focus:outline-none transition-colors bg-transparent ${errors.price ? 'border-red-500 text-red-600' : 'border-transparent hover:border-gray-300 focus:border-red-500 text-gray-900'
+                          className={`w-full pl-10 sm:pl-12 pr-0 py-2 text-3xl sm:text-4xl font-bold border-b-2 focus:outline-none transition-colors bg-transparent ${errors.price ? 'border-red-500 text-red-600' : 'border-transparent hover:border-gray-300 focus:border-red-500 text-gray-900'
                             }`}
                         />
                       </div>
@@ -1035,7 +1038,7 @@ export default function ProductList({
                               )}
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                               <div className="space-y-2">
                                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
                                   Costo (Unidad)
