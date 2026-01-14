@@ -82,9 +82,10 @@ function BusinessStructuredData({ business }: { business: Business }) {
   )
 }
 
-function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, updateQuantity, businessImage, businessUsername }: {
+function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartItemQuantity, updateQuantity, businessImage, businessUsername }: {
   product: any,
   onAddToCart: (item: any) => void,
+  onShowDetails: (product: any) => void,
   getCartItemQuantity: (id: string, variantName?: string | null) => number,
   updateQuantity: (id: string, quantity: number, variantName?: string | null) => void,
   businessImage?: string,
@@ -134,7 +135,13 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
       </button>
 
       {/* Imagen cuadrada con diseño redondeado */}
-      <div className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50">
+      <div
+        onClick={(e) => {
+          e.stopPropagation();
+          onShowDetails(product);
+        }}
+        className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 hover:opacity-90 transition-opacity"
+      >
         <div className={`absolute inset-0 animate-pulse bg-gray-100 ${imgLoaded ? 'hidden' : 'block'}`}></div>
         <img
           src={product.image || businessImage}
@@ -210,49 +217,82 @@ function ProductVariantSelector({ product, onAddToCart, getCartItemQuantity, upd
 }
 
 // Modal para seleccionar variantes
-function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, getCartItemQuantity, updateQuantity }: {
+function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, businessUsername, getCartItemQuantity, updateQuantity }: {
   product: any;
   isOpen: boolean;
   onClose: () => void;
   onAddToCart: (item: any) => void;
   businessImage?: string;
+  businessUsername?: string;
   getCartItemQuantity: (id: string, variantName?: string | null) => number;
   updateQuantity: (id: string, quantity: number, variantName?: string | null) => void;
 }) {
   const [selectedVariant, setSelectedVariant] = useState<any>(null)
   const [modalImgLoaded, setModalImgLoaded] = useState(false)
+  const [copySuccess, setCopySuccess] = useState(false)
 
   if (!isOpen || !product) return null
 
-  const makeUid = (variant: any) => `${product.id}-${variant.id}`
+  const handleCopyLink = async () => {
+    const productUrl = `${window.location.origin}/${businessUsername}/${product.id}`
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(productUrl)
+      } else {
+        const textArea = document.createElement('textarea')
+        textArea.value = productUrl
+        textArea.style.position = 'fixed'
+        textArea.style.opacity = '0'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+      }
+      setCopySuccess(true)
+      setTimeout(() => setCopySuccess(false), 2000)
+    } catch (err) {
+      console.error('Error al copiar enlace:', err)
+    }
+  }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:items-center sm:pt-0 sm:pb-0">
-        <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={onClose} />
+    <div className="fixed inset-0 z-50 overflow-hidden">
+      {/* Overlay con blur suave */}
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
 
-        <div className="relative inline-block w-full h-full sm:max-h-[90vh] sm:max-w-md sm:my-8 sm:rounded-lg flex flex-col overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl">
-          {/* Header fijo */}
-          <div className="p-4 sm:p-6 pb-0 flex-shrink-0">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900 truncate pr-2">{product?.name}</h3>
-              <button onClick={onClose} className="text-gray-400 hover:text-gray-500 flex-shrink-0">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+      <div className="flex items-center justify-center min-h-screen p-4">
+        <div className="relative w-full max-w-md bg-gray-50 rounded-[2.5rem] shadow-2xl overflow-hidden transform transition-all animate-in fade-in zoom-in duration-300">
+
+          {/* Header con estilo premium */}
+          <div className="px-6 pt-8 pb-6 bg-white border-b border-gray-100 relative">
+            <div className="absolute top-6 right-6 flex items-center gap-2">
+              <button
+                onClick={handleCopyLink}
+                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
+                title="Copiar enlace del producto"
+              >
+                <i className={`bi ${copySuccess ? 'bi-check-circle text-emerald-500' : 'bi-link-45deg'} text-xl`}></i>
+              </button>
+              <button
+                onClick={onClose}
+                className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            <div className="flex items-start gap-3 mb-3">
-              {/* Imagen cuadrada a la izquierda */}
-              <div className="w-24 h-24 sm:w-28 sm:h-28 flex-shrink-0 relative">
-                <div className={`absolute inset-0 rounded-lg animate-pulse bg-gray-200 ${modalImgLoaded ? 'hidden' : 'block'}`}></div>
+            <div className="flex gap-5">
+              {/* Imagen principal del producto en el modal */}
+              <div className="w-24 h-24 sm:w-28 sm:h-28 flex-shrink-0 relative rounded-2xl overflow-hidden shadow-lg border-2 border-white">
+                <div className={`absolute inset-0 animate-pulse bg-gray-100 ${modalImgLoaded ? 'hidden' : 'block'}`}></div>
                 <img
                   src={product?.image || businessImage}
                   alt={product?.name}
-                  className="w-full h-full object-cover rounded-lg"
+                  className="w-full h-full object-cover"
                   loading="lazy"
-                  decoding="async"
                   onLoad={() => setModalImgLoaded(true)}
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
@@ -262,98 +302,159 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, ge
                 />
               </div>
 
-              {/* Descripción a la derecha */}
-              {product?.description && (
-                <div className="flex-1 min-w-0">
-                  <p className="text-gray-600 text-sm line-clamp-4">{product.description}</p>
+              <div className="flex-1 min-w-0 flex flex-col justify-center">
+                <h3 className="text-xl font-black text-gray-900 leading-tight mb-2 pr-8">{product?.name}</h3>
+                {product?.category && (
+                  <span className="w-fit px-2 py-0.5 bg-red-50 text-red-600 text-[10px] font-black uppercase tracking-widest rounded-full">
+                    {product.category}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {product?.description && (
+              <div className="mt-6">
+                <p className="text-gray-500 text-sm leading-relaxed line-clamp-3">
+                  {product.description}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Área de selección con fondo gris claro y scroll suave */}
+          <div className="p-6 overflow-y-auto max-h-[50vh] custom-scrollbar">
+            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 ml-1">
+              {product?.variants?.length > 0 ? 'Opciones disponibles' : 'Detalle del producto'}
+            </label>
+
+            <div className="space-y-3">
+              {(!product?.variants || product.variants.length === 0) ? (
+                /* Producto sin variantes - Estilo CartSidebar */
+                <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group transition-all hover:border-red-100">
+                  <div className="flex-1 min-w-0">
+                    <h5 className="font-bold text-gray-900 text-sm">{product.name}</h5>
+                    <div className="text-red-500 font-black mt-1">${(product.price || 0).toFixed(2)}</div>
+                  </div>
+
+                  <div className="flex-shrink-0 ml-4">
+                    {getCartItemQuantity(product.id, null) > 0 ? (
+                      <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-1">
+                        <button
+                          onClick={() => updateQuantity(product.id, getCartItemQuantity(product.id, null) - 1, null)}
+                          className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-red-500 transition-colors"
+                        >
+                          <span className="text-lg">−</span>
+                        </button>
+                        <span className="w-8 text-center font-black text-sm text-gray-900">
+                          {getCartItemQuantity(product.id, null)}
+                        </span>
+                        <button
+                          onClick={() => updateQuantity(product.id, getCartItemQuantity(product.id, null) + 1, null)}
+                          className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-green-600 transition-colors"
+                        >
+                          <span className="text-lg">+</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          onAddToCart({
+                            id: product.id,
+                            name: product.name,
+                            variantName: null,
+                            productName: product.name,
+                            price: product.price,
+                            image: product.image,
+                            description: product.description,
+                            businessId: product.businessId,
+                            productId: product.id,
+                          });
+                        }}
+                        className="w-10 h-10 flex items-center justify-center bg-gray-900 text-white rounded-xl shadow-lg hover:bg-black transition-all active:scale-90"
+                      >
+                        <i className="bi bi-plus-lg text-sm"></i>
+                      </button>
+                    )}
+                  </div>
                 </div>
+              ) : (
+                /* Lista de variantes - Estilo Premium */
+                product?.variants?.filter((v: any) => v.isAvailable !== false).map((variant: any, i: number) => {
+                  const qty = getCartItemQuantity(product.id, variant.name)
+
+                  return (
+                    <div
+                      key={i}
+                      onClick={() => setSelectedVariant(variant)}
+                      className={`w-full p-4 rounded-2xl border-2 transition-all duration-300 flex items-center justify-between ${selectedVariant?.name === variant.name
+                        ? 'border-red-500 bg-white shadow-md ring-1 ring-red-50'
+                        : 'border-white bg-white shadow-sm hover:shadow-md hover:border-gray-100 cursor-pointer'
+                        }`}
+                    >
+                      <div className="flex-1 min-w-0 pr-4">
+                        <h5 className="font-bold text-gray-900 text-sm mb-0.5">{variant.name}</h5>
+                        {variant.description && (
+                          <p className="text-xs text-gray-400 line-clamp-1 mb-1">{variant.description}</p>
+                        )}
+                        <div className="text-red-500 font-black text-base">${variant.price.toFixed(2)}</div>
+                      </div>
+
+                      <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                        {qty > 0 ? (
+                          <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-1">
+                            <button
+                              onClick={() => updateQuantity(product.id, qty - 1, variant.name)}
+                              className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-red-500 transition-all"
+                            >
+                              <span className="text-lg">−</span>
+                            </button>
+                            <span className="w-8 text-center font-black text-sm text-gray-900">
+                              {qty}
+                            </span>
+                            <button
+                              onClick={() => updateQuantity(product.id, qty + 1, variant.name)}
+                              className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-green-600 transition-all"
+                            >
+                              <span className="text-lg">+</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              onAddToCart({
+                                id: product.id,
+                                name: `${product.name} - ${variant.name}`,
+                                variantName: variant.name,
+                                productName: product.name,
+                                price: variant.price,
+                                image: product.image,
+                                description: variant.description || product.description,
+                                businessId: product.businessId,
+                                productId: product.id,
+                                variantId: variant.id
+                              });
+                            }}
+                            className="w-10 h-10 flex items-center justify-center bg-gray-900/5 text-gray-900 hover:bg-gray-900 hover:text-white rounded-xl transition-all active:scale-95"
+                          >
+                            <i className="bi bi-plus-lg text-sm"></i>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
               )}
             </div>
           </div>
 
-          {/* Sección de variantes desplazable */}
-          <div className="px-4 sm:px-6 pb-4 overflow-y-auto flex-1 max-h-[60vh] sm:max-h-[40vh] custom-scrollbar">
-            <div className="space-y-3 pr-2">
-              {product?.variants?.filter((v: any) => v.isAvailable !== false).map((variant: any, i: number) => {
-                const qty = getCartItemQuantity(product.id, variant.name)
-
-                return (
-                  <div
-                    key={i}
-                    onClick={() => setSelectedVariant(variant)}
-                    className={`w-full p-3 rounded-lg border-2 flex items-center justify-between transition-colors ${selectedVariant === variant ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-gray-300 cursor-pointer'
-                      }`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <h5 className="font-medium text-gray-900">{variant.name}</h5>
-                      {variant.description && (
-                        <p className="text-sm text-gray-600">{variant.description}</p>
-                      )}
-                      <div className="text-red-500 font-bold mt-1">${variant.price.toFixed(2)}</div>
-                    </div>
-
-                    <div className="flex-shrink-0 ml-2" onClick={(e) => e.stopPropagation()}>
-                      {qty > 0 ? (
-                        <div className="flex items-center border rounded-lg overflow-hidden bg-white">
-                          <button
-                            onClick={() => updateQuantity(product.id, qty - 1, variant.name)}
-                            className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
-                          >
-                            -
-                          </button>
-                          <div className="px-3 py-1 min-w-[30px] text-center">
-                            {qty}
-                          </div>
-                          <button
-                            onClick={() => updateQuantity(product.id, qty + 1, variant.name)}
-                            className="px-3 py-1 bg-red-500 text-white hover:bg-red-600 transition-colors"
-                          >
-                            +
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            onAddToCart({
-                              id: product.id,
-                              name: `${product.name} - ${variant.name}`,
-                              variantName: variant.name,
-                              productName: product.name,
-                              price: variant.price,
-                              image: product.image,
-                              description: variant.description || product.description,
-                              businessId: product.businessId,
-                              productId: product.id,
-                              variantId: variant.id
-                            });
-                            onClose();
-                          }}
-                          className="flex items-center justify-center w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors"
-                          title="Agregar al carrito"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Footer fijo */}
-          <div className="p-4 border-t border-gray-100 flex-shrink-0 bg-white sticky bottom-0">
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
-              >
-                Cerrar
-              </button>
-            </div>
+          {/* Footer - Estilo Premium Bottom */}
+          <div className="p-6 bg-white border-t border-gray-100">
+            <button
+              onClick={onClose}
+              className="w-full py-4 bg-gray-100 text-gray-900 font-bold rounded-2xl hover:bg-gray-200 transition-all active:scale-[0.98]"
+            >
+              Cerrar
+            </button>
           </div>
         </div>
       </div>
@@ -1121,6 +1222,10 @@ function RestaurantContent() {
                       key={product.id}
                       product={product}
                       onAddToCart={addToCart}
+                      onShowDetails={(p) => {
+                        setSelectedProduct(p)
+                        setIsVariantModalOpen(true)
+                      }}
                       getCartItemQuantity={getCartItemQuantity}
                       updateQuantity={updateQuantity}
                       businessImage={business?.image}
@@ -1198,6 +1303,7 @@ function RestaurantContent() {
         }}
         onAddToCart={addVariantToCart}
         businessImage={business?.image}
+        businessUsername={business?.username}
         getCartItemQuantity={getCartItemQuantity}
         updateQuantity={updateQuantity}
       />
