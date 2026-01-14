@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { Business, Product, Ingredient } from '@/types'
 import { getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, uploadImage } from '@/lib/database'
 import ProductList from './ProductList'
+import NotificationSettings from './NotificationSettings'
 import { GoogleMap, useCurrentLocation } from './GoogleMap'
 
 interface BusinessProfileDashboardProps {
@@ -26,7 +27,7 @@ interface BusinessProfileDashboardProps {
   onToggleDayOpen: (day: string) => void
   onProductsChange: (products: Product[]) => void
   onCategoriesChange: (categories: string[]) => void
-  initialTab?: 'general' | 'products' | 'fidelizacion'
+  initialTab?: 'general' | 'products' | 'fidelizacion' | 'notifications'
 }
 
 export default function BusinessProfileDashboard({
@@ -53,7 +54,7 @@ export default function BusinessProfileDashboard({
 }: BusinessProfileDashboardProps) {
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
-  const [activeTab, setActiveTab] = useState<'general' | 'products' | 'fidelizacion'>(initialTab)
+  const [activeTab, setActiveTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications'>(initialTab)
 
   // Hook para ubicación
   const { location, loading: locating, error: locationError, getCurrentLocation } = useCurrentLocation()
@@ -868,6 +869,14 @@ export default function BusinessProfileDashboard({
             )}
           </div>
         </div>
+      )}
+
+      {/* Contenido de la pestaña Notificaciones */}
+      {activeTab === 'notifications' && (
+        <NotificationSettings
+          business={business}
+          onBusinessFieldChange={onBusinessFieldChange}
+        />
       )}
     </div>
   )

@@ -33,16 +33,35 @@ exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => 
   try {
     console.log(`📧 Procesando email para orden: ${orderId}`);
 
-    // Obtener email del negocio desde Firestore
+    // Obtener datos del negocio desde Firestore
     let businessEmail = 'info@fuddi.shop';
     if (order.businessId) {
       try {
         const businessDoc = await admin.firestore().collection('businesses').doc(order.businessId).get();
-        if (businessDoc.exists && businessDoc.data().email) {
-          businessEmail = businessDoc.data().email;
+        if (businessDoc.exists) {
+          const businessData = businessDoc.data();
+          if (businessData.email) {
+            businessEmail = businessData.email;
+          }
+
+          // Verificar configuración de notificaciones
+          const settings = businessData.notificationSettings || {
+            emailOrderClient: true,
+            emailOrderManual: true
+          };
+
+          const isManualOrder = !!order.createdByAdmin;
+          const shouldSendEmail = isManualOrder
+            ? settings.emailOrderManual
+            : settings.emailOrderClient;
+
+          if (!shouldSendEmail) {
+            console.log(`🔕 Notificaciones desactivadas para este tipo de orden (${isManualOrder ? 'Manual' : 'Cliente'}). Email cancelado.`);
+            return;
+          }
         }
       } catch (e) {
-        console.warn('⚠️ No se pudo obtener el email del negocio:', e.message);
+        console.warn('⚠️ No se pudo obtener datos del negocio:', e.message);
       }
     }
 

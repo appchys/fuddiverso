@@ -88,7 +88,7 @@ export default function BusinessDashboard() {
   const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes'>('orders')
-  const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion'>('general')
+  const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications'>('general')
   const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
   const [reportsSubTab, setReportsSubTab] = useState<'general' | 'deliveries' | 'costs'>('general')
   const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false)
@@ -505,7 +505,7 @@ export default function BusinessDashboard() {
       setActiveTab(tab as any);
       if (tab === 'profile') {
         setIsTiendaMenuOpen(true);
-        if (subtab && ['general', 'products', 'fidelizacion'].includes(subtab)) {
+        if (subtab && ['general', 'products', 'fidelizacion', 'notifications'].includes(subtab)) {
           setProfileSubTab(subtab as any);
         }
       }
@@ -2596,7 +2596,8 @@ export default function BusinessDashboard() {
                     {[
                       { id: 'general', label: 'Generales', icon: 'bi-info-circle' },
                       { id: 'products', label: 'Productos', icon: 'bi-box-seam' },
-                      { id: 'fidelizacion', label: 'Fidelización', icon: 'bi-gift' }
+                      { id: 'fidelizacion', label: 'Fidelización', icon: 'bi-gift' },
+                      { id: 'notifications', label: 'Notificaciones', icon: 'bi-bell' }
                     ].map((sub) => (
                       <button
                         key={sub.id}

@@ -54,6 +54,10 @@ export interface Business {
     latlong: string
     storePhotoUrl: string
   }
+  notificationSettings?: {
+    emailOrderClient: boolean // Notificaciones de pedidios hechos por cliente
+    emailOrderManual: boolean // Notificaciones de pedidos manuales
+  }
 }
 
 export interface BusinessAdministrator {

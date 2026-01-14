@@ -295,6 +295,10 @@ export async function createBusinessFromForm(formData: {
       saturday: { open: '09:00', close: '18:00', isOpen: true },
       sunday: { open: '09:00', close: '18:00', isOpen: false }
     },
+    notificationSettings: {
+      emailOrderClient: true,
+      emailOrderManual: true
+    },
     isActive: true,
     updatedAt: new Date()
   };
@@ -1180,6 +1184,10 @@ export async function createBusinessFromGoogleAuth(userData: {
         friday: { open: '09:00', close: '18:00', isOpen: true },
         saturday: { open: '09:00', close: '18:00', isOpen: true },
         sunday: { open: '09:00', close: '18:00', isOpen: false }
+      },
+      notificationSettings: {
+        emailOrderClient: true,
+        emailOrderManual: true
       },
       isActive: true,
       updatedAt: new Date()
