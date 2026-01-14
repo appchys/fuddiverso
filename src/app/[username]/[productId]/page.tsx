@@ -409,79 +409,167 @@ export default function ProductPageByUsername() {
               )}
             </div>
 
-            {product.variants && product.variants.length > 0 && (
+            {product.variants && product.variants.length > 0 ? (
               <div className="mb-8">
                 <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-4">
                   Selecciona una opción
                 </label>
                 <div className="grid grid-cols-1 gap-3">
-                  {product.variants.map((variant) => (
-                    <button
-                      key={variant.name}
-                      onClick={() => setSelectedVariant(variant.name)}
-                      className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 ${selectedVariant === variant.name
-                        ? 'border-red-500 bg-red-50 shadow-md ring-1 ring-red-500/10 scale-[1.02]'
-                        : 'border-gray-100 hover:border-gray-200 bg-white hover:bg-gray-50'
-                        }`}
-                    >
-                      <span className={`font-bold transition-colors ${selectedVariant === variant.name ? 'text-gray-900' : 'text-gray-600'}`}>
-                        {variant.name}
-                      </span>
-                      <span className={`text-lg font-black transition-colors ${selectedVariant === variant.name ? 'text-red-600' : 'text-gray-400'}`}>
-                        ${variant.price.toFixed(2)}
-                      </span>
-                    </button>
-                  ))}
+                  {product.variants.map((variant) => {
+                    const cartItem = cart.find(item => item.id === product.id && item.variantName === variant.name);
+                    const qty = cartItem ? cartItem.quantity : 0;
+
+                    return (
+                      <div
+                        key={variant.name}
+                        className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 ${qty > 0
+                          ? 'border-red-500 bg-red-50 shadow-md ring-1 ring-red-500/10'
+                          : 'border-gray-100 bg-white hover:border-gray-200'
+                          }`}
+                      >
+                        <div className="flex-1 min-w-0 pr-4">
+                          <span className="block font-bold text-gray-900">
+                            {variant.name}
+                          </span>
+                          <span className="text-lg font-black text-red-600">
+                            ${variant.price.toFixed(2)}
+                          </span>
+                        </div>
+
+                        <div className="flex-shrink-0">
+                          {qty > 0 ? (
+                            <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-1">
+                              <button
+                                onClick={() => updateQuantity(product.id, qty - 1, variant.name)}
+                                className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-red-500 transition-all"
+                              >
+                                <span className="text-lg">−</span>
+                              </button>
+                              <span className="w-8 text-center font-black text-sm text-gray-900">
+                                {qty}
+                              </span>
+                              <button
+                                onClick={() => updateQuantity(product.id, qty + 1, variant.name)}
+                                className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-green-600 transition-all"
+                              >
+                                <span className="text-lg">+</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                const itemToAdd = {
+                                  id: product.id,
+                                  name: `${product.name} - ${variant.name}`,
+                                  variantName: variant.name,
+                                  productName: product.name,
+                                  price: variant.price,
+                                  image: product.image,
+                                  description: variant.description || product.description,
+                                  businessId: business?.id || product.businessId,
+                                  businessName: business?.name || product.businessName,
+                                  businessImage: business?.image || product.businessImage,
+                                  category: product.category
+                                };
+
+                                const cartsData = localStorage.getItem('carts');
+                                const allCarts = cartsData ? JSON.parse(cartsData) : {};
+                                const businessIdForCart = business?.id || product.businessId || 'unknown';
+                                const currentCart = allCarts[businessIdForCart] || [];
+
+                                currentCart.push({ ...itemToAdd, quantity: 1 });
+                                allCarts[businessIdForCart] = currentCart;
+                                localStorage.setItem('carts', JSON.stringify(allCarts));
+                                setCart([...currentCart]);
+                                showNotification(`${product.name} - ${variant.name} agregado`);
+                              }}
+                              disabled={!product.isAvailable}
+                              className="w-10 h-10 flex items-center justify-center bg-gray-900 text-white rounded-xl shadow-lg hover:bg-black transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <i className="bi bi-plus-lg text-sm"></i>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            )}
-
-            {(!product.variants || product.variants.length === 0) && (
+            ) : (
               <div className="mb-8">
-                <div className="inline-flex flex-col">
-                  <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Precio</span>
-                  <p className="text-4xl font-black text-red-600 tracking-tight">
-                    ${product.price.toFixed(2)}
-                  </p>
+                <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 p-6 bg-gray-50 rounded-[2rem] border border-gray-100">
+                  <div className="inline-flex flex-col">
+                    <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Precio</span>
+                    <p className="text-4xl font-black text-red-600 tracking-tight">
+                      ${product.price.toFixed(2)}
+                    </p>
+                  </div>
+
+                  {(() => {
+                    const cartItem = cart.find(item => item.id === product.id && item.variantName === null);
+                    const qty = cartItem ? cartItem.quantity : 0;
+
+                    return (
+                      <div className="flex-shrink-0">
+                        {qty > 0 ? (
+                          <div className="flex items-center bg-white rounded-2xl p-2 gap-2 shadow-sm border border-gray-100">
+                            <button
+                              onClick={() => updateQuantity(product.id, qty - 1, null)}
+                              className="w-12 h-12 flex items-center justify-center bg-gray-50 rounded-xl text-gray-600 hover:text-red-500 transition-all"
+                            >
+                              <i className="bi bi-dash text-xl"></i>
+                            </button>
+                            <span className="w-10 text-center font-black text-xl text-gray-900">
+                              {qty}
+                            </span>
+                            <button
+                              onClick={() => updateQuantity(product.id, qty + 1, null)}
+                              className="w-12 h-12 flex items-center justify-center bg-gray-50 rounded-xl text-gray-600 hover:text-green-600 transition-all"
+                            >
+                              <i className="bi bi-plus text-xl"></i>
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              const itemToAdd = {
+                                id: product.id,
+                                name: product.name,
+                                variantName: null,
+                                productName: product.name,
+                                price: product.price,
+                                image: product.image,
+                                description: product.description,
+                                businessId: business?.id || product.businessId,
+                                businessName: business?.name || product.businessName,
+                                businessImage: business?.image || product.businessImage,
+                                category: product.category
+                              };
+
+                              const cartsData = localStorage.getItem('carts');
+                              const allCarts = cartsData ? JSON.parse(cartsData) : {};
+                              const businessIdForCart = business?.id || product.businessId || 'unknown';
+                              const currentCart = allCarts[businessIdForCart] || [];
+
+                              currentCart.push({ ...itemToAdd, quantity: 1 });
+                              allCarts[businessIdForCart] = currentCart;
+                              localStorage.setItem('carts', JSON.stringify(allCarts));
+                              setCart([...currentCart]);
+                              showNotification(`${product.name} agregado`);
+                            }}
+                            disabled={!product.isAvailable}
+                            className="bg-gray-900 hover:bg-black text-white font-black py-4 px-8 rounded-2xl shadow-xl transition-all active:scale-95 flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <i className="bi bi-bag-plus-fill text-lg"></i>
+                            <span className="uppercase tracking-widest text-xs">Agregar</span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             )}
-
-            <div className="mb-8 p-6 bg-gray-50 rounded-[2rem] border border-gray-100">
-              <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-4 text-center">
-                Cantidad a pedir
-              </label>
-              <div className="flex items-center justify-center space-x-6">
-                <button
-                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  disabled={!product.isAvailable}
-                  className="w-12 h-12 flex items-center justify-center bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md hover:bg-gray-50 transition-all active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <i className="bi bi-dash text-xl"></i>
-                </button>
-                <div className="w-12 text-center text-2xl font-black text-gray-900 tabular-nums">
-                  {quantity}
-                </div>
-                <button
-                  onClick={() => setQuantity(quantity + 1)}
-                  disabled={!product.isAvailable}
-                  className="w-12 h-12 flex items-center justify-center bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md hover:bg-gray-50 transition-all active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <i className="bi bi-plus text-xl"></i>
-                </button>
-              </div>
-            </div>
-
-            <button
-              onClick={handleAddToCart}
-              disabled={!product.isAvailable}
-              className="w-full bg-gray-900 hover:bg-black text-white font-black py-5 px-6 rounded-[2rem] shadow-xl shadow-gray-200 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center space-x-3 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-            >
-              <i className="bi bi-bag-plus-fill text-xl"></i>
-              <span className="uppercase tracking-widest text-sm">
-                {product.isAvailable ? 'Agregar al carrito' : 'Producto no disponible'}
-              </span>
-            </button>
           </div>
         </div>
       </main>
