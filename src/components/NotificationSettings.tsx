@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { Business } from '@/types'
 
 interface NotificationSettingsProps {
@@ -11,16 +11,29 @@ export default function NotificationSettings({
     onBusinessFieldChange
 }: NotificationSettingsProps) {
 
-    const settings = business.notificationSettings || {
+    // Inicializar estado local con los valores del negocio o defaults
+    const [localSettings, setLocalSettings] = useState(business.notificationSettings || {
         emailOrderClient: true,
         emailOrderManual: true
-    }
+    })
 
-    const handleToggle = (key: keyof typeof settings) => {
-        const newSettings = {
-            ...settings,
-            [key]: !settings[key]
+    // Sincronizar estado local si cambian las props (ej: al cargar o si otra persona actualiza)
+    useEffect(() => {
+        if (business.notificationSettings) {
+            setLocalSettings(business.notificationSettings)
         }
+    }, [business.notificationSettings])
+
+    const handleToggle = (key: keyof typeof localSettings) => {
+        const newSettings = {
+            ...localSettings,
+            [key]: !localSettings[key]
+        }
+
+        // Actualización optimista inmediata
+        setLocalSettings(newSettings)
+
+        // Persistir cambios
         onBusinessFieldChange('notificationSettings', newSettings)
     }
 
@@ -43,10 +56,10 @@ export default function NotificationSettings({
                             </p>
                         </div>
                         <div
-                            className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${settings.emailOrderClient ? 'bg-red-500' : 'bg-gray-200'}`}
+                            className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${localSettings.emailOrderClient ? 'bg-red-500' : 'bg-gray-200'}`}
                             onClick={() => handleToggle('emailOrderClient')}
                         >
-                            <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${settings.emailOrderClient ? 'translate-x-6' : ''}`}></div>
+                            <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${localSettings.emailOrderClient ? 'translate-x-6' : ''}`}></div>
                         </div>
                     </div>
 
@@ -59,17 +72,17 @@ export default function NotificationSettings({
                             </p>
                         </div>
                         <div
-                            className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${settings.emailOrderManual ? 'bg-red-500' : 'bg-gray-200'}`}
+                            className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${localSettings.emailOrderManual ? 'bg-red-500' : 'bg-gray-200'}`}
                             onClick={() => handleToggle('emailOrderManual')}
                         >
-                            <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${settings.emailOrderManual ? 'translate-x-6' : ''}`}></div>
+                            <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${localSettings.emailOrderManual ? 'translate-x-6' : ''}`}></div>
                         </div>
                     </div>
 
                 </div>
 
                 <div className="mt-6 text-xs text-gray-400 text-center">
-                    <p>Nota: Los cambios se guardan automáticamente al modificar las opciones, pero recuerda "Guardar Cambios" en el perfil si estás en modo edición general.</p>
+                    <p>Nota: Los cambios se guardan automáticamente.</p>
                 </div>
 
             </div>

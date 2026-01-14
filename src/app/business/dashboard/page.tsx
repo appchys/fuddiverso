@@ -1145,6 +1145,23 @@ export default function BusinessDashboard() {
     setEditedBusiness({ ...editedBusiness, [field]: value });
   };
 
+  // Función para actualización directa (auto-save) sin necesidad de entrar en modo edición
+  const handleDirectBusinessUpdate = async (field: keyof Business, value: any) => {
+    if (!business) return;
+    try {
+      await updateBusiness(business.id, { [field]: value });
+      const updatedBusiness = { ...business, [field]: value };
+      setBusiness(updatedBusiness);
+      // Actualizar en la lista de negocios
+      setBusinesses(prev => prev.map(b => b.id === updatedBusiness.id ? updatedBusiness : b));
+      // Actualizar caché
+      updateBusinessCache(updatedBusiness);
+    } catch (error) {
+      console.error('Error updating business field:', error);
+      alert('Error al actualizar la configuración');
+    }
+  };
+
   // Funciones para editar el horario (schedule)
   const handleScheduleFieldChange = (day: string, key: 'open' | 'close' | 'isOpen', value: any) => {
     if (!editedBusiness) return;
@@ -3087,6 +3104,7 @@ export default function BusinessDashboard() {
                 onProductsChange={setProducts}
                 onCategoriesChange={setBusinessCategories}
                 initialTab={profileSubTab}
+                onDirectUpdate={handleDirectBusinessUpdate}
               />
             )}
 

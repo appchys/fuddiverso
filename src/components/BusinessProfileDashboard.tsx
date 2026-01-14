@@ -28,6 +28,7 @@ interface BusinessProfileDashboardProps {
   onProductsChange: (products: Product[]) => void
   onCategoriesChange: (categories: string[]) => void
   initialTab?: 'general' | 'products' | 'fidelizacion' | 'notifications'
+  onDirectUpdate?: (field: keyof Business, value: any) => Promise<void>
 }
 
 export default function BusinessProfileDashboard({
@@ -50,7 +51,8 @@ export default function BusinessProfileDashboard({
   onToggleDayOpen,
   onProductsChange,
   onCategoriesChange,
-  initialTab = 'general'
+  initialTab = 'general',
+  onDirectUpdate
 }: BusinessProfileDashboardProps) {
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
@@ -875,7 +877,7 @@ export default function BusinessProfileDashboard({
       {activeTab === 'notifications' && (
         <NotificationSettings
           business={business}
-          onBusinessFieldChange={onBusinessFieldChange}
+          onBusinessFieldChange={onDirectUpdate || onBusinessFieldChange}
         />
       )}
     </div>
