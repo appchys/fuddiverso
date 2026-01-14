@@ -895,6 +895,10 @@ function RestaurantContent() {
     )
   }
 
+  const whatsappNumber = business.phone ? (business.phone.startsWith('0') ? '593' + business.phone.substring(1) : business.phone).replace(/\D/g, '') : ''
+  const whatsappMessage = encodeURIComponent('Hola, encontré tu tienda en https://fuddi.shop , me gustaría conocer tu menú')
+  const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`
+
   // Agrupar productos por categoría, respetando el orden definido en business.categories
   const productsByCategory: Record<string, Product[]> = {}
 
@@ -1205,9 +1209,27 @@ function RestaurantContent() {
           </div>
 
           {Object.entries(productsByCategory).length === 0 ? (
-            <div className="text-center py-20 bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200">
-              <i className="bi bi-bag-x text-4xl text-gray-300 mb-4 block"></i>
-              <p className="text-gray-500 font-medium">No hay productos disponibles por ahora.</p>
+            <div className="text-center py-20 px-6 bg-white rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col items-center">
+              <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-6">
+                <i className="bi bi-bag-x text-3xl text-gray-300"></i>
+              </div>
+              <h3 className="text-xl font-black text-gray-900 mb-2">¡Próximamente!</h3>
+              <p className="text-gray-500 font-medium max-w-xs mx-auto mb-8">
+                Esta tienda aún no ha publicado sus productos en el catálogo digital.
+              </p>
+
+              {business.phone && (
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-3 px-8 py-4 bg-[#25D366] text-white font-black rounded-2xl shadow-[0_10px_20px_rgba(37,211,102,0.2)] hover:shadow-[0_15px_30px_rgba(37,211,102,0.4)] hover:-translate-y-1 transition-all active:scale-95 group"
+                >
+                  <i className="bi bi-whatsapp text-2xl"></i>
+                  PEDIR MENÚ POR WHATSAPP
+                  <i className="bi bi-arrow-right opacity-50 group-hover:opacity-100 group-hover:translate-x-1 transition-all"></i>
+                </a>
+              )}
             </div>
           ) : (
             Object.entries(productsByCategory).map(([category, categoryProducts]) => (
