@@ -13,6 +13,7 @@ import { CheckoutContent } from '@/components/CheckoutContent'
 import UserSidebar from '@/components/UserSidebar'
 import ClientLoginModal from '@/components/ClientLoginModal'
 import { isStoreOpen } from '@/lib/store-utils'
+import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 
 // Componente para structured data JSON-LD
 function BusinessStructuredData({ business }: { business: Business }) {
@@ -463,11 +464,15 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
 }
 
 export default function RestaurantPage() {
-  // Quita Suspense: renderiza directo
-  return <RestaurantContent />
+  return (
+    <BusinessAuthProvider>
+      <RestaurantContent />
+    </BusinessAuthProvider>
+  )
 }
 
 function RestaurantContent() {
+  const { user } = useBusinessAuth()
   const params = useParams()
   const router = useRouter()
   const username = params.username as string
@@ -899,6 +904,8 @@ function RestaurantContent() {
   const whatsappMessage = encodeURIComponent('Hola, encontré tu tienda en https://fuddi.shop , me gustaría conocer tu menú')
   const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`
 
+  const isOwner = user && business && (business.ownerId === user.uid || business.administrators?.some(a => a.uid === user.uid))
+
   // Agrupar productos por categoría, respetando el orden definido en business.categories
   const productsByCategory: Record<string, Product[]> = {}
 
@@ -1218,17 +1225,28 @@ function RestaurantContent() {
                 Esta tienda aún no ha publicado sus productos en el catálogo digital.
               </p>
 
-              {business.phone && (
-                <a
-                  href={whatsappUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-3 px-8 py-4 bg-[#25D366] text-white font-black rounded-2xl shadow-[0_10px_20px_rgba(37,211,102,0.2)] hover:shadow-[0_15px_30px_rgba(37,211,102,0.4)] hover:-translate-y-1 transition-all active:scale-95 group"
+              {isOwner ? (
+                <Link
+                  href="/business/dashboard"
+                  className="inline-flex items-center gap-3 px-8 py-4 bg-gray-900 text-white font-black rounded-2xl shadow-[0_10px_20px_rgba(0,0,0,0.1)] hover:shadow-[0_15px_30px_rgba(0,0,0,0.2)] hover:-translate-y-1 transition-all active:scale-95 group"
                 >
-                  <i className="bi bi-whatsapp text-2xl"></i>
-                  PEDIR MENÚ POR WHATSAPP
+                  <i className="bi bi-plus-circle text-2xl text-red-500"></i>
+                  AGREGAR PRODUCTOS
                   <i className="bi bi-arrow-right opacity-50 group-hover:opacity-100 group-hover:translate-x-1 transition-all"></i>
-                </a>
+                </Link>
+              ) : (
+                business.phone && (
+                  <a
+                    href={whatsappUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-3 px-8 py-4 bg-[#25D366] text-white font-black rounded-2xl shadow-[0_10px_20px_rgba(37,211,102,0.2)] hover:shadow-[0_15px_30px_rgba(37,211,102,0.4)] hover:-translate-y-1 transition-all active:scale-95 group"
+                  >
+                    <i className="bi bi-whatsapp text-2xl"></i>
+                    PEDIR MENÚ POR WHATSAPP
+                    <i className="bi bi-arrow-right opacity-50 group-hover:opacity-100 group-hover:translate-x-1 transition-all"></i>
+                  </a>
+                )
               )}
             </div>
           ) : (
