@@ -52,6 +52,7 @@ interface ManualOrderData {
   transferAmount: number
   total: number
   selectedDelivery: any
+  orderStatus: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
 }
 
 interface ManualOrderSidebarProps {
@@ -92,7 +93,8 @@ export default function ManualOrderSidebar({
     cashAmount: 0,
     transferAmount: 0,
     total: 0,
-    selectedDelivery: null
+    selectedDelivery: null,
+    orderStatus: 'pending'
   })
 
   const [searchingClient, setSearchingClient] = useState(false)
@@ -255,7 +257,8 @@ export default function ManualOrderSidebar({
         cashAmount: (eo.payment as any)?.cashAmount || 0,
         transferAmount: (eo.payment as any)?.transferAmount || 0,
         total: eo.total || 0,
-        selectedDelivery: selectedDeliveryFromId(availableDeliveries, eo.delivery?.assignedDelivery)
+        selectedDelivery: selectedDeliveryFromId(availableDeliveries, eo.delivery?.assignedDelivery),
+        orderStatus: eo.status || 'pending'
       }))
 
       // Mostrar inmediatamente tarjeta de cliente encontrado y cargar ubicaciones
@@ -1099,7 +1102,7 @@ export default function ManualOrderSidebar({
         },
         subtotal: manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0),
         total: manualOrderData.total,
-        status: 'confirmed' as const,
+        status: manualOrderData.orderStatus || 'confirmed' as const,
         createdByAdmin: true,
         createdAt: new Date(),
         updatedAt: new Date()
@@ -1114,6 +1117,7 @@ export default function ManualOrderSidebar({
           timing: orderData.timing,
           payment: orderData.payment,
           total: orderData.total,
+          status: manualOrderData.orderStatus,
           updatedAt: new Date()
         }
         await updateOrder(editOrder.id, updatePayload)
@@ -1168,7 +1172,8 @@ export default function ManualOrderSidebar({
       cashAmount: 0,
       transferAmount: 0,
       total: 0,
-      selectedDelivery: null
+      selectedDelivery: null,
+      orderStatus: 'pending'
     })
     setClientFound(false)
     setShowCreateClient(false)
@@ -1191,12 +1196,27 @@ export default function ManualOrderSidebar({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">{mode === 'edit' ? 'Editar pedido' : 'Nuevo pedido'}</h2>
-          <button
-            onClick={handleCancel}
-            className="p-2 hover:bg-gray-100 rounded-full"
-          >
-            <i className="bi bi-x-lg"></i>
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Selector de estado */}
+            <select
+              value={manualOrderData.orderStatus}
+              onChange={(e) => setManualOrderData(prev => ({ ...prev, orderStatus: e.target.value as any }))}
+              className="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="pending">Pendiente</option>
+              <option value="confirmed">Confirmado</option>
+              <option value="preparing">Preparando</option>
+              <option value="ready">Listo</option>
+              <option value="delivered">Entregado</option>
+              <option value="cancelled">Cancelado</option>
+            </select>
+            <button
+              onClick={handleCancel}
+              className="p-2 hover:bg-gray-100 rounded-full"
+            >
+              <i className="bi bi-x-lg"></i>
+            </button>
+          </div>
         </div>
 
         {/* Content */}
