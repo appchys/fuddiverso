@@ -516,12 +516,20 @@ exports.sendScheduledOrderReminders = onSchedule({
   console.log('⏰ Verificando órdenes programadas para recordatorios...');
 
   try {
-    const now = new Date();
-    // Calcular el rango de tiempo: 30-35 minutos en el futuro
-    const reminderStart = new Date(now.getTime() + 30 * 60 * 1000); // +30 min
-    const reminderEnd = new Date(now.getTime() + 35 * 60 * 1000);   // +35 min
+    // Obtener hora actual en Ecuador explícitamente
+    const nowUtc = new Date();
+    // Ajustar a UTC-5 (Ecuador) manualmente para asegurar consistencia
+    // Cloud Functions corre en UTC. Restamos 5 horas.
+    const nowEcuador = new Date(nowUtc.getTime() - (5 * 60 * 60 * 1000));
 
-    console.log(`🔍 Buscando órdenes entre ${reminderStart.toLocaleTimeString('es-EC')} y ${reminderEnd.toLocaleTimeString('es-EC')}`);
+    // Calcular el rango de tiempo: 30-35 minutos en el futuro
+    const reminderStart = new Date(nowEcuador.getTime() + 30 * 60 * 1000); // +30 min
+    const reminderEnd = new Date(nowEcuador.getTime() + 35 * 60 * 1000);   // +35 min
+
+    const options = { timeZone: 'America/Guayaquil', hour12: true, hour: 'numeric', minute: 'numeric', second: 'numeric' };
+    console.log(`🔍 Hora Servidor (UTC): ${nowUtc.toISOString()}`);
+    console.log(`🔍 Hora Ecuador Calculada: ${nowEcuador.toISOString()}`);
+    console.log(`🔍 Buscando órdenes para entrega entre: ${reminderStart.toLocaleTimeString('es-EC', options)} y ${reminderEnd.toLocaleTimeString('es-EC', options)}`);
 
     // Obtener todas las órdenes programadas que no han sido completadas o canceladas
     const ordersSnapshot = await admin.firestore()
