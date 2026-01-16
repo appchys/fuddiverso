@@ -29,6 +29,8 @@ function BusinessRegisterForm() {
   const [dragActiveCover, setDragActiveCover] = useState(false)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [coverPreview, setCoverPreview] = useState<string | null>(null)
+  const [location, setLocation] = useState<string>('')
+
 
   // Verificar autenticación al cargar
   useEffect(() => {
@@ -44,6 +46,21 @@ function BusinessRegisterForm() {
 
     return () => unsubscribe()
   }, [router])
+
+  // Capturar ubicación al cargar
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLocation(`${position.coords.latitude}, ${position.coords.longitude}`)
+        },
+        (error) => {
+          console.warn("Could not capture location automatically:", error)
+        }
+      )
+    }
+  }, [])
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -89,7 +106,8 @@ function BusinessRegisterForm() {
         coverImage: coverImageUrl,
         category: formData.category,
         references: '', // Ubicación se pedirá después
-        ownerId: currentUser.uid
+        ownerId: currentUser.uid,
+        latlong: location
       })
 
       // Guardar información en localStorage para la sesión

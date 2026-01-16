@@ -5,6 +5,7 @@
  */
 
 const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require('firebase-admin');
 const nodemailer = require('nodemailer');
 
@@ -502,3 +503,251 @@ exports.onBusinessUpdated = onDocumentUpdated("businesses/{businessId}", async (
     }
   }
 });
+
+/**
+ * Cloud Function: Enviar recordatorio 30 minutos antes de la hora de entrega programada
+ * Se ejecuta cada 5 minutos para verificar órdenes que necesitan recordatorio
+ */
+exports.sendScheduledOrderReminders = onSchedule({
+  schedule: "*/5 * * * *", // Cada 5 minutos
+  timeZone: "America/Guayaquil",
+  retryCount: 0
+}, async (event) => {
+  console.log('⏰ Verificando órdenes programadas para recordatorios...');
+
+  try {
+    const now = new Date();
+    // Calcular el rango de tiempo: 30-35 minutos en el futuro
+    const reminderStart = new Date(now.getTime() + 30 * 60 * 1000); // +30 min
+    const reminderEnd = new Date(now.getTime() + 35 * 60 * 1000);   // +35 min
+
+    console.log(`🔍 Buscando órdenes entre ${reminderStart.toLocaleTimeString('es-EC')} y ${reminderEnd.toLocaleTimeString('es-EC')}`);
+
+    // Obtener todas las órdenes programadas que no han sido completadas o canceladas
+    const ordersSnapshot = await admin.firestore()
+      .collection('orders')
+      .where('timing.type', '==', 'scheduled')
+      .where('status', 'in', ['pending', 'confirmed', 'preparing'])
+      .get();
+
+    if (ordersSnapshot.empty) {
+      console.log('ℹ️ No hay órdenes programadas activas');
+      return;
+    }
+
+    console.log(`📦 Encontradas ${ordersSnapshot.size} órdenes programadas activas`);
+
+    let remindersSent = 0;
+
+    for (const orderDoc of ordersSnapshot.docs) {
+      const order = orderDoc.data();
+      const orderId = orderDoc.id;
+
+      // Verificar si ya se envió el recordatorio
+      if (order.reminderSent) {
+        continue;
+      }
+
+      // Construir la fecha y hora de entrega programada
+      const scheduledDate = order.timing?.scheduledDate;
+      const scheduledTime = order.timing?.scheduledTime;
+
+      if (!scheduledDate || !scheduledTime) {
+        console.warn(`⚠️ Orden ${orderId} no tiene fecha/hora programada completa`);
+        continue;
+      }
+
+      // Convertir Firestore Timestamp a Date
+      let dateObj;
+      if (scheduledDate.seconds || scheduledDate._seconds) {
+        const seconds = scheduledDate.seconds || scheduledDate._seconds;
+        dateObj = new Date(seconds * 1000);
+      } else if (scheduledDate instanceof Date) {
+        dateObj = scheduledDate;
+      } else {
+        console.warn(`⚠️ Orden ${orderId} tiene formato de fecha inválido`);
+        continue;
+      }
+
+      // Parsear la hora (formato: "HH:MM" o "HH:MM AM/PM")
+      const timeParts = scheduledTime.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+      if (!timeParts) {
+        console.warn(`⚠️ Orden ${orderId} tiene formato de hora inválido: ${scheduledTime}`);
+        continue;
+      }
+
+      let hours = parseInt(timeParts[1]);
+      const minutes = parseInt(timeParts[2]);
+      const meridiem = timeParts[3];
+
+      // Convertir a formato 24 horas si es necesario
+      if (meridiem) {
+        if (meridiem.toUpperCase() === 'PM' && hours !== 12) {
+          hours += 12;
+        } else if (meridiem.toUpperCase() === 'AM' && hours === 12) {
+          hours = 0;
+        }
+      }
+
+      // Crear la fecha/hora completa de entrega
+      const deliveryDateTime = new Date(dateObj);
+      deliveryDateTime.setHours(hours, minutes, 0, 0);
+
+      // Verificar si está en el rango de 30-35 minutos
+      if (deliveryDateTime >= reminderStart && deliveryDateTime <= reminderEnd) {
+        console.log(`📧 Enviando recordatorio para orden ${orderId} - Entrega: ${deliveryDateTime.toLocaleString('es-EC')}`);
+
+        // Obtener datos del negocio
+        let businessEmail = 'info@fuddi.shop';
+        let businessName = 'Tu negocio';
+
+        if (order.businessId) {
+          try {
+            const businessDoc = await admin.firestore().collection('businesses').doc(order.businessId).get();
+            if (businessDoc.exists) {
+              const businessData = businessDoc.data();
+              businessEmail = businessData.email || businessEmail;
+              businessName = businessData.name || businessName;
+            }
+          } catch (e) {
+            console.warn(`⚠️ No se pudo obtener datos del negocio para orden ${orderId}:`, e.message);
+          }
+        }
+
+        // Obtener datos del cliente
+        let customerName = order.customer?.name || 'Cliente no especificado';
+        let customerPhone = order.customer?.phone || 'No registrado';
+
+        if (order.customer?.id) {
+          try {
+            const clientDoc = await admin.firestore().collection('clients').doc(order.customer.id).get();
+            if (clientDoc.exists) {
+              const clientData = clientDoc.data();
+              customerName = clientData.nombres || customerName;
+              customerPhone = clientData.celular || customerPhone;
+            }
+          } catch (e) {
+            console.warn(`⚠️ No se pudo obtener datos del cliente para orden ${orderId}:`, e.message);
+          }
+        }
+
+        // Información de entrega
+        let deliveryInfo = 'Retiro en tienda';
+        if (order.delivery?.type === 'delivery') {
+          deliveryInfo = order.delivery?.references || 'Dirección no especificada';
+        }
+
+        // Generar HTML de productos
+        let productsHtml = '<ul style="padding-left:20px;">';
+        if (Array.isArray(order.items)) {
+          order.items.forEach(item => {
+            const variant = item.variant || '';
+            productsHtml += `
+              <li style="margin-bottom:8px;">
+                <strong>${item.name}</strong>${variant ? ` (${variant})` : ''}
+                <br/>
+                <small>Cantidad: ${item.quantity}</small>
+              </li>
+            `;
+          });
+        }
+        productsHtml += '</ul>';
+
+        // Formatear fecha de entrega
+        const scheduledDateStr = deliveryDateTime.toLocaleDateString('es-EC', {
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        });
+
+        // Crear el email de recordatorio
+        const htmlContent = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+            <div style="background: linear-gradient(135deg, #ff6b35 0%, #aa1918 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
+              <h1 style="margin: 0; font-size: 24px;">⏰ Recordatorio de Entrega</h1>
+              <p style="margin: 8px 0 0 0; opacity: 0.9;">¡Faltan 30 minutos para la entrega!</p>
+              <p style="margin: 8px 0 0 0; font-size: 14px;">Pedido #${orderId.substring(0, 8).toUpperCase()}</p>
+            </div>
+
+            <div style="background-color: #f9f9f9; padding: 24px; border: 1px solid #ddd; border-radius: 0 0 8px 8px;">
+              
+              <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin-bottom: 20px; border-radius: 4px;">
+                <p style="margin: 0; color: #856404;">
+                  <strong>⏰ Hora de entrega programada:</strong><br/>
+                  ${scheduledTime} - ${scheduledDateStr}
+                </p>
+              </div>
+
+              <h3 style="color: #aa1918; margin-top: 0;">👤 Cliente</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #eee;"><strong>Nombre:</strong></td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #eee;">${customerName}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #eee;"><strong>WhatsApp:</strong></td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #eee;">
+                    <a href="https://wa.me/593${customerPhone.replace(/^0/, '')}" style="color: #aa1918; text-decoration: none;">
+                      ${customerPhone}
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0;"><strong>${order.delivery?.type === 'delivery' ? 'Dirección:' : 'Retiro:'}</strong></td>
+                  <td style="padding: 8px 0;">${deliveryInfo}</td>
+                </tr>
+              </table>
+
+              <h3 style="color: #aa1918; margin-top: 20px;">📦 Productos</h3>
+              ${productsHtml}
+
+              <h3 style="color: #aa1918; margin-top: 20px;">💰 Total</h3>
+              <p style="font-size: 20px; font-weight: bold; color: #aa1918; margin: 8px 0;">
+                $${(order.total || 0).toFixed(2)}
+              </p>
+
+              <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+              
+              <p style="font-size: 12px; color: #666; margin: 0;">
+                <strong>Nota:</strong> Este es un recordatorio automático. Revisa tu 
+                <a href="https://fuddi.shop/business/dashboard" style="color: #aa1918;">panel de administración</a>
+                para gestionar este pedido.
+              </p>
+            </div>
+
+            <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #999;">
+              <p>Este es un email automático. No responder a este correo.</p>
+            </div>
+          </div>
+        `;
+
+        // Enviar el email
+        const mailOptions = {
+          from: 'recordatorios@fuddi.shop',
+          to: businessEmail,
+          subject: `⏰ Recordatorio: Entrega en 30 min - ${customerName} - Fuddi`,
+          html: htmlContent
+        };
+
+        try {
+          await transporter.sendMail(mailOptions);
+
+          // Marcar la orden como recordatorio enviado
+          await orderDoc.ref.update({
+            reminderSent: true,
+            reminderSentAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+
+          remindersSent++;
+          console.log(`✅ Recordatorio enviado para orden ${orderId} a ${businessEmail}`);
+        } catch (emailError) {
+          console.error(`❌ Error enviando recordatorio para orden ${orderId}:`, emailError);
+        }
+      }
+    }
+
+    console.log(`✅ Proceso completado. Recordatorios enviados: ${remindersSent}`);
+
+  } catch (error) {
+    console.error('❌ Error en sendScheduledOrderReminders:', error);
+  }
+});
+

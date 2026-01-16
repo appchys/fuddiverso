@@ -441,7 +441,30 @@ export function CheckoutContent({
 
         // Selección automática sólo cuando el usuario ya eligió "Domicilio" y aún no hay ubicación
         if (deliveryData.type === 'delivery' && !selectedLocation && locations.length > 0) {
-          await handleLocationSelect(locations[0])
+          // Intentar cargar la ubicación activa del UserSidebar desde localStorage
+          let locationToSelect = locations[0] // Default: primera ubicación
+
+          try {
+            const storedCoords = localStorage.getItem('userCoordinates')
+            if (storedCoords) {
+              const coords = JSON.parse(storedCoords)
+              // Buscar la ubicación que coincida con las coordenadas guardadas
+              const matchingLocation = locations.find(loc => {
+                if (!loc.latlong) return false
+                const [lat, lng] = loc.latlong.split(',').map(c => parseFloat(c.trim()))
+                // Comparar con tolerancia de 0.0001 grados (~11 metros)
+                return Math.abs(lat - coords.lat) < 0.0001 && Math.abs(lng - coords.lng) < 0.0001
+              })
+
+              if (matchingLocation) {
+                locationToSelect = matchingLocation
+              }
+            }
+          } catch (e) {
+            console.error('Error loading user coordinates from localStorage:', e)
+          }
+
+          await handleLocationSelect(locationToSelect)
         }
       } catch (error) {
         console.error('Error loading user locations:', error)

@@ -269,7 +269,21 @@ export async function createBusinessFromForm(formData: {
   coverImage?: string;
   references?: string;
   ownerId?: string;
+  latlong?: string;
 }) {
+  // Parse latlong string to existing mapLocation format if available
+  let lat = 0;
+  let lng = 0;
+  if (formData.latlong) {
+    try {
+      const [latStr, lngStr] = formData.latlong.split(',').map(s => s.trim());
+      lat = parseFloat(latStr) || 0;
+      lng = parseFloat(lngStr) || 0;
+    } catch (e) {
+      console.warn('Error parsing latlong for mapLocation:', e);
+    }
+  }
+
   const businessData: Omit<Business, 'id' | 'createdAt'> = {
     name: formData.name,
     username: formData.username,
@@ -283,8 +297,14 @@ export async function createBusinessFromForm(formData: {
     references: formData.references || '',
     categories: [],
     mapLocation: {
-      lat: 0, // Se puede actualizar posteriormente
-      lng: 0
+      lat,
+      lng
+    },
+    pickupSettings: {
+      enabled: false,
+      latlong: formData.latlong || '',
+      references: formData.references || '',
+      storePhotoUrl: ''
     },
     schedule: {
       monday: { open: '09:00', close: '18:00', isOpen: true },

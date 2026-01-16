@@ -19,6 +19,23 @@ export default function HomePageContent() {
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [followedBusinesses, setFollowedBusinesses] = useState<Set<string>>(new Set())
   const [categories, setCategories] = useState<string[]>(['all'])
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+
+  useEffect(() => {
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          })
+        },
+        (error) => {
+          console.error('Error getting location:', error)
+        }
+      )
+    }
+  }, [])
 
   // Cargar parámetros de la URL al inicio
   useEffect(() => {
@@ -43,7 +60,7 @@ export default function HomePageContent() {
         const uniqueCategories = new Set<string>()
         allBusinesses.forEach(b => b.categories?.forEach(c => uniqueCategories.add(c)))
         setCategories(['all', ...Array.from(uniqueCategories).sort()])
-      }).catch(() => {})
+      }).catch(() => { })
     } finally {
       setLoading(false)
     }
@@ -91,9 +108,8 @@ export default function HomePageContent() {
               <button
                 key={cat}
                 onClick={() => handleCategoryChange(cat)}
-                className={`flex-shrink-0 w-28 h-28 rounded-2xl flex flex-col items-center justify-center shadow-sm transition-all ${
-                  selectedCategory === cat ? 'ring-2 ring-[#aa1918]' : ''
-                }`}
+                className={`flex-shrink-0 w-28 h-28 rounded-2xl flex flex-col items-center justify-center shadow-sm transition-all ${selectedCategory === cat ? 'ring-2 ring-[#aa1918]' : ''
+                  }`}
                 style={{ backgroundColor: getCategoryColor(i) }}
               >
                 <span className="text-3xl mb-1">🍽️</span>
@@ -102,9 +118,8 @@ export default function HomePageContent() {
             ))}
             <button
               onClick={() => handleCategoryChange('all')}
-              className={`flex-shrink-0 w-28 h-28 rounded-2xl flex flex-col items-center justify-center shadow-sm bg-gray-100 ${
-                selectedCategory === 'all' ? 'ring-2 ring-[#aa1918]' : ''
-              }`}
+              className={`flex-shrink-0 w-28 h-28 rounded-2xl flex flex-col items-center justify-center shadow-sm bg-gray-100 ${selectedCategory === 'all' ? 'ring-2 ring-[#aa1918]' : ''
+                }`}
             >
               <span className="text-3xl mb-1">🍽️</span>
               <span className="text-sm font-medium text-gray-700">Todo</span>
@@ -175,18 +190,15 @@ export default function HomePageContent() {
                     <div className="p-4">
                       <h3 className="text-lg font-semibold text-gray-900 line-clamp-1">{b.name}</h3>
                       {b.categories && b.categories.length > 0 && (
-                        <div className="flex flex-wrap gap-1 my-2">
-                          {b.categories.slice(0, 3).map((cat, i) => (
-                            <span 
-                              key={i} 
-                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800"
+                        <div className="flex gap-1 my-2 overflow-x-auto no-scrollbar">
+                          {b.categories.map((cat, i) => (
+                            <span
+                              key={i}
+                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 whitespace-nowrap flex-shrink-0"
                             >
                               {cat}
                             </span>
                           ))}
-                          {b.categories.length > 3 && (
-                            <span className="text-xs text-gray-500">+{b.categories.length - 3} más</span>
-                          )}
                         </div>
                       )}
                       <div className="mb-2">
@@ -201,8 +213,61 @@ export default function HomePageContent() {
                       </div>
                       <p className="text-sm text-gray-600 line-clamp-2 mb-3">{b.description}</p>
                       <div className="text-xs text-gray-500 flex justify-between items-center">
-                        <span className="truncate max-w-[70%]">{b.address}</span>
-                        <span className="text-[#aa1918] font-medium whitespace-nowrap ml-2">Envío $1</span>
+                        <span className="truncate max-w-[50%]">{b.address}</span>
+                        <div className="flex items-center gap-2">
+                          {(() => {
+                            const getBusinessLocation = (business: Business) => {
+                              if (business.pickupSettings?.latlong) {
+                                const [lat, lng] = business.pickupSettings.latlong
+                                  .split(',')
+                                  .map((s) => parseFloat(s.trim()))
+                                if (!isNaN(lat) && !isNaN(lng)) return { lat, lng }
+                              }
+                              // Fallback to mapLocation if available (and valid)
+                              if (business.mapLocation?.lat && business.mapLocation?.lng) { // mapLocation.lat can be 0, so check not undefined/null if needed, though here simplified
+                                return business.mapLocation
+                              }
+                              return null
+                            }
+
+                            const businessLoc = getBusinessLocation(b)
+                            if (userLocation && businessLoc) {
+                              const calcDist = (
+                                lat1: number,
+                                lon1: number,
+                                lat2: number,
+                                lon2: number
+                              ) => {
+                                const R = 6371 // km
+                                const dLat = ((lat2 - lat1) * Math.PI) / 180
+                                const dLon = ((lon2 - lon1) * Math.PI) / 180
+                                const a =
+                                  Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                                  Math.cos((lat1 * Math.PI) / 180) *
+                                  Math.cos((lat2 * Math.PI) / 180) *
+                                  Math.sin(dLon / 2) *
+                                  Math.sin(dLon / 2)
+                                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+                                return R * c
+                              }
+                              const dist = calcDist(
+                                userLocation.lat,
+                                userLocation.lng,
+                                businessLoc.lat,
+                                businessLoc.lng
+                              )
+                              return (
+                                <span className="text-[#aa1918] font-medium whitespace-nowrap text-xs bg-red-50 px-2 py-0.5 rounded-full">
+                                  {dist.toFixed(1)} km
+                                </span>
+                              )
+                            }
+                            return null
+                          })()}
+                          <span className="text-[#aa1918] font-medium whitespace-nowrap ml-2">
+                            Envío $1
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </Link>
