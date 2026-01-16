@@ -104,7 +104,7 @@ export default function HomePageContent() {
       <section className="py-10 bg-white">
         <div className="max-w-6xl mx-auto px-6">
           <h2 className="text-2xl font-semibold text-gray-900 mb-6 text-center">Explora por categoría</h2>
-          <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
+          <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2">
             {categories.slice(1).map((cat, i) => (
               <button
                 key={cat}
@@ -191,7 +191,7 @@ export default function HomePageContent() {
                     <div className="p-4">
                       <h3 className="text-lg font-semibold text-gray-900 line-clamp-1">{b.name}</h3>
                       {b.categories && b.categories.length > 0 && (
-                        <div className="flex gap-1 my-2 overflow-x-auto no-scrollbar">
+                        <div className="flex gap-1 my-2 overflow-x-auto scrollbar-hide">
                           {b.categories.map((cat, i) => (
                             <span
                               key={i}
@@ -214,7 +214,6 @@ export default function HomePageContent() {
                       </div>
                       <p className="text-sm text-gray-600 line-clamp-2 mb-3">{b.description}</p>
                       <div className="text-xs text-gray-500 flex justify-between items-center">
-                        <span className="truncate max-w-[50%]">{b.address}</span>
                         <div className="flex items-center gap-2">
                           {(() => {
                             const getBusinessLocation = (business: Business) => {

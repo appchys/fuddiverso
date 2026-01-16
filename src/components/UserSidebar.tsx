@@ -549,13 +549,13 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                                 <i className="bi bi-geo-alt-fill text-lg"></i>
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <p className="text-[9px] font-black uppercase tracking-widest text-green-600 mb-0.5">
+                                                <p className="text-[9px] font-bold uppercase tracking-widest text-green-600 mb-0.5">
                                                     {/* Mostrar el tipo (Casa/Trabajo) */}
                                                     {savedLocation.referencia.includes(' - ')
                                                         ? savedLocation.referencia.split(' - ')[0]
                                                         : 'Ubicación Activa'}
                                                 </p>
-                                                <p className="text-sm font-black text-gray-900 truncate">
+                                                <p className="text-sm font-bold text-gray-900 truncate">
                                                     {/* Mostrar solo las referencias (después del guión) */}
                                                     {savedLocation.referencia.includes(' - ')
                                                         ? savedLocation.referencia.split(' - ')[1]
@@ -574,13 +574,13 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                             setIsAddingNewLocation(true)
                                             setIsLocationModalOpen(true)
                                         }}
-                                        className="w-full bg-white rounded-2xl shadow-sm border border-blue-100 p-4 flex items-center gap-4 group hover:shadow-md transition-all"
+                                        className="w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex items-center gap-4 group hover:shadow-md transition-all"
                                     >
                                         <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-500 group-hover:bg-blue-500 group-hover:text-white transition-all">
                                             <i className="bi bi-geo-alt-fill text-xl"></i>
                                         </div>
                                         <div className="text-left">
-                                            <h4 className="font-black text-gray-900 text-sm">Agregar Dirección</h4>
+                                            <h4 className="font-bold text-gray-900 text-sm">Agregar Dirección</h4>
                                             <p className="text-xs text-gray-500">Para ver tiendas cercanas</p>
                                         </div>
                                         <div className="ml-auto">

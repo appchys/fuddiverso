@@ -6,7 +6,7 @@ import LayoutWrapper from '@/components/LayoutWrapper'
 import { Analytics } from "@vercel/analytics/next"
 
 export const metadata: Metadata = {
-  title: 'fuddi.shop - Delivery de Comida',
+  title: 'Fuddi',
   description: 'Plataforma de delivery de comida para negocios y clientes',
 }
 

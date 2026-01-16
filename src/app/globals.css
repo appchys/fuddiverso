@@ -25,6 +25,15 @@
     display: none;  /* Safari and Chrome */
   }
 
+  /* Alternative scrollbar hide for better compatibility */
+  .no-scrollbar {
+    -ms-overflow-style: none;  /* Internet Explorer 10+ */
+    scrollbar-width: none;  /* Firefox */
+  }
+  .no-scrollbar::-webkit-scrollbar { 
+    display: none;  /* Safari and Chrome */
+  }
+
   /* Smooth cart animations */
   .cart-slide-in {
     animation: slideInRight 0.3s ease-out;
