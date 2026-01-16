@@ -832,7 +832,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                         </div>
 
                         {/* Footer / Logout */}
-                        <div className="px-6 py-8 mt-auto sticky bottom-0 bg-gray-50/80 backdrop-blur-md">
+                        <div className="px-6 py-8 mt-auto bg-gray-50/80">
                             {user && (
                                 <button
                                     onClick={handleLogout}
@@ -842,10 +842,6 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                     Cerrar Sesión
                                 </button>
                             )}
-                            <div className="mt-6 text-center space-y-1">
-                                <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em]">Fuddi Ecuador</p>
-                                <p className="text-[9px] text-gray-300 font-bold uppercase tracking-widest">v1.5.0 • © 2026</p>
-                            </div>
                         </div>
                     </div>
                 </div>
