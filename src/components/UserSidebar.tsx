@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { searchClientByPhone, createClient, updateClient, getClientLocations, serverTimestamp, createClientLocation, deleteLocation } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
-import { GoogleMap } from '@/components/GoogleMap'
+import LocationSelectionModal from '@/components/LocationSelectionModal'
+import { ClientLocation } from '@/lib/database'
 
 interface UserSidebarProps {
     isOpen: boolean
@@ -158,13 +159,14 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     const [pinAttempted, setPinAttempted] = useState(false)
     const [showAuthForm, setShowAuthForm] = useState(false)
     const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null)
-    const [locationReference, setLocationReference] = useState('')
-    const [savingLocation, setSavingLocation] = useState(false)
     const [savedLocation, setSavedLocation] = useState<{ referencia: string; lat: number; lng: number } | null>(null)
 
     const [userLocations, setUserLocations] = useState<any[]>([])
-    const [showLocationsList, setShowLocationsList] = useState(false)
-    const [locationType, setLocationType] = useState<'Casa' | 'Trabajo'>('Casa')
+
+
+    // Modal states
+    const [isLocationModalOpen, setIsLocationModalOpen] = useState(false)
+    const [isAddingNewLocation, setIsAddingNewLocation] = useState(false)
 
 
     // Capturar y guardar coordenadas en localStorage al montar (oculto para el usuario)
@@ -194,20 +196,65 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                         localStorage.setItem('userCoordinates', JSON.stringify(coords))
                     },
                     (error) => {
-                        console.error('Error getting location:', error)
+                        console.warn('Ubicación no detectada, usando ubicación por defecto:', error)
+                        // Si falla y no hay guardada, usar coordenadas por defecto (Quito, Ecuador)
+                        // Esto permite que el mapa funcione y el usuario pueda seleccionar manualmente
+                        if (!storedCoords) {
+                            const defaultCoords = {
+                                lat: -0.180653,
+                                lng: -78.467834
+                            }
+                            setCurrentLocation(defaultCoords)
+                        }
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 5000,
+                        maximumAge: 0
                     }
                 )
+            } else if (!storedCoords) {
+                // Navegador no soporta geo y no hay guardada
+                const defaultCoords = {
+                    lat: -0.180653,
+                    lng: -78.467834
+                }
+                setCurrentLocation(defaultCoords)
             }
         }
     }, [])
 
     // Cuando el usuario inicia sesión, cargar sus ubicaciones guardadas
+    // Cuando el usuario inicia sesión, cargar sus ubicaciones guardadas
     useEffect(() => {
         if (user?.id) {
             getClientLocations(user.id).then(locs => {
                 setUserLocations(locs)
-                // Si tiene ubicaciones, seleccionar la primera
-                if (locs && locs.length > 0) {
+
+                // Persistence Logic: Try to restore last selected location
+                let foundMatch = false
+                const storedCoordsStr = localStorage.getItem('userCoordinates')
+
+                if (storedCoordsStr && locs && locs.length > 0) {
+                    try {
+                        const stored = JSON.parse(storedCoordsStr)
+                        // Find match with strict tolerance
+                        const match = locs.find(l => {
+                            const [lat, lng] = l.latlong.split(',').map((n: string) => parseFloat(n.trim()))
+                            return Math.abs(lat - stored.lat) < 0.0001 && Math.abs(lng - stored.lng) < 0.0001
+                        })
+
+                        if (match) {
+                            handleSelectLocation(match)
+                            foundMatch = true
+                        }
+                    } catch (e) {
+                        console.error("Error restoring location persistency", e)
+                    }
+                }
+
+                // Default fallback: select first location if no match found
+                if (!foundMatch && locs && locs.length > 0) {
                     handleSelectLocation(locs[0])
                 }
             }).catch(console.error)
@@ -217,6 +264,13 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
             setSavedLocation(null)
         }
     }, [user])
+
+    const handleLocationCreated = (newLocation: ClientLocation) => {
+        setUserLocations(prev => [...prev, newLocation])
+        handleSelectLocation(newLocation)
+        setIsLocationModalOpen(false)
+        setIsAddingNewLocation(false)
+    }
 
     const handleSelectLocation = (loc: any) => {
         try {
@@ -230,81 +284,15 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
             setSavedLocation(newLocation)
             // Guardar en localStorage para persistencia
             localStorage.setItem('userCoordinates', JSON.stringify({ lat, lng }))
-            setShowLocationsList(false)
+
+            // Close modal if open
+            setIsLocationModalOpen(false)
         } catch (e) {
             console.error('Error parsing location:', e)
         }
     }
 
-    const handleSaveLocation = async () => {
-        if (!user || !currentLocation || !locationReference.trim()) return
 
-        setSavingLocation(true)
-        try {
-            // Combinar tipo de ubicación con referencias
-            const fullReference = `${locationType} - ${locationReference.trim()}`
-
-            const newId = await createClientLocation({
-                id_cliente: user.id, // User is FirestoreClient which has id
-                latlong: `${currentLocation.lat}, ${currentLocation.lng}`,
-                referencia: fullReference,
-                sector: 'Ubicación actual',
-                tarifa: '1'
-            })
-
-            const newLocation = {
-                id: newId,
-                id_cliente: user.id || '',
-                referencia: fullReference,
-                sector: 'Ubicación actual',
-                tarifa: '1',
-                latlong: `${currentLocation.lat}, ${currentLocation.lng}`,
-                photo: ''
-            }
-
-            setUserLocations(prev => [...prev, newLocation])
-
-            const newSavedLocation = {
-                referencia: fullReference,
-                lat: currentLocation.lat,
-                lng: currentLocation.lng
-            }
-            setSavedLocation(newSavedLocation)
-            // Guardar coordenadas en localStorage
-            localStorage.setItem('userCoordinates', JSON.stringify({ lat: currentLocation.lat, lng: currentLocation.lng }))
-            setLocationReference('')
-            setLocationType('Casa') // Reset to default
-        } catch (error) {
-            console.error('Error saving location:', error)
-        } finally {
-            setSavingLocation(false)
-        }
-    }
-
-    const handleDeleteLocation = async (locationId: string) => {
-        if (!user?.id) return
-
-        try {
-            // Eliminar de Firebase
-            await deleteLocation(locationId)
-
-            // Eliminar de la lista local
-            const updatedLocations = userLocations.filter(loc => loc.id !== locationId)
-            setUserLocations(updatedLocations)
-
-            // Si la ubicación eliminada era la seleccionada, seleccionar la primera disponible
-            if (savedLocation && userLocations.find(loc => loc.id === locationId)?.referencia === savedLocation.referencia) {
-                if (updatedLocations.length > 0) {
-                    handleSelectLocation(updatedLocations[0])
-                } else {
-                    setSavedLocation(null)
-                    // No eliminar userCoordinates, solo la ubicación guardada
-                }
-            }
-        } catch (error) {
-            console.error('Error deleting location:', error)
-        }
-    }
 
     // Phone search function
     async function handlePhoneSearch(phone: string) {
@@ -525,6 +513,21 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                 </button>
                                 <h2 className="text-xl font-black text-gray-900 tracking-tight">Menú</h2>
                             </div>
+                            {user && (
+                                <Link
+                                    href="/profile"
+                                    onClick={onClose}
+                                    className="relative w-9 h-9 rounded-full overflow-hidden bg-gray-100 border border-gray-200 hover:opacity-80 transition-opacity focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+                                >
+                                    {user.photoURL ? (
+                                        <img src={user.photoURL} alt={user.nombres} className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center bg-gray-900 text-white text-xs font-bold">
+                                            {getInitials(user.nombres || 'U')}
+                                        </div>
+                                    )}
+                                </Link>
+                            )}
                         </div>
                     </div>
 
@@ -537,7 +540,10 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                                         <div
                                             className="p-4 flex items-center gap-3 cursor-pointer group hover:bg-gray-50 transition-all"
-                                            onClick={() => setShowLocationsList(!showLocationsList)}
+                                            onClick={() => {
+                                                setIsAddingNewLocation(false)
+                                                setIsLocationModalOpen(true)
+                                            }}
                                         >
                                             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center text-white shadow-md flex-shrink-0">
                                                 <i className="bi bi-geo-alt-fill text-lg"></i>
@@ -556,186 +562,47 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                                         : savedLocation.referencia}
                                                 </p>
                                             </div>
-                                            <div className={`w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 group-hover:bg-gray-200 transition-all ${showLocationsList ? 'rotate-180' : ''}`}>
-                                                <i className="bi bi-chevron-down text-sm"></i>
+                                            <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 group-hover:bg-gray-200 transition-all">
+                                                <i className="bi bi-pencil-fill text-xs"></i>
                                             </div>
                                         </div>
-
-                                        {/* Dropdown de ubicaciones */}
-                                        {showLocationsList && (
-                                            <div className="border-t border-gray-100 bg-gray-50/50 animate-in slide-in-from-top-2 duration-300">
-                                                <p className="px-4 py-2 text-[9px] font-black uppercase tracking-widest text-gray-400">
-                                                    Cambiar ubicación
-                                                </p>
-
-                                                {/* Botón para agregar nueva */}
-                                                <button
-                                                    onClick={() => {
-                                                        setSavedLocation(null)
-                                                        setLocationReference('')
-                                                        setShowLocationsList(false)
-                                                    }}
-                                                    className="w-full text-left px-4 py-3 flex items-center gap-3 border-b border-gray-100 hover:bg-white transition-all"
-                                                >
-                                                    <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-                                                        <i className="bi bi-plus-lg text-sm font-bold"></i>
-                                                    </div>
-                                                    <span className="text-xs font-bold text-gray-700">Nueva ubicación</span>
-                                                </button>
-
-                                                {/* Otras ubicaciones */}
-                                                {userLocations
-                                                    .filter(loc => loc.referencia !== savedLocation.referencia)
-                                                    .map((loc) => (
-                                                        <div
-                                                            key={loc.id}
-                                                            className="flex items-center border-b border-gray-100 last:border-0 hover:bg-white transition-all group"
-                                                        >
-                                                            <button
-                                                                onClick={() => handleSelectLocation(loc)}
-                                                                className="flex-1 text-left px-4 py-3 flex items-center gap-3"
-                                                            >
-                                                                <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 group-hover:bg-gray-900 group-hover:text-white transition-all">
-                                                                    <i className="bi bi-geo-alt-fill text-xs"></i>
-                                                                </div>
-                                                                <div className="flex-1 min-w-0">
-                                                                    <p className="text-[9px] text-gray-400 font-bold uppercase">
-                                                                        {/* Tipo de ubicación */}
-                                                                        {loc.referencia.includes(' - ')
-                                                                            ? loc.referencia.split(' - ')[0]
-                                                                            : 'Ubicación'}
-                                                                    </p>
-                                                                    <p className="text-xs font-bold text-gray-700 truncate">
-                                                                        {/* Solo referencias */}
-                                                                        {loc.referencia.includes(' - ')
-                                                                            ? loc.referencia.split(' - ')[1]
-                                                                            : loc.referencia}
-                                                                    </p>
-                                                                </div>
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleDeleteLocation(loc.id)}
-                                                                className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all mr-2"
-                                                            >
-                                                                <i className="bi bi-trash text-sm"></i>
-                                                            </button>
-                                                        </div>
-                                                    ))}
-
-                                                {userLocations.filter(loc => loc.referencia !== savedLocation.referencia).length === 0 && (
-                                                    <p className="px-4 py-3 text-center text-[10px] text-gray-400">
-                                                        No tienes más ubicaciones
-                                                    </p>
-                                                )}
-                                            </div>
-                                        )}
                                     </div>
                                 ) : (
-                                    /* Usuario NO tiene ubicación - Mostrar formulario horizontal */
-                                    <div className="bg-white rounded-2xl shadow-sm border border-blue-100 overflow-hidden">
-                                        <div className="p-4">
-                                            {/* Fila superior: Mapa | Selector + Referencias | Botón */}
-                                            <div className="flex items-center gap-4">
-                                                {/* Mapa circular pequeño */}
-                                                <div className="relative w-20 h-20 rounded-full overflow-hidden border-4 border-white shadow-lg flex-shrink-0">
-                                                    {currentLocation ? (
-                                                        <GoogleMap
-                                                            latitude={currentLocation.lat}
-                                                            longitude={currentLocation.lng}
-                                                            height="100%"
-                                                            width="100%"
-                                                            zoom={15}
-                                                            marker={true}
-                                                            draggable={true}
-                                                            onLocationChange={(lat, lng) => {
-                                                                setCurrentLocation({ lat, lng })
-                                                                localStorage.setItem('userCoordinates', JSON.stringify({ lat, lng }))
-                                                            }}
-                                                        />
-                                                    ) : (
-                                                        <div className="w-full h-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center">
-                                                            <i className="bi bi-geo-alt text-2xl text-blue-400"></i>
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Selector y referencias */}
-                                                <div className="flex-1 space-y-2">
-                                                    {/* Selector desplegable Casa/Trabajo */}
-                                                    <div className="relative">
-                                                        <select
-                                                            value={locationType}
-                                                            onChange={(e) => setLocationType(e.target.value as 'Casa' | 'Trabajo')}
-                                                            className="w-full appearance-none bg-white border border-gray-200 rounded-xl px-3 py-2 pr-8 text-sm font-black text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all cursor-pointer"
-                                                        >
-                                                            <option value="Casa">Casa</option>
-                                                            <option value="Trabajo">Trabajo</option>
-                                                        </select>
-                                                        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                                                            <i className="bi bi-chevron-down text-xs text-gray-400"></i>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Campo de referencias */}
-                                                    <input
-                                                        type="text"
-                                                        value={locationReference}
-                                                        onChange={(e) => setLocationReference(e.target.value)}
-                                                        placeholder="Ej: Av. Principal #123, Edificio azul..."
-                                                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all placeholder:text-gray-400"
-                                                    />
-                                                </div>
-
-                                                {/* Botón guardar */}
-                                                <button
-                                                    onClick={handleSaveLocation}
-                                                    disabled={!locationReference.trim() || savingLocation || !currentLocation}
-                                                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm active:scale-95 whitespace-nowrap self-start"
-                                                >
-                                                    {savingLocation ? (
-                                                        <>
-                                                            <i className="bi bi-arrow-repeat animate-spin mr-1"></i>
-                                                            Guardando
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <i className="bi bi-check-circle mr-1"></i>
-                                                            Guardar
-                                                        </>
-                                                    )}
-                                                </button>
-                                            </div>
+                                    /* Usuario NO tiene ubicación - Mostrar botón para agregar con Modal */
+                                    <button
+                                        onClick={() => {
+                                            setIsAddingNewLocation(true)
+                                            setIsLocationModalOpen(true)
+                                        }}
+                                        className="w-full bg-white rounded-2xl shadow-sm border border-blue-100 p-4 flex items-center gap-4 group hover:shadow-md transition-all"
+                                    >
+                                        <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-500 group-hover:bg-blue-500 group-hover:text-white transition-all">
+                                            <i className="bi bi-geo-alt-fill text-xl"></i>
                                         </div>
-                                    </div>
+                                        <div className="text-left">
+                                            <h4 className="font-black text-gray-900 text-sm">Agregar Dirección</h4>
+                                            <p className="text-xs text-gray-500">Para ver tiendas cercanas</p>
+                                        </div>
+                                        <div className="ml-auto">
+                                            <i className="bi bi-chevron-right text-gray-400"></i>
+                                        </div>
+                                    </button>
                                 )}
+
+                                <LocationSelectionModal
+                                    isOpen={isLocationModalOpen}
+                                    onClose={() => setIsLocationModalOpen(false)}
+                                    clientLocations={userLocations}
+                                    onSelect={(loc) => handleSelectLocation(loc)}
+                                    onLocationCreated={handleLocationCreated}
+                                    clientId={user.id}
+                                    initialAddingState={isAddingNewLocation}
+                                />
                             </div>
                         )}
                         {/* Profile Section */}
                         <div className="px-6 py-6 font-primary">
-                            {user ? (
-                                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 group transition-all hover:shadow-md">
-                                    <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-900 flex items-center justify-center text-white ring-4 ring-gray-50 shadow-sm flex-shrink-0">
-                                        {user.photoURL ? (
-                                            <img src={user.photoURL} alt={user.nombres} className="w-full h-full object-cover" />
-                                        ) : (
-                                            <span className="text-xl font-black">{getInitials(user.nombres || 'U')}</span>
-                                        )}
-                                    </div>
-                                    <div className="min-w-0">
-                                        <p className="font-black text-lg text-gray-900 truncate leading-tight">{user.nombres}</p>
-                                        <p className="text-sm text-gray-500 font-bold mt-0.5">{user.celular}</p>
-                                        <div className="flex gap-2 mt-2">
-                                            <Link
-                                                href="/profile"
-                                                onClick={onClose}
-                                                className="text-[10px] uppercase tracking-widest font-black text-gray-400 hover:text-gray-900 transition-colors"
-                                            >
-                                                Ver mi cuenta
-                                            </Link>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
+                            {!user && (
                                 <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 text-center">
                                     {!showAuthForm ? (
                                         <>

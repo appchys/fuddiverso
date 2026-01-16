@@ -1771,6 +1771,26 @@ export function CheckoutContent({
                         return;
                       }
                       setDeliveryData(prev => ({ ...prev, type: 'delivery', tarifa: '0' }));
+
+                      // Intento de sincronización: Buscar si la ubicación seleccionada en el Sidebar (localStorage) coincide con alguna guardada
+                      const storedCoordsStr = localStorage.getItem('userCoordinates');
+                      if (storedCoordsStr && clientLocations.length > 0) {
+                        try {
+                          const stored = JSON.parse(storedCoordsStr);
+                          const match = clientLocations.find(l => {
+                            const [lLat, lLng] = l.latlong.split(',').map((n: string) => parseFloat(n.trim()));
+                            return Math.abs(lLat - stored.lat) < 0.0001 && Math.abs(lLng - stored.lng) < 0.0001;
+                          });
+
+                          if (match) {
+                            handleLocationSelect(match);
+                            return;
+                          }
+                        } catch (e) {
+                          console.error("Error syncing location from storage:", e);
+                        }
+                      }
+
                       if (selectedLocation) return;
 
                       if (clientLocations.length > 0) {

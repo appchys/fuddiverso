@@ -31,8 +31,9 @@ export default function HomePageContent() {
           })
         },
         (error) => {
-          console.error('Error getting location:', error)
-        }
+          console.warn('Ubicación no disponible para cálculo de distancias:', error)
+        },
+        { enableHighAccuracy: false, timeout: 5000 }
       )
     }
   }, [])
