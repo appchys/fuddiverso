@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getAllBusinesses, searchBusinesses } from '@/lib/database'
-import { Business } from '@/types'
+import { getAllBusinesses, searchBusinesses, getProductsByBusiness } from '@/lib/database'
+import { Business, Product } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
 
@@ -20,6 +20,7 @@ export default function HomePageContent() {
   const [followedBusinesses, setFollowedBusinesses] = useState<Set<string>>(new Set())
   const [categories, setCategories] = useState<string[]>(['all'])
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [randomProducts, setRandomProducts] = useState<Product[]>([])
 
   useEffect(() => {
     if ('geolocation' in navigator) {
@@ -47,6 +48,32 @@ export default function HomePageContent() {
     loadBusinessesWithParams(urlSearch, urlCategory)
     if (user) loadFollowedBusinesses()
   }, [searchParams, user])
+
+  // Cargar productos aleatorios
+  const loadRandomProducts = async () => {
+    try {
+      const allBusinesses = await getAllBusinesses()
+      const allProducts: Product[] = []
+      
+      // Obtener productos de todos los negocios
+      for (const business of allBusinesses) {
+        const products = await getProductsByBusiness(business.id)
+        allProducts.push(...products)
+      }
+      
+      // Mezclar y tomar 20 productos aleatorios
+      const shuffled = [...allProducts].sort(() => 0.5 - Math.random())
+      const selected = shuffled.slice(0, 20)
+      
+      setRandomProducts(selected)
+    } catch (error) {
+      console.error('Error loading random products:', error)
+    }
+  }
+
+  useEffect(() => {
+    loadRandomProducts()
+  }, [])
 
   const loadBusinessesWithParams = async (search: string, category: string) => {
     try {
@@ -103,7 +130,6 @@ export default function HomePageContent() {
       {/* CATEGORÍAS */}
       <section className="py-10 bg-white">
         <div className="max-w-6xl mx-auto px-6">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-6 text-center">Explora por categoría</h2>
           <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2">
             {categories.slice(1).map((cat, i) => (
               <button
@@ -124,6 +150,81 @@ export default function HomePageContent() {
             >
               <span className="text-3xl mb-1">🍽️</span>
               <span className="text-sm font-medium text-gray-700">Todo</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* PRODUCTOS ALEATORIOS */}
+      <section className="py-10 bg-white">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="relative">
+            <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 random-products-carousel">
+              {randomProducts.map((product) => {
+                const business = businesses.find(b => b.id === product.businessId)
+                const businessLink = business?.username ? `/${business.username}` : `/restaurant/${product.businessId}`
+                const productLink = `${businessLink}/${product.id}`
+                
+                return (
+                  <Link
+                    key={product.id}
+                    href={productLink}
+                    className="flex-shrink-0 w-64 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100"
+                  >
+                    <div className="relative h-40 bg-gray-100 flex items-center justify-center">
+                      {product.image ? (
+                        <img
+                          src={product.image}
+                          alt={product.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                          <i className="bi bi-bag text-4xl text-gray-400"></i>
+                        </div>
+                      )}
+                      {product.price > 0 && (
+                        <div className="absolute top-3 right-3 bg-[#aa1918] text-white px-2 py-1 rounded-full text-xs font-bold">
+                          ${product.price}
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-4">
+                      <h3 className="text-sm font-bold text-gray-900 line-clamp-1 mb-1">{product.name}</h3>
+                      {business && (
+                        <p className="text-xs text-gray-500 mb-2 line-clamp-1">{business.name}</p>
+                      )}
+                      {product.description && (
+                        <p className="text-xs text-gray-600 line-clamp-2">{product.description}</p>
+                      )}
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+            
+            {/* Flechas de navegación */}
+            <button
+              onClick={() => {
+                const container = document.querySelector('.random-products-carousel')
+                if (container) {
+                  container.scrollLeft -= 300
+                }
+              }}
+              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 hover:bg-gray-50 transition-all z-10"
+            >
+              <i className="bi bi-chevron-left"></i>
+            </button>
+            <button
+              onClick={() => {
+                const container = document.querySelector('.random-products-carousel')
+                if (container) {
+                  container.scrollLeft += 300
+                }
+              }}
+              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 hover:bg-gray-50 transition-all z-10"
+            >
+              <i className="bi bi-chevron-right"></i>
             </button>
           </div>
         </div>
