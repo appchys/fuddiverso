@@ -654,6 +654,7 @@ export default function BusinessProfileDashboard({
             categories={categories}
             onProductsChange={onProductsChange}
             onCategoriesChange={onCategoriesChange}
+            onDirectUpdate={onDirectUpdate}
           />
         </div>
       )}

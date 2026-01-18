@@ -10,6 +10,7 @@ interface ProductListProps {
   categories: string[]
   onProductsChange: (products: Product[]) => void
   onCategoriesChange: (categories: string[]) => void
+  onDirectUpdate?: (field: keyof Business, value: any) => Promise<void>
 }
 
 export default function ProductList({
@@ -17,7 +18,8 @@ export default function ProductList({
   products,
   categories,
   onProductsChange,
-  onCategoriesChange
+  onCategoriesChange,
+  onDirectUpdate
 }: ProductListProps) {
   const [showProductForm, setShowProductForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
@@ -469,6 +471,74 @@ export default function ProductList({
     }
   }
 
+  const moveCategory = (index: number, direction: 'up' | 'down') => {
+    const newCategories = [...categories]
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= categories.length) return
+
+    const temp = newCategories[index]
+    newCategories[index] = newCategories[targetIndex]
+    newCategories[targetIndex] = temp
+
+    // Update local state and persist silently
+    onCategoriesChange(newCategories)
+    if (onDirectUpdate) {
+      onDirectUpdate('categories', newCategories)
+    }
+  }
+
+  const moveProduct = async (product: Product, direction: 'up' | 'down') => {
+    const categoryProducts = products
+      .filter(p => p.category === product.category)
+      .sort((a, b) => (a.order || 0) - (b.order || 0))
+
+    const index = categoryProducts.findIndex(p => p.id === product.id)
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+
+    if (targetIndex < 0 || targetIndex >= categoryProducts.length) return
+
+    const targetProduct = categoryProducts[targetIndex]
+
+    // Ensure both have an order. Use pIndex as fallback.
+    const currentPos = products.findIndex(p => p.id === product.id)
+    const targetPos = products.findIndex(p => p.id === targetProduct.id)
+
+    const currentOrder = product.order ?? currentPos
+    const targetOrder = targetProduct.order ?? targetPos
+
+    let newCurrentOrder = targetOrder
+    let newTargetOrder = currentOrder
+
+    if (newCurrentOrder === newTargetOrder) {
+      newCurrentOrder = targetIndex
+      newTargetOrder = index
+    }
+
+    try {
+      await updateProduct(product.id, { order: newCurrentOrder })
+      await updateProduct(targetProduct.id, { order: newTargetOrder })
+
+      onProductsChange(products.map(p => {
+        if (p.id === product.id) return { ...p, order: newCurrentOrder }
+        if (p.id === targetProduct.id) return { ...p, order: newTargetOrder }
+        return p
+      }))
+    } catch (error) {
+      console.error('Error moving product:', error)
+    }
+  }
+
+  const moveVariant = (index: number, direction: 'up' | 'down') => {
+    const newVariants = [...variants]
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= variants.length) return
+
+    const temp = newVariants[index]
+    newVariants[index] = newVariants[targetIndex]
+    newVariants[targetIndex] = temp
+    setVariants(newVariants)
+  }
+
   return (
     <div className="space-y-6">
       {/* Botón para agregar producto */}
@@ -483,7 +553,7 @@ export default function ProductList({
         </button>
       </div>
 
-      {/* Lista de productos */}
+      {/* Lista de productos agrupada por categoría */}
       {products.length === 0 ? (
         <div className="bg-gray-50 rounded-lg border border-gray-200 p-8 text-center">
           <i className="bi bi-box-seam text-4xl text-gray-300 mb-3 block"></i>
@@ -491,88 +561,387 @@ export default function ProductList({
           <p className="text-sm text-gray-500 mt-1">Crea tu primer producto para comenzar</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {products.map((product) => (
-            <div
-              key={product.id}
-              className={`border rounded-lg p-4 hover:shadow-sm transition-shadow ${product.isAvailable
-                ? 'bg-white border-gray-200'
-                : 'bg-gray-50 border-gray-300 opacity-60'
-                }`}
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-start sm:items-center gap-4 min-w-0 flex-1">
-                  {/* Imagen */}
-                  <div className={`w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 rounded-xl flex items-center justify-center overflow-hidden shadow-sm ${product.isAvailable ? 'bg-gray-200' : 'bg-gray-300'
-                    }`}>
-                    {product.image ? (
-                      <img src={product.image} alt={product.name} className={`w-full h-full object-cover ${!product.isAvailable ? 'opacity-70' : ''
-                        }`} />
-                    ) : (
-                      <i className={`bi bi-box-seam text-2xl ${product.isAvailable ? 'text-gray-400' : 'text-gray-500'
-                        }`}></i>
-                    )}
-                  </div>
+        <div className="space-y-8">
+          {categories.length > 0 ? (
+            <>
+              {categories.map((category, catIndex) => {
+                const categoryProducts = products
+                  .filter(p => p.category === category)
+                  .sort((a, b) => (a.order || 0) - (b.order || 0))
 
-                  {/* Información */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className={`font-bold text-base sm:text-lg truncate ${product.isAvailable ? 'text-gray-900' : 'text-gray-600'
-                        }`}>{product.name}</h3>
-                      {!product.isAvailable && (
-                        <span className="text-[10px] sm:text-xs font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-full uppercase">
-                          No disponible
-                        </span>
-                      )}
+                if (categoryProducts.length === 0) return null
+
+                return (
+                  <div key={category} className="space-y-4">
+                    <div className="flex items-center justify-between bg-gray-50 p-3 rounded-xl border border-gray-200">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm border border-gray-100">
+                          <i className="bi bi-tag text-gray-400"></i>
+                        </div>
+                        <h3 className="font-bold text-gray-800 uppercase tracking-wider text-xs sm:text-sm">
+                          {category}
+                        </h3>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => moveCategory(catIndex, 'up')}
+                          disabled={catIndex === 0}
+                          className="w-8 h-8 flex items-center justify-center bg-white hover:bg-gray-50 text-gray-600 rounded-lg border border-gray-200 disabled:opacity-20 transition-colors"
+                          title="Subir categoría"
+                        >
+                          <i className="bi bi-chevron-up"></i>
+                        </button>
+                        <button
+                          onClick={() => moveCategory(catIndex, 'down')}
+                          disabled={catIndex === categories.length - 1}
+                          className="w-8 h-8 flex items-center justify-center bg-white hover:bg-gray-50 text-gray-600 rounded-lg border border-gray-200 disabled:opacity-20 transition-colors"
+                          title="Bajar categoría"
+                        >
+                          <i className="bi bi-chevron-down"></i>
+                        </button>
+                      </div>
                     </div>
-                    <p className={`text-xs sm:text-sm mt-1 line-clamp-1 sm:line-clamp-2 ${product.isAvailable ? 'text-gray-600' : 'text-gray-500'
-                      }`}>{product.description}</p>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
-                      <span className={`text-sm sm:text-base font-black ${product.isAvailable ? 'text-gray-900' : 'text-gray-600'
-                        }`}>${product.price.toFixed(2)}</span>
-                      <span className={`text-[10px] sm:text-xs font-medium px-2 py-0.5 bg-gray-100 rounded text-gray-500 uppercase tracking-wider`}>
-                        {product.category}
-                      </span>
-                      {product.variants && product.variants.length > 0 && (
-                        <span className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded ${product.isAvailable ? 'bg-blue-100 text-blue-700' : 'bg-gray-300 text-gray-600'
-                          }`}>
-                          {product.variants.length} variante{product.variants.length !== 1 ? 's' : ''}
-                        </span>
-                      )}
+
+                    <div className="space-y-3">
+                      {categoryProducts.map((product, pIndex) => (
+                        <div
+                          key={product.id}
+                          className={`border rounded-xl p-4 hover:shadow-md transition-all duration-300 ${product.isAvailable
+                            ? 'bg-white border-gray-100'
+                            : 'bg-gray-50/50 border-gray-200 opacity-60'
+                            }`}
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="flex items-start sm:items-center gap-4 min-w-0 flex-1">
+                              {/* Controles de orden del producto */}
+                              <div className="flex flex-col gap-1 items-center justify-center pr-3 border-r border-gray-100 py-1">
+                                <button
+                                  onClick={() => moveProduct(product, 'up')}
+                                  disabled={pIndex === 0}
+                                  className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-10 transition-all active:scale-90"
+                                  title="Subir producto"
+                                >
+                                  <i className="bi bi-caret-up-fill"></i>
+                                </button>
+                                <button
+                                  onClick={() => moveProduct(product, 'down')}
+                                  disabled={pIndex === categoryProducts.length - 1}
+                                  className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-10 transition-all active:scale-90"
+                                  title="Bajar producto"
+                                >
+                                  <i className="bi bi-caret-down-fill"></i>
+                                </button>
+                              </div>
+
+                              {/* Imagen */}
+                              <div className={`w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 rounded-2xl flex items-center justify-center overflow-hidden shadow-sm border border-gray-100 ${product.isAvailable ? 'bg-gray-50' : 'bg-gray-200'
+                                }`}>
+                                {product.image ? (
+                                  <img src={product.image} alt={product.name} className={`w-full h-full object-cover transition-transform hover:scale-110 duration-500 ${!product.isAvailable ? 'opacity-50 grayscale' : ''
+                                    }`} />
+                                ) : (
+                                  <i className={`bi bi-box-seam text-2xl ${product.isAvailable ? 'text-gray-300' : 'text-gray-400'
+                                    }`}></i>
+                                )}
+                              </div>
+
+                              {/* Información */}
+                              <div className="flex-1 min-w-0 py-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h3 className={`font-black text-base sm:text-lg tracking-tight truncate ${product.isAvailable ? 'text-slate-900' : 'text-slate-500'
+                                    }`}>{product.name}</h3>
+                                  {!product.isAvailable && (
+                                    <span className="text-[9px] font-black bg-red-50 text-red-600 border border-red-100 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                      No disponible
+                                    </span>
+                                  )}
+                                </div>
+                                <p className={`text-xs sm:text-sm mt-1 line-clamp-1 opacity-70 ${product.isAvailable ? 'text-slate-600' : 'text-slate-400'
+                                  }`}>{product.description}</p>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3">
+                                  <span className={`text-sm sm:text-base font-black ${product.isAvailable ? 'text-slate-900' : 'text-slate-500'
+                                    }`}>${product.price.toFixed(2)}</span>
+                                  {product.variants && product.variants.length > 0 && (
+                                    <span className={`text-[10px] font-black px-2 py-1 rounded-lg tracking-tight ${product.isAvailable ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-gray-200 text-gray-500'
+                                      }`}>
+                                      {product.variants.length} VARIANTE{product.variants.length !== 1 ? 'S' : ''}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Botones de acción */}
+                            <div className="flex items-center justify-end gap-1.5 pt-3 sm:pt-0 border-t sm:border-0 border-gray-50 flex-shrink-0">
+                              <button
+                                onClick={() => handleToggleAvailability(product.id, product.isAvailable)}
+                                className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl transition-all active:scale-90 border ${product.isAvailable
+                                  ? 'text-orange-600 bg-orange-50 border-orange-100 hover:bg-orange-100'
+                                  : 'text-emerald-600 bg-emerald-50 border-emerald-100 hover:bg-emerald-100'
+                                  }`}
+                                title={product.isAvailable ? 'Ocultar' : 'Mostrar'}
+                              >
+                                <i className={`bi ${product.isAvailable ? 'bi-eye-slash-fill' : 'bi-eye-fill'} text-lg sm:text-base`}></i>
+                              </button>
+                              <button
+                                onClick={() => handleEditProduct(product)}
+                                className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center text-blue-600 bg-blue-50 border border-blue-100 hover:bg-blue-100 rounded-xl transition-all active:scale-90"
+                                title="Editar"
+                              >
+                                <i className="bi bi-pencil-fill text-lg sm:text-base"></i>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteProduct(product.id)}
+                                className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center text-red-600 bg-red-50 border border-red-100 hover:bg-red-100 rounded-xl transition-all active:scale-90"
+                                title="Eliminar"
+                              >
+                                <i className="bi bi-trash-fill text-lg sm:text-base"></i>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                </div>
+                )
+              })}
 
-                {/* Botones de acción */}
-                <div className="flex items-center justify-end gap-1 sm:gap-2 pt-3 sm:pt-0 border-t sm:border-0 border-gray-100 flex-shrink-0">
-                  <button
-                    onClick={() => handleToggleAvailability(product.id, product.isAvailable)}
-                    className={`p-2.5 sm:p-2 rounded-xl transition-all active:scale-95 ${product.isAvailable
-                      ? 'text-orange-600 bg-orange-50 hover:bg-orange-100'
-                      : 'text-green-600 bg-green-50 hover:bg-green-100'
+              {/* Sección de productos sin categoría o categoría no listada */}
+              {(() => {
+                const uncategorizedProducts = products
+                  .filter(p => !categories.includes(p.category))
+                  .sort((a, b) => (a.order || 0) - (b.order || 0))
+
+                if (uncategorizedProducts.length === 0) return null
+
+                return (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between bg-gray-50 p-3 rounded-xl border border-gray-200">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm border border-gray-100">
+                          <i className="bi bi-question-circle text-gray-400"></i>
+                        </div>
+                        <h3 className="font-bold text-gray-800 uppercase tracking-wider text-xs sm:text-sm">
+                          Otros / Sin categoría
+                        </h3>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {uncategorizedProducts.map((product, pIndex) => (
+                        <div
+                          key={product.id}
+                          className={`border rounded-xl p-4 hover:shadow-md transition-all duration-300 ${product.isAvailable
+                            ? 'bg-white border-gray-100'
+                            : 'bg-gray-50/50 border-gray-200 opacity-60'
+                            }`}
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="flex items-start sm:items-center gap-4 min-w-0 flex-1">
+                              {/* Controles de orden del producto */}
+                              <div className="flex flex-col gap-1 items-center justify-center pr-3 border-r border-gray-100 py-1">
+                                <button
+                                  onClick={() => moveProduct(product, 'up')}
+                                  disabled={pIndex === 0}
+                                  className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-10 transition-all active:scale-90"
+                                  title="Subir producto"
+                                >
+                                  <i className="bi bi-caret-up-fill"></i>
+                                </button>
+                                <button
+                                  onClick={() => moveProduct(product, 'down')}
+                                  disabled={pIndex === uncategorizedProducts.length - 1}
+                                  className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-10 transition-all active:scale-90"
+                                  title="Bajar producto"
+                                >
+                                  <i className="bi bi-caret-down-fill"></i>
+                                </button>
+                              </div>
+
+                              {/* Imagen */}
+                              <div className={`w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 rounded-2xl flex items-center justify-center overflow-hidden shadow-sm border border-gray-100 ${product.isAvailable ? 'bg-gray-50' : 'bg-gray-200'
+                                }`}>
+                                {product.image ? (
+                                  <img src={product.image} alt={product.name} className={`w-full h-full object-cover transition-transform hover:scale-110 duration-500 ${!product.isAvailable ? 'opacity-50 grayscale' : ''
+                                    }`} />
+                                ) : (
+                                  <i className={`bi bi-box-seam text-2xl ${product.isAvailable ? 'text-gray-300' : 'text-gray-400'
+                                    }`}></i>
+                                )}
+                              </div>
+
+                              {/* Información */}
+                              <div className="flex-1 min-w-0 py-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h3 className={`font-black text-base sm:text-lg tracking-tight truncate ${product.isAvailable ? 'text-slate-900' : 'text-slate-500'
+                                    }`}>{product.name}</h3>
+                                  {!product.isAvailable && (
+                                    <span className="text-[9px] font-black bg-red-50 text-red-600 border border-red-100 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                      No disponible
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] font-medium px-2 py-0.5 bg-gray-100 rounded text-gray-500 uppercase tracking-wider">
+                                    {product.category || 'Sin categoría'}
+                                  </span>
+                                </div>
+                                <p className={`text-xs sm:text-sm mt-1 line-clamp-1 opacity-70 ${product.isAvailable ? 'text-slate-600' : 'text-slate-400'
+                                  }`}>{product.description}</p>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3">
+                                  <span className={`text-sm sm:text-base font-black ${product.isAvailable ? 'text-slate-900' : 'text-slate-500'
+                                    }`}>${product.price.toFixed(2)}</span>
+                                  {product.variants && product.variants.length > 0 && (
+                                    <span className={`text-[10px] font-black px-2 py-1 rounded-lg tracking-tight ${product.isAvailable ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-gray-200 text-gray-500'
+                                      }`}>
+                                      {product.variants.length} VARIANTE{product.variants.length !== 1 ? 'S' : ''}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Botones de acción */}
+                            <div className="flex items-center justify-end gap-1.5 pt-3 sm:pt-0 border-t sm:border-0 border-gray-50 flex-shrink-0">
+                              <button
+                                onClick={() => handleToggleAvailability(product.id, product.isAvailable)}
+                                className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl transition-all active:scale-90 border ${product.isAvailable
+                                  ? 'text-orange-600 bg-orange-50 border-orange-100 hover:bg-orange-100'
+                                  : 'text-emerald-600 bg-emerald-50 border-emerald-100 hover:bg-emerald-100'
+                                  }`}
+                                title={product.isAvailable ? 'Ocultar' : 'Mostrar'}
+                              >
+                                <i className={`bi ${product.isAvailable ? 'bi-eye-slash-fill' : 'bi-eye-fill'} text-lg sm:text-base`}></i>
+                              </button>
+                              <button
+                                onClick={() => handleEditProduct(product)}
+                                className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center text-blue-600 bg-blue-50 border border-blue-100 hover:bg-blue-100 rounded-xl transition-all active:scale-90"
+                                title="Editar"
+                              >
+                                <i className="bi bi-pencil-fill text-lg sm:text-base"></i>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteProduct(product.id)}
+                                className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center text-red-600 bg-red-50 border border-red-100 hover:bg-red-100 rounded-xl transition-all active:scale-90"
+                                title="Eliminar"
+                              >
+                                <i className="bi bi-trash-fill text-lg sm:text-base"></i>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+            </>
+          ) : (
+            /* Si no hay categorías definidas, mostrar todos los productos en una lista */
+            <div className="space-y-3">
+              {products
+                .sort((a, b) => (a.order || 0) - (b.order || 0))
+                .map((product, pIndex) => (
+                  <div
+                    key={product.id}
+                    className={`border rounded-xl p-4 hover:shadow-md transition-all duration-300 ${product.isAvailable
+                      ? 'bg-white border-gray-100'
+                      : 'bg-gray-50/50 border-gray-200 opacity-60'
                       }`}
-                    title={product.isAvailable ? 'Ocultar' : 'Mostrar'}
                   >
-                    <i className={`bi ${product.isAvailable ? 'bi-eye-slash' : 'bi-eye'} text-lg sm:text-base`}></i>
-                  </button>
-                  <button
-                    onClick={() => handleEditProduct(product)}
-                    className="p-2.5 sm:p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-all active:scale-95"
-                    title="Editar"
-                  >
-                    <i className="bi bi-pencil text-lg sm:text-base"></i>
-                  </button>
-                  <button
-                    onClick={() => handleDeleteProduct(product.id)}
-                    className="p-2.5 sm:p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-all active:scale-95"
-                    title="Eliminar"
-                  >
-                    <i className="bi bi-trash text-lg sm:text-base"></i>
-                  </button>
-                </div>
-              </div>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-start sm:items-center gap-4 min-w-0 flex-1">
+                        {/* Controles de orden del producto */}
+                        <div className="flex flex-col gap-1 items-center justify-center pr-3 border-r border-gray-100 py-1">
+                          <button
+                            onClick={() => moveProduct(product, 'up')}
+                            disabled={pIndex === 0}
+                            className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-10 transition-all active:scale-90"
+                            title="Subir producto"
+                          >
+                            <i className="bi bi-caret-up-fill"></i>
+                          </button>
+                          <button
+                            onClick={() => moveProduct(product, 'down')}
+                            disabled={pIndex === products.length - 1}
+                            className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-10 transition-all active:scale-90"
+                            title="Bajar producto"
+                          >
+                            <i className="bi bi-caret-down-fill"></i>
+                          </button>
+                        </div>
+
+                        {/* Imagen */}
+                        <div className={`w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 rounded-2xl flex items-center justify-center overflow-hidden shadow-sm border border-gray-100 ${product.isAvailable ? 'bg-gray-50' : 'bg-gray-200'
+                          }`}>
+                          {product.image ? (
+                            <img src={product.image} alt={product.name} className={`w-full h-full object-cover transition-transform hover:scale-110 duration-500 ${!product.isAvailable ? 'opacity-50 grayscale' : ''
+                              }`} />
+                          ) : (
+                            <i className={`bi bi-box-seam text-2xl ${product.isAvailable ? 'text-gray-300' : 'text-gray-400'
+                              }`}></i>
+                          )}
+                        </div>
+
+                        {/* Información */}
+                        <div className="flex-1 min-w-0 py-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className={`font-black text-base sm:text-lg tracking-tight truncate ${product.isAvailable ? 'text-slate-900' : 'text-slate-500'
+                              }`}>{product.name}</h3>
+                            {!product.isAvailable && (
+                              <span className="text-[9px] font-black bg-red-50 text-red-600 border border-red-100 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                No disponible
+                              </span>
+                            )}
+                            <span className="text-[10px] font-medium px-2 py-0.5 bg-gray-100 rounded text-gray-500 uppercase tracking-wider">
+                              {product.category}
+                            </span>
+                          </div>
+                          <p className={`text-xs sm:text-sm mt-1 line-clamp-1 opacity-70 ${product.isAvailable ? 'text-slate-600' : 'text-slate-400'
+                            }`}>{product.description}</p>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3">
+                            <span className={`text-sm sm:text-base font-black ${product.isAvailable ? 'text-slate-900' : 'text-slate-500'
+                              }`}>${product.price.toFixed(2)}</span>
+                            {product.variants && product.variants.length > 0 && (
+                              <span className={`text-[10px] font-black px-2 py-1 rounded-lg tracking-tight ${product.isAvailable ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-gray-200 text-gray-500'
+                                }`}>
+                                {product.variants.length} VARIANTE{product.variants.length !== 1 ? 'S' : ''}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Botones de acción */}
+                      <div className="flex items-center justify-end gap-1.5 pt-3 sm:pt-0 border-t sm:border-0 border-gray-50 flex-shrink-0">
+                        <button
+                          onClick={() => handleToggleAvailability(product.id, product.isAvailable)}
+                          className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl transition-all active:scale-90 border ${product.isAvailable
+                            ? 'text-orange-600 bg-orange-50 border-orange-100 hover:bg-orange-100'
+                            : 'text-emerald-600 bg-emerald-50 border-emerald-100 hover:bg-emerald-100'
+                            }`}
+                          title={product.isAvailable ? 'Ocultar' : 'Mostrar'}
+                        >
+                          <i className={`bi ${product.isAvailable ? 'bi-eye-slash-fill' : 'bi-eye-fill'} text-lg sm:text-base`}></i>
+                        </button>
+                        <button
+                          onClick={() => handleEditProduct(product)}
+                          className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center text-blue-600 bg-blue-50 border border-blue-100 hover:bg-blue-100 rounded-xl transition-all active:scale-90"
+                          title="Editar"
+                        >
+                          <i className="bi bi-pencil-fill text-lg sm:text-base"></i>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProduct(product.id)}
+                          className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center text-red-600 bg-red-50 border border-red-100 hover:bg-red-100 rounded-xl transition-all active:scale-90"
+                          title="Eliminar"
+                        >
+                          <i className="bi bi-trash-fill text-lg sm:text-base"></i>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 
@@ -815,13 +1184,31 @@ export default function ProductList({
 
                       {variants.length > 0 && (
                         <div className="space-y-2 mb-4">
-                          {variants.map((variant) => (
+                          {variants.map((variant, index) => (
                             <div key={variant.id} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg hover:bg-gray-100 transition-colors">
-                              <div>
+                              <div className="flex-1">
                                 <p className="font-medium text-gray-900">{variant.name}</p>
                                 <p className="text-sm text-gray-600">${variant.price.toFixed(2)}</p>
                               </div>
                               <div className="flex items-center gap-2">
+                                <div className="flex flex-col gap-0.5 mr-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => moveVariant(index, 'up')}
+                                    disabled={index === 0}
+                                    className="text-gray-400 hover:text-blue-600 disabled:opacity-10 transition-colors"
+                                  >
+                                    <i className="bi bi-caret-up-fill text-xs"></i>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => moveVariant(index, 'down')}
+                                    disabled={index === variants.length - 1}
+                                    className="text-gray-400 hover:text-blue-600 disabled:opacity-10 transition-colors"
+                                  >
+                                    <i className="bi bi-caret-down-fill text-xs"></i>
+                                  </button>
+                                </div>
                                 <button
                                   type="button"
                                   onClick={() => setVariantVisibility(prev => ({ ...prev, [variant.id]: !prev[variant.id] }))}
@@ -1325,6 +1712,7 @@ export default function ProductList({
           </div>
         </div>
       )}
+
       <style jsx>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 4px;

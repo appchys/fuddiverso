@@ -127,6 +127,7 @@ export interface Product {
   image?: string
   variants?: ProductVariant[] // Variantes opcionales del producto
   isAvailable: boolean
+  order?: number // Orden de visualización
   businessName?: string
   businessImage?: string
   ingredients?: Ingredient[]

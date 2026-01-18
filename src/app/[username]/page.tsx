@@ -916,14 +916,29 @@ function RestaurantContent() {
   if (business?.categories?.length) {
     // Creamos las categorías en el orden definido
     business.categories.forEach(category => {
-      const categoryProducts = availableProducts.filter(p => p.category === category)
+      const categoryProducts = availableProducts
+        .filter(p => p.category === category)
+        .sort((a, b) => {
+          // Ordenar por 'order' (asc) y luego por 'createdAt' (desc)
+          const orderA = a.order ?? Number.MAX_SAFE_INTEGER
+          const orderB = b.order ?? Number.MAX_SAFE_INTEGER
+          if (orderA !== orderB) return orderA - orderB
+
+          const dateA = a.createdAt instanceof Date ? a.createdAt.getTime() : 0
+          const dateB = b.createdAt instanceof Date ? b.createdAt.getTime() : 0
+          return dateB - dateA
+        })
+
       if (categoryProducts.length > 0) {
         productsByCategory[category] = categoryProducts
       }
     })
 
     // Agregamos productos sin categoría a 'Otros' si existen
-    const uncategorizedProducts = availableProducts.filter(p => !p.category || !business.categories?.includes(p.category))
+    const uncategorizedProducts = availableProducts
+      .filter(p => !p.category || !business.categories?.includes(p.category))
+      .sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER))
+
     if (uncategorizedProducts.length > 0) {
       productsByCategory['Otros'] = uncategorizedProducts
     }
@@ -935,6 +950,11 @@ function RestaurantContent() {
         productsByCategory[category] = []
       }
       productsByCategory[category].push(product)
+    })
+
+    // Ordenar productos en cada categoría si no hay orden de categorías definido
+    Object.keys(productsByCategory).forEach(cat => {
+      productsByCategory[cat].sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER))
     })
   }
 
