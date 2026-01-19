@@ -16,8 +16,8 @@ export default function DeliveryDashboard() {
   const [loading, setLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [showOrderModal, setShowOrderModal] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('active')
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set())
+  const [expandedSummary, setExpandedSummary] = useState<'none' | 'cash' | 'transfer' | 'earnings'>('none')
 
   const toggleOrderExpansion = (orderId: string) => {
     setExpandedOrderIds(prev => {
@@ -100,20 +100,38 @@ export default function DeliveryDashboard() {
     return orderDate >= rangeStart && orderDate <= rangeEnd
   })
 
-  const summaryCash = deliveredByMe.reduce((sum, o) => {
-    if (o.payment?.method === 'cash') return sum + o.total
-    if (o.payment?.method === 'mixed') return sum + (o.payment.cashAmount || 0)
-    return sum
-  }, 0)
-  const summaryTransfer = deliveredByMe.reduce((sum, o) => {
-    if (o.payment?.method === 'transfer') return sum + o.total
-    if (o.payment?.method === 'mixed') return sum + (o.payment.transferAmount || 0)
-    return sum
-  }, 0)
-  const summaryEarnings = deliveredByMe.reduce((sum, o) => {
-    if (o.delivery?.type === 'delivery') return sum + (o.delivery.deliveryCost || 0)
-    return sum
-  }, 0)
+  // Cálculos de resumen desglosados (Activos vs Entregados)
+  const calculateCategorySummary = (ordersList: Order[], method?: 'cash' | 'transfer' | 'mixed' | 'earnings') => {
+    return ordersList.reduce((sum, o) => {
+      if (method === 'earnings') {
+        return sum + (o.delivery?.deliveryCost || 0)
+      }
+      if (o.payment?.method === method) return sum + o.total
+      if (o.payment?.method === 'mixed') {
+        if (method === 'cash') return sum + (o.payment.cashAmount || 0)
+        if (method === 'transfer') return sum + (o.payment.transferAmount || 0)
+      }
+      return sum
+    }, 0)
+  }
+
+  const activeByMe = ordersByDate.filter(o => o.status !== 'delivered' && o.status !== 'cancelled' && o.delivery?.assignedDelivery === deliveryId)
+  const deliveredByMeInRange = ordersByDate.filter(o => o.status === 'delivered' && o.delivery?.assignedDelivery === deliveryId)
+
+  // Efectivo
+  const summaryCashActive = calculateCategorySummary(activeByMe, 'cash')
+  const summaryCashDelivered = calculateCategorySummary(deliveredByMeInRange, 'cash')
+  const summaryCashTotal = summaryCashActive + summaryCashDelivered
+
+  // Transferencia
+  const summaryTransferActive = calculateCategorySummary(activeByMe, 'transfer')
+  const summaryTransferDelivered = calculateCategorySummary(deliveredByMeInRange, 'transfer')
+  const summaryTransferTotal = summaryTransferActive + summaryTransferDelivered
+
+  // Ganancias
+  const summaryEarningsActive = calculateCategorySummary(activeByMe, 'earnings')
+  const summaryEarningsDelivered = calculateCategorySummary(deliveredByMeInRange, 'earnings')
+  const summaryEarningsTotal = summaryEarningsActive + summaryEarningsDelivered
 
   // Protección de ruta
   useEffect(() => {
@@ -176,11 +194,6 @@ export default function DeliveryDashboard() {
       console.error('Error updating status:', error)
       alert('Error al actualizar el estado del pedido')
     }
-  }
-
-  const handleLogout = () => {
-    logout()
-    router.push('/delivery/login')
   }
 
   const openOrderDetails = (order: Order) => {
@@ -266,424 +279,422 @@ export default function DeliveryDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Info Hoy y Botón de Salida */}
-      <div className="bg-white border-b sticky top-0 z-20">
-        <div className="px-4 py-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-            Dashboard de Hoy ({ordersByDate.length})
-          </h2>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-400 font-medium">
-              {new Date().toLocaleDateString('es-EC', {
-                day: 'numeric',
-                month: 'short'
-              })}
-            </span>
-            <button
-              onClick={handleLogout}
-              className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
-              title="Cerrar sesión"
-            >
-              <i className="bi bi-box-arrow-right text-lg"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-
+    <div className="min-h-screen bg-transparent">
       {/* Resumen del Delivery (cobros y ganancias) */}
       <div className="bg-white border-b">
-        <div className="px-4 py-3 space-y-3">
+        <div className="px-4 py-3">
           <div className="grid grid-cols-3 gap-2">
-            <div className="p-2 rounded-lg border bg-green-50 flex flex-col items-center text-center">
-              <p className="text-[10px] text-gray-600 leading-tight">Efectivo</p>
-              <p className="text-sm font-bold text-green-700">${summaryCash.toFixed(2)}</p>
-            </div>
-            <div className="p-2 rounded-lg border bg-blue-50 flex flex-col items-center text-center">
-              <p className="text-[10px] text-gray-600 leading-tight">Transf.</p>
-              <p className="text-sm font-bold text-blue-700">${summaryTransfer.toFixed(2)}</p>
-            </div>
-            <div className="p-2 rounded-lg border bg-purple-50 flex flex-col items-center text-center">
-              <p className="text-[10px] text-gray-600 leading-tight">Ganancia</p>
-              <p className="text-sm font-bold text-purple-700">${summaryEarnings.toFixed(2)}</p>
-            </div>
+            {[
+              { id: 'cash', label: 'Efectivo', total: summaryCashTotal, active: summaryCashActive, delivered: summaryCashDelivered, color: 'green' },
+              { id: 'transfer', label: 'Transf.', total: summaryTransferTotal, active: summaryTransferActive, delivered: summaryTransferDelivered, color: 'blue' },
+              { id: 'earnings', label: 'Ganancia', total: summaryEarningsTotal, active: summaryEarningsActive, delivered: summaryEarningsDelivered, color: 'purple' }
+            ].map(card => (
+              <button
+                key={card.id}
+                onClick={() => setExpandedSummary(prev => prev === card.id ? 'none' : card.id as any)}
+                className={`p-1.5 rounded-xl border transition-all flex flex-col items-center text-center ${expandedSummary === card.id
+                  ? `ring-1 ring-${card.color}-500 bg-${card.color}-50 border-${card.color}-200`
+                  : `bg-${card.color}-50/30 border-transparent`
+                  }`}
+              >
+                <p className="text-[9px] text-gray-500 font-bold uppercase tracking-tighter mb-0.5">{card.label}</p>
+                <p className={`text-sm font-black text-${card.color}-700 leading-none`}>${card.total.toFixed(2)}</p>
+
+                {expandedSummary === card.id && (
+                  <div className="mt-1.5 pt-1.5 border-t border-gray-200 w-full animate-fadeIn">
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-[10px]">🔥</span>
+                        <span className="text-[10px] font-bold text-gray-700">${card.active.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-[10px]">📦</span>
+                        <span className={`text-[10px] font-black text-${card.color}-600`}>${card.delivered.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </button>
+            ))}
           </div>
         </div>
       </div>
-
 
       {/* Lista de pedidos agrupados */}
       <div className="p-4 pb-20 space-y-6">
-        {orders.length === 0 ? (
-          <div className="text-center py-12">
-            <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-            </svg>
-            <p className="text-gray-600 font-medium">No hay pedidos para hoy</p>
-            <p className="text-sm text-gray-500 mt-1">
-              Los pedidos programados para hoy aparecerán aquí
-            </p>
-          </div>
-        ) : (
-          displayGroups.map(groupName => {
-            const groupOrders = groupedOrders[groupName]
-            if (groupOrders.length === 0) return null
+        {
+          orders.length === 0 ? (
+            <div className="text-center py-12">
+              <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+              </svg>
+              <p className="text-gray-600 font-medium">No hay pedidos para hoy</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Los pedidos programados para hoy aparecerán aquí
+              </p>
+            </div>
+          ) : (
+            displayGroups.map(groupName => {
+              const groupOrders = groupedOrders[groupName]
+              if (groupOrders.length === 0) return null
 
-            const isCollapsed = collapsedCategories.has(groupName)
+              const isCollapsed = collapsedCategories.has(groupName)
 
-            return (
-              <div key={groupName} className="space-y-3">
-                <button
-                  onClick={() => toggleCategoryCollapse(groupName)}
-                  className="w-full flex items-center justify-between py-2 px-1 border-b border-gray-200"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">
-                      {groupName === 'Activos' ? '🔥' : '📦'}
-                    </span>
-                    <h3 className="font-bold text-gray-900 uppercase tracking-wider text-[10px]">
-                      {groupName} ({groupOrders.length})
-                    </h3>
-                  </div>
-                  <svg className={`w-4 h-4 text-gray-400 transition-transform ${isCollapsed ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
+              return (
+                <div key={groupName} className="space-y-3">
+                  <button
+                    onClick={() => toggleCategoryCollapse(groupName)}
+                    className="w-full flex items-center justify-between py-2 px-1 border-b border-gray-200"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">
+                        {groupName === 'Activos' ? '🔥' : '📦'}
+                      </span>
+                      <h3 className="font-bold text-gray-900 uppercase tracking-wider text-[10px]">
+                        {groupName} ({groupOrders.length})
+                      </h3>
+                    </div>
+                    <svg className={`w-4 h-4 text-gray-400 transition-transform ${isCollapsed ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
 
-                {!isCollapsed && (
-                  <div className="space-y-3">
-                    {groupOrders.map((order) => {
-                      const isExpanded = expandedOrderIds.has(order.id);
+                  {!isCollapsed && (
+                    <div className="space-y-3">
+                      {groupOrders.map((order) => {
+                        const isExpanded = expandedOrderIds.has(order.id);
 
-                      return (
-                        <div
-                          key={order.id}
-                          className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all animate-fadeIn"
-                        >
-                          {/* Header del pedido (Clickable) */}
+                        return (
                           <div
-                            onClick={() => toggleOrderExpansion(order.id)}
-                            className={`p-4 sm:p-5 cursor-pointer flex items-center justify-between transition-colors ${isExpanded ? 'bg-gray-50' : 'bg-white'}`}
+                            key={order.id}
+                            className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all animate-fadeIn"
                           >
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              {/* Icono de tiempo */}
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg shadow-sm border flex-shrink-0 transition-colors ${order.timing?.type === 'scheduled'
-                                ? 'bg-blue-50 text-blue-600 border-blue-100'
-                                : 'bg-yellow-50 text-yellow-600 border-yellow-100'
-                                }`}>
-                                <i className={`bi ${order.timing?.type === 'scheduled' ? 'bi-clock-fill' : 'bi-lightning-charge-fill'}`}></i>
-                              </div>
+                            {/* Header del pedido (Clickable) */}
+                            <div
+                              onClick={() => toggleOrderExpansion(order.id)}
+                              className={`p-4 sm:p-5 cursor-pointer flex items-center justify-between transition-colors ${isExpanded ? 'bg-gray-50' : 'bg-white'}`}
+                            >
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                {/* Icono de tiempo */}
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg shadow-sm border flex-shrink-0 transition-colors ${order.timing?.type === 'scheduled'
+                                  ? 'bg-blue-50 text-blue-600 border-blue-100'
+                                  : 'bg-yellow-50 text-yellow-600 border-yellow-100'
+                                  }`}>
+                                  <i className={`bi ${order.timing?.type === 'scheduled' ? 'bi-clock-fill' : 'bi-lightning-charge-fill'}`}></i>
+                                </div>
 
-                              {/* Hora y Cliente */}
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-xl font-bold leading-none ${order.timing?.type === 'scheduled' ? 'text-blue-600' : 'text-gray-900'}`}>
-                                  {order.timing?.scheduledTime
-                                    ? order.timing.scheduledTime
-                                    : new Date(getOrderDate(order)).toLocaleString('es-EC', {
-                                      hour: '2-digit',
-                                      minute: '2-digit'
-                                    })
-                                  }
-                                </p>
-                                <div className="mt-1">
-                                  <p className="text-sm font-semibold text-gray-900 leading-tight truncate">{order.customer.name}</p>
-                                  <p className="text-xs text-gray-500 font-medium">{order.customer.phone}</p>
+                                {/* Hora y Cliente */}
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-xl font-bold leading-none ${order.timing?.type === 'scheduled' ? 'text-blue-600' : 'text-gray-900'}`}>
+                                    {order.timing?.scheduledTime
+                                      ? order.timing.scheduledTime
+                                      : new Date(getOrderDate(order)).toLocaleString('es-EC', {
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      })
+                                    }
+                                  </p>
+                                  <div className="mt-1">
+                                    <p className="text-sm font-semibold text-gray-900 leading-tight truncate">{order.customer.name}</p>
+                                    <p className="text-xs text-gray-500 font-medium">{order.customer.phone}</p>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
 
-                            <div className="flex items-center gap-3">
-                              <div className="text-right">
-                                {order.payment?.method !== 'transfer' && (
-                                  <p className="text-xl font-bold text-green-600 tracking-tight flex items-center justify-end gap-1">
-                                    <span className="text-lg">💵</span>
-                                    ${order.total.toFixed(2)}
-                                  </p>
-                                )}
-                                {order.payment?.method === 'transfer' && (
-                                  <div className="flex flex-col items-end">
-                                    <span className="text-2xl" title="Pagado por Transferencia">🏦</span>
-                                  </div>
-                                )}
-                              </div>
-                              <i className={`bi bi-chevron-down text-gray-300 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}></i>
-                            </div>
-                          </div>
-
-                          {/* Cuerpo Expansible (Contenido) */}
-                          {isExpanded && (
-                            <div className="px-4 pb-5 sm:px-5 sm:pb-6 animate-slideDown">
-                              <div className="h-px bg-gray-100 mb-5"></div>
-
-                              {/* Dirección y Mapa */}
-                              {order.delivery.type === 'delivery' && (
-                                <div className="mb-5">
-                                  <div className="flex items-start gap-3 text-sm mb-3 px-1">
-                                    <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-500 flex-shrink-0">
-                                      <i className="bi bi-geo-alt-fill"></i>
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-gray-900 font-semibold leading-tight">{order.delivery.references || 'Sin referencia'}</p>
-                                    </div>
-                                  </div>
-
-                                  {/* Mapa Estático con Controles */}
-                                  {(order.delivery.latlong || (order.delivery.mapLocation?.lat && order.delivery.mapLocation?.lng)) && (
-                                    <div className="relative mb-5 group/map">
-                                      <div className="w-full h-32 rounded-2xl overflow-hidden border border-gray-100 relative">
-                                        {(() => {
-                                          const coords = order.delivery.latlong
-                                            ? order.delivery.latlong.replace(/\s+/g, '')
-                                            : `${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`;
-
-                                          return (
-                                            <img
-                                              src={`https://maps.googleapis.com/maps/api/staticmap?center=${coords}&zoom=15&size=600x200&scale=2&maptype=roadmap&markers=color:red%7C${coords}&key=${GOOGLE_MAPS_API_KEY}`}
-                                              alt="Ubicación de entrega"
-                                              className="w-full h-full object-cover group-hover/map:scale-105 transition-transform duration-500"
-                                            />
-                                          );
-                                        })()}
-                                      </div>
-
-                                      {/* Controles Flotantes Verticales */}
-                                      <div className="absolute top-2 right-2 flex flex-col gap-2">
-                                        <a
-                                          href={order.delivery.latlong
-                                            ? `https://www.google.com/maps/place/${order.delivery.latlong.replace(/\s+/g, '')}`
-                                            : `https://www.google.com/maps/place/${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`
-                                          }
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 hover:text-blue-600 transition-all active:scale-95"
-                                          title="Ver en Google Maps"
-                                        >
-                                          <i className="bi bi-box-arrow-up-right text-lg"></i>
-                                        </a>
-                                        <a
-                                          href={order.delivery.latlong
-                                            ? `https://www.google.com/maps/dir/?api=1&destination=${order.delivery.latlong.replace(/\s+/g, '')}`
-                                            : `https://www.google.com/maps/dir/?api=1&destination=${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`
-                                          }
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-600 hover:bg-blue-50 transition-all active:scale-95"
-                                          title="Trazar ruta"
-                                        >
-                                          <i className="bi bi-cursor-fill text-lg"></i>
-                                        </a>
-                                      </div>
+                              <div className="flex items-center gap-3">
+                                <div className="text-right">
+                                  {order.payment?.method !== 'transfer' && (
+                                    <p className="text-xl font-bold text-green-600 tracking-tight flex items-center justify-end gap-1">
+                                      <span className="text-lg">💵</span>
+                                      ${order.total.toFixed(2)}
+                                    </p>
+                                  )}
+                                  {order.payment?.method === 'transfer' && (
+                                    <div className="flex flex-col items-end">
+                                      <span className="text-2xl" title="Pagado por Transferencia">🏦</span>
                                     </div>
                                   )}
                                 </div>
-                              )}
-
-                              {/* Resumen del pedido */}
-                              <div className="mb-6 p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                                <div className="flex items-center gap-2 mb-3">
-                                  <i className="bi bi-bag-check text-xs text-gray-400"></i>
-                                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Productos del pedido</p>
-                                </div>
-                                <ul className="space-y-2">
-                                  {order.items.map((item, idx) => (
-                                    <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
-                                      <span className="w-6 h-6 flex-shrink-0 flex items-center justify-center bg-white border border-gray-200 rounded-lg text-[10px] font-bold">{item.quantity}</span>
-                                      <div className="flex-1">
-                                        <p className="font-semibold leading-tight">{(item as any).name || (item.product as any)?.name || 'Producto'}</p>
-                                        <p className="text-[10px] text-gray-500">Subtotal: ${((item as any).price * item.quantity).toFixed(2)}</p>
-                                      </div>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-
-                              {/* Acciones */}
-                              <div className="flex gap-2">
-                                <a
-                                  href={`https://wa.me/593${order.customer.phone.slice(1)}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-white border-2 border-green-500 text-green-600 rounded-2xl font-bold text-sm hover:bg-green-50 transition-all active:scale-95 shadow-sm"
-                                >
-                                  <i className="bi bi-whatsapp text-lg"></i>
-                                  WHATSAPP
-                                </a>
-
-                                <a
-                                  href={`tel:${order.customer.phone}`}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="w-14 flex items-center justify-center bg-white border-2 border-blue-500 text-blue-600 rounded-2xl hover:bg-blue-50 transition-all active:scale-95 shadow-sm"
-                                  title="Llamar"
-                                >
-                                  <i className="bi bi-telephone-fill text-lg"></i>
-                                </a>
-
-                                {order.status !== 'delivered' && order.status !== 'cancelled' && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleStatusChange(order.id, 'delivered')
-                                    }}
-                                    className="flex-[2] py-3.5 bg-gray-900 text-white rounded-2xl font-bold text-sm hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg"
-                                  >
-                                    <i className="bi bi-check2-circle text-lg"></i>
-                                    ENTREGADO
-                                  </button>
-                                )}
+                                <i className={`bi bi-chevron-down text-gray-300 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}></i>
                               </div>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )
-          })
-        )}
-      </div>
+
+                            {/* Cuerpo Expansible (Contenido) */}
+                            {isExpanded && (
+                              <div className="px-4 pb-5 sm:px-5 sm:pb-6 animate-slideDown">
+                                <div className="h-px bg-gray-100 mb-5"></div>
+
+                                {/* Dirección y Mapa */}
+                                {order.delivery.type === 'delivery' && (
+                                  <div className="mb-5">
+                                    <div className="flex items-start gap-3 text-sm mb-3 px-1">
+                                      <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-500 flex-shrink-0">
+                                        <i className="bi bi-geo-alt-fill"></i>
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-gray-900 font-semibold leading-tight">{order.delivery.references || 'Sin referencia'}</p>
+                                      </div>
+                                    </div>
+
+                                    {/* Mapa Estático con Controles */}
+                                    {(order.delivery.latlong || (order.delivery.mapLocation?.lat && order.delivery.mapLocation?.lng)) && (
+                                      <div className="relative mb-5 group/map">
+                                        <div className="w-full h-32 rounded-2xl overflow-hidden border border-gray-100 relative">
+                                          {(() => {
+                                            const coords = order.delivery.latlong
+                                              ? order.delivery.latlong.replace(/\s+/g, '')
+                                              : `${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`;
+
+                                            return (
+                                              <img
+                                                src={`https://maps.googleapis.com/maps/api/staticmap?center=${coords}&zoom=15&size=600x200&scale=2&maptype=roadmap&markers=color:red%7C${coords}&key=${GOOGLE_MAPS_API_KEY}`}
+                                                alt="Ubicación de entrega"
+                                                className="w-full h-full object-cover group-hover/map:scale-105 transition-transform duration-500"
+                                              />
+                                            );
+                                          })()}
+                                        </div>
+
+                                        {/* Controles Flotantes Verticales */}
+                                        <div className="absolute top-2 right-2 flex flex-col gap-2">
+                                          <a
+                                            href={order.delivery.latlong
+                                              ? `https://www.google.com/maps/place/${order.delivery.latlong.replace(/\s+/g, '')}`
+                                              : `https://www.google.com/maps/place/${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`
+                                            }
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 hover:text-blue-600 transition-all active:scale-95"
+                                            title="Ver en Google Maps"
+                                          >
+                                            <i className="bi bi-box-arrow-up-right text-lg"></i>
+                                          </a>
+                                          <a
+                                            href={order.delivery.latlong
+                                              ? `https://www.google.com/maps/dir/?api=1&destination=${order.delivery.latlong.replace(/\s+/g, '')}`
+                                              : `https://www.google.com/maps/dir/?api=1&destination=${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`
+                                            }
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-600 hover:bg-blue-50 transition-all active:scale-95"
+                                            title="Trazar ruta"
+                                          >
+                                            <i className="bi bi-cursor-fill text-lg"></i>
+                                          </a>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Resumen del pedido */}
+                                <div className="mb-6 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                  <div className="flex items-center gap-2 mb-3">
+                                    <i className="bi bi-bag-check text-xs text-gray-400"></i>
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Productos del pedido</p>
+                                  </div>
+                                  <ul className="space-y-2">
+                                    {order.items.map((item, idx) => (
+                                      <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                                        <span className="w-6 h-6 flex-shrink-0 flex items-center justify-center bg-white border border-gray-200 rounded-lg text-[10px] font-bold">{item.quantity}</span>
+                                        <div className="flex-1">
+                                          <p className="font-semibold leading-tight">{(item as any).name || (item.product as any)?.name || 'Producto'}</p>
+                                          <p className="text-[10px] text-gray-500">Subtotal: ${((item as any).price * item.quantity).toFixed(2)}</p>
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+
+                                {/* Acciones */}
+                                <div className="flex gap-2">
+                                  <a
+                                    href={`https://wa.me/593${order.customer.phone.slice(1)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-white border-2 border-green-500 text-green-600 rounded-2xl font-bold text-sm hover:bg-green-50 transition-all active:scale-95 shadow-sm"
+                                  >
+                                    <i className="bi bi-whatsapp text-lg"></i>
+                                    WHATSAPP
+                                  </a>
+
+                                  <a
+                                    href={`tel:${order.customer.phone}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-14 flex items-center justify-center bg-white border-2 border-blue-500 text-blue-600 rounded-2xl hover:bg-blue-50 transition-all active:scale-95 shadow-sm"
+                                    title="Llamar"
+                                  >
+                                    <i className="bi bi-telephone-fill text-lg"></i>
+                                  </a>
+
+                                  {order.status !== 'delivered' && order.status !== 'cancelled' && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleStatusChange(order.id, 'delivered')
+                                      }}
+                                      className="flex-[2] py-3.5 bg-gray-900 text-white rounded-2xl font-bold text-sm hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg"
+                                    >
+                                      <i className="bi bi-check2-circle text-lg"></i>
+                                      ENTREGADO
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          )
+        }
+      </div >
 
       {/* Modal de detalles del pedido - Sin cambios mayores */}
-      {showOrderModal && selectedOrder && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white w-full sm:max-w-2xl sm:rounded-lg max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl">
-            {/* Header del modal */}
-            <div className="sticky top-0 bg-white border-b px-4 py-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">Detalles del Pedido</h2>
-              <button
-                onClick={() => setShowOrderModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
+      {
+        showOrderModal && selectedOrder && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <div className="bg-white w-full sm:max-w-2xl sm:rounded-lg max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl">
+              {/* Header del modal */}
+              <div className="sticky top-0 bg-white border-b px-4 py-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-900">Detalles del Pedido</h2>
+                <button
+                  onClick={() => setShowOrderModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
 
-            <div className="p-4 space-y-4">
-              {/* Estado y acciones */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm font-medium text-gray-700 mb-3">Estado actual:</p>
-                <span className={`inline-block px-3 py-1.5 rounded-full text-sm font-medium border ${getStatusColor(selectedOrder.status)}`}>
-                  {getStatusText(selectedOrder.status)}
-                </span>
+              <div className="p-4 space-y-4">
+                {/* Estado y acciones */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <p className="text-sm font-medium text-gray-700 mb-3">Estado actual:</p>
+                  <span className={`inline-block px-3 py-1.5 rounded-full text-sm font-medium border ${getStatusColor(selectedOrder.status)}`}>
+                    {getStatusText(selectedOrder.status)}
+                  </span>
 
-                {selectedOrder.status !== 'delivered' && selectedOrder.status !== 'cancelled' && (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {selectedOrder.status === 'ready' && (
-                      <button
-                        onClick={() => handleStatusChange(selectedOrder.id, 'delivered')}
-                        className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+                  {selectedOrder.status !== 'delivered' && selectedOrder.status !== 'cancelled' && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {selectedOrder.status === 'ready' && (
+                        <button
+                          onClick={() => handleStatusChange(selectedOrder.id, 'delivered')}
+                          className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+                        >
+                          Marcar como Entregado
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Información del cliente */}
+                <div className="border rounded-lg p-4">
+                  <h3 className="font-semibold text-gray-900 mb-3">Cliente</h3>
+                  <div className="space-y-2 text-sm">
+                    <p><span className="text-gray-600">Nombre:</span> <span className="font-medium">{selectedOrder.customer.name}</span></p>
+                    <p><span className="text-gray-600">Teléfono:</span> <a href={`tel:${selectedOrder.customer.phone}`} className="font-medium text-blue-600 hover:underline">{selectedOrder.customer.phone}</a></p>
+                    <a
+                      href={`https://wa.me/593${selectedOrder.customer.phone.slice(1)}?text=Hola, soy tu delivery. Estoy en camino con tu pedido.`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors mt-2"
+                    >
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                      </svg>
+                      Enviar WhatsApp
+                    </a>
+                  </div>
+                </div>
+
+                {/* Dirección de entrega */}
+                {selectedOrder.delivery.type === 'delivery' && (
+                  <div className="border rounded-lg p-4">
+                    <h3 className="font-semibold text-gray-900 mb-3">Dirección de Entrega</h3>
+                    <p className="text-sm text-gray-700 mb-2">{selectedOrder.delivery.references || 'Sin referencia'}</p>
+                    {(selectedOrder.delivery.latlong || selectedOrder.delivery.mapLocation) && (
+                      <a
+                        href={selectedOrder.delivery.latlong
+                          ? `https://www.google.com/maps/place/${selectedOrder.delivery.latlong.replace(/\s+/g, '')}`
+                          : `https://www.google.com/maps/place/${selectedOrder.delivery.mapLocation?.lat},${selectedOrder.delivery.mapLocation?.lng}`
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
                       >
-                        Marcar como Entregado
-                      </button>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Abrir en Google Maps
+                      </a>
                     )}
                   </div>
                 )}
-              </div>
 
-              {/* Información del cliente */}
-              <div className="border rounded-lg p-4">
-                <h3 className="font-semibold text-gray-900 mb-3">Cliente</h3>
-                <div className="space-y-2 text-sm">
-                  <p><span className="text-gray-600">Nombre:</span> <span className="font-medium">{selectedOrder.customer.name}</span></p>
-                  <p><span className="text-gray-600">Teléfono:</span> <a href={`tel:${selectedOrder.customer.phone}`} className="font-medium text-blue-600 hover:underline">{selectedOrder.customer.phone}</a></p>
-                  <a
-                    href={`https://wa.me/593${selectedOrder.customer.phone.slice(1)}?text=Hola, soy tu delivery. Estoy en camino con tu pedido.`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors mt-2"
-                  >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                    </svg>
-                    Enviar WhatsApp
-                  </a>
-                </div>
-              </div>
-
-              {/* Dirección de entrega */}
-              {selectedOrder.delivery.type === 'delivery' && (
+                {/* Productos */}
                 <div className="border rounded-lg p-4">
-                  <h3 className="font-semibold text-gray-900 mb-3">Dirección de Entrega</h3>
-                  <p className="text-sm text-gray-700 mb-2">{selectedOrder.delivery.references || 'Sin referencia'}</p>
-                  {(selectedOrder.delivery.latlong || selectedOrder.delivery.mapLocation) && (
-                    <a
-                      href={selectedOrder.delivery.latlong
-                        ? `https://www.google.com/maps/place/${selectedOrder.delivery.latlong.replace(/\s+/g, '')}`
-                        : `https://www.google.com/maps/place/${selectedOrder.delivery.mapLocation?.lat},${selectedOrder.delivery.mapLocation?.lng}`
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      Abrir en Google Maps
-                    </a>
-                  )}
-                </div>
-              )}
-
-              {/* Productos */}
-              <div className="border rounded-lg p-4">
-                <h3 className="font-semibold text-gray-900 mb-3">Productos</h3>
-                <ul className="space-y-2">
-                  {selectedOrder.items.map((item, idx) => (
-                    <li key={idx} className="flex justify-between text-sm">
-                      <span className="text-gray-700">
-                        {item.quantity}x {(item as any).name || (item.product as any)?.name || 'Producto'}
-                      </span>
-                      <span className="font-medium text-gray-900">
-                        ${((item.product?.price || (item as any).price || 0) * item.quantity).toFixed(2)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-3 pt-3 border-t">
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-600">Subtotal:</span>
-                    <span className="font-medium">${(selectedOrder.subtotal || 0).toFixed(2)}</span>
-                  </div>
-                  {selectedOrder.delivery.type === 'delivery' && (
+                  <h3 className="font-semibold text-gray-900 mb-3">Productos</h3>
+                  <ul className="space-y-2">
+                    {selectedOrder.items.map((item, idx) => (
+                      <li key={idx} className="flex justify-between text-sm">
+                        <span className="text-gray-700">
+                          {item.quantity}x {(item as any).name || (item.product as any)?.name || 'Producto'}
+                        </span>
+                        <span className="font-medium text-gray-900">
+                          ${((item.product?.price || (item as any).price || 0) * item.quantity).toFixed(2)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-3 pt-3 border-t">
                     <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-600">Envío:</span>
-                      <span className="font-medium">${(selectedOrder.delivery.deliveryCost || 0).toFixed(2)}</span>
+                      <span className="text-gray-600">Subtotal:</span>
+                      <span className="font-medium">${(selectedOrder.subtotal || 0).toFixed(2)}</span>
+                    </div>
+                    {selectedOrder.delivery.type === 'delivery' && (
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-gray-600">Envío:</span>
+                        <span className="font-medium">${(selectedOrder.delivery.deliveryCost || 0).toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-base font-semibold mt-2">
+                      <span>Total:</span>
+                      <span className="text-blue-600">${selectedOrder.total.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Método de pago */}
+                <div className="border rounded-lg p-4">
+                  <h3 className="font-semibold text-gray-900 mb-2">Método de Pago</h3>
+                  <p className="text-sm text-gray-700">
+                    {selectedOrder.payment?.method === 'cash' && '💵 Efectivo'}
+                    {selectedOrder.payment?.method === 'transfer' && '💳 Transferencia'}
+                    {selectedOrder.payment?.method === 'mixed' && '💰 Pago Mixto'}
+                  </p>
+                  {selectedOrder.payment?.method === 'mixed' && (
+                    <div className="mt-2 text-sm text-gray-600">
+                      <p>Efectivo: ${(selectedOrder.payment.cashAmount || 0).toFixed(2)}</p>
+                      <p>Transferencia: ${(selectedOrder.payment.transferAmount || 0).toFixed(2)}</p>
                     </div>
                   )}
-                  <div className="flex justify-between text-base font-semibold mt-2">
-                    <span>Total:</span>
-                    <span className="text-blue-600">${selectedOrder.total.toFixed(2)}</span>
-                  </div>
                 </div>
-              </div>
-
-              {/* Método de pago */}
-              <div className="border rounded-lg p-4">
-                <h3 className="font-semibold text-gray-900 mb-2">Método de Pago</h3>
-                <p className="text-sm text-gray-700">
-                  {selectedOrder.payment?.method === 'cash' && '💵 Efectivo'}
-                  {selectedOrder.payment?.method === 'transfer' && '💳 Transferencia'}
-                  {selectedOrder.payment?.method === 'mixed' && '💰 Pago Mixto'}
-                </p>
-                {selectedOrder.payment?.method === 'mixed' && (
-                  <div className="mt-2 text-sm text-gray-600">
-                    <p>Efectivo: ${(selectedOrder.payment.cashAmount || 0).toFixed(2)}</p>
-                    <p>Transferencia: ${(selectedOrder.payment.transferAmount || 0).toFixed(2)}</p>
-                  </div>
-                )}
               </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   )
 }

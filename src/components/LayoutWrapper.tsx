@@ -21,10 +21,11 @@ export default function LayoutWrapper({
   // Es una ruta de tienda si tiene al menos un segmento y el primero no es una ruta reservada
   const isStoreRoute = pathSegments.length > 0 && !reservedRoutes.includes(pathSegments[0])
 
-  // No mostrar header en rutas de business, checkout ni en perfiles de tienda
+  // No mostrar header en rutas de business, delivery, checkout ni en perfiles de tienda
   const isBusinessRoute = pathname.startsWith('/business')
+  const isDeliveryRoute = pathname.startsWith('/delivery')
   const isCheckoutRoute = pathname === '/checkout'
-  const showHeader = !isBusinessRoute && !isCheckoutRoute && !isStoreRoute
+  const showHeader = !isBusinessRoute && !isDeliveryRoute && !isCheckoutRoute && !isStoreRoute
 
   return (
     <>

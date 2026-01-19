@@ -1,4 +1,5 @@
 import { DeliveryAuthProvider } from '@/contexts/DeliveryAuthContext'
+import DeliveryHeader from '@/components/DeliveryHeader'
 
 export default function DeliveryLayout({
   children,
@@ -7,7 +8,10 @@ export default function DeliveryLayout({
 }) {
   return (
     <DeliveryAuthProvider>
-      {children}
+      <DeliveryHeader />
+      <div className="min-h-screen bg-gray-50">
+        {children}
+      </div>
     </DeliveryAuthProvider>
   )
 }
