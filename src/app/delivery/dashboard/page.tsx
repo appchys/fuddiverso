@@ -6,6 +6,7 @@ import { useDeliveryAuth } from '@/contexts/DeliveryAuthContext'
 import { getOrdersByDelivery, updateOrderStatus, getDeliveryById } from '@/lib/database'
 import { Order, Delivery } from '@/types'
 import { Timestamp } from 'firebase/firestore'
+import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 
 export default function DeliveryDashboard() {
   const router = useRouter()
@@ -16,37 +17,28 @@ export default function DeliveryDashboard() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('active')
+  const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set())
 
-  // Filtro de fecha para el resumen Y listado (por defecto: hoy)
-  const [summaryRange, setSummaryRange] = useState<'today' | 'yesterday' | '7d' | 'all' | 'custom'>('today')
-  const [customStartDate, setCustomStartDate] = useState('')
-  const [customEndDate, setCustomEndDate] = useState('')
+  const toggleOrderExpansion = (orderId: string) => {
+    setExpandedOrderIds(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId)
+      } else {
+        newSet.add(orderId)
+      }
+      return newSet
+    })
+  }
 
-  const getRange = () => {
+  const getTodayRange = () => {
     const now = new Date()
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000 - 1)
-    if (summaryRange === 'today') return { start: todayStart, end: todayEnd }
-    if (summaryRange === 'yesterday') {
-      const yStart = new Date(todayStart)
-      yStart.setDate(todayStart.getDate() - 1)
-      const yEnd = new Date(yStart.getTime() + 24 * 60 * 60 * 1000 - 1)
-      return { start: yStart, end: yEnd }
-    }
-    if (summaryRange === '7d') {
-      const start = new Date(todayStart)
-      start.setDate(todayStart.getDate() - 7)
-      return { start, end: now }
-    }
-    if (summaryRange === 'custom') {
-      const start = customStartDate ? new Date(customStartDate) : todayStart
-      const end = customEndDate ? new Date(customEndDate).getTime() + 24*60*60*1000 - 1 : now.getTime()
-      return { start: new Date(start), end: new Date(end) }
-    }
-    return { start: new Date(0), end: now }
+    return { start: todayStart, end: todayEnd }
   }
 
-  const { start: rangeStart, end: rangeEnd } = getRange()
+  const { start: rangeStart, end: rangeEnd } = getTodayRange()
 
   // Función para obtener la fecha del pedido (prioridad: timing.scheduledDate, fallback: createdAt)
   const getOrderDate = (order: Order): Date => {
@@ -55,27 +47,27 @@ export default function DeliveryDashboard() {
       const ts = order.timing.scheduledDate;
       // Manejar tanto Timestamp de Firestore como Date
       const date = ts instanceof Date ? ts : new Date(ts.seconds * 1000 + (ts.nanoseconds || 0) / 1_000_000);
-      
+
       // Debug log opcional (remueve en prod)
       if (process.env.NODE_ENV === 'development') {
 
       }
       return date;
     }
-    
+
     // 2. Si no hay fecha programada, usar createdAt
     const createdAt = order.createdAt;
-    
+
     // Si ya es un objeto Date, devolverlo directamente
     if (createdAt instanceof Date) {
       return createdAt;
     }
-    
+
     // Si es un Timestamp de Firestore (tiene método toDate)
     if (createdAt && typeof createdAt === 'object' && 'toDate' in createdAt && typeof (createdAt as any).toDate === 'function') {
       return (createdAt as any).toDate();
     }
-    
+
     // Si es un string o cualquier otro formato, intentar crear una fecha
     try {
       return new Date(createdAt as string);
@@ -157,28 +149,25 @@ export default function DeliveryDashboard() {
 
     loadData()
 
-    // Recargar pedidos cada 30 segundos SOLO si rango es 'today' o '7d'
-    const shouldPoll = summaryRange === 'today' || summaryRange === '7d'
-    if (shouldPoll) {
-      const interval = setInterval(async () => {
-        try {
-          const ordersData = await getOrdersByDelivery(deliveryId)
-          setOrders(ordersData)
-        } catch (error) {
-          console.error('Error reloading orders:', error)
-        }
-      }, 30000)
-      return () => clearInterval(interval)
-    }
-  }, [deliveryId, summaryRange])
+    // Recargar pedidos cada 30 segundos
+    const interval = setInterval(async () => {
+      try {
+        const ordersData = await getOrdersByDelivery(deliveryId)
+        setOrders(ordersData)
+      } catch (error) {
+        console.error('Error reloading orders:', error)
+      }
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [deliveryId])
 
   const handleStatusChange = async (orderId: string, newStatus: Order['status']) => {
     try {
       await updateOrderStatus(orderId, newStatus)
-      setOrders(orders.map(order => 
+      setOrders(orders.map(order =>
         order.id === orderId ? { ...order, status: newStatus } : order
       ))
-      
+
       // Cerrar modal si está abierto
       if (selectedOrder?.id === orderId) {
         setSelectedOrder({ ...selectedOrder, status: newStatus })
@@ -223,16 +212,47 @@ export default function DeliveryDashboard() {
     return texts[status] || status
   }
 
-  // Filtro de estado aplicado SOBRE ordersByDate (ya filtrados por fecha de programación)
-  const filteredOrders = ordersByDate.filter(order => {
-    if (filter === 'active') {
-      return order.status !== 'delivered' && order.status !== 'cancelled'
+  // Agrupamiento de pedidos por visibilidad (Activos / Entregados)
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set(['Entregados']))
+
+  const toggleCategoryCollapse = (status: string) => {
+    const newCollapsed = new Set(collapsedCategories)
+    if (newCollapsed.has(status)) {
+      newCollapsed.delete(status)
+    } else {
+      newCollapsed.add(status)
     }
-    if (filter === 'completed') {
-      return order.status === 'delivered' || order.status === 'cancelled'
+    setCollapsedCategories(newCollapsed)
+  }
+
+  const groupOrdersByDisplay = (ordersToGroup: Order[]) => {
+    const groups: Record<string, Order[]> = {
+      'Activos': [],
+      'Entregados': []
     }
-    return true
-  })
+
+    ordersToGroup.forEach(order => {
+      if (order.status === 'delivered') {
+        groups['Entregados'].push(order)
+      } else if (order.status !== 'cancelled') {
+        groups['Activos'].push(order)
+      }
+    })
+
+    // Ordenar cada grupo por hora programada
+    Object.keys(groups).forEach(group => {
+      groups[group].sort((a, b) => {
+        const dateA = getOrderDate(a).getTime()
+        const dateB = getOrderDate(b).getTime()
+        return dateA - dateB
+      })
+    })
+
+    return groups
+  }
+
+  const groupedOrders = groupOrdersByDisplay(ordersByDate)
+  const displayGroups = ['Activos', 'Entregados']
 
   if (authLoading || loading) {
     return (
@@ -247,265 +267,284 @@ export default function DeliveryDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="px-4 py-3 sm:py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                {user?.photoURL ? (
-                  <img 
-                    src={user.photoURL} 
-                    alt="Profile" 
-                    className="w-full h-full rounded-full object-cover"
-                  />
-                ) : (
-                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                )}
-              </div>
-              <div>
-                <h1 className="text-base sm:text-lg font-semibold text-gray-900">
-                  {delivery?.nombres || user?.displayName || 'Delivery'}
-                </h1>
-                <p className="text-xs sm:text-sm text-gray-500">Panel de entregas</p>
-              </div>
-            </div>
+      {/* Info Hoy y Botón de Salida */}
+      <div className="bg-white border-b sticky top-0 z-20">
+        <div className="px-4 py-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+            Dashboard de Hoy ({ordersByDate.length})
+          </h2>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-400 font-medium">
+              {new Date().toLocaleDateString('es-EC', {
+                day: 'numeric',
+                month: 'short'
+              })}
+            </span>
             <button
               onClick={handleLogout}
-              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
               title="Cerrar sesión"
             >
-              <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
+              <i className="bi bi-box-arrow-right text-lg"></i>
             </button>
           </div>
         </div>
-      </header>
+      </div>
 
       {/* Resumen del Delivery (cobros y ganancias) */}
       <div className="bg-white border-b">
         <div className="px-4 py-3 space-y-3">
-          {/* Filtros de rango - AJUSTADO: Ahora por fecha de programación */}
-          <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => setSummaryRange('today')} className={`px-3 py-1.5 rounded text-sm ${summaryRange==='today'?'bg-blue-600 text-white':'bg-gray-100 text-gray-700'}`}>Hoy</button>
-            <button onClick={() => setSummaryRange('yesterday')} className={`px-3 py-1.5 rounded text-sm ${summaryRange==='yesterday'?'bg-blue-600 text-white':'bg-gray-100 text-gray-700'}`}>Ayer</button>
-            <button onClick={() => setSummaryRange('7d')} className={`px-3 py-1.5 rounded text-sm ${summaryRange==='7d'?'bg-blue-600 text-white':'bg-gray-100 text-gray-700'}`}>7 días</button>
-            <button onClick={() => setSummaryRange('all')} className={`px-3 py-1.5 rounded text-sm ${summaryRange==='all'?'bg-blue-600 text-white':'bg-gray-100 text-gray-700'}`}>Todo</button>
-            <button onClick={() => setSummaryRange('custom')} className={`px-3 py-1.5 rounded text-sm ${summaryRange==='custom'?'bg-blue-600 text-white':'bg-gray-100 text-gray-700'}`}>Personalizado</button>
-            {summaryRange === 'custom' && (
-              <div className="flex items-center gap-2">
-                <input type="date" value={customStartDate} onChange={e=>setCustomStartDate(e.target.value)} className="px-2 py-1 border rounded" />
-                <span className="text-gray-500 text-sm">a</span>
-                <input type="date" value={customEndDate} onChange={e=>setCustomEndDate(e.target.value)} className="px-2 py-1 border rounded" />
-              </div>
-            )}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="p-3 rounded-lg border bg-green-50">
-              <p className="text-xs text-gray-600">Cobrado en efectivo</p>
-              <p className="text-lg font-bold text-green-700">${summaryCash.toFixed(2)}</p>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="p-2 rounded-lg border bg-green-50 flex flex-col items-center text-center">
+              <p className="text-[10px] text-gray-600 leading-tight">Efectivo</p>
+              <p className="text-sm font-bold text-green-700">${summaryCash.toFixed(2)}</p>
             </div>
-            <div className="p-3 rounded-lg border bg-blue-50">
-              <p className="text-xs text-gray-600">Cobrado por transferencia</p>
-              <p className="text-lg font-bold text-blue-700">${summaryTransfer.toFixed(2)}</p>
+            <div className="p-2 rounded-lg border bg-blue-50 flex flex-col items-center text-center">
+              <p className="text-[10px] text-gray-600 leading-tight">Transf.</p>
+              <p className="text-sm font-bold text-blue-700">${summaryTransfer.toFixed(2)}</p>
             </div>
-            <div className="p-3 rounded-lg border bg-purple-50">
-              <p className="text-xs text-gray-600">Ganancia por delivery</p>
-              <p className="text-lg font-bold text-purple-700">${summaryEarnings.toFixed(2)}</p>
+            <div className="p-2 rounded-lg border bg-purple-50 flex flex-col items-center text-center">
+              <p className="text-[10px] text-gray-600 leading-tight">Ganancia</p>
+              <p className="text-sm font-bold text-purple-700">${summaryEarnings.toFixed(2)}</p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Filtros de Estado - Contadores basados en ordersByDate (fecha de programación) */}
-      <div className="bg-white border-b sticky top-[60px] sm:top-[68px] z-10">
-        <div className="px-4 py-3">
-          <div className="flex gap-2 overflow-x-auto">
-            <button
-              onClick={() => setFilter('active')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-                filter === 'active'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Activos ({ordersByDate.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length})
-            </button>
-            <button
-              onClick={() => setFilter('completed')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-                filter === 'completed'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Completados ({ordersByDate.filter(o => o.status === 'delivered' || o.status === 'cancelled').length})
-            </button>
-            <button
-              onClick={() => setFilter('all')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-                filter === 'all'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Todos ({ordersByDate.length})
-            </button>
-          </div>
-        </div>
-      </div>
 
-      {/* Lista de pedidos */}
-      <div className="p-4 pb-20">
-        {filteredOrders.length === 0 ? (
+      {/* Lista de pedidos agrupados */}
+      <div className="p-4 pb-20 space-y-6">
+        {orders.length === 0 ? (
           <div className="text-center py-12">
             <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
             </svg>
-            <p className="text-gray-600 font-medium">No hay pedidos</p>
-            {/* AJUSTADO: Mensaje contextual por rango de programación */}
+            <p className="text-gray-600 font-medium">No hay pedidos para hoy</p>
             <p className="text-sm text-gray-500 mt-1">
-              {summaryRange === 'today' ? 'Los pedidos programados para hoy aparecerán aquí' : `No hay pedidos programados en este rango de fechas (${rangeStart.toLocaleDateString('es-EC')} - ${rangeEnd.toLocaleDateString('es-EC')}).`}
+              Los pedidos programados para hoy aparecerán aquí
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {filteredOrders.map((order) => (
-              <div
-                key={order.id}
-                onClick={() => openOrderDetails(order)}
-                className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow cursor-pointer"
-              >
-                {/* Header del pedido */}
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(order.status)}`}>
-                        {getStatusText(order.status)}
-                      </span>
-                    </div>
-                    {/* AJUSTADO: Hora destacada (usa scheduledTime si existe) */}
-                    <p className="text-lg font-semibold text-blue-600">
-                      🕐 {order.timing?.scheduledTime
-                        ? order.timing.scheduledTime
-                        : new Date(getOrderDate(order)).toLocaleString('es-EC', {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })
-                      }
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    {/* Solo mostrar total si NO es transferencia */}
-                    {order.payment?.method !== 'transfer' && (
-                      <p className="text-lg font-bold text-gray-900">${order.total.toFixed(2)}</p>
-                    )}
-                    {order.payment?.method === 'transfer' && (
-                      <p className="text-sm text-gray-500">Pagado</p>
-                    )}
-                  </div>
-                </div>
+          displayGroups.map(groupName => {
+            const groupOrders = groupedOrders[groupName]
+            if (groupOrders.length === 0) return null
 
-                {/* Cliente */}
-                <div className="mb-2 pb-2 border-b border-gray-100">
-                  <div className="flex items-center gap-2 text-sm mb-1">
-                    <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                    <span className="font-medium text-gray-900">{order.customer.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                    </svg>
-                    <a 
-                      href={`https://wa.me/593${order.customer.phone.slice(1)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-blue-600 hover:underline"
-                    >
-                      {order.customer.phone}
-                    </a>
-                    <a
-                      href={`tel:${order.customer.phone}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="ml-1 p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
-                      title="Llamar"
-                    >
-                      <i className="bi bi-telephone-fill text-sm"></i>
-                    </a>
-                  </div>
-                </div>
+            const isCollapsed = collapsedCategories.has(groupName)
 
-                {/* Dirección */}
-                {order.delivery.type === 'delivery' && (
-                  <div className="mb-2">
-                    <div className="flex items-start gap-2 text-sm">
-                      <svg className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      <span className="text-gray-700 flex-1">{order.delivery.references || 'Sin referencia'}</span>
-                    </div>
-                    {(order.delivery.latlong || order.delivery.mapLocation) && (
-                      <a
-                        href={order.delivery.latlong 
-                          ? `https://www.google.com/maps/place/${order.delivery.latlong.replace(/\s+/g, '')}`
-                          : `https://www.google.com/maps/place/${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`
-                        }
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="ml-6 text-xs text-blue-600 hover:underline inline-flex items-center gap-1 mt-1"
-                      >
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
-                        Ver en mapa
-                      </a>
-                    )}
+            return (
+              <div key={groupName} className="space-y-3">
+                <button
+                  onClick={() => toggleCategoryCollapse(groupName)}
+                  className="w-full flex items-center justify-between py-2 px-1 border-b border-gray-200"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">
+                      {groupName === 'Activos' ? '🔥' : '📦'}
+                    </span>
+                    <h3 className="font-bold text-gray-900 uppercase tracking-wider text-[10px]">
+                      {groupName} ({groupOrders.length})
+                    </h3>
                   </div>
-                )}
+                  <svg className={`w-4 h-4 text-gray-400 transition-transform ${isCollapsed ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
 
-                {/* Productos */}
-                <div className="text-sm text-gray-600 mb-2">
-                  <p className="font-medium text-gray-700 mb-1">Productos:</p>
-                  <ul className="space-y-0.5">
-                    {order.items.slice(0, 2).map((item, idx) => (
-                      <li key={idx} className="text-xs">
-                        • {item.quantity}x {(item as any).name || (item.product as any)?.name || 'Producto'}
-                      </li>
-                    ))}
-                    {order.items.length > 2 && (
-                      <li className="text-xs text-gray-500">
-                        + {order.items.length - 2} más...
-                      </li>
-                    )}
-                  </ul>
-                </div>
+                {!isCollapsed && (
+                  <div className="space-y-3">
+                    {groupOrders.map((order) => {
+                      const isExpanded = expandedOrderIds.has(order.id);
 
-                {/* Botón de marcar como entregado - solo ícono */}
-                {order.status !== 'delivered' && order.status !== 'cancelled' && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleStatusChange(order.id, 'delivered')
-                    }}
-                    className="w-full py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center"
-                    title="Marcar como Entregado"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  </button>
+                      return (
+                        <div
+                          key={order.id}
+                          className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all animate-fadeIn"
+                        >
+                          {/* Header del pedido (Clickable) */}
+                          <div
+                            onClick={() => toggleOrderExpansion(order.id)}
+                            className={`p-4 sm:p-5 cursor-pointer flex items-center justify-between transition-colors ${isExpanded ? 'bg-gray-50' : 'bg-white'}`}
+                          >
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              {/* Icono de tiempo */}
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg shadow-sm border flex-shrink-0 transition-colors ${order.timing?.type === 'scheduled'
+                                ? 'bg-blue-50 text-blue-600 border-blue-100'
+                                : 'bg-yellow-50 text-yellow-600 border-yellow-100'
+                                }`}>
+                                <i className={`bi ${order.timing?.type === 'scheduled' ? 'bi-clock-fill' : 'bi-lightning-charge-fill'}`}></i>
+                              </div>
+
+                              {/* Hora y Cliente */}
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-xl font-bold leading-none ${order.timing?.type === 'scheduled' ? 'text-blue-600' : 'text-gray-900'}`}>
+                                  {order.timing?.scheduledTime
+                                    ? order.timing.scheduledTime
+                                    : new Date(getOrderDate(order)).toLocaleString('es-EC', {
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })
+                                  }
+                                </p>
+                                <div className="mt-1">
+                                  <p className="text-sm font-semibold text-gray-900 leading-tight truncate">{order.customer.name}</p>
+                                  <p className="text-xs text-gray-500 font-medium">{order.customer.phone}</p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                {order.payment?.method !== 'transfer' && (
+                                  <p className="text-xl font-bold text-green-600 tracking-tight flex items-center justify-end gap-1">
+                                    <span className="text-lg">💵</span>
+                                    ${order.total.toFixed(2)}
+                                  </p>
+                                )}
+                                {order.payment?.method === 'transfer' && (
+                                  <div className="flex flex-col items-end">
+                                    <span className="text-2xl" title="Pagado por Transferencia">🏦</span>
+                                  </div>
+                                )}
+                              </div>
+                              <i className={`bi bi-chevron-down text-gray-300 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}></i>
+                            </div>
+                          </div>
+
+                          {/* Cuerpo Expansible (Contenido) */}
+                          {isExpanded && (
+                            <div className="px-4 pb-5 sm:px-5 sm:pb-6 animate-slideDown">
+                              <div className="h-px bg-gray-100 mb-5"></div>
+
+                              {/* Dirección y Mapa */}
+                              {order.delivery.type === 'delivery' && (
+                                <div className="mb-5">
+                                  <div className="flex items-start gap-3 text-sm mb-3 px-1">
+                                    <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-500 flex-shrink-0">
+                                      <i className="bi bi-geo-alt-fill"></i>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-gray-900 font-semibold leading-tight">{order.delivery.references || 'Sin referencia'}</p>
+                                    </div>
+                                  </div>
+
+                                  {/* Mapa Estático con Controles */}
+                                  {(order.delivery.latlong || (order.delivery.mapLocation?.lat && order.delivery.mapLocation?.lng)) && (
+                                    <div className="relative mb-5 group/map">
+                                      <div className="w-full h-32 rounded-2xl overflow-hidden border border-gray-100 relative">
+                                        {(() => {
+                                          const coords = order.delivery.latlong
+                                            ? order.delivery.latlong.replace(/\s+/g, '')
+                                            : `${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`;
+
+                                          return (
+                                            <img
+                                              src={`https://maps.googleapis.com/maps/api/staticmap?center=${coords}&zoom=15&size=600x200&scale=2&maptype=roadmap&markers=color:red%7C${coords}&key=${GOOGLE_MAPS_API_KEY}`}
+                                              alt="Ubicación de entrega"
+                                              className="w-full h-full object-cover group-hover/map:scale-105 transition-transform duration-500"
+                                            />
+                                          );
+                                        })()}
+                                      </div>
+
+                                      {/* Controles Flotantes Verticales */}
+                                      <div className="absolute top-2 right-2 flex flex-col gap-2">
+                                        <a
+                                          href={order.delivery.latlong
+                                            ? `https://www.google.com/maps/place/${order.delivery.latlong.replace(/\s+/g, '')}`
+                                            : `https://www.google.com/maps/place/${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`
+                                          }
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 hover:text-blue-600 transition-all active:scale-95"
+                                          title="Ver en Google Maps"
+                                        >
+                                          <i className="bi bi-box-arrow-up-right text-lg"></i>
+                                        </a>
+                                        <a
+                                          href={order.delivery.latlong
+                                            ? `https://www.google.com/maps/dir/?api=1&destination=${order.delivery.latlong.replace(/\s+/g, '')}`
+                                            : `https://www.google.com/maps/dir/?api=1&destination=${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`
+                                          }
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-600 hover:bg-blue-50 transition-all active:scale-95"
+                                          title="Trazar ruta"
+                                        >
+                                          <i className="bi bi-cursor-fill text-lg"></i>
+                                        </a>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Resumen del pedido */}
+                              <div className="mb-6 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <i className="bi bi-bag-check text-xs text-gray-400"></i>
+                                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Productos del pedido</p>
+                                </div>
+                                <ul className="space-y-2">
+                                  {order.items.map((item, idx) => (
+                                    <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                                      <span className="w-6 h-6 flex-shrink-0 flex items-center justify-center bg-white border border-gray-200 rounded-lg text-[10px] font-bold">{item.quantity}</span>
+                                      <div className="flex-1">
+                                        <p className="font-semibold leading-tight">{(item as any).name || (item.product as any)?.name || 'Producto'}</p>
+                                        <p className="text-[10px] text-gray-500">Subtotal: ${((item as any).price * item.quantity).toFixed(2)}</p>
+                                      </div>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+
+                              {/* Acciones */}
+                              <div className="flex gap-2">
+                                <a
+                                  href={`https://wa.me/593${order.customer.phone.slice(1)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-white border-2 border-green-500 text-green-600 rounded-2xl font-bold text-sm hover:bg-green-50 transition-all active:scale-95 shadow-sm"
+                                >
+                                  <i className="bi bi-whatsapp text-lg"></i>
+                                  WHATSAPP
+                                </a>
+
+                                <a
+                                  href={`tel:${order.customer.phone}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-14 flex items-center justify-center bg-white border-2 border-blue-500 text-blue-600 rounded-2xl hover:bg-blue-50 transition-all active:scale-95 shadow-sm"
+                                  title="Llamar"
+                                >
+                                  <i className="bi bi-telephone-fill text-lg"></i>
+                                </a>
+
+                                {order.status !== 'delivered' && order.status !== 'cancelled' && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleStatusChange(order.id, 'delivered')
+                                    }}
+                                    className="flex-[2] py-3.5 bg-gray-900 text-white rounded-2xl font-bold text-sm hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg"
+                                  >
+                                    <i className="bi bi-check2-circle text-lg"></i>
+                                    ENTREGADO
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
-            ))}
-          </div>
+            )
+          })
         )}
       </div>
 
@@ -533,7 +572,7 @@ export default function DeliveryDashboard() {
                 <span className={`inline-block px-3 py-1.5 rounded-full text-sm font-medium border ${getStatusColor(selectedOrder.status)}`}>
                   {getStatusText(selectedOrder.status)}
                 </span>
-                
+
                 {selectedOrder.status !== 'delivered' && selectedOrder.status !== 'cancelled' && (
                   <div className="mt-4 flex flex-wrap gap-2">
                     {selectedOrder.status === 'ready' && (
@@ -561,7 +600,7 @@ export default function DeliveryDashboard() {
                     className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors mt-2"
                   >
                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
                     </svg>
                     Enviar WhatsApp
                   </a>
@@ -575,7 +614,7 @@ export default function DeliveryDashboard() {
                   <p className="text-sm text-gray-700 mb-2">{selectedOrder.delivery.references || 'Sin referencia'}</p>
                   {(selectedOrder.delivery.latlong || selectedOrder.delivery.mapLocation) && (
                     <a
-                      href={selectedOrder.delivery.latlong 
+                      href={selectedOrder.delivery.latlong
                         ? `https://www.google.com/maps/place/${selectedOrder.delivery.latlong.replace(/\s+/g, '')}`
                         : `https://www.google.com/maps/place/${selectedOrder.delivery.mapLocation?.lat},${selectedOrder.delivery.mapLocation?.lng}`
                       }

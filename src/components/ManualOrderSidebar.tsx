@@ -144,12 +144,12 @@ export default function ManualOrderSidebar({
     }
   }, [searchTimeout])
 
-  // Recalcular total cuando cambie la ubicación seleccionada
+  // Recalcular total cuando cambie la ubicación seleccionada o el tipo de entrega
   useEffect(() => {
     if (manualOrderData.selectedProducts.length > 0) {
       calculateTotal(manualOrderData.selectedProducts)
     }
-  }, [manualOrderData.selectedLocation])
+  }, [manualOrderData.selectedLocation, manualOrderData.deliveryType])
 
   // Cargar deliveries activos
   useEffect(() => {
@@ -1006,7 +1006,9 @@ export default function ManualOrderSidebar({
   // Calcular total
   const calculateTotal = (products: OrderItem[]) => {
     const subtotal = products.reduce((sum, item) => sum + (item.price * item.quantity), 0)
-    const deliveryCost = parseFloat(manualOrderData.selectedLocation?.tarifa || '0')
+    const deliveryCost = manualOrderData.deliveryType === 'delivery'
+      ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0')
+      : 0
     const total = subtotal + deliveryCost
 
     setManualOrderData(prev => ({
