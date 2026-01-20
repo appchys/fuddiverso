@@ -18,6 +18,7 @@ export default function DeliveryDashboard() {
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set())
   const [expandedSummary, setExpandedSummary] = useState<'none' | 'cash' | 'transfer' | 'earnings'>('none')
+  const [, setTimeRefresh] = useState(0) // Para forzar re-render del tiempo cada minuto
 
   const toggleOrderExpansion = (orderId: string) => {
     setExpandedOrderIds(prev => {
@@ -74,6 +75,66 @@ export default function DeliveryDashboard() {
     } catch (e) {
       console.error('Error al analizar la fecha:', e);
       return new Date(); // Fallback a la fecha actual
+    }
+  }
+
+  // Función para calcular el tiempo restante hasta la hora de entrega
+  const getTimeRemaining = (order: Order): { display: string; isExpired: boolean } => {
+    if (!order.timing?.scheduledTime) {
+      return { display: '--', isExpired: false }
+    }
+
+    // Obtener la hora de entrega programada (string: "17:08")
+    const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number)
+    
+    // Obtener la hora actual en UTC
+    const now = new Date()
+    
+    // Calcular la hora actual en Ecuador (UTC-5)
+    const nowEcuadorMs = now.getTime() - (5 * 60 * 60 * 1000)
+    const nowEcuadorDate = new Date(nowEcuadorMs)
+    
+    // Obtener la fecha de hoy en Ecuador usando UTC methods
+    const yearEcuador = nowEcuadorDate.getUTCFullYear()
+    const monthEcuador = nowEcuadorDate.getUTCMonth()
+    const dayEcuador = nowEcuadorDate.getUTCDate()
+    
+    // Crear la fecha de entrega para hoy en Ecuador (en UTC)
+    const deliveryEcuadorMs = Date.UTC(yearEcuador, monthEcuador, dayEcuador, hours, minutes, 0)
+    
+    // Convertir de vuelta a UTC sumando 5 horas
+    const deliveryTimeUTC = new Date(deliveryEcuadorMs + (5 * 60 * 60 * 1000))
+    
+    // Logs de debug
+    console.log('=== DEBUG getTimeRemaining ===')
+    console.log('Hora programada (scheduledTime):', order.timing.scheduledTime)
+    console.log('Hora actual UTC:', now.toISOString())
+    console.log('Hora actual Ecuador (calculado):', nowEcuadorDate.toISOString())
+    console.log('Fecha hoy Ecuador:', `${dayEcuador}/${monthEcuador + 1}/${yearEcuador}`)
+    console.log('deliveryTimeUTC:', deliveryTimeUTC.toISOString())
+    console.log('deliveryTimeUTC formateado (Ecuador):', deliveryTimeUTC.toLocaleString('es-EC', { timeZone: 'America/Guayaquil', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }))
+    
+    // Calcular diferencia en milisegundos
+    const diff = deliveryTimeUTC.getTime() - now.getTime()
+    console.log('Diferencia (ms):', diff)
+    
+    if (diff < 0) {
+      console.log('Estado: VENCIDO')
+      return { display: 'Vencido', isExpired: true }
+    }
+    
+    // Convertir a horas y minutos
+    const totalMinutes = Math.floor(diff / 60000)
+    const h = Math.floor(totalMinutes / 60)
+    const m = totalMinutes % 60
+    
+    console.log('Total minutos:', totalMinutes, 'Horas:', h, 'Minutos:', m)
+    console.log('================================')
+    
+    if (h > 0) {
+      return { display: `${h}h ${m}m`, isExpired: false }
+    } else {
+      return { display: `${m}m`, isExpired: false }
     }
   }
 
@@ -181,6 +242,14 @@ export default function DeliveryDashboard() {
       if (unsubscribeOrders) unsubscribeOrders()
     }
   }, [deliveryId])
+
+  // Refrescar el tiempo restante cada minuto
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeRefresh(prev => prev + 1)
+    }, 60000) // Cada minuto
+    return () => clearInterval(interval)
+  }, [])
 
   const handleStatusChange = async (orderId: string, newStatus: Order['status']) => {
     try {
@@ -388,16 +457,26 @@ export default function DeliveryDashboard() {
 
                                 {/* Hora y Cliente */}
                                 <div className="flex-1 min-w-0">
-                                  <p className={`text-xl font-bold leading-none ${order.timing?.type === 'scheduled' ? 'text-blue-600' : 'text-gray-900'}`}>
-                                    {order.timing?.scheduledTime
-                                      ? order.timing.scheduledTime
-                                      : new Date(getOrderDate(order)).toLocaleString('es-EC', {
-                                        hour: '2-digit',
-                                        minute: '2-digit'
-                                      })
-                                    }
-                                  </p>
-                                  <div className="mt-1">
+                                  {(() => {
+                                    const timeRemaining = getTimeRemaining(order)
+                                    return (
+                                      <>
+                                        <p className={`text-2xl font-bold leading-none ${timeRemaining.isExpired ? 'text-red-600' : order.timing?.type === 'scheduled' ? 'text-blue-600' : 'text-gray-900'}`}>
+                                          {timeRemaining.display}
+                                        </p>
+                                        <p className="text-xs text-gray-500 font-medium mt-1">
+                                          {order.timing?.scheduledTime
+                                            ? order.timing.scheduledTime
+                                            : new Date(getOrderDate(order)).toLocaleString('es-EC', {
+                                              hour: '2-digit',
+                                              minute: '2-digit'
+                                            })
+                                          }
+                                        </p>
+                                      </>
+                                    )
+                                  })()}
+                                  <div className="mt-2">
                                     <p className="text-sm font-semibold text-gray-900 leading-tight truncate">{order.customer.name}</p>
                                     <p className="text-xs text-gray-500 font-medium">{order.customer.phone}</p>
                                   </div>
