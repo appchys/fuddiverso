@@ -531,17 +531,39 @@ export async function transferBusinessOwnership(businessId: string, newOwnerEmai
   }
 }
 
+/**
+ * Genera un slug amigable para un producto basado en el username del negocio
+ * y los primeros 3 caracteres del ID del producto.
+ */
+export function generateProductSlug(businessUsername: string, productId: string): string {
+  const storePrefix = (businessUsername || '').slice(0, 3).toLowerCase()
+  const idPrefix = (productId || '').slice(0, 3)
+  return `${storePrefix}${idPrefix}`
+}
+
 // Funciones para Productos
-export async function createProduct(productData: Omit<Product, 'id' | 'createdAt'>) {
+export async function createProduct(productData: Omit<Product, 'id' | 'createdAt'>, businessUsername?: string) {
   try {
     // Filtrar valores undefined antes de enviar a Firestore
     const cleanProductData = cleanObject(productData)
 
-    const docRef = await addDoc(collection(db, 'products'), {
+    // Crear una referencia de documento para obtener el ID antes de guardar
+    const productsRef = collection(db, 'products')
+    const newDocRef = doc(productsRef)
+    const productId = newDocRef.id
+
+    // Generar slug si se proporciona el username del negocio
+    let slug = null
+    if (businessUsername) {
+      slug = generateProductSlug(businessUsername, productId)
+    }
+
+    await setDoc(newDocRef, {
       ...cleanProductData,
+      slug,
       createdAt: serverTimestamp()
     })
-    return docRef.id
+    return productId
   } catch (error) {
     console.error('Error creating product:', error)
     throw error
@@ -622,6 +644,29 @@ export async function getProduct(productId: string): Promise<Product | null> {
     } as Product
   } catch (error) {
     console.error('Error getting product:', error)
+    return null
+  }
+}
+
+// Obtener un producto por su slug
+export async function getProductBySlug(slug: string): Promise<Product | null> {
+  try {
+    const q = query(
+      collection(db, 'products'),
+      where('slug', '==', slug),
+      limit(1)
+    )
+    const querySnapshot = await getDocs(q)
+    if (!querySnapshot.empty) {
+      const doc = querySnapshot.docs[0]
+      return {
+        id: doc.id,
+        ...doc.data()
+      } as Product
+    }
+    return null
+  } catch (error) {
+    console.error('Error getting product by slug:', error)
     return null
   }
 }

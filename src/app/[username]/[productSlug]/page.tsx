@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { getProduct, getBusinessByProduct, getProductsByBusiness, unredeemQRCodePrize } from '@/lib/database'
+import { getProduct, getProductBySlug, getBusinessByProduct, getProductsByBusiness, unredeemQRCodePrize } from '@/lib/database'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import type { Product, Business } from '@/types/index'
 import CartSidebar from '@/components/CartSidebar'
@@ -12,7 +12,7 @@ import ClientLoginModal from '@/components/ClientLoginModal'
 
 export default function ProductPageByUsername() {
   const params = useParams()
-  const productId = params.productId as string
+  const productSlug = params.productSlug as string
   const username = params.username as string
 
   const [product, setProduct] = useState<Product | null>(null)
@@ -40,7 +40,13 @@ export default function ProductPageByUsername() {
         setLoading(true)
         setError(null)
 
-        const productData = await getProduct(productId)
+        let productData = await getProductBySlug(productSlug)
+
+        // Fallback para IDs antiguos
+        if (!productData) {
+          productData = await getProduct(productSlug)
+        }
+
         if (!productData) {
           setError('Producto no encontrado')
           setLoading(false)
@@ -48,6 +54,7 @@ export default function ProductPageByUsername() {
         }
 
         setProduct(productData)
+        const productId = productData.id
 
         const businessData = await getBusinessByProduct(productId)
         if (businessData) {
@@ -82,10 +89,10 @@ export default function ProductPageByUsername() {
       }
     }
 
-    if (productId) {
+    if (productSlug) {
       loadProduct()
     }
-  }, [productId])
+  }, [productSlug])
 
   useEffect(() => {
     if (business?.id) {
@@ -131,7 +138,7 @@ export default function ProductPageByUsername() {
 
       updateMetaTag('description', product.description || 'Descubre este producto en fuddi.shop', false)
 
-      const canonicalUrl = `https://fuddi.shop/${username}/${productId}`
+      const canonicalUrl = `https://fuddi.shop/${username}/${product.slug || product.id}`
 
       updateMetaTag('og:type', 'product')
       updateMetaTag('og:title', product.name)
@@ -146,7 +153,7 @@ export default function ProductPageByUsername() {
       updateMetaTag('twitter:description', product.description || 'Descubre este producto en fuddi.shop', false)
       updateMetaTag('twitter:image', product.image || '', false)
     }
-  }, [product, productId, username])
+  }, [product, productSlug, username])
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
     setNotification({ show: true, message, type })
@@ -206,7 +213,7 @@ export default function ProductPageByUsername() {
   }
 
   const handleCopyProductLink = async () => {
-    const productUrl = `${window.location.origin}/${username}/${productId}`
+    const productUrl = `${window.location.origin}/${username}/${product?.slug || product?.id}`
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(productUrl)
@@ -596,7 +603,7 @@ export default function ProductPageByUsername() {
                 {relatedProducts.map((prod) => (
                   <Link
                     key={prod.id}
-                    href={`/${username}/${prod.id}`}
+                    href={`/${username}/${prod.slug || prod.id}`}
                     className="group flex-shrink-0 snap-start w-[180px] sm:w-[220px]"
                   >
                     <div className="bg-white rounded-[2rem] overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 h-full border border-gray-50 group-hover:border-red-50 group-hover:ring-1 group-hover:ring-red-50 translate-z-0">

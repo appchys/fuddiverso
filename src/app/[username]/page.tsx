@@ -97,7 +97,7 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
 
   const handleCopyProductLink = async (e: React.MouseEvent) => {
     e.stopPropagation()
-    const productUrl = `${window.location.origin}/${businessUsername}/${product.id}`
+    const productUrl = `${window.location.origin}/${businessUsername}/${product.slug || product.id}`
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(productUrl)
@@ -235,7 +235,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
   if (!isOpen || !product) return null
 
   const handleCopyLink = async () => {
-    const productUrl = `${window.location.origin}/${businessUsername}/${product.id}`
+    const productUrl = `${window.location.origin}/${businessUsername}/${product.slug || product.id}`
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(productUrl)

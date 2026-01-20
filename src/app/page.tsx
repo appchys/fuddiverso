@@ -192,7 +192,7 @@ function HomePageContent() {
               {randomProducts.map((product) => {
                 const business = businesses.find(b => b.id === product.businessId)
                 const businessLink = business?.username ? `/${business.username}` : `/restaurant/${product.businessId}`
-                const productLink = `${businessLink}/${product.id}`
+                const productLink = `${businessLink}/${product.slug || product.id}`
 
                 return (
                   <Link

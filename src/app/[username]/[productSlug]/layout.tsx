@@ -1,18 +1,23 @@
 import type { Metadata } from 'next'
-import { getProduct } from '@/lib/database'
+import { getProduct, getProductBySlug } from '@/lib/database'
 
 type ProductPageParams = {
   params: Promise<{
     username: string
-    productId: string
+    productSlug: string
   }>
 }
 
 export async function generateMetadata({ params }: ProductPageParams): Promise<Metadata> {
-  const { username, productId } = await params
+  const { username, productSlug } = await params
 
   try {
-    const product = await getProduct(productId)
+    let product = await getProductBySlug(productSlug)
+
+    // Fallback for old IDs
+    if (!product) {
+      product = await getProduct(productSlug)
+    }
 
     if (!product) {
       return {
@@ -24,7 +29,7 @@ export async function generateMetadata({ params }: ProductPageParams): Promise<M
     const title = product.name
     const description = product.description || `Descubre ${product.name} en fuddi.shop`
     const imageUrl = product.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=1200&h=630&fit=crop&crop=center'
-    const url = `https://fuddi.shop/${username}/${productId}`
+    const url = `https://fuddi.shop/${username}/${product.slug || product.id}`
 
     return {
       title: `${title} - fuddi.shop`,

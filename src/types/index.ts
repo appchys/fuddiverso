@@ -125,6 +125,7 @@ export interface Product {
   price: number // Precio base del producto
   category: string
   image?: string
+  slug?: string // Slug amigable (ej: "munRJd")
   variants?: ProductVariant[] // Variantes opcionales del producto
   isAvailable: boolean
   order?: number // Orden de visualización

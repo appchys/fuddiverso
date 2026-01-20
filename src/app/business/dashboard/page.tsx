@@ -42,7 +42,8 @@ import {
   updateOrder,
   deleteOrder,
   createClientLocation,
-  registerOrderConsumption
+  registerOrderConsumption,
+  generateProductSlug
 } from '@/lib/database'
 import { isStoreOpen } from '@/lib/store-utils'
 

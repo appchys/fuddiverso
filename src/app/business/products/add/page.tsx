@@ -6,9 +6,11 @@ import Link from 'next/link'
 import { createProduct, uploadImage, getBusinessCategories, addCategoryToBusiness, getBusinessByOwner } from '@/lib/database'
 import { ProductVariant } from '@/types'
 import { auth } from '@/lib/firebase'
+import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 
 export default function AddProductPage() {
   const router = useRouter()
+  const [business, setBusiness] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
@@ -39,21 +41,25 @@ export default function AddProductPage() {
         setErrors({ submit: 'Debes iniciar sesión para acceder a esta página.' })
         return
       }
-      
+
       try {
         // Obtener businessId del localStorage (desde el dashboard)
         const storedBusinessId = localStorage.getItem('currentBusinessId')
-        
+
         if (!storedBusinessId) {
           setErrors({ submit: 'No se ha seleccionado ningún negocio. Por favor, ve al dashboard primero.' })
           return
         }
-        
+
         const businessCategories = await getBusinessCategories(storedBusinessId)
         setCategories(businessCategories)
+
+        // Cargar datos del negocio para el slug
+        const businessData = await getBusinessByOwner(user.uid)
+        setBusiness(businessData)
       } catch (error: any) {
-        console.error('Error loading categories:', error)
-        setErrors({ submit: `Error al cargar categorías: ${error.message}` })
+        console.error('Error loading categories or business:', error)
+        setErrors({ submit: `Error: ${error.message}` })
       }
     }
     loadCategories()
@@ -70,28 +76,28 @@ export default function AddProductPage() {
 
   const addNewCategory = async () => {
     if (!newCategory.trim()) return
-    
+
     try {
       const user = auth.currentUser
       if (!user) {
         setErrors({ submit: 'Debes iniciar sesión para agregar categorías.' })
         return
       }
-      
+
       // Obtener businessId del localStorage (desde el dashboard)
       const storedBusinessId = localStorage.getItem('currentBusinessId')
-      
+
       if (!storedBusinessId) {
         setErrors({ submit: 'No se ha seleccionado ningún negocio. Por favor, ve al dashboard primero.' })
         return
       }
-      
+
       await addCategoryToBusiness(storedBusinessId, newCategory.trim())
       setCategories(prev => [...prev, newCategory.trim()])
       setFormData(prev => ({ ...prev, category: newCategory.trim() }))
       setNewCategory('')
       setShowNewCategoryForm(false)
-      
+
       // Limpiar errores si todo salió bien
       setErrors({})
     } catch (error: any) {
@@ -112,7 +118,7 @@ export default function AddProductPage() {
     }
 
     const price = currentVariant.price ? Number(currentVariant.price) : Number(formData.price)
-    
+
     if (isNaN(price) || price <= 0) {
       alert('El precio debe ser un número válido mayor a 0')
       return
@@ -168,7 +174,7 @@ export default function AddProductPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!validateForm()) {
       return
     }
@@ -184,7 +190,7 @@ export default function AddProductPage() {
     try {
       // Obtener businessId del localStorage (desde el dashboard)
       const storedBusinessId = localStorage.getItem('currentBusinessId')
-      
+
       if (!storedBusinessId) {
         setErrors({ submit: 'No se ha seleccionado ningún negocio. Por favor, ve al dashboard primero.' })
         setLoading(false)
@@ -192,7 +198,7 @@ export default function AddProductPage() {
       }
 
       let imageUrl = ''
-      
+
       // Subir imagen si existe
       if (formData.image) {
         const imagePath = `products/${Date.now()}_${formData.image.name}`
@@ -210,7 +216,7 @@ export default function AddProductPage() {
         variants: variants.length > 0 ? variants : undefined,
         isAvailable: true,
         updatedAt: new Date()
-      })
+      }, business?.username)
 
       // Redirigir al dashboard
       router.push('/business/dashboard')
@@ -244,7 +250,7 @@ export default function AddProductPage() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Categoría *
               </label>
-              
+
               {!showNewCategoryForm ? (
                 <div className="space-y-2">
                   <select
@@ -252,9 +258,8 @@ export default function AddProductPage() {
                     required
                     value={formData.category}
                     onChange={handleInputChange}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                      errors.category ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.category ? 'border-red-500' : 'border-gray-300'
+                      }`}
                   >
                     <option value="">Seleccionar categoría</option>
                     {categories.map((category) => (
@@ -263,7 +268,7 @@ export default function AddProductPage() {
                       </option>
                     ))}
                   </select>
-                  
+
                   <button
                     type="button"
                     onClick={() => setShowNewCategoryForm(true)}
@@ -321,9 +326,8 @@ export default function AddProductPage() {
                 required
                 value={formData.name}
                 onChange={handleInputChange}
-                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                  errors.name ? 'border-red-500' : 'border-gray-300'
-                }`}
+                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.name ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 placeholder="Ej: Hamburguesa Clásica"
               />
               {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
@@ -339,9 +343,8 @@ export default function AddProductPage() {
                 required
                 value={formData.description}
                 onChange={handleInputChange}
-                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                  errors.description ? 'border-red-500' : 'border-gray-300'
-                }`}
+                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.description ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 placeholder="Describe tu producto..."
               />
               {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
@@ -360,9 +363,8 @@ export default function AddProductPage() {
                   required
                   value={formData.price}
                   onChange={handleInputChange}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                    errors.price ? 'border-red-500' : 'border-gray-300'
-                  }`}
+                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.price ? 'border-red-500' : 'border-gray-300'
+                    }`}
                   placeholder="10.50"
                 />
                 {errors.price && <p className="text-red-500 text-sm mt-1">{errors.price}</p>}
@@ -377,7 +379,7 @@ export default function AddProductPage() {
               <p className="text-gray-600 text-sm mb-4">
                 Agrega diferentes variantes como sabores, tamaños, o tipos. Si no especificas precio, usará el precio base.
               </p>
-              
+
               {/* Formulario para agregar variante */}
               <div className="bg-gray-50 p-4 rounded-lg mb-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -394,7 +396,7 @@ export default function AddProductPage() {
                       placeholder="Ej: Pan de ajo"
                     />
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Precio ($ - opcional)
@@ -410,7 +412,7 @@ export default function AddProductPage() {
                       placeholder="Dejalo vacío para usar precio base"
                     />
                   </div>
-                  
+
                   <div className="flex items-end">
                     <button
                       type="button"
@@ -421,7 +423,7 @@ export default function AddProductPage() {
                     </button>
                   </div>
                 </div>
-                
+
                 <div className="mt-3">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Descripción (opcional)
@@ -436,7 +438,7 @@ export default function AddProductPage() {
                   />
                 </div>
               </div>
-              
+
               {/* Lista de variantes agregadas */}
               {variants.length > 0 && (
                 <div className="mb-4">
@@ -495,14 +497,14 @@ export default function AddProductPage() {
                 {loading ? 'Guardando...' : 'Agregar Producto'}
               </button>
             </div>
-            
+
             {errors.submit && (
               <div className="mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
                 {errors.submit}
                 {errors.submit.includes('registra tu negocio') && (
                   <div className="mt-2">
-                    <Link 
-                      href="/business/register" 
+                    <Link
+                      href="/business/register"
                       className="underline text-red-800 hover:text-red-900 font-medium"
                     >
                       Registrar mi negocio aquí →

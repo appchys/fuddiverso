@@ -430,7 +430,7 @@ export default function ProductList({
           p.id === currentId ? ({ ...p, ...productData } as Product) : p
         ));
       } else {
-        const newProductId = await createProduct(productData);
+        const newProductId = await createProduct(productData, business.username);
         const newProduct: Product = {
           ...productData,
           id: newProductId,
