@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useDeliveryAuth } from '@/contexts/DeliveryAuthContext'
 import { getOrdersByDelivery, updateOrderStatus, getDeliveryById } from '@/lib/database'
 import { Order, Delivery } from '@/types'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp, collection, query, where, onSnapshot } from 'firebase/firestore'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 
 export default function DeliveryDashboard() {
@@ -147,36 +147,39 @@ export default function DeliveryDashboard() {
       return
     }
 
-    const loadData = async () => {
+    // Listener en tiempo real para pedidos
+    let unsubscribeOrders: (() => void) | null = null;
+    let isMounted = true;
+
+    const loadDelivery = async () => {
       try {
-        const [deliveryData, ordersData] = await Promise.all([
-          getDeliveryById(deliveryId),
-          getOrdersByDelivery(deliveryId)
-        ])
-
-
-
-        setDelivery(deliveryData)
-        setOrders(ordersData)
+        const deliveryData = await getDeliveryById(deliveryId)
+        if (isMounted) setDelivery(deliveryData)
       } catch (error) {
-        console.error('Error loading data:', error)
-      } finally {
-        setLoading(false)
+        console.error('Error loading delivery:', error)
       }
     }
 
-    loadData()
+    loadDelivery()
 
-    // Recargar pedidos cada 30 segundos
-    const interval = setInterval(async () => {
-      try {
-        const ordersData = await getOrdersByDelivery(deliveryId)
-        setOrders(ordersData)
-      } catch (error) {
-        console.error('Error reloading orders:', error)
-      }
-    }, 30000)
-    return () => clearInterval(interval)
+    // Importar la instancia de db y usar los métodos Firestore ya importados
+    import('@/lib/firebase').then(({ db }) => {
+      const ordersRef = collection(db, 'orders')
+      const q = query(ordersRef, where('delivery.assignedDelivery', '==', deliveryId))
+      unsubscribeOrders = onSnapshot(q, (snapshot: any) => {
+        const ordersData = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }))
+        if (isMounted) setOrders(ordersData)
+        setLoading(false)
+      }, (error: any) => {
+        console.error('Error en listener de pedidos:', error)
+        setLoading(false)
+      })
+    })
+
+    return () => {
+      isMounted = false;
+      if (unsubscribeOrders) unsubscribeOrders()
+    }
   }, [deliveryId])
 
   const handleStatusChange = async (orderId: string, newStatus: Order['status']) => {
