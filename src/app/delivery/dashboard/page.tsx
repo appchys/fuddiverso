@@ -86,25 +86,25 @@ export default function DeliveryDashboard() {
 
     // Obtener la hora de entrega programada (string: "17:08")
     const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number)
-    
+
     // Obtener la hora actual en UTC
     const now = new Date()
-    
+
     // Calcular la hora actual en Ecuador (UTC-5)
     const nowEcuadorMs = now.getTime() - (5 * 60 * 60 * 1000)
     const nowEcuadorDate = new Date(nowEcuadorMs)
-    
+
     // Obtener la fecha de hoy en Ecuador usando UTC methods
     const yearEcuador = nowEcuadorDate.getUTCFullYear()
     const monthEcuador = nowEcuadorDate.getUTCMonth()
     const dayEcuador = nowEcuadorDate.getUTCDate()
-    
+
     // Crear la fecha de entrega para hoy en Ecuador (en UTC)
     const deliveryEcuadorMs = Date.UTC(yearEcuador, monthEcuador, dayEcuador, hours, minutes, 0)
-    
+
     // Convertir de vuelta a UTC sumando 5 horas
     const deliveryTimeUTC = new Date(deliveryEcuadorMs + (5 * 60 * 60 * 1000))
-    
+
     // Logs de debug
     console.log('=== DEBUG getTimeRemaining ===')
     console.log('Hora programada (scheduledTime):', order.timing.scheduledTime)
@@ -113,24 +113,24 @@ export default function DeliveryDashboard() {
     console.log('Fecha hoy Ecuador:', `${dayEcuador}/${monthEcuador + 1}/${yearEcuador}`)
     console.log('deliveryTimeUTC:', deliveryTimeUTC.toISOString())
     console.log('deliveryTimeUTC formateado (Ecuador):', deliveryTimeUTC.toLocaleString('es-EC', { timeZone: 'America/Guayaquil', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }))
-    
+
     // Calcular diferencia en milisegundos
     const diff = deliveryTimeUTC.getTime() - now.getTime()
     console.log('Diferencia (ms):', diff)
-    
+
     if (diff < 0) {
       console.log('Estado: VENCIDO')
       return { display: 'Vencido', isExpired: true }
     }
-    
+
     // Convertir a horas y minutos
     const totalMinutes = Math.floor(diff / 60000)
     const h = Math.floor(totalMinutes / 60)
     const m = totalMinutes % 60
-    
+
     console.log('Total minutos:', totalMinutes, 'Horas:', h, 'Minutos:', m)
     console.log('================================')
-    
+
     if (h > 0) {
       return { display: `${h}h ${m}m`, isExpired: false }
     } else {
@@ -280,7 +280,8 @@ export default function DeliveryDashboard() {
       preparing: 'bg-purple-100 text-purple-800 border-purple-200',
       ready: 'bg-green-100 text-green-800 border-green-200',
       delivered: 'bg-gray-100 text-gray-800 border-gray-200',
-      cancelled: 'bg-red-100 text-red-800 border-red-200'
+      cancelled: 'bg-red-100 text-red-800 border-red-200',
+      on_way: 'bg-cyan-100 text-cyan-800 border-cyan-200'
     }
     return colors[status] || colors.pending
   }
@@ -292,7 +293,8 @@ export default function DeliveryDashboard() {
       preparing: 'Preparando',
       ready: 'Listo',
       delivered: 'Entregado',
-      cancelled: 'Cancelado'
+      cancelled: 'Cancelado',
+      on_way: 'En camino'
     }
     return texts[status] || status
   }
@@ -447,13 +449,8 @@ export default function DeliveryDashboard() {
                               className={`p-4 sm:p-5 cursor-pointer flex items-center justify-between transition-colors ${isExpanded ? 'bg-gray-50' : 'bg-white'}`}
                             >
                               <div className="flex items-center gap-3 flex-1 min-w-0">
-                                {/* Icono de tiempo */}
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg shadow-sm border flex-shrink-0 transition-colors ${order.timing?.type === 'scheduled'
-                                  ? 'bg-blue-50 text-blue-600 border-blue-100'
-                                  : 'bg-yellow-50 text-yellow-600 border-yellow-100'
-                                  }`}>
-                                  <i className={`bi ${order.timing?.type === 'scheduled' ? 'bi-clock-fill' : 'bi-lightning-charge-fill'}`}></i>
-                                </div>
+                                {/* Icono REMOVIDO por solicitud */}
+
 
                                 {/* Hora y Cliente */}
                                 <div className="flex-1 min-w-0">
@@ -612,7 +609,20 @@ export default function DeliveryDashboard() {
                                     <i className="bi bi-telephone-fill text-lg"></i>
                                   </a>
 
-                                  {order.status !== 'delivered' && order.status !== 'cancelled' && (
+                                  {order.status !== 'on_way' && order.status !== 'delivered' && order.status !== 'cancelled' && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleStatusChange(order.id, 'on_way')
+                                      }}
+                                      className="flex-[2] py-3.5 bg-blue-600 text-white rounded-2xl font-bold text-sm hover:bg-blue-700 transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg"
+                                    >
+                                      <i className="bi bi-bicycle text-lg"></i>
+                                      EN CAMINO
+                                    </button>
+                                  )}
+
+                                  {order.status === 'on_way' && (
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation()
@@ -667,7 +677,15 @@ export default function DeliveryDashboard() {
 
                   {selectedOrder.status !== 'delivered' && selectedOrder.status !== 'cancelled' && (
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {selectedOrder.status === 'ready' && (
+                      {selectedOrder.status !== 'on_way' && (
+                        <button
+                          onClick={() => handleStatusChange(selectedOrder.id, 'on_way')}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                        >
+                          Marcar como En camino
+                        </button>
+                      )}
+                      {selectedOrder.status === 'on_way' && (
                         <button
                           onClick={() => handleStatusChange(selectedOrder.id, 'delivered')}
                           className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"

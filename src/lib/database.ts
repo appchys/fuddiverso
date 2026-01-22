@@ -926,6 +926,7 @@ export async function updateOrderStatus(orderId: string, status: Order['status']
       confirmed: 'statusHistory.confirmedAt',
       preparing: 'statusHistory.preparingAt',
       ready: 'statusHistory.readyAt',
+      on_way: 'statusHistory.on_wayAt',
       delivered: 'statusHistory.deliveredAt',
       cancelled: 'statusHistory.cancelledAt'
     }

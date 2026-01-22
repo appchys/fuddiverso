@@ -52,7 +52,7 @@ interface ManualOrderData {
   transferAmount: number
   total: number
   selectedDelivery: any
-  orderStatus: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
+  orderStatus: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'on_way' | 'delivered' | 'cancelled'
 }
 
 interface ManualOrderSidebarProps {

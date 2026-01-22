@@ -689,7 +689,7 @@ export default function BusinessDashboard() {
 
   // Avanzar estado al siguiente en la cadena lógica
   const getNextStatus = (status: Order['status']): Order['status'] | null => {
-    const flow: Order['status'][] = ['pending', 'confirmed', 'preparing', 'ready', 'delivered']
+    const flow: Order['status'][] = ['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered']
     const idx = flow.indexOf(status)
     if (idx === -1) return null
     if (idx >= flow.length - 1) return null

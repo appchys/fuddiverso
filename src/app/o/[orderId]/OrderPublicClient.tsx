@@ -217,6 +217,7 @@ export default function OrderPublicClient({ orderId }: Props) {
       'confirmed': 'Confirmado',
       'preparing': 'Preparando',
       'ready': 'Listo',
+      'on_way': 'En camino',
       'delivered': 'Entregado',
       'cancelled': 'Cancelado'
     }
@@ -229,6 +230,7 @@ export default function OrderPublicClient({ orderId }: Props) {
       'confirmed': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-100', dot: 'bg-blue-400' },
       'preparing': { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-100', dot: 'bg-indigo-400' },
       'ready': { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-100', dot: 'bg-emerald-400' },
+      'on_way': { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-100', dot: 'bg-cyan-400' },
       'delivered': { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200', dot: 'bg-slate-400' },
       'cancelled': { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-100', dot: 'bg-red-400' }
     }
@@ -241,6 +243,7 @@ export default function OrderPublicClient({ orderId }: Props) {
       'confirmed': 'bi-check2-circle',
       'preparing': 'bi-fire',
       'ready': 'bi-box-seam',
+      'on_way': 'bi-bicycle',
       'delivered': 'bi-house-check',
       'cancelled': 'bi-x-circle'
     }
@@ -253,6 +256,7 @@ export default function OrderPublicClient({ orderId }: Props) {
       'confirmed': 'Pedido confirmado',
       'preparing': 'En preparación',
       'ready': '¡Listo para entrega!',
+      'on_way': 'Tu pedido va en camino',
       'delivered': 'Entregado con éxito',
       'cancelled': 'Pedido cancelado'
     }
@@ -357,7 +361,7 @@ export default function OrderPublicClient({ orderId }: Props) {
     if (!order?.statusHistory) return null;
 
     // Definir los estados a mostrar, excluyendo 'cancelled'
-    const statusOrder = ['pending', 'confirmed', 'preparing', 'ready', 'delivered'];
+    const statusOrder = ['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered'];
     const currentStatus = order.status === 'cancelled' ? 'delivered' : order.status;
     const currentStatusIndex = statusOrder.indexOf(currentStatus);
 
