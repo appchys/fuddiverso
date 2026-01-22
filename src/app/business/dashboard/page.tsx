@@ -1527,6 +1527,7 @@ export default function BusinessDashboard() {
     switch (status) {
       case 'preparing': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       case 'ready': return 'bg-green-100 text-green-800 border-green-200';
+      case 'on_way': return 'bg-purple-100 text-purple-800 border-purple-200';
       case 'completed': return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'delivered': return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'cancelled': return 'bg-red-100 text-red-800 border-red-200';
@@ -1650,6 +1651,7 @@ export default function BusinessDashboard() {
     switch (status) {
       case 'preparing': return 'Preparando';
       case 'ready': return 'Listos';
+      case 'on_way': return 'En camino';
       case 'completed': return 'Completados';
       case 'delivered': return 'Entregados';
       case 'cancelled': return 'Cancelados';
@@ -1671,7 +1673,7 @@ export default function BusinessDashboard() {
 
   // Función para agrupar y ordenar pedidos por estado
   const groupOrdersByStatus = (orders: Order[]) => {
-    const statusOrder = ['pending', 'confirmed', 'preparing', 'ready', 'delivered', 'cancelled'];
+    const statusOrder = ['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'];
 
     return orders.sort((a, b) => {
       const aIndex = statusOrder.indexOf(a.status);
@@ -1692,7 +1694,7 @@ export default function BusinessDashboard() {
   // Función para agrupar órdenes por estado para mostrar títulos
   const groupOrdersWithTitles = (orders: Order[]) => {
     const grouped: { [status: string]: Order[] } = {};
-    const statusOrder = ['pending', 'confirmed', 'preparing', 'ready', 'delivered', 'cancelled'];
+    const statusOrder = ['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'];
 
     orders.forEach(order => {
       if (!grouped[order.status]) {
@@ -1733,6 +1735,7 @@ export default function BusinessDashboard() {
                                 {status === 'confirmed' && '✅'}
                                 {status === 'preparing' && '👨‍🍳'}
                                 {status === 'ready' && '🔔'}
+                                {status === 'on_way' && '🛵'}
                                 {status === 'delivered' && '📦'}
                                 {status === 'cancelled' && '❌'}
                               </span>
@@ -1746,7 +1749,7 @@ export default function BusinessDashboard() {
                             </h3>
                           </button>
 
-                          {['pending', 'confirmed', 'preparing', 'ready'].includes(status) && (
+                          {['pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(status) && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -3499,6 +3502,7 @@ export default function BusinessDashboard() {
                         {selectedOrderDetails.status === 'confirmed' && '✅ Confirmado'}
                         {selectedOrderDetails.status === 'preparing' && '👨‍🍳 Preparando'}
                         {selectedOrderDetails.status === 'ready' && '🔔 Listo'}
+                        {selectedOrderDetails.status === 'on_way' && '🛵 En camino'}
                         {selectedOrderDetails.status === 'delivered' && '📦 Entregado'}
                         {selectedOrderDetails.status === 'cancelled' && '❌ Cancelado'}
                       </span>
