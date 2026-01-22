@@ -88,7 +88,18 @@ export default function DeliveryDashboard() {
     const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number)
 
     // Obtener la hora actual en UTC
-    const now = new Date()
+    let now = new Date()
+
+    // Si la orden ya fue entregada, usamos la hora de entrega para "congelar" el contador
+    if (order.status === 'delivered' && order.statusHistory?.deliveredAt) {
+      const deliveredAt = order.statusHistory.deliveredAt
+      if (deliveredAt instanceof Timestamp) {
+        now = deliveredAt.toDate()
+      } else if (deliveredAt instanceof Date) {
+        now = deliveredAt
+      }
+      // Nota: Si es string u otro, se queda con new Date() por defecto
+    }
 
     // Calcular la hora actual en Ecuador (UTC-5)
     const nowEcuadorMs = now.getTime() - (5 * 60 * 60 * 1000)
@@ -105,31 +116,23 @@ export default function DeliveryDashboard() {
     // Convertir de vuelta a UTC sumando 5 horas
     const deliveryTimeUTC = new Date(deliveryEcuadorMs + (5 * 60 * 60 * 1000))
 
-    // Logs de debug
-    console.log('=== DEBUG getTimeRemaining ===')
-    console.log('Hora programada (scheduledTime):', order.timing.scheduledTime)
-    console.log('Hora actual UTC:', now.toISOString())
-    console.log('Hora actual Ecuador (calculado):', nowEcuadorDate.toISOString())
-    console.log('Fecha hoy Ecuador:', `${dayEcuador}/${monthEcuador + 1}/${yearEcuador}`)
-    console.log('deliveryTimeUTC:', deliveryTimeUTC.toISOString())
-    console.log('deliveryTimeUTC formateado (Ecuador):', deliveryTimeUTC.toLocaleString('es-EC', { timeZone: 'America/Guayaquil', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }))
-
     // Calcular diferencia en milisegundos
     const diff = deliveryTimeUTC.getTime() - now.getTime()
-    console.log('Diferencia (ms):', diff)
 
     if (diff < 0) {
-      console.log('Estado: VENCIDO')
-      return { display: 'Vencido', isExpired: true }
+      const absDiff = Math.abs(diff)
+      const totalMinutes = Math.floor(absDiff / 60000)
+      const h = Math.floor(totalMinutes / 60)
+      const m = totalMinutes % 60
+
+      const display = h > 0 ? `-${h}h ${m}m` : `-${m}m`
+      return { display, isExpired: true }
     }
 
     // Convertir a horas y minutos
     const totalMinutes = Math.floor(diff / 60000)
     const h = Math.floor(totalMinutes / 60)
     const m = totalMinutes % 60
-
-    console.log('Total minutos:', totalMinutes, 'Horas:', h, 'Minutos:', m)
-    console.log('================================')
 
     if (h > 0) {
       return { display: `${h}h ${m}m`, isExpired: false }
