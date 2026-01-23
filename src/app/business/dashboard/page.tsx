@@ -955,14 +955,14 @@ export default function BusinessDashboard() {
       );
     };
 
-    // Actualizar waSentToDelivery en la base de datos
-    try {
-      await updateOrder(order.id, { waSentToDelivery: true });
-      // Actualizar localmente antes de llamar a sendWhatsAppToDelivery para que la UI responda rápido
-      updateLocalOrder({ ...order, waSentToDelivery: true });
-    } catch (error) {
+    // Actualizar waSentToDelivery en la base de datos en segundo plano (fire and forget)
+    // No usamos await aquí para no bloquear el hilo principal y que Safari permita abrir la ventana
+    updateOrder(order.id, { waSentToDelivery: true }).catch(error => {
       console.error('Error updating waSentToDelivery:', error);
-    }
+    });
+
+    // Actualizar localmente inmediatamente
+    updateLocalOrder({ ...order, waSentToDelivery: true });
 
     await sendWhatsAppToDelivery(
       { ...order, waSentToDelivery: true }, // Pasar la orden actualizada

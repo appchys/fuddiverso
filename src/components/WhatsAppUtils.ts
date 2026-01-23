@@ -67,21 +67,10 @@ export const sendWhatsAppToDelivery = async (
     onStatusUpdate?: (orderId: string, newStatus: Order['status']) => Promise<void>,
     updateLocalOrder?: (updatedOrder: Order) => void
 ) => {
-    // Solo avanzar el estado si no está en estado 'ready' (Listo)
+    // Calcular el siguiente estado para usarlo si es necesario
+    let nextStatus: Order['status'] | null = null;
     if (order.status !== 'ready' && onStatusUpdate && updateLocalOrder) {
-        const nextStatus = getNextStatus(order.status);
-        if (nextStatus) {
-            try {
-                await onStatusUpdate(order.id, nextStatus);
-                // Actualizar el estado local de la orden para reflejar el cambio
-                const updatedOrder = { ...order, status: nextStatus };
-                updateLocalOrder(updatedOrder);
-                order = updatedOrder; // Actualizar la referencia local
-            } catch (error) {
-                console.error('Error al avanzar el estado del pedido:', error);
-                // Continuar con el envío del WhatsApp aunque falle el cambio de estado
-            }
-        }
+        nextStatus = getNextStatus(order.status);
     }
 
     let phone = ''
@@ -210,8 +199,20 @@ export const sendWhatsAppToDelivery = async (
     // Crear enlace de WhatsApp
     const whatsappUrl = `https://api.whatsapp.com/send?phone=593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}&text=${encodeURIComponent(message)}`
 
-    // Abrir WhatsApp Web
+    // Abrir WhatsApp Web - PRIMERO abrir, luego hacer operaciones async
     window.open(whatsappUrl, '_blank')
+
+    // Ahora sí realizar las actualizaciones de estado si corresponde
+    if (nextStatus && onStatusUpdate && updateLocalOrder) {
+        try {
+            await onStatusUpdate(order.id, nextStatus);
+            // Actualizar el estado local de la orden para reflejar el cambio
+            const updatedOrder = { ...order, status: nextStatus };
+            updateLocalOrder(updatedOrder);
+        } catch (error) {
+            console.error('Error al avanzar el estado del pedido:', error);
+        }
+    }
 }
 
 // Enviar Whatsapp al cliente (número del cliente)
