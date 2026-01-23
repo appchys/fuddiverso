@@ -17,6 +17,8 @@ import NotificationsBell from '@/components/NotificationsBell'
 import IngredientStockManagement from '@/components/IngredientStockManagement'
 import { sendWhatsAppToDelivery, sendWhatsAppToCustomer } from '@/components/WhatsAppUtils'
 import BusinessProfileDashboard from '@/components/BusinessProfileDashboard'
+import QueueStatusIndicator from '@/components/QueueStatusIndicator'
+import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import {
   getBusiness,
   getProductsByBusiness,
@@ -80,6 +82,10 @@ export default function BusinessDashboard() {
     isIOS = false,
     needsUserAction = false
   } = pushNotifications || {}
+
+  // Hook para gestión de cola offline
+  const { queueStatus, addOrder: addOrderToQueue, retryFailed } = useOfflineQueue()
+
   const [showCostReports, setShowCostReports] = useState(false)
   const [business, setBusiness] = useState<Business | null>(null)
   const [businesses, setBusinesses] = useState<Business[]>([])
@@ -2471,27 +2477,10 @@ export default function BusinessDashboard() {
         }
       };
 
-      const orderId = await createOrder(orderData as any);
+      // Agregar a la cola offline (no bloqueante)
+      await addOrderToQueue(orderData, 'create');
 
-      // Registrar consumo de ingredientes automáticamente para órdenes manuales
-      try {
-        const orderDateStr = new Date().toISOString().split('T')[0]
-        await registerOrderConsumption(
-          selectedBusinessId || '',
-          manualOrderData.selectedProducts.map(p => ({
-            productId: p.id,
-            variant: p.variant,
-            name: p.name,
-            quantity: p.quantity
-          })),
-          orderDateStr,
-          orderId
-        )
-      } catch (error) {
-        console.error('[Dashboard] Error registering consumption:', error)
-      }
-
-      // Limpiar formulario
+      // Limpiar formulario inmediatamente
       setManualOrderData({
         customerPhone: '',
         customerName: '',
@@ -2511,17 +2500,23 @@ export default function BusinessDashboard() {
         selectedDelivery: null
       });
       setClientFound(false);
-      setShowManualOrderModal(false); // Cerrar el modal
+      setShowManualOrderModal(false); // Cerrar el modal inmediatamente
 
       setActiveTab('orders'); // Cambiar a la pestaña de pedidos
 
-      // Recargar pedidos
-      if (selectedBusinessId) {
-        const ordersData = await getRecentOrdersByBusiness(selectedBusinessId);
-        setOrders(ordersData);
-      }
+      // Mostrar notificación de éxito
+      alert('✓ Pedido guardado. Se sincronizará en segundo plano.');
+
+      // Recargar pedidos después de un breve delay para dar tiempo a la sincronización
+      setTimeout(async () => {
+        if (selectedBusinessId) {
+          const ordersData = await getRecentOrdersByBusiness(selectedBusinessId);
+          setOrders(ordersData);
+        }
+      }, 1000);
     } catch (error) {
-      alert('Error al crear el pedido');
+      console.error('Error al crear el pedido:', error);
+      alert('Error al guardar el pedido. Se reintentará automáticamente.');
     }
   };
 
@@ -2801,6 +2796,13 @@ export default function BusinessDashboard() {
                       </button>
                     </div>
                   )}
+
+                  {/* Indicador de cola offline */}
+                  <QueueStatusIndicator
+                    status={queueStatus}
+                    onRetry={retryFailed}
+                    className="hidden sm:flex"
+                  />
 
                   {/* Campana de notificaciones */}
                   {selectedBusinessId && (
