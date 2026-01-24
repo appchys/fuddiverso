@@ -6,6 +6,7 @@
 
 const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onRequest } = require("firebase-functions/v2/https");
 const admin = require('firebase-admin');
 const nodemailer = require('nodemailer');
 
@@ -758,4 +759,435 @@ exports.sendScheduledOrderReminders = onSchedule({
     console.error('❌ Error en sendScheduledOrderReminders:', error);
   }
 });
+
+/**
+ * Cloud Function: Notificar al delivery cuando se le asigna una orden
+ * Se ejecuta cuando se actualiza una orden y se asigna un delivery
+ */
+exports.notifyDeliveryAssignment = onDocumentUpdated("orders/{orderId}", async (event) => {
+  const beforeData = event.data.before.data();
+  const afterData = event.data.after.data();
+  const orderId = event.params.orderId;
+
+  // Verificar si el delivery fue asignado (cambió de null/undefined a un ID)
+  const beforeDeliveryId = beforeData.delivery?.assignedDelivery;
+  const afterDeliveryId = afterData.delivery?.assignedDelivery;
+
+  // Solo procesar si se asignó un delivery (transición de sin asignar a asignado)
+  if (!afterDeliveryId || (beforeDeliveryId === afterDeliveryId && beforeDeliveryId)) {
+    return; // No hay cambio o no hay delivery asignado
+  }
+
+  try {
+    console.log(`📦 Orden ${orderId} asignada al delivery: ${afterDeliveryId}`);
+
+    // Obtener datos del delivery (repartidor)
+    let deliveryEmail = null;
+    let deliveryName = 'Repartidor';
+
+    try {
+      const deliveryDoc = await admin.firestore().collection('deliveries').doc(afterDeliveryId).get();
+      if (deliveryDoc.exists) {
+        const deliveryData = deliveryDoc.data();
+        deliveryEmail = deliveryData.email;
+        deliveryName = deliveryData.name || `${deliveryData.firstName} ${deliveryData.lastName}` || deliveryName;
+      }
+    } catch (e) {
+      console.warn(`⚠️ No se pudo obtener datos del delivery ${afterDeliveryId}:`, e.message);
+      return; // Si no podemos obtener el email, no continuamos
+    }
+
+    if (!deliveryEmail) {
+      console.warn(`⚠️ El delivery ${afterDeliveryId} no tiene email registrado`);
+      return;
+    }
+
+    // Obtener datos del cliente
+    let customerName = afterData.customer?.name || 'Cliente no especificado';
+    let customerPhone = afterData.customer?.phone || 'No registrado';
+
+    if (afterData.customer?.id) {
+      try {
+        const clientDoc = await admin.firestore().collection('clients').doc(afterData.customer.id).get();
+        if (clientDoc.exists) {
+          const clientData = clientDoc.data();
+          customerName = clientData.nombres || customerName;
+          customerPhone = clientData.celular || customerPhone;
+        }
+      } catch (e) {
+        console.warn(`⚠️ No se pudo obtener datos del cliente:`, e.message);
+      }
+    }
+
+    // Información de entrega
+    let deliveryInfo = 'Retiro en tienda';
+    let deliveryType = 'pickup';
+    let mapHtml = '';
+    let photoHtml = '';
+
+    if (afterData.delivery?.type === 'delivery') {
+      deliveryType = 'delivery';
+      deliveryInfo = afterData.delivery?.references || 'Dirección no especificada';
+
+      if (afterData.delivery?.latlong) {
+        const [lat, lng] = afterData.delivery.latlong.split(',').map(s => s.trim());
+        if (lat && lng) {
+          const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=17&size=400x200&markers=color:red%7C${lat},${lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
+          const mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+          mapHtml = `
+            <div style="margin-top: 12px; margin-bottom: 12px;">
+              <a href="${mapsLink}" target="_blank" style="text-decoration:none;">
+                <img src="${staticMapUrl}" alt="Ver ubicación" style="border-radius:8px;border:1px solid #ddd;max-width:100%;display:block;height:200px;object-fit:cover;">
+              </a>
+            </div>
+          `;
+        }
+      }
+
+      if (afterData.delivery?.photo) {
+        photoHtml = `
+          <div style="margin-top: 12px; margin-bottom: 12px;">
+            <p style="margin: 0 0 8px 0; font-size: 12px; color: #666;"><strong>Foto de referencia:</strong></p>
+            <img src="${afterData.delivery.photo}" alt="Foto de referencia" style="border-radius:8px;border:1px solid #ddd;max-width:100%;height:200px;object-fit:cover;">
+          </div>
+        `;
+      }
+    }
+
+    // Generar HTML de productos
+    let productsHtml = '<ul style="padding-left:20px; margin: 8px 0;">';
+    let itemCount = 0;
+    if (Array.isArray(afterData.items)) {
+      afterData.items.forEach(item => {
+        const itemTotal = (item.price * item.quantity).toFixed(2);
+        const variant = item.variant || '';
+        productsHtml += `
+          <li style="margin-bottom:8px;">
+            <strong>${item.name}</strong>${variant ? ` (${variant})` : ''}
+            <br/>
+            <small style="color: #666;">Cantidad: ${item.quantity} × $${item.price.toFixed(2)} = $${itemTotal}</small>
+          </li>
+        `;
+        itemCount++;
+      });
+    }
+    productsHtml += '</ul>';
+
+    // Información de pago
+    const paymentMethod = afterData.payment?.method || 'No especificado';
+    let paymentMethodText = '';
+    if (paymentMethod === 'cash') paymentMethodText = '💵 Efectivo';
+    else if (paymentMethod === 'transfer') paymentMethodText = '🏦 Transferencia';
+    else if (paymentMethod === 'mixed') paymentMethodText = '💳 Mixto';
+
+    let paymentDetailsHtml = '';
+    if (paymentMethod === 'mixed') {
+      const cash = afterData.payment?.cashAmount || 0;
+      const transfer = afterData.payment?.transferAmount || 0;
+      paymentDetailsHtml = `
+        <tr>
+          <td style="padding: 8px 0; border-bottom: 1px solid #eee; font-size: 12px;">💵 Efectivo:</td>
+          <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right; font-size: 12px;">$${cash.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; border-bottom: 1px solid #eee; font-size: 12px;">🏦 Transferencia:</td>
+          <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right; font-size: 12px;">$${transfer.toFixed(2)}</td>
+        </tr>
+      `;
+    }
+
+    // Detalles de costo
+    const subtotal = afterData.subtotal || 0;
+    const total = afterData.total || 0;
+    let deliveryCost = afterData.delivery?.deliveryCost;
+    if (deliveryCost === undefined) {
+      deliveryCost = Math.max(0, total - subtotal);
+    }
+
+    // Formatear fecha y hora de entrega
+    let scheduledDateStr = 'Hoy';
+    let scheduledTimeStr = 'Lo antes posible';
+    let timingType = 'Inmediato';
+
+    if (afterData.timing?.type === 'scheduled') {
+      timingType = 'Programado';
+      const dateObj = afterData.timing.scheduledDate;
+      const seconds = dateObj?.seconds || dateObj?._seconds;
+      if (seconds) {
+        scheduledDateStr = new Date(seconds * 1000).toLocaleDateString('es-EC', {
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        });
+      }
+      scheduledTimeStr = afterData.timing.scheduledTime || 'No especificada';
+    }
+
+    // Token/código único para la orden (usar orderId como base)
+    const confirmToken = Buffer.from(`${orderId}|confirm`).toString('base64');
+    const discardToken = Buffer.from(`${orderId}|discard`).toString('base64');
+
+    // URLs de acción (ajustar el dominio según tu entorno)
+    const dashboardUrl = 'https://fuddi.shop/delivery/dashboard';
+    const confirmUrl = `https://fuddi.shop/api/delivery/handle-order?action=confirm&token=${confirmToken}`;
+    const discardUrl = `https://fuddi.shop/api/delivery/handle-order?action=discard&token=${discardToken}`;
+
+    // Generar HTML del email
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+        <div style="background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
+          <h1 style="margin: 0; font-size: 22px;">🚚 ¡Nuevo Pedido Asignado!</h1>
+          <p style="margin: 8px 0 0 0; opacity: 0.9;">Pedido #${orderId.substring(0, 8).toUpperCase()}</p>
+        </div>
+
+        <div style="background-color: #f9f9f9; padding: 24px; border: 1px solid #ddd; border-radius: 0 0 8px 8px;">
+          
+          <!-- Información de Entrega -->
+          <div style="background-color: #e8f5e9; border-left: 4px solid #4CAF50; padding: 12px; margin-bottom: 20px; border-radius: 4px;">
+            <p style="margin: 0; color: #2E7D32; font-size: 14px;">
+              <strong>⏰ ${timingType}</strong><br/>
+              ${scheduledTimeStr} - ${scheduledDateStr}
+            </p>
+          </div>
+
+          <h3 style="color: #2E7D32; margin-top: 0; font-size: 16px;">👤 Datos del Cliente</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee;"><strong>Nombre:</strong></td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee;">${customerName}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee;"><strong>WhatsApp:</strong></td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee;">
+                <a href="https://wa.me/593${customerPhone.replace(/^0/, '')}" style="color: #4CAF50; text-decoration: none; font-weight: bold;">
+                  ${customerPhone}
+                </a>
+              </td>
+            </tr>
+          </table>
+
+          <!-- Información de Dirección -->
+          ${deliveryType === 'delivery' ? `
+            <h3 style="color: #2E7D32; margin-top: 20px; font-size: 16px;">📍 Dirección de Entrega</h3>
+            <p style="margin: 8px 0; padding: 8px; background-color: #fff9c4; border-radius: 4px; font-size: 14px;">
+              ${deliveryInfo}
+            </p>
+            ${mapHtml}
+            ${photoHtml}
+          ` : `
+            <h3 style="color: #2E7D32; margin-top: 20px; font-size: 16px;">🏪 Retiro en Tienda</h3>
+            <p style="margin: 8px 0; font-size: 14px;">El cliente retirará el pedido en la tienda</p>
+          `}
+
+          <!-- Detalles de la Orden -->
+          <h3 style="color: #2E7D32; margin-top: 20px; font-size: 16px;">📦 Detalle del Pedido (${itemCount} artículos)</h3>
+          ${productsHtml}
+
+          <!-- Resumen de Pago -->
+          <h3 style="color: #2E7D32; margin-top: 20px; font-size: 16px;">💰 Resumen a Cobrar</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee;"><strong>Subtotal:</strong></td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;"><strong>$${subtotal.toFixed(2)}</strong></td>
+            </tr>
+            ${deliveryCost > 0.01 ? `
+            <tr>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee;">Envío:</td>
+              <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">$${deliveryCost.toFixed(2)}</td>
+            </tr>
+            ` : ''}
+            <tr>
+              <td style="padding: 12px 0; font-size: 16px;"><strong>TOTAL A COBRAR:</strong></td>
+              <td style="padding: 12px 0; text-align: right; font-size: 18px; color: #2E7D32;"><strong>$${total.toFixed(2)}</strong></td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-size: 12px; color: #666;"><strong>Método de Pago:</strong></td>
+              <td style="padding: 8px 0; text-align: right; font-size: 12px; color: #666;"><strong>${paymentMethodText}</strong></td>
+            </tr>
+            ${paymentDetailsHtml}
+          </table>
+
+          <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+
+          <!-- Botones de Acción -->
+          <div style="text-align: center; margin: 20px 0;">
+            <p style="margin: 0 0 12px 0; font-size: 14px; color: #666;"><strong>¿Aceptarás este pedido?</strong></p>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 0 6px; width: 50%;">
+                  <a href="${confirmUrl}" style="display: inline-block; background-color: #4CAF50; color: white; padding: 12px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 14px; border: 2px solid #4CAF50;">
+                    ✅ Confirmar
+                  </a>
+                </td>
+                <td style="padding: 0 6px; width: 50%;">
+                  <a href="${discardUrl}" style="display: inline-block; background-color: #f44336; color: white; padding: 12px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 14px; border: 2px solid #f44336;">
+                    ❌ Descartar
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </div>
+
+          <p style="font-size: 12px; color: #666; text-align: center; margin-top: 20px;">
+            O accede a tu <a href="${dashboardUrl}" style="color: #4CAF50; text-decoration: none;"><strong>Dashboard de Entrega</strong></a> para más opciones
+          </p>
+
+          <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+          
+          <p style="font-size: 11px; color: #999; margin: 0; text-align: center;">
+            Este es un email automático. No responder a este correo.
+          </p>
+        </div>
+      </div>
+    `;
+
+    // Enviar email
+    const mailOptions = {
+      from: 'pedidos@fuddi.shop',
+      to: deliveryEmail,
+      subject: `🚚 Nuevo pedido asignado a ${customerName} - Fuddi`,
+      html: htmlContent
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Email de asignación enviado a delivery ${deliveryEmail}`);
+
+  } catch (error) {
+    console.error(`❌ Error notificando al delivery para orden ${orderId}:`, error);
+  }
+});
+
+/**
+ * HTTP Function: Manejar acciones de confirmación/descarte de orden por parte del delivery
+ * Accesible desde los links en el email
+ */
+exports.handleDeliveryOrderAction = onRequest(async (request, response) => {
+  // Configurar CORS
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Methods', 'GET, POST');
+  response.set('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (request.method === 'OPTIONS') {
+    response.status(204).send('');
+    return;
+  }
+
+  try {
+    const { action, token } = request.query;
+
+    if (!action || !token) {
+      return response.status(400).json({ error: 'Parámetros faltantes' });
+    }
+
+    // Decodificar token
+    let orderId, actionType;
+    try {
+      const decoded = Buffer.from(token, 'base64').toString('utf-8');
+      [orderId, actionType] = decoded.split('|');
+    } catch (e) {
+      return response.status(400).json({ error: 'Token inválido' });
+    }
+
+    // Validar que el action sea válido
+    if (!['confirm', 'discard'].includes(action) || actionType !== action) {
+      return response.status(400).json({ error: 'Acción inválida' });
+    }
+
+    // Obtener la orden
+    const orderDoc = await admin.firestore().collection('orders').doc(orderId).get();
+    if (!orderDoc.exists) {
+      return response.status(404).json({ error: 'Orden no encontrada' });
+    }
+
+    const order = orderDoc.data();
+
+    // Actualizar estado según la acción
+    let newStatus;
+    if (action === 'confirm') {
+      newStatus = 'preparing'; // Cambiar a "Preparando"
+      console.log(`✅ Orden ${orderId} confirmada por delivery`);
+    } else if (action === 'discard') {
+      newStatus = 'cancelled'; // Cambiar a "Cancelado"
+      console.log(`❌ Orden ${orderId} descartada por delivery`);
+    }
+
+    // Actualizar la orden
+    await orderDoc.ref.update({
+      status: newStatus,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Responder con HTML que redirige al dashboard
+    const redirectHtml = `
+      <!DOCTYPE html>
+      <html lang="es">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Procesando orden...</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%);
+          }
+          .container {
+            text-align: center;
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            max-width: 400px;
+          }
+          h1 {
+            color: #2E7D32;
+            margin: 0 0 16px 0;
+          }
+          p {
+            color: #666;
+            margin: 8px 0;
+          }
+          .icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+          }
+          .button {
+            display: inline-block;
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 6px;
+            text-decoration: none;
+            margin-top: 20px;
+            font-weight: bold;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="icon">${action === 'confirm' ? '✅' : '❌'}</div>
+          <h1>${action === 'confirm' ? '¡Pedido Confirmado!' : '¡Pedido Descartado!'}</h1>
+          <p>Tu acción ha sido procesada exitosamente.</p>
+          <p>Redirigiendo al dashboard en 3 segundos...</p>
+          <a href="https://fuddi.shop/delivery/dashboard" class="button">Ir al Dashboard</a>
+        </div>
+        <script>
+          setTimeout(() => {
+            window.location.href = 'https://fuddi.shop/delivery/dashboard';
+          }, 3000);
+        </script>
+      </body>
+      </html>
+    `;
+
+    response.type('text/html').send(redirectHtml);
+
+  } catch (error) {
+    console.error('❌ Error en handleDeliveryOrderAction:', error);
+    response.status(500).json({ error: 'Error procesando la acción' });
+  }
+});
+
 
