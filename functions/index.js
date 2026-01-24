@@ -528,10 +528,20 @@ exports.onClientUpdated = onDocumentUpdated("clients/{clientId}", async (event) 
 
             <div style="background-color: #e3f2fd; border-left: 4px solid #2196F3; padding: 15px; margin: 20px 0; border-radius: 4px;">
               <p style="margin-top: 0; color: #1565c0;">
-                <strong>💡 Tip:</strong> Recibirás otro email cuando el cliente empiece el checkout en un negocio específico con el enlace directo para monitorear.
+                <strong>💡 Tip:</strong> Usa el botón abajo para ver en tiempo real el progreso del pedido que está creando este cliente.
               </p>
               <p style="margin-bottom: 0; color: #1565c0; font-size: 12px;">
-                Ese email incluirá la URL completa con el ID del negocio para ver el progreso en tiempo real.
+                Se actualizará automáticamente mientras selecciona productos, dirección, horario y método de pago.
+              </p>
+            </div>
+
+            <div style="text-align: center; margin: 20px 0;">
+              <a href="https://fuddi.shop/admin/checkout-monitor/${clientId}?businessId=${businessId}" 
+                 style="display: inline-block; background-color: #2196F3; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+                👁️ Ver Avance del Checkout
+              </a>
+              <p style="margin-top: 10px; font-size: 12px; color: #666;">
+                <strong>Importante:</strong> Reemplaza <code>${businessId}</code> con el ID del negocio que está visitando el cliente.
               </p>
             </div>
 
