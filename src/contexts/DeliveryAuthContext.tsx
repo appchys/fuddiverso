@@ -32,11 +32,11 @@ export function DeliveryAuthProvider({ children }: { children: ReactNode }) {
 
     // Cargar datos desde localStorage al iniciar
     const savedDeliveryId = localStorage.getItem('deliveryId')
-    
+
     if (savedDeliveryId) setDeliveryIdState(savedDeliveryId)
 
     // Escuchar cambios en el estado de autenticación de Firebase
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
 
 
       if (firebaseUser && savedDeliveryId) {
@@ -48,6 +48,42 @@ export function DeliveryAuthProvider({ children }: { children: ReactNode }) {
         })
         setAuthLoading(false)
 
+      } else if (firebaseUser && !savedDeliveryId) {
+        // Intento de recuperación de sesión: Buscar delivery por UID si falta en localStorage
+        try {
+          // Importación dinámica para evitar problemas de SSR si fuera el caso, aunque 'use client' lo protege
+          const { collection, query, where, getDocs } = await import('firebase/firestore')
+          const { db } = await import('@/lib/firebase')
+
+          const q = query(collection(db, 'deliveries'), where('uid', '==', firebaseUser.uid))
+          const querySnapshot = await getDocs(q)
+
+          if (!querySnapshot.empty) {
+            const deliveryDoc = querySnapshot.docs[0]
+            const restoredDeliveryId = deliveryDoc.id
+
+            console.log('[DeliveryAuth] Sesión recuperada desde Firestore para:', firebaseUser.uid)
+
+            // Restaurar estado y localStorage
+            setDeliveryIdState(restoredDeliveryId)
+            localStorage.setItem('deliveryId', restoredDeliveryId)
+
+            setUser({
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              displayName: firebaseUser.displayName,
+              photoURL: firebaseUser.photoURL
+            })
+          } else {
+            console.warn('[DeliveryAuth] Usuario autenticado pero no se encontró perfil de delivery asociado.')
+            // No deslogueamos auth.signOut() aquí para permitir debugging o manejo manual, 
+            // pero el estado de contexto quedará como no autenticado (deliveryId null)
+          }
+        } catch (error) {
+          console.error('[DeliveryAuth] Error intentando recuperar sesión:', error)
+        }
+        setAuthLoading(false)
+
       } else if (!firebaseUser) {
         // Si el usuario no está autenticado en Firebase, limpiar todo
         setUser(null)
@@ -56,7 +92,7 @@ export function DeliveryAuthProvider({ children }: { children: ReactNode }) {
         setAuthLoading(false)
 
       } else {
-        // Tenemos firebaseUser pero faltan datos en localStorage
+        // Caso residual (aunque cubierto arriba): firebaseUser presente pero falló recuperación
         setUser({
           uid: firebaseUser.uid,
           email: firebaseUser.email,
@@ -64,7 +100,7 @@ export function DeliveryAuthProvider({ children }: { children: ReactNode }) {
           photoURL: firebaseUser.photoURL
         })
         setAuthLoading(false)
-        console.warn('[DeliveryAuth] Firebase user present but missing localStorage delivery')
+        console.warn('[DeliveryAuth] Firebase user present but missing localStorage delivery and recovery failed/skipped')
       }
 
     })
@@ -75,7 +111,7 @@ export function DeliveryAuthProvider({ children }: { children: ReactNode }) {
   const login = (userData: DeliveryUser, deliveryIdParam: string) => {
     setUser(userData)
     setDeliveryIdState(deliveryIdParam)
-    
+
     // Persistir en localStorage
     localStorage.setItem('deliveryId', deliveryIdParam)
   }
@@ -83,10 +119,10 @@ export function DeliveryAuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     setUser(null)
     setDeliveryIdState(null)
-    
+
     // Limpiar localStorage
     localStorage.removeItem('deliveryId')
-    
+
     // Sign out de Firebase
     auth.signOut()
   }

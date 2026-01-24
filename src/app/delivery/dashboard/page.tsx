@@ -539,7 +539,7 @@ export default function DeliveryDashboard() {
                                   })()}
                                   <div className="mt-2">
                                     <p className="text-sm font-semibold text-gray-900 leading-tight truncate">{order.customer.name}</p>
-                                    <p className="text-xs text-gray-500 font-medium">{order.customer.phone}</p>
+                                    <p className="text-xs text-gray-500 font-medium line-clamp-1">{order.delivery.references || 'Sin referencia'}</p>
                                   </div>
                                 </div>
                               </div>
