@@ -14,7 +14,8 @@ import {
   serverTimestamp,
   increment as firestoreIncrement,
   Timestamp,
-  getCountFromServer
+  getCountFromServer,
+  onSnapshot
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
@@ -3894,5 +3895,84 @@ export async function registerOrderConsumption(
     }
   } catch (error) {
     console.error('Error global en registro de consumo:', error)
+  }
+}
+
+/**
+ * Guardar/actualizar el estado actual del checkout de un cliente en tiempo real
+ * Permite monitorear el progreso del cliente mientras está creando una orden
+ */
+export async function updateCheckoutProgress(
+  clientId: string,
+  businessId: string,
+  progressData: {
+    cartItems?: any[]
+    customerData?: { name: string; phone: string }
+    deliveryData?: { type: string; address: string; references: string; tarifa: string; latlong?: string; photo?: string }
+    timingData?: { type: string; scheduledDate: string; scheduledTime: string }
+    paymentData?: { method: string; selectedBank: string; paymentStatus: string; cashAmount?: number; transferAmount?: number }
+    currentStep?: number
+    lastActivityAt?: any
+  }
+) {
+  try {
+    const docRef = doc(db, 'checkoutProgress', `${clientId}_${businessId}`)
+    await setDoc(docRef, {
+      clientId,
+      businessId,
+      ...progressData,
+      lastActivityAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }, { merge: true })
+  } catch (error) {
+    console.error('Error updating checkout progress:', error)
+  }
+}
+
+/**
+ * Obtener el estado actual del checkout de un cliente
+ */
+export async function getCheckoutProgress(clientId: string, businessId: string) {
+  try {
+    const docRef = doc(db, 'checkoutProgress', `${clientId}_${businessId}`)
+    const docSnap = await getDoc(docRef)
+    return docSnap.exists() ? docSnap.data() : null
+  } catch (error) {
+    console.error('Error getting checkout progress:', error)
+    return null
+  }
+}
+
+/**
+ * Suscribirse a cambios en tiempo real del progreso del checkout
+ */
+export function onCheckoutProgressChange(
+  clientId: string,
+  businessId: string,
+  callback: (data: any) => void
+) {
+  try {
+    const docRef = doc(db, 'checkoutProgress', `${clientId}_${businessId}`)
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        callback(docSnap.data())
+      }
+    })
+    return unsubscribe
+  } catch (error) {
+    console.error('Error subscribing to checkout progress:', error)
+    return () => {}
+  }
+}
+
+/**
+ * Limpiar el estado del checkout cuando se completa la orden
+ */
+export async function clearCheckoutProgress(clientId: string, businessId: string) {
+  try {
+    const docRef = doc(db, 'checkoutProgress', `${clientId}_${businessId}`)
+    await deleteDoc(docRef)
+  } catch (error) {
+    console.error('Error clearing checkout progress:', error)
   }
 }

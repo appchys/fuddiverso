@@ -398,6 +398,7 @@ exports.onClientCreated = onDocumentCreated("clients/{clientId}", async (event) 
 exports.onClientUpdated = onDocumentUpdated("clients/{clientId}", async (event) => {
   const before = event.data.before.data();
   const after = event.data.after.data();
+  const clientId = event.params.clientId;
   const adminEmail = 'appchys.ec@gmail.com';
 
   // Solo notificar si cambió lastLoginAt y NO es un registro nuevo (lastRegistrationAt no cambió)
@@ -407,6 +408,9 @@ exports.onClientUpdated = onDocumentUpdated("clients/{clientId}", async (event) 
   if (loginChanged && !isNewRegistration) {
     try {
       console.log(`🔑 Cliente inició sesión: ${after.nombres}`);
+
+      // Token para el botón de "Ver avance" (será usado con un businessId específico)
+      const monitorToken = Buffer.from(`${clientId}|${new Date().getTime()}`).toString('base64');
 
       const mailOptions = {
         from: 'sistema@fuddi.shop',
@@ -422,6 +426,28 @@ exports.onClientUpdated = onDocumentUpdated("clients/{clientId}", async (event) 
               <tr><td style="padding: 5px;"><strong>Origen:</strong></td><td>${after.loginSource || 'No especificado'}</td></tr>
               <tr><td style="padding: 5px;"><strong>Fecha:</strong></td><td>${new Date().toLocaleString('es-EC')}</td></tr>
             </table>
+
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+
+            <div style="background-color: #e3f2fd; border-left: 4px solid #2196F3; padding: 15px; margin: 20px 0; border-radius: 4px;">
+              <p style="margin-top: 0; color: #1565c0;">
+                <strong>💡 Tip:</strong> Usa el botón abajo para ver en tiempo real el progreso del pedido que está creando este cliente.
+              </p>
+              <p style="margin-bottom: 0; color: #1565c0; font-size: 12px;">
+                Se actualizará automáticamente mientras selecciona productos, dirección, horario y método de pago.
+              </p>
+            </div>
+
+            <div style="text-align: center; margin: 20px 0;">
+              <a href="https://fuddi.shop/admin/checkout-monitor/${clientId}" 
+                 style="display: inline-block; background-color: #2196F3; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+                👁️ Ver Avance del Checkout
+              </a>
+            </div>
+
+            <p style="font-size: 12px; color: #999; margin-top: 20px;">
+              Este es un email automático de monitoreo del sistema. No responder.
+            </p>
           </div>
         `
       };
