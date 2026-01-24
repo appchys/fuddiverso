@@ -233,7 +233,21 @@ export default function DeliveryDashboard() {
       const ordersRef = collection(db, 'orders')
       const q = query(ordersRef, where('delivery.assignedDelivery', '==', deliveryId))
       unsubscribeOrders = onSnapshot(q, (snapshot: any) => {
-        const ordersData = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }))
+        const ordersData = snapshot.docs.map((doc: any) => {
+          const data = doc.data()
+          // Log detallado para debugging
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[Dashboard] Raw Firestore doc data:', {
+              orderId: doc.id,
+              deliveryObject: data.delivery,
+              deliveryType: data.delivery?.type,
+              deliveryPhoto: data.delivery?.photo,
+              deliveryLatlong: data.delivery?.latlong,
+              fullDeliveryKeys: data.delivery ? Object.keys(data.delivery) : 'no delivery object'
+            })
+          }
+          return { id: doc.id, ...data }
+        })
         if (isMounted) setOrders(ordersData)
         setLoading(false)
       }, (error: any) => {
@@ -586,6 +600,19 @@ export default function DeliveryDashboard() {
                                 {/* Dirección y Mapa */}
                                 {order.delivery.type === 'delivery' && (
                                   <div className="mb-5">
+                                    {(() => {
+                                      if (process.env.NODE_ENV === 'development') {
+                                        console.log('[Dashboard] Order delivery data:', {
+                                          orderId: order.id,
+                                          deliveryType: order.delivery.type,
+                                          hasLatlong: !!order.delivery.latlong,
+                                          hasPhoto: !!order.delivery.photo,
+                                          photoValue: order.delivery.photo,
+                                          references: order.delivery.references
+                                        });
+                                      }
+                                      return null;
+                                    })()}
                                     <div className="flex items-start gap-3 text-sm mb-3 px-1">
                                       <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-500 flex-shrink-0">
                                         <i className="bi bi-geo-alt-fill"></i>

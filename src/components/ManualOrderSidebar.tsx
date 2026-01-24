@@ -445,6 +445,16 @@ export default function ManualOrderSidebar({
     setLoadingClientLocations(true)
     try {
       const locations = await getClientLocations(selectedClient.id)
+      console.log('[ManualOrder] Loaded locations for client:', {
+        clientId: selectedClient.id,
+        locationsCount: locations.length,
+        locations: locations.map(l => ({
+          id: l.id,
+          referencia: l.referencia,
+          hasPhoto: !!l.photo,
+          photoValue: l.photo
+        }))
+      })
       setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
     } catch (error) {
       console.error('Error loading client locations:', error)
@@ -1047,7 +1057,7 @@ export default function ManualOrderSidebar({
         nanoseconds: 0
       };
 
-      const orderData = {
+      let orderData: any = {
         businessId: business.id,
         items: manualOrderData.selectedProducts.map(item => ({
           productId: item.productId,
@@ -1110,6 +1120,15 @@ export default function ManualOrderSidebar({
         createdAt: new Date(),
         updatedAt: new Date()
       }
+
+      // Log para debugging
+      console.log('[ManualOrder] Order data being created:', {
+        hasDelivery: !!orderData.delivery,
+        deliveryType: orderData.delivery?.type,
+        deliveryPhoto: orderData.delivery?.photo,
+        selectedLocationPhoto: manualOrderData.selectedLocation?.photo,
+        fullDeliveryObject: orderData.delivery
+      });
 
       if (mode === 'edit' && editOrder?.id) {
         // For update, adapt payload to match updateOrder expectations
@@ -1966,6 +1985,14 @@ export default function ManualOrderSidebar({
                           name="selectedLocation"
                           checked={manualOrderData.selectedLocation?.id === location.id}
                           onChange={() => {
+                            console.log('[ManualOrder] Selected location:', {
+                              id: location.id,
+                              referencia: location.referencia,
+                              latlong: location.latlong,
+                              tarifa: location.tarifa,
+                              hasPhoto: !!location.photo,
+                              photoValue: location.photo
+                            })
                             setManualOrderData(prev => ({ ...prev, selectedLocation: location }));
                             setShowLocationModal(false);
                             calculateTotal(manualOrderData.selectedProducts);

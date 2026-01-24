@@ -1393,6 +1393,7 @@ export function CheckoutContent({
           type: deliveryData.type as 'delivery' | 'pickup',
           references: deliveryData.type === 'delivery' ? (deliveryData.address || '') : '',
           latlong: selectedLocation?.latlong || '',
+          photo: selectedLocation?.photo || '', // ADDED: Photo de la ubicación
           deliveryCost: deliveryData.type === 'delivery' ? deliveryCost : 0
         },
         timing: {
@@ -1417,9 +1418,16 @@ export function CheckoutContent({
         updatedAt: new Date()
       };
 
-      const orderId = await createOrder(orderData);
+      // Log para debugging ANTES de crear la orden
+      console.log('[Checkout] Order data being created:', {
+        hasDelivery: !!orderData.delivery,
+        deliveryType: orderData.delivery?.type,
+        deliveryPhoto: orderData.delivery?.photo,
+        selectedLocationPhoto: selectedLocation?.photo,
+        fullDeliveryObject: orderData.delivery
+      });
 
-      // Registrar consumo de ingredientes automáticamente
+      const orderId = await createOrder(orderData);
       try {
         const orderDateStr = new Date().toISOString().split('T')[0]
         await registerOrderConsumption(

@@ -702,6 +702,8 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
         references: cleanOrderData.delivery?.references || '',
         latlong: cleanOrderData.delivery?.latlong || '',
         deliveryCost: cleanOrderData.delivery?.deliveryCost || 0,
+        // Preservar TODOS los campos de delivery, incluyendo photo
+        ...(cleanOrderData.delivery?.photo && { photo: cleanOrderData.delivery.photo }),
         // preservar repartidor asignado cuando viene desde la UI (p. ej. ManualOrderSidebar)
         assignedDelivery: cleanOrderData.delivery?.assignedDelivery ?? null
       },
@@ -725,6 +727,16 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
         cancelledAt: null,
         ...standardizedOrder.statusHistory // Preservar timestamps existentes
       }
+    }
+
+    // Log para debugging
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Database] Saving order to Firestore:', {
+        hasDelivery: !!standardizedOrder.delivery,
+        deliveryType: standardizedOrder.delivery?.type,
+        deliveryPhoto: standardizedOrder.delivery?.photo,
+        fullDeliveryObject: standardizedOrder.delivery
+      })
     }
 
     const docRef = await addDoc(collection(db, 'orders'), standardizedOrder)
