@@ -25,12 +25,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Acción inválida' }, { status: 400 });
     }
 
-    // Actualizar estado
-    const newStatus = action === 'confirm' ? 'preparing' : 'cancelled';
-    await updateDoc(doc(db, 'orders', orderId), {
-      status: newStatus,
-      updatedAt: new Date()
-    });
+    // Actualizar según la acción
+    if (action === 'confirm') {
+      // Confirmar: cambiar estado a "preparing"
+      await updateDoc(doc(db, 'orders', orderId), {
+        status: 'preparing',
+        updatedAt: new Date()
+      });
+    } else if (action === 'discard') {
+      // Descartar: solo remover la asignación de delivery
+      // La orden permanece en su estado actual pero sin delivery asignado
+      await updateDoc(doc(db, 'orders', orderId), {
+        'delivery.assignedDelivery': null,
+        updatedAt: new Date()
+      });
+    }
 
     // HTML con redirección
     const html = `
@@ -84,9 +93,9 @@ export async function GET(request: NextRequest) {
       </head>
       <body>
         <div class="container">
-          <div class="icon">${action === 'confirm' ? '✅' : '❌'}</div>
-          <h1>${action === 'confirm' ? '¡Pedido Confirmado!' : '¡Pedido Descartado!'}</h1>
-          <p>Tu acción ha sido procesada exitosamente.</p>
+          <div class="icon">${action === 'confirm' ? '✅' : '🚫'}</div>
+          <h1>${action === 'confirm' ? '¡Pedido Confirmado!' : '¡Asignación Descartada!'}</h1>
+          <p>${action === 'confirm' ? 'Has confirmado el pedido y estás preparándolo.' : 'La asignación del pedido ha sido descartada. Alguien más podrá tomarlo.'}</p>
           <p>Redirigiendo al dashboard en 3 segundos...</p>
           <a href="https://fuddi.shop/delivery/dashboard" class="button">Ir al Dashboard</a>
         </div>
