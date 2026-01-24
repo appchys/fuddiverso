@@ -1,7 +1,17 @@
+// firebase.ts
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
-import { getAuth, GoogleAuthProvider, signInWithRedirect, setPersistence, browserLocalPersistence } from "firebase/auth";
+import {
+  getFirestore,
+  initializeFirestore,   // ← importante: usamos esta en lugar de getFirestore
+} from "firebase/firestore";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithRedirect,
+  setPersistence,
+  browserLocalPersistence
+} from "firebase/auth";
 import { getStorage } from "firebase/storage";
 
 // Your web app's Firebase configuration
@@ -17,15 +27,18 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore
-const db = getFirestore(app);
+// Initialize Firestore con la opción ignoreUndefinedProperties
+// Esto hace que Firestore ignore automáticamente cualquier campo undefined
+// en lugar de tirar error
+const db = initializeFirestore(app, {
+  ignoreUndefinedProperties: true,
+});
 
 // Initialize Firebase Authentication
 const auth = getAuth(app);
-// Ensure auth persists across reloads so session remains active without re-verification delays.
-// Guard for browser-only environment to avoid Vercel/SSR build errors where browserLocalPersistence isn't available.
+
+// Ensure auth persists across reloads (browser only)
 if (typeof window !== 'undefined') {
-  // We intentionally ignore the returned promise; Firebase will apply the persistence ASAP.
   setPersistence(auth, browserLocalPersistence).catch(() => {
     // Non-fatal: fall back to default persistence if this fails
   });
@@ -37,4 +50,10 @@ const storage = getStorage(app);
 // Google Auth Provider
 const googleProvider = new GoogleAuthProvider();
 
-export { app, db, auth, storage, googleProvider };
+export {
+  app,
+  db,
+  auth,
+  storage,
+  googleProvider
+};
