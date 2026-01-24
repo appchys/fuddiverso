@@ -19,6 +19,7 @@ export default function DeliveryDashboard() {
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set())
   const [expandedSummary, setExpandedSummary] = useState<'none' | 'cash' | 'transfer' | 'earnings'>('none')
   const [, setTimeRefresh] = useState(0) // Para forzar re-render del tiempo cada minuto
+  const [deliveryLocation, setDeliveryLocation] = useState<{ lat: number; lng: number } | null>(null)
 
   const toggleOrderExpansion = (orderId: string) => {
     setExpandedOrderIds(prev => {
@@ -254,6 +255,66 @@ export default function DeliveryDashboard() {
     return () => clearInterval(interval)
   }, [])
 
+  // Tracking de ubicación del delivery
+  useEffect(() => {
+    if (!deliveryId) return
+
+    // Verificar si hay pedidos activos "en camino"
+    const hasActiveOrders = orders.some(o =>
+      o.status === 'on_way' && o.delivery?.assignedDelivery === deliveryId
+    )
+
+    if (!hasActiveOrders) {
+      // Si no hay pedidos activos, limpiar ubicación
+      setDeliveryLocation(null)
+      return
+    }
+
+    // Función para actualizar ubicación
+    const updateLocation = () => {
+      if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            const location = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            }
+            setDeliveryLocation(location)
+
+            // Guardar en Firebase
+            try {
+              const { db } = await import('@/lib/firebase')
+              const { doc, updateDoc, Timestamp } = await import('firebase/firestore')
+              const deliveryRef = doc(db, 'deliveries', deliveryId)
+              await updateDoc(deliveryRef, {
+                currentLocation: location,
+                lastLocationUpdate: Timestamp.now()
+              })
+            } catch (error) {
+              console.error('Error updating delivery location:', error)
+            }
+          },
+          (error) => {
+            console.error('Error getting location:', error)
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          }
+        )
+      }
+    }
+
+    // Actualizar inmediatamente
+    updateLocation()
+
+    // Actualizar cada 30 segundos
+    const interval = setInterval(updateLocation, 30000)
+
+    return () => clearInterval(interval)
+  }, [deliveryId, orders])
+
   const handleStatusChange = async (orderId: string, newStatus: Order['status']) => {
     try {
       await updateOrderStatus(orderId, newStatus)
@@ -483,7 +544,7 @@ export default function DeliveryDashboard() {
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-3">
+                              <div className="flex flex-col items-end gap-2">
                                 <div className="text-right">
                                   {order.payment?.method !== 'transfer' && (
                                     <p className="text-xl font-bold text-green-600 tracking-tight flex items-center justify-end gap-1">
@@ -497,6 +558,21 @@ export default function DeliveryDashboard() {
                                     </div>
                                   )}
                                 </div>
+
+                                {/* Botón "En camino" - Visible en header */}
+                                {order.status !== 'on_way' && order.status !== 'delivered' && order.status !== 'cancelled' && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleStatusChange(order.id, 'on_way')
+                                    }}
+                                    className="px-3 py-1.5 bg-blue-600 text-white rounded-xl font-bold text-xs hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-1.5 shadow-md"
+                                  >
+                                    <i className="bi bi-bicycle text-sm"></i>
+                                    En camino
+                                  </button>
+                                )}
+
                                 <i className={`bi bi-chevron-down text-gray-300 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}></i>
                               </div>
                             </div>

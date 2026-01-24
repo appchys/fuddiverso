@@ -32,6 +32,10 @@ export default function OrderPublicClient({ orderId }: Props) {
   const [reviewSubmitted, setReviewSubmitted] = useState(false)
   const [orderRated, setOrderRated] = useState(false)
 
+  // Estados para tracking del delivery
+  const [deliveryLocation, setDeliveryLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [estimatedArrival, setEstimatedArrival] = useState<number | null>(null) // minutos
+
 
   // Verificar si la orden ya fue calificada
   useEffect(() => {
@@ -94,52 +98,72 @@ export default function OrderPublicClient({ orderId }: Props) {
   };
 
   useEffect(() => {
-    let mounted = true;
-    const load = async () => {
-      setLoading(true);
-      setError(null);
+    if (!orderId) return
+
+    let unsubscribe: (() => void) | null = null
+
+    const setupListener = async () => {
+      setLoading(true)
+      setError(null)
+
       try {
-        const data = await getOrder(orderId);
-        if (!mounted) return;
-        if (!data) {
-          setError('Orden no encontrada')
-        } else {
-          setOrder(data)
+        const { db } = await import('@/lib/firebase')
+        const { doc, onSnapshot } = await import('firebase/firestore')
 
-          // Cargar información del negocio
-          if (data.businessId) {
-            try {
-              const businessData = await getBusiness(data.businessId)
-              if (mounted) {
+        const orderRef = doc(db, 'orders', orderId)
+
+        unsubscribe = onSnapshot(
+          orderRef,
+          async (snapshot) => {
+            if (!snapshot.exists()) {
+              setError('Orden no encontrada')
+              setLoading(false)
+              return
+            }
+
+            const data = { id: snapshot.id, ...snapshot.data() } as any
+            setOrder(data)
+
+            // Cargar información del negocio si no está cargada
+            if (data.businessId && !business) {
+              try {
+                const businessData = await getBusiness(data.businessId)
                 setBusiness(businessData)
+              } catch (businessError) {
+                console.error('Error loading business:', businessError)
               }
-            } catch (businessError) {
-              console.error('Error loading business:', businessError)
-              // No establecer error para el negocio, solo continuar sin él
             }
-          }
 
-          // Cargar información del repartidor si existe
-          if (data.delivery?.assignedDelivery) {
-            try {
-              const deliveryData = await getDelivery(data.delivery.assignedDelivery)
-              if (mounted) {
+            // Cargar información del repartidor si existe
+            if (data.delivery?.assignedDelivery) {
+              try {
+                const deliveryData = await getDelivery(data.delivery.assignedDelivery)
                 setDeliveryPerson(deliveryData)
+              } catch (deliveryError) {
+                console.error('Error loading delivery person:', deliveryError)
               }
-            } catch (deliveryError) {
-              console.error('Error loading delivery person:', deliveryError)
-              // No establecer error para el repartidor, solo continuar sin él
             }
+
+            setLoading(false)
+          },
+          (error) => {
+            console.error('Error en listener de orden:', error)
+            setError('Error al cargar la orden')
+            setLoading(false)
           }
-        }
+        )
       } catch (e: any) {
+        console.error('Error setting up listener:', e)
         setError('Error al cargar la orden')
-      } finally {
-        if (mounted) setLoading(false)
+        setLoading(false)
       }
     }
-    load()
-    return () => { mounted = false }
+
+    setupListener()
+
+    return () => {
+      if (unsubscribe) unsubscribe()
+    }
   }, [orderId])
 
   // Nuevo useEffect para actualizaciones en tiempo real del contador
@@ -162,6 +186,53 @@ export default function OrderPublicClient({ orderId }: Props) {
 
     return () => clearInterval(interval);
   }, [order]);
+
+  // Listener para la ubicación del delivery y cálculo de ETA
+  useEffect(() => {
+    if (!order?.delivery?.assignedDelivery || order.status !== 'on_way') {
+      setEstimatedArrival(null)
+      setDeliveryLocation(null)
+      return
+    }
+
+    let unsubscribe: (() => void) | null = null
+
+    const startTracking = async () => {
+      try {
+        const { db } = await import('@/lib/firebase')
+        const { doc, onSnapshot } = await import('firebase/firestore')
+        const { calculateETASimple } = await import('@/lib/eta-utils')
+
+        const deliveryRef = doc(db, 'deliveries', order.delivery.assignedDelivery)
+
+        unsubscribe = onSnapshot(deliveryRef, async (snapshot) => {
+          if (!snapshot.exists()) return
+
+          const data = snapshot.data()
+          if (data.currentLocation) {
+            setDeliveryLocation(data.currentLocation)
+
+            // Calcular ETA si tenemos el destino
+            if (order.delivery?.latlong) {
+              const eta = calculateETASimple(
+                data.currentLocation,
+                order.delivery.latlong
+              )
+              setEstimatedArrival(eta)
+            }
+          }
+        })
+      } catch (error) {
+        console.error('Error setting up delivery tracking:', error)
+      }
+    }
+
+    startTracking()
+
+    return () => {
+      if (unsubscribe) unsubscribe()
+    }
+  }, [order?.delivery?.assignedDelivery, order?.status, order?.delivery?.latlong])
 
   const formatDate = (d: any, timeOnly: boolean = false) => {
     try {
@@ -637,29 +708,51 @@ export default function OrderPublicClient({ orderId }: Props) {
             ? 'bg-red-50 border-red-100'
             : 'bg-white border-gray-100'
             }`}>
-            <div className="relative z-10 flex items-center justify-between">
+            <div className={`relative z-10 flex items-center justify-between`}>
               <div>
-                <p className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${timeInfo.isLate ? 'text-red-500' : 'text-gray-400'
-                  }`}>
-                  {timeInfo.isLate ? '⚠️ Pedido con retraso' : '⏱️ Tiempo estimado'}
-                </p>
-                <p className={`text-3xl font-black tracking-tight ${timeInfo.isLate ? 'text-red-600' : 'text-gray-900'
-                  }`}>
-                  {timeInfo.timeDisplay}
-                </p>
-                {timeInfo.deliveryTime && (
-                  <p className="text-xs text-gray-500 font-medium mt-1">
-                    Llegada: <span className="text-gray-900">{timeInfo.deliveryTime}</span> {timeInfo.isToday ? '' : `(${timeInfo.fullDate})`}
-                  </p>
+                {order.status === 'on_way' && estimatedArrival ? (
+                  // Mostrar ETA calculado en tiempo real
+                  <>
+                    <p className="text-[10px] font-bold uppercase tracking-widest mb-1 text-blue-500">
+                      🚴 Tu delivery está en camino
+                    </p>
+                    <p className="text-3xl font-black tracking-tight text-blue-600">
+                      {estimatedArrival} min
+                    </p>
+                    <p className="text-xs text-gray-500 font-medium mt-1">
+                      Tiempo estimado de llegada
+                    </p>
+                  </>
+                ) : (
+                  // Mostrar tiempo programado original
+                  <>
+                    <p className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${timeInfo.isLate ? 'text-red-500' : 'text-gray-400'
+                      }`}>
+                      {timeInfo.isLate ? '⚠️ Pedido con retraso' : '⏱️ Tiempo estimado'}
+                    </p>
+                    <p className={`text-3xl font-black tracking-tight ${timeInfo.isLate ? 'text-red-600' : 'text-gray-900'
+                      }`}>
+                      {timeInfo.timeDisplay}
+                    </p>
+                    {timeInfo.deliveryTime && (
+                      <p className="text-xs text-gray-500 font-medium mt-1">
+                        Llegada: <span className="text-gray-900">{timeInfo.deliveryTime}</span> {timeInfo.isToday ? '' : `(${timeInfo.fullDate})`}
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
-              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl ${timeInfo.isLate ? 'bg-red-100 text-red-600' : 'bg-orange-50 text-orange-500'
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl ${timeInfo.isLate ? 'bg-red-100 text-red-600' :
+                  (order.status === 'on_way' && estimatedArrival ? 'bg-blue-100 text-blue-600' : 'bg-orange-50 text-orange-500')
                 }`}>
-                <i className={`bi ${timeInfo.isLate ? 'bi-exclamation-triangle' : 'bi-clock-history'}`}></i>
+                <i className={`bi ${timeInfo.isLate ? 'bi-exclamation-triangle' :
+                    (order.status === 'on_way' && estimatedArrival ? 'bi-bicycle' : 'bi-clock-history')
+                  }`}></i>
               </div>
             </div>
             {/* Decoración de fondo */}
-            <div className={`absolute -right-4 -bottom-4 w-24 h-24 rounded-full opacity-10 ${timeInfo.isLate ? 'bg-red-500' : 'bg-orange-500'
+            <div className={`absolute -right-4 -bottom-4 w-24 h-24 rounded-full opacity-10 ${timeInfo.isLate ? 'bg-red-500' :
+                (order.status === 'on_way' && estimatedArrival ? 'bg-blue-500' : 'bg-orange-500')
               }`}></div>
           </div>
         )}
