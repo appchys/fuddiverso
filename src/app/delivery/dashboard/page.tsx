@@ -20,6 +20,7 @@ export default function DeliveryDashboard() {
   const [expandedSummary, setExpandedSummary] = useState<'none' | 'cash' | 'transfer' | 'earnings'>('none')
   const [, setTimeRefresh] = useState(0) // Para forzar re-render del tiempo cada minuto
   const [deliveryLocation, setDeliveryLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
 
   const toggleOrderExpansion = (orderId: string) => {
     setExpandedOrderIds(prev => {
@@ -594,10 +595,19 @@ export default function DeliveryDashboard() {
                                       </div>
                                     </div>
 
-                                    {/* Mapa Estático con Controles */}
+                                    {/* Mapa Estático con Controles y Foto */}
                                     {(order.delivery.latlong || (order.delivery.mapLocation?.lat && order.delivery.mapLocation?.lng)) && (
-                                      <div className="relative mb-5 group/map">
-                                        <div className="w-full h-32 rounded-2xl overflow-hidden border border-gray-100 relative">
+                                      <div className="flex gap-2 mb-5 h-32">
+                                        {/* Mapa - 2/3 si hay foto, 100% si no */}
+                                        <div
+                                          onClick={() => {
+                                            const destination = order.delivery.latlong
+                                              ? order.delivery.latlong.replace(/\s+/g, '')
+                                              : `${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`;
+                                            window.open(`https://www.google.com/maps/dir/?api=1&destination=${destination}`, '_blank');
+                                          }}
+                                          className={`relative rounded-2xl overflow-hidden border border-gray-100 group/map cursor-pointer ${order.delivery.photo ? 'w-2/3' : 'w-full'}`}
+                                        >
                                           {(() => {
                                             const coords = order.delivery.latlong
                                               ? order.delivery.latlong.replace(/\s+/g, '')
@@ -607,41 +617,65 @@ export default function DeliveryDashboard() {
                                               <img
                                                 src={`https://maps.googleapis.com/maps/api/staticmap?center=${coords}&zoom=15&size=600x200&scale=2&maptype=roadmap&markers=color:red%7C${coords}&key=${GOOGLE_MAPS_API_KEY}`}
                                                 alt="Ubicación de entrega"
-                                                className="w-full h-full object-cover group-hover/map:scale-105 transition-transform duration-500"
+                                                className="w-full h-full object-cover group-hover/map:opacity-90 transition-opacity duration-300"
                                               />
                                             );
                                           })()}
+
+                                          {/* Overlay "Trazar ruta" al hacer hover (opcional visual cue) */}
+                                          <div className="absolute inset-0 bg-black/5 opacity-0 group-hover/map:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                                            <span className="bg-white/90 text-gray-800 text-xs font-bold px-2 py-1 rounded-lg shadow-sm">
+                                              Trazar ruta
+                                            </span>
+                                          </div>
+
+                                          {/* Controles Flotantes Verticales */}
+                                          <div className="absolute top-2 right-2 flex flex-col gap-2">
+                                            <a
+                                              href={order.delivery.latlong
+                                                ? `https://www.google.com/maps/place/${order.delivery.latlong.replace(/\s+/g, '')}`
+                                                : `https://www.google.com/maps/place/${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`
+                                              }
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 hover:text-blue-600 transition-all active:scale-95"
+                                              title="Ver en Google Maps"
+                                            >
+                                              <i className="bi bi-box-arrow-up-right text-xs"></i>
+                                            </a>
+                                            <a
+                                              href={order.delivery.latlong
+                                                ? `https://www.google.com/maps/dir/?api=1&destination=${order.delivery.latlong.replace(/\s+/g, '')}`
+                                                : `https://www.google.com/maps/dir/?api=1&destination=${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`
+                                              }
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-600 hover:bg-blue-50 transition-all active:scale-95"
+                                              title="Trazar ruta"
+                                            >
+                                              <i className="bi bi-cursor-fill text-xs"></i>
+                                            </a>
+                                          </div>
                                         </div>
 
-                                        {/* Controles Flotantes Verticales */}
-                                        <div className="absolute top-2 right-2 flex flex-col gap-2">
-                                          <a
-                                            href={order.delivery.latlong
-                                              ? `https://www.google.com/maps/place/${order.delivery.latlong.replace(/\s+/g, '')}`
-                                              : `https://www.google.com/maps/place/${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`
-                                            }
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            onClick={(e) => e.stopPropagation()}
-                                            className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 hover:text-blue-600 transition-all active:scale-95"
-                                            title="Ver en Google Maps"
+                                        {/* Foto de ubicación - 1/3 */}
+                                        {order.delivery.photo && (
+                                          <div
+                                            className="w-1/3 rounded-2xl overflow-hidden border border-gray-100 relative cursor-pointer group/photo"
+                                            onClick={() => setSelectedImage(order.delivery.photo || null)}
                                           >
-                                            <i className="bi bi-box-arrow-up-right text-lg"></i>
-                                          </a>
-                                          <a
-                                            href={order.delivery.latlong
-                                              ? `https://www.google.com/maps/dir/?api=1&destination=${order.delivery.latlong.replace(/\s+/g, '')}`
-                                              : `https://www.google.com/maps/dir/?api=1&destination=${order.delivery.mapLocation?.lat},${order.delivery.mapLocation?.lng}`
-                                            }
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            onClick={(e) => e.stopPropagation()}
-                                            className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-600 hover:bg-blue-50 transition-all active:scale-95"
-                                            title="Trazar ruta"
-                                          >
-                                            <i className="bi bi-cursor-fill text-lg"></i>
-                                          </a>
-                                        </div>
+                                            <img
+                                              src={order.delivery.photo}
+                                              alt="Referencia visual"
+                                              className="w-full h-full object-cover group-hover/photo:scale-105 transition-transform duration-500"
+                                            />
+                                            <div className="absolute inset-0 bg-black/0 group-hover/photo:bg-black/10 transition-colors flex items-center justify-center">
+                                              <i className="bi bi-arrows-fullscreen text-white opacity-0 group-hover/photo:opacity-100 drop-shadow-md transition-opacity"></i>
+                                            </div>
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                   </div>
@@ -801,79 +835,36 @@ export default function DeliveryDashboard() {
                   <div className="border rounded-lg p-4">
                     <h3 className="font-semibold text-gray-900 mb-3">Dirección de Entrega</h3>
                     <p className="text-sm text-gray-700 mb-2">{selectedOrder.delivery.references || 'Sin referencia'}</p>
-                    {(selectedOrder.delivery.latlong || selectedOrder.delivery.mapLocation) && (
-                      <a
-                        href={selectedOrder.delivery.latlong
-                          ? `https://www.google.com/maps/place/${selectedOrder.delivery.latlong.replace(/\s+/g, '')}`
-                          : `https://www.google.com/maps/place/${selectedOrder.delivery.mapLocation?.lat},${selectedOrder.delivery.mapLocation?.lng}`
-                        }
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                        Abrir en Google Maps
-                      </a>
-                    )}
+
+                    {/* Mapa y Foto en Modal de Detalles (opcional, por ahora solo texto o lo que ya estaba) */}
                   </div>
                 )}
-
-                {/* Productos */}
-                <div className="border rounded-lg p-4">
-                  <h3 className="font-semibold text-gray-900 mb-3">Productos</h3>
-                  <ul className="space-y-2">
-                    {selectedOrder.items.map((item, idx) => (
-                      <li key={idx} className="flex justify-between text-sm">
-                        <span className="text-gray-700">
-                          {item.quantity}x {(item as any).name || (item.product as any)?.name || 'Producto'}
-                        </span>
-                        <span className="font-medium text-gray-900">
-                          ${((item.product?.price || (item as any).price || 0) * item.quantity).toFixed(2)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="mt-3 pt-3 border-t">
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-600">Subtotal:</span>
-                      <span className="font-medium">${(selectedOrder.subtotal || 0).toFixed(2)}</span>
-                    </div>
-                    {selectedOrder.delivery.type === 'delivery' && (
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-gray-600">Envío:</span>
-                        <span className="font-medium">${(selectedOrder.delivery.deliveryCost || 0).toFixed(2)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between text-base font-semibold mt-2">
-                      <span>Total:</span>
-                      <span className="text-blue-600">${selectedOrder.total.toFixed(2)}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Método de pago */}
-                <div className="border rounded-lg p-4">
-                  <h3 className="font-semibold text-gray-900 mb-2">Método de Pago</h3>
-                  <p className="text-sm text-gray-700">
-                    {selectedOrder.payment?.method === 'cash' && '💵 Efectivo'}
-                    {selectedOrder.payment?.method === 'transfer' && '💳 Transferencia'}
-                    {selectedOrder.payment?.method === 'mixed' && '💰 Pago Mixto'}
-                  </p>
-                  {selectedOrder.payment?.method === 'mixed' && (
-                    <div className="mt-2 text-sm text-gray-600">
-                      <p>Efectivo: ${(selectedOrder.payment.cashAmount || 0).toFixed(2)}</p>
-                      <p>Transferencia: ${(selectedOrder.payment.transferAmount || 0).toFixed(2)}</p>
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
           </div>
         )
       }
-    </div >
+
+      {/* Lightbox Modal de Imagen */}
+      {selectedImage && (
+        <div
+          className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4 animate-fadeIn"
+          onClick={() => setSelectedImage(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white hover:text-gray-300 p-2"
+            onClick={() => setSelectedImage(null)}
+          >
+            <i className="bi bi-x-lg text-2xl"></i>
+          </button>
+          <img
+            src={selectedImage}
+            alt="Detalle"
+            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl animate-scaleIn"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </div>
   )
 }

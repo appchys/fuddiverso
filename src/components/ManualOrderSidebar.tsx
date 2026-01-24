@@ -1065,6 +1065,7 @@ export default function ManualOrderSidebar({
           ...(manualOrderData.deliveryType === 'delivery' && {
             latlong: manualOrderData.selectedLocation?.latlong || '',
             references: manualOrderData.selectedLocation?.referencia || '',
+            photo: manualOrderData.selectedLocation?.photo || '', // AÑADIDO: Guardar la foto de ubicación
             deliveryCost: parseFloat(manualOrderData.selectedLocation?.tarifa || '0'),
             assignedDelivery: manualOrderData.selectedDelivery?.id || null
           })
