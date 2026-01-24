@@ -505,7 +505,12 @@ export function CheckoutContent({
     const syncCheckoutProgress = async () => {
       // Solo sincronizar si hay usuario
       const effectiveClientId = user?.id || clientFound?.id
-      if (!effectiveClientId) return
+      console.log('🔄 Checkout Sync Debug - effectiveClientId:', effectiveClientId)
+      
+      if (!effectiveClientId) {
+        console.log('❌ Checkout Sync Debug - No hay clientId efectivo')
+        return
+      }
 
       // Determinar businessId de varias formas
       let businessIdToSync = embeddedBusinessId
@@ -524,11 +529,16 @@ export function CheckoutContent({
         businessIdToSync = business.id
       }
 
+      console.log('🔄 Checkout Sync Debug - businessIdToSync:', businessIdToSync)
+
       // Si aún no hay businessId pero tenemos negocio, no sincronizar aún
-      if (!businessIdToSync) return
+      if (!businessIdToSync) {
+        console.log('❌ Checkout Sync Debug - No hay businessId para sincronizar')
+        return
+      }
 
       try {
-        await updateCheckoutProgress(effectiveClientId, businessIdToSync, {
+        const progressData = {
           cartItems,
           customerData,
           deliveryData: {
@@ -539,14 +549,18 @@ export function CheckoutContent({
           timingData,
           paymentData,
           currentStep
-        })
+        }
+        
+        console.log('🔄 Checkout Sync Debug - Sincronizando datos:', progressData)
+        await updateCheckoutProgress(effectiveClientId, businessIdToSync, progressData)
       } catch (error) {
-        console.error('Error syncing checkout progress:', error)
+        console.error('❌ Error syncing checkout progress:', error)
       }
     }
 
     // Sincronizar después de cambios importantes
     const timer = setTimeout(() => {
+      console.log('⏰ Checkout Sync Debug - Ejecutando sync con debounce')
       syncCheckoutProgress()
     }, 500) // Debounce de 500ms para evitar sincronizar demasiado frecuentemente
 

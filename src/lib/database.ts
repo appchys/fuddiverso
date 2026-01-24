@@ -3916,7 +3916,11 @@ export async function updateCheckoutProgress(
   }
 ) {
   try {
-    const docRef = doc(db, 'checkoutProgress', `${clientId}_${businessId}`)
+    const docId = `${clientId}_${businessId}`
+    console.log('💾 Checkout Progress Debug - Guardando en documento:', docId)
+    console.log('💾 Checkout Progress Debug - Datos:', progressData)
+    
+    const docRef = doc(db, 'checkoutProgress', docId)
     await setDoc(docRef, {
       clientId,
       businessId,
@@ -3924,8 +3928,10 @@ export async function updateCheckoutProgress(
       lastActivityAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     }, { merge: true })
+    
+    console.log('✅ Checkout Progress Debug - Datos guardados exitosamente')
   } catch (error) {
-    console.error('Error updating checkout progress:', error)
+    console.error('❌ Error updating checkout progress:', error)
   }
 }
 
@@ -3952,15 +3958,23 @@ export function onCheckoutProgressChange(
   callback: (data: any) => void
 ) {
   try {
-    const docRef = doc(db, 'checkoutProgress', `${clientId}_${businessId}`)
+    const docId = `${clientId}_${businessId}`
+    console.log('👂 Real-time Debug - Suscribiendo a documento:', docId)
+    
+    const docRef = doc(db, 'checkoutProgress', docId)
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      console.log('📨 Real-time Debug - Snapshot recibido, existe:', docSnap.exists())
       if (docSnap.exists()) {
-        callback(docSnap.data())
+        const data = docSnap.data()
+        console.log('📨 Real-time Debug - Datos del snapshot:', data)
+        callback(data)
+      } else {
+        console.log('📨 Real-time Debug - Documento no existe aún')
       }
     })
     return unsubscribe
   } catch (error) {
-    console.error('Error subscribing to checkout progress:', error)
+    console.error('❌ Error subscribing to checkout progress:', error)
     return () => {}
   }
 }

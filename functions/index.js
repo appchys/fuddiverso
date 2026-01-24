@@ -393,6 +393,105 @@ exports.onClientCreated = onDocumentCreated("clients/{clientId}", async (event) 
 });
 
 /**
+ * Cloud Function: Notificar cuando un cliente empieza el checkout de un negocio específico
+ * Se ejecuta cuando se crea o actualiza un documento en la colección 'checkoutProgress'
+ */
+exports.onCheckoutProgressUpdate = onDocumentWritten("checkoutProgress/{docId}", async (event) => {
+  const beforeData = event.data.before ? event.data.before.data() : null;
+  const afterData = event.data.after ? event.data.after.data() : null;
+  
+  // Solo procesar si es un documento nuevo (primer checkout)
+  if (beforeData || !afterData) {
+    return;
+  }
+
+  const docId = event.params.docId;
+  const clientId = afterData.clientId;
+  const businessId = afterData.businessId;
+  
+  if (!clientId || !businessId) {
+    console.warn(`⚠️ Documento ${docId} no tiene clientId o businessId`);
+    return;
+  }
+
+  try {
+    console.log(`🛒 Cliente ${clientId} empezó checkout en negocio ${businessId}`);
+
+    // Obtener datos del cliente
+    let customerName = 'Cliente';
+    try {
+      const clientDoc = await admin.firestore().collection('clients').doc(clientId).get();
+      if (clientDoc.exists) {
+        const clientData = clientDoc.data();
+        customerName = clientData.nombres || customerName;
+      }
+    } catch (e) {
+      console.warn(`⚠️ No se pudo obtener datos del cliente ${clientId}:`, e.message);
+    }
+
+    // Obtener datos del negocio
+    let businessName = 'Negocio';
+    try {
+      const businessDoc = await admin.firestore().collection('businesses').doc(businessId).get();
+      if (businessDoc.exists) {
+        const businessData = businessDoc.data();
+        businessName = businessData.name || businessName;
+      }
+    } catch (e) {
+      console.warn(`⚠️ No se pudo obtener datos del negocio ${businessId}:`, e.message);
+    }
+
+    const mailOptions = {
+      from: 'sistema@fuddi.shop',
+      to: 'appchys.ec@gmail.com',
+      subject: `🛒 ${customerName} está haciendo checkout en ${businessName}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+          <h2 style="color: #aa1918;">🛒 Checkout Iniciado</h2>
+          <p><strong>${customerName}</strong> ha comenzado el proceso de checkout en <strong>${businessName}</strong>.</p>
+          
+          <div style="background-color: #e8f5e8; border-left: 4px solid #4CAF50; padding: 15px; margin: 20px 0; border-radius: 4px;">
+            <p style="margin-top: 0; color: #2e7d32;">
+              <strong>💡 Monitoreo en tiempo real:</strong> Usa el botón abajo para ver el progreso del checkout.
+            </p>
+            <p style="margin-bottom: 0; color: #2e7d32; font-size: 12px;">
+              Verás en tiempo real cómo avanza en el proceso: productos, datos, dirección, horario y pago.
+            </p>
+          </div>
+
+          <div style="text-align: center; margin: 20px 0;">
+            <a href="https://fuddi.shop/admin/checkout-monitor/${clientId}?businessId=${businessId}" 
+               style="display: inline-block; background-color: #4CAF50; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+              👁️ Ver Avance del Checkout
+            </a>
+            <p style="margin-top: 10px; font-size: 12px; color: #666;">
+              URL: <code>https://fuddi.shop/admin/checkout-monitor/${clientId}?businessId=${businessId}</code>
+            </p>
+          </div>
+
+          <table style="width: 100%; border-collapse: collapse; margin-top: 20px; background-color: #f9f9f9; border-radius: 4px; overflow: hidden;">
+            <tr><td style="padding: 10px; background-color: #aa1918; color: white; font-weight: bold;" colspan="2">Detalles</td></tr>
+            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>Cliente ID:</strong></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${clientId}</td></tr>
+            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>Negocio ID:</strong></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${businessId}</td></tr>
+            <tr><td style="padding: 8px;"><strong>Fecha:</strong></td><td style="padding: 8px;">${new Date().toLocaleString('es-EC')}</td></tr>
+          </table>
+
+          <p style="font-size: 12px; color: #999; margin-top: 20px;">
+            Esta es una notificación automática del sistema de monitoreo. No responder.
+          </p>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Email de checkout enviado para cliente ${clientId} en negocio ${businessId}`);
+
+  } catch (error) {
+    console.error(`❌ Error enviando email de checkout para ${docId}:`, error);
+  }
+});
+
+/**
  * Cloud Function: Notificar cuando un CLIENTE ya existente inicia sesión
  */
 exports.onClientUpdated = onDocumentUpdated("clients/{clientId}", async (event) => {
@@ -439,10 +538,13 @@ exports.onClientUpdated = onDocumentUpdated("clients/{clientId}", async (event) 
             </div>
 
             <div style="text-align: center; margin: 20px 0;">
-              <a href="https://fuddi.shop/admin/checkout-monitor/${clientId}" 
+              <a href="https://fuddi.shop/admin/checkout-monitor/${clientId}?businessId=AQUI_BUSINESS_ID" 
                  style="display: inline-block; background-color: #2196F3; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
                 👁️ Ver Avance del Checkout
               </a>
+              <p style="margin-top: 10px; font-size: 12px; color: #666;">
+                <strong>Importante:</strong> Reemplaza <code>AQUI_BUSINESS_ID</code> con el ID del negocio que está visitando el cliente.
+              </p>
             </div>
 
             <p style="font-size: 12px; color: #999; margin-top: 20px;">

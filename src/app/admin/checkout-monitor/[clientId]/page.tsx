@@ -16,14 +16,21 @@ export default function CheckoutMonitorPage() {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
 
   useEffect(() => {
+    console.log('🔍 Monitor Debug - clientId:', clientId)
+    console.log('🔍 Monitor Debug - businessId:', businessId)
+    
     // Solo suscribirse si tenemos ambos IDs
     if (!clientId || !businessId) {
+      console.log('❌ Monitor Debug - Faltan parámetros, no se puede suscribir')
       setLoading(false)
       return
     }
 
+    console.log('✅ Monitor Debug - Suscribiendo a checkoutProgress para:', `${clientId}_${businessId}`)
+
     // Suscribirse a cambios en tiempo real
     const unsubscribe = onCheckoutProgressChange(clientId, businessId, (data) => {
+      console.log('📊 Monitor Debug - Datos recibidos:', data)
       setProgressData(data)
       setLastUpdate(new Date())
       setLoading(false)
@@ -31,12 +38,14 @@ export default function CheckoutMonitorPage() {
 
     // Timeout de 3 segundos para marcar como cargado incluso sin datos
     const timeoutId = setTimeout(() => {
+      console.log('⏰ Monitor Debug - Timeout alcanzado, marcando como cargado')
       setLoading(false)
     }, 3000)
 
     return () => {
       clearTimeout(timeoutId)
       unsubscribe()
+      console.log('🔌 Monitor Debug - Limpieza de suscripción')
     }
   }, [clientId, businessId])
 
