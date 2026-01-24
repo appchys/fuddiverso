@@ -503,11 +503,29 @@ export function CheckoutContent({
   // Sincronizar estado del checkout en Firestore para monitoreo en tiempo real
   useEffect(() => {
     const syncCheckoutProgress = async () => {
-      // Solo sincronizar si hay usuario y negocio
+      // Solo sincronizar si hay usuario
       const effectiveClientId = user?.id || clientFound?.id
-      const businessIdToSync = isEmbedded ? embeddedBusinessId : searchParams.get('businessId')
+      if (!effectiveClientId) return
+
+      // Determinar businessId de varias formas
+      let businessIdToSync = embeddedBusinessId
+      if (!businessIdToSync && typeof window !== 'undefined') {
+        // Intentar obtener de searchParams
+        try {
+          const params = new URLSearchParams(window.location.search)
+          businessIdToSync = params.get('businessId') || ''
+        } catch (e) {
+          console.debug('Error reading search params:', e)
+        }
+      }
       
-      if (!effectiveClientId || !businessIdToSync) return
+      // Si tenemos business data, usar su ID
+      if (!businessIdToSync && business?.id) {
+        businessIdToSync = business.id
+      }
+
+      // Si aún no hay businessId pero tenemos negocio, no sincronizar aún
+      if (!businessIdToSync) return
 
       try {
         await updateCheckoutProgress(effectiveClientId, businessIdToSync, {
@@ -544,20 +562,29 @@ export function CheckoutContent({
     clientFound?.id,
     selectedLocation,
     embeddedBusinessId,
-    searchParams
+    business?.id
   ])
 
   // Limpiar el progreso del checkout cuando se completa la orden
   useEffect(() => {
     if (isProcessingOrder && !loading) {
       const effectiveClientId = user?.id || clientFound?.id
-      const businessIdToClean = isEmbedded ? embeddedBusinessId : searchParams.get('businessId')
+      let businessIdToClean = embeddedBusinessId || business?.id
+      
+      if (!businessIdToClean && typeof window !== 'undefined') {
+        try {
+          const params = new URLSearchParams(window.location.search)
+          businessIdToClean = params.get('businessId') || ''
+        } catch (e) {
+          console.debug('Error reading search params:', e)
+        }
+      }
       
       if (effectiveClientId && businessIdToClean) {
         clearCheckoutProgress(effectiveClientId, businessIdToClean).catch(console.error)
       }
     }
-  }, [isProcessingOrder, loading, user?.id, clientFound?.id, embeddedBusinessId, searchParams])
+  }, [isProcessingOrder, loading, user?.id, clientFound?.id, embeddedBusinessId, business?.id])
 
   // NUEVO: Calcular tarifa al activar delivery si ya hay una ubicación seleccionada pero sin tarifa válida (escenario de primera carga)
   useEffect(() => {

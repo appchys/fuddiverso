@@ -1,20 +1,27 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import { onCheckoutProgressChange } from '@/lib/database'
 
 export default function CheckoutMonitorPage() {
   const params = useParams()
-  const clientId = params.clientId as string
-  const businessId = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('businessId')
+  const searchParams = useSearchParams()
+  
+  const clientId = Array.isArray(params?.clientId) ? params.clientId[0] : params?.clientId
+  const businessId = searchParams.get('businessId')
   
   const [progressData, setProgressData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [isClient, setIsClient] = useState(false)
 
   useEffect(() => {
-    if (!clientId || !businessId) {
+    setIsClient(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isClient || !clientId || !businessId) {
       setLoading(false)
       return
     }
@@ -27,14 +34,24 @@ export default function CheckoutMonitorPage() {
     })
 
     return unsubscribe
-  }, [clientId, businessId])
+  }, [clientId, businessId, isClient])
+
+  if (!isClient) {
+    return null
+  }
 
   if (!businessId) {
     return (
       <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-4xl mx-auto">
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <p className="text-yellow-800">Parámetro faltante: businessId</p>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-blue-900 mb-2">Esperando actividad...</h2>
+            <p className="text-blue-800 mb-4">
+              El cliente <span className="font-mono">{clientId}</span> aún no ha iniciado un checkout.
+            </p>
+            <p className="text-blue-700 text-sm">
+              Esta página se actualizará automáticamente cuando el cliente abra un checkout. Puedes dejar esta pestaña abierta.
+            </p>
           </div>
         </div>
       </div>
