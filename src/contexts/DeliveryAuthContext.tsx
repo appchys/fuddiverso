@@ -85,12 +85,41 @@ export function DeliveryAuthProvider({ children }: { children: ReactNode }) {
         setAuthLoading(false)
 
       } else if (!firebaseUser) {
-        // Si el usuario no está autenticado en Firebase, limpiar todo
-        setUser(null)
-        setDeliveryIdState(null)
-        localStorage.removeItem('deliveryId')
-        setAuthLoading(false)
+        // Si el usuario no está autenticado en Firebase, verificamos si hay un deliveryId guardado
+        // para permitir persistencia de sesión local (ej: ingresó vía enlace mágico)
+        const savedId = localStorage.getItem('deliveryId')
 
+        if (savedId) {
+          try {
+            const { doc, getDoc } = await import('firebase/firestore')
+            const { db } = await import('@/lib/firebase')
+            const deliveryDoc = await getDoc(doc(db, 'deliveries', savedId))
+
+            if (deliveryDoc.exists()) {
+              const data = deliveryDoc.data()
+              setUser({
+                uid: data.uid || `magic-${savedId}`,
+                email: data.email || null,
+                displayName: data.nombres || 'Repartidor',
+                photoURL: data.fotoUrl || null
+              })
+              setDeliveryIdState(savedId)
+            } else {
+              // Si el ID guardado ya no existe, limpiar
+              setUser(null)
+              setDeliveryIdState(null)
+              localStorage.removeItem('deliveryId')
+            }
+          } catch (e) {
+            console.error('[DeliveryAuth] Error recuperando datos de delivery:', e)
+            setUser(null)
+            setDeliveryIdState(null)
+          }
+        } else {
+          setUser(null)
+          setDeliveryIdState(null)
+        }
+        setAuthLoading(false)
       } else {
         // Caso residual (aunque cubierto arriba): firebaseUser presente pero falló recuperación
         setUser({

@@ -356,49 +356,12 @@ exports.createOrderNotification = onDocumentCreated("orders/{orderId}", async (e
 });
 
 /**
- * Cloud Function: Notificar cuando un nuevo CLIENTE se registra
- */
-exports.onClientCreated = onDocumentCreated("clients/{clientId}", async (event) => {
-  const client = event.data.data();
-  const clientId = event.params.clientId;
-  const adminEmail = 'appchys.ec@gmail.com';
-
-  try {
-    console.log(`👤 Nuevo cliente registrado: ${client.nombres} (${client.celular})`);
-
-    const mailOptions = {
-      from: 'sistema@fuddi.shop',
-      to: adminEmail,
-      subject: `🆕 ¡Nuevo Cliente! [${client.loginSource || 'N/A'}] - ${client.nombres}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
-          <h2 style="color: #aa1918;">🆕 Nuevo Registro de Cliente</h2>
-          <p>Se ha registrado un nuevo cliente en Fuddi desde: <strong>${client.loginSource || 'Desconocido'}</strong></p>
-          <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
-            <tr><td style="padding: 5px;"><strong>Nombre:</strong></td><td>${client.nombres}</td></tr>
-            <tr><td style="padding: 5px;"><strong>WhatsApp:</strong></td><td>${client.celular}</td></tr>
-            <tr><td style="padding: 5px;"><strong>ID:</strong></td><td>${clientId}</td></tr>
-            <tr><td style="padding: 5px;"><strong>Origen:</strong></td><td>${client.loginSource || 'No especificado'}</td></tr>
-            <tr><td style="padding: 5px;"><strong>Fecha:</strong></td><td>${new Date().toLocaleString('es-EC')}</td></tr>
-          </table>
-          <p style="margin-top: 20px; font-size: 12px; color: #666;">Fuddiverso System Notification</p>
-        </div>
-      `
-    };
-
-    await transporter.sendMail(mailOptions);
-  } catch (error) {
-    console.error('❌ Error enviando email de nuevo cliente:', error);
-  }
-});
-
-/**
  * Cloud Function: Notificar cuando un cliente empieza el checkout de un negocio específico
  * Se ejecuta cuando se crea un documento en la colección 'checkoutProgress'
  */
 exports.onCheckoutProgressUpdate = onDocumentCreated("checkoutProgress/{docId}", async (event) => {
   const afterData = event.data.data();
-  
+
   if (!afterData) {
     return;
   }
@@ -406,7 +369,7 @@ exports.onCheckoutProgressUpdate = onDocumentCreated("checkoutProgress/{docId}",
   const docId = event.params.docId;
   const clientId = afterData.clientId;
   const businessId = afterData.businessId;
-  
+
   if (!clientId || !businessId) {
     console.warn(`⚠️ Documento ${docId} no tiene clientId o businessId`);
     return;
@@ -507,7 +470,7 @@ exports.onClientUpdated = onDocumentUpdated("clients/{clientId}", async (event) 
       console.log(`🔑 Cliente inició sesión: ${after.nombres}`);
 
       // Token para el botón de "Ver avance" (será usado con un businessId específico)
-      const monitorToken = Buffer.from(`${clientId}|${new Date().getTime()}`).toString('base64');
+      const monitorToken = Buffer.from(`${clientId}|${new Date().getTime()}`).toString('base64'); const businessId = after.businessId || '';// INSERT_BUSINESS_ID_HERE\n      const businessId = after.businessId || '';
 
       const mailOptions = {
         from: 'sistema@fuddi.shop',
@@ -1058,8 +1021,24 @@ exports.notifyDeliveryOnOrderCreation = onDocumentCreated("orders/{orderId}", as
     const confirmUrl = `https://fuddi.shop/api/delivery/handle-order?action=confirm&token=${confirmToken}`;
     const discardUrl = `https://fuddi.shop/api/delivery/handle-order?action=discard&token=${discardToken}`;
 
+    // Obtener datos del negocio
+    let businessName = 'Negocio';
+    if (orderData.businessId) {
+      try {
+        const businessDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
+        if (businessDoc.exists) {
+          businessName = businessDoc.data().name || businessName;
+        }
+      } catch (e) {
+        console.warn(`⚠️ Error obteniendo datos del negocio:`, e.message);
+      }
+    }
+
     // Email HTML (igual al de actualización)
     const htmlContent = `
+      <div style="display: none; max-height: 0px; overflow: hidden;">
+        📍 ${deliveryInfo}
+      </div>
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
         <div style="background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
           <h1 style="margin: 0; font-size: 22px;">🚚 ¡Nuevo Pedido Asignado!</h1>
@@ -1171,7 +1150,7 @@ exports.notifyDeliveryOnOrderCreation = onDocumentCreated("orders/{orderId}", as
     const mailOptions = {
       from: 'pedidos@fuddi.shop',
       to: deliveryEmail,
-      subject: `🚚 Nuevo pedido asignado a ${customerName} - Fuddi`,
+      subject: `🛵 Asignado - ${customerName} - ${businessName}`,
       html: htmlContent
     };
 
@@ -1373,8 +1352,24 @@ exports.notifyDeliveryAssignment = onDocumentUpdated("orders/{orderId}", async (
     const confirmUrl = `https://fuddi.shop/api/delivery/handle-order?action=confirm&token=${confirmToken}`;
     const discardUrl = `https://fuddi.shop/api/delivery/handle-order?action=discard&token=${discardToken}`;
 
+    // Obtener datos del negocio
+    let businessName = 'Negocio';
+    if (afterData.businessId) {
+      try {
+        const businessDoc = await admin.firestore().collection('businesses').doc(afterData.businessId).get();
+        if (businessDoc.exists) {
+          businessName = businessDoc.data().name || businessName;
+        }
+      } catch (e) {
+        console.warn(`⚠️ Error obteniendo datos del negocio:`, e.message);
+      }
+    }
+
     // Generar HTML del email
     const htmlContent = `
+      <div style="display: none; max-height: 0px; overflow: hidden;">
+        📍 ${deliveryInfo}
+      </div>
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
         <div style="background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
           <h1 style="margin: 0; font-size: 22px;">🚚 ¡Nuevo Pedido Asignado!</h1>
@@ -1486,7 +1481,7 @@ exports.notifyDeliveryAssignment = onDocumentUpdated("orders/{orderId}", async (
     const mailOptions = {
       from: 'pedidos@fuddi.shop',
       to: deliveryEmail,
-      subject: `🚚 Nuevo pedido asignado a ${customerName} - Fuddi`,
+      subject: `🛵 Asignado - ${customerName} - ${businessName}`,
       html: htmlContent
     };
 

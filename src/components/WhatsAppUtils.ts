@@ -193,6 +193,22 @@ export const sendWhatsAppToDelivery = async (
         message += `\nTotal a cobrar: $${order.total.toFixed(2)}`
     }
 
+    // Generar enlace mágico para acceder al dashboard (considerando email como login)
+    try {
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        if (origin && order.delivery.assignedDelivery) {
+            const delivery = availableDeliveries.find(d => d.id === order.delivery.assignedDelivery || d.id === (order.delivery as any).selectedDelivery);
+            if (delivery && delivery.email) {
+                // btoa para codificar email:id como magic login
+                const magicToken = btoa(`${delivery.email}:${delivery.id}`);
+                const magicLink = `${origin}/delivery/login?m=${magicToken}`;
+                message += `\n\n*Dashboard de Delivery:*\n${magicLink}`;
+            }
+        }
+    } catch (e) {
+        console.error('Error generating magic link:', e);
+    }
+
     // Limpiar el número de teléfono (quitar espacios, guiones, etc.)
     const cleanPhone = phone.replace(/\D/g, '')
 

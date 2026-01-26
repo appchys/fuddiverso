@@ -20,6 +20,58 @@ export default function DeliveryLogin() {
     }
   }, [authLoading, isAuthenticated, router])
 
+  // Efecto para manejar el enlace mágico (?m=base64_token)
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search)
+    const magic = searchParams.get('m')
+    if (magic) {
+      handleMagicLogin(magic)
+    }
+  }, [])
+
+  const handleMagicLogin = async (token: string) => {
+    setLoading(true)
+    setError('')
+    try {
+      const decoded = atob(token)
+      const [email, id] = decoded.split(':')
+
+      // Buscar el delivery por email para validar los datos
+      const delivery = await getDeliveryByEmail(email)
+
+      if (!delivery || delivery.id !== id) {
+        setError('Enlace mágico inválido o expirado.')
+        setLoading(false)
+        return
+      }
+
+      if (delivery.estado !== 'activo') {
+        setError('Tu cuenta de delivery está inactiva.')
+        setLoading(false)
+        return
+      }
+
+      // "Loguear" localmente en el contexto
+      login(
+        {
+          uid: delivery.uid || `magic-${delivery.id}`,
+          email: delivery.email,
+          displayName: delivery.nombres,
+          photoURL: delivery.fotoUrl || null
+        },
+        delivery.id
+      )
+
+      // Redirigir al dashboard
+      router.replace('/delivery/dashboard')
+    } catch (e) {
+      console.error('Error in magic login:', e)
+      setError('Error al procesar el enlace mágico.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleGoogleLogin = async () => {
     setLoading(true)
     setError('')
@@ -96,17 +148,17 @@ export default function DeliveryLogin() {
           {/* Logo/Icono */}
           <div className="text-center mb-6">
             <div className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 bg-blue-100 rounded-full mb-4">
-              <svg 
-                className="w-8 h-8 sm:w-10 sm:h-10 text-blue-600" 
-                fill="none" 
-                stroke="currentColor" 
+              <svg
+                className="w-8 h-8 sm:w-10 sm:h-10 text-blue-600"
+                fill="none"
+                stroke="currentColor"
                 viewBox="0 0 24 24"
               >
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth={2} 
-                  d="M13 10V3L4 14h7v7l9-11h-7z" 
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 10V3L4 14h7v7l9-11h-7z"
                 />
               </svg>
             </div>
@@ -122,15 +174,15 @@ export default function DeliveryLogin() {
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
               <div className="flex items-start">
-                <svg 
-                  className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" 
-                  fill="currentColor" 
+                <svg
+                  className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0"
+                  fill="currentColor"
                   viewBox="0 0 20 20"
                 >
-                  <path 
-                    fillRule="evenodd" 
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" 
-                    clipRule="evenodd" 
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                    clipRule="evenodd"
                   />
                 </svg>
                 <p className="ml-3 text-sm text-red-800">{error}</p>
