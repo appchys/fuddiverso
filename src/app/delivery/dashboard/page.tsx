@@ -1,15 +1,16 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useDeliveryAuth } from '@/contexts/DeliveryAuthContext'
 import { getOrdersByDelivery, updateOrderStatus, getDeliveryById } from '@/lib/database'
 import { Order, Delivery } from '@/types'
 import { Timestamp, collection, query, where, onSnapshot } from 'firebase/firestore'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 
-export default function DeliveryDashboard() {
+function DeliveryDashboardContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { user, deliveryId, isAuthenticated, authLoading, logout } = useDeliveryAuth()
   const [orders, setOrders] = useState<Order[]>([])
   const [delivery, setDelivery] = useState<Delivery | null>(null)
@@ -21,6 +22,7 @@ export default function DeliveryDashboard() {
   const [, setTimeRefresh] = useState(0) // Para forzar re-render del tiempo cada minuto
   const [deliveryLocation, setDeliveryLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [notification, setNotification] = useState<{ show: boolean; message: string; type: 'success' | 'info' }>({ show: false, message: '', type: 'success' })
 
   const toggleOrderExpansion = (orderId: string) => {
     setExpandedOrderIds(prev => {
@@ -198,6 +200,29 @@ export default function DeliveryDashboard() {
   const summaryEarningsActive = calculateCategorySummary(activeByMe, 'earnings')
   const summaryEarningsDelivered = calculateCategorySummary(deliveredByMeInRange, 'earnings')
   const summaryEarningsTotal = summaryEarningsActive + summaryEarningsDelivered
+
+  const showNotification = (message: string, type: 'success' | 'info' = 'success') => {
+    setNotification({ show: true, message, type })
+    setTimeout(() => setNotification(prev => ({ ...prev, show: false })), 5000)
+  }
+
+  // Detectar acciones desde la URL (procedentes del email de asignación)
+  useEffect(() => {
+    const action = searchParams.get('action')
+    const orderId = searchParams.get('orderId')
+
+    if (action && orderId) {
+      if (action === 'confirm') {
+        showNotification(`✅ ¡Pedido #${orderId} confirmado con éxito!`, 'success')
+      } else if (action === 'discard') {
+        showNotification(`ℹ️ Pedido #${orderId} descartado.`, 'info')
+      }
+
+      // Limpiar los parámetros de la URL para evitar que la notificación se muestre de nuevo al refrescar
+      const newUrl = window.location.pathname
+      window.history.replaceState({}, '', newUrl)
+    }
+  }, [searchParams])
 
   // Protección de ruta
   useEffect(() => {
@@ -868,6 +893,7 @@ export default function DeliveryDashboard() {
                 )}
               </div>
             </div>
+            {/* Notificación sutil (Toast) será movida abajo */}
           </div>
         )
       }
@@ -892,6 +918,40 @@ export default function DeliveryDashboard() {
           />
         </div>
       )}
+      {/* Notificación sutil (Toast) */}
+      {notification.show && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] w-[calc(100%-2rem)] max-w-xs animate-[slideDown_0.3s_ease-out]">
+          <div className={`backdrop-blur-xl border border-white/10 rounded-2xl px-5 py-3.5 shadow-xl flex items-center gap-3 ${notification.type === 'success' ? 'bg-emerald-600/95 text-white' : 'bg-gray-800/95 text-white'
+            }`}>
+            <div className="flex-1">
+              <p className="font-bold text-sm leading-tight text-center">
+                {notification.message}
+              </p>
+            </div>
+          </div>
+          <style jsx>{`
+            @keyframes slideDown {
+              from { transform: translate(-50%, -20px); opacity: 0; }
+              to { transform: translate(-50%, 0); opacity: 1; }
+            }
+          `}</style>
+        </div>
+      )}
     </div>
+  )
+}
+
+export default function DeliveryDashboard() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Cargando dashboard...</p>
+        </div>
+      </div>
+    }>
+      <DeliveryDashboardContent />
+    </Suspense>
   )
 }

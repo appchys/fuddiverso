@@ -1553,74 +1553,9 @@ exports.handleDeliveryOrderAction = onRequest(async (request, response) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
-    // Responder con HTML que redirige al dashboard
-    const redirectHtml = `
-      <!DOCTYPE html>
-      <html lang="es">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Procesando orden...</title>
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%);
-          }
-          .container {
-            text-align: center;
-            background: white;
-            padding: 40px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            max-width: 400px;
-          }
-          h1 {
-            color: #2E7D32;
-            margin: 0 0 16px 0;
-          }
-          p {
-            color: #666;
-            margin: 8px 0;
-          }
-          .icon {
-            font-size: 48px;
-            margin-bottom: 16px;
-          }
-          .button {
-            display: inline-block;
-            background-color: #4CAF50;
-            color: white;
-            padding: 12px 24px;
-            border-radius: 6px;
-            text-decoration: none;
-            margin-top: 20px;
-            font-weight: bold;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="icon">${action === 'confirm' ? '✅' : '❌'}</div>
-          <h1>${action === 'confirm' ? '¡Pedido Confirmado!' : '¡Pedido Descartado!'}</h1>
-          <p>Tu acción ha sido procesada exitosamente.</p>
-          <p>Redirigiendo al dashboard en 3 segundos...</p>
-          <a href="https://fuddi.shop/delivery/dashboard" class="button">Ir al Dashboard</a>
-        </div>
-        <script>
-          setTimeout(() => {
-            window.location.href = 'https://fuddi.shop/delivery/dashboard';
-          }, 3000);
-        </script>
-      </body>
-      </html>
-    `;
-
-    response.type('text/html').send(redirectHtml);
+    // Redirección directa al dashboard con parámetros para mostrar notificación
+    const redirectUrl = `https://fuddi.shop/delivery/dashboard?action=${action}&orderId=${orderId.substring(0, 8).toUpperCase()}`;
+    response.redirect(redirectUrl);
 
   } catch (error) {
     console.error('❌ Error en handleDeliveryOrderAction:', error);
