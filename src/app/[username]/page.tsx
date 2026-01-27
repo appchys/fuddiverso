@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Head from 'next/head'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize } from '@/lib/database'
+import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses } from '@/lib/database'
 import CartSidebar from '@/components/CartSidebar'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import LocationMap from '@/components/LocationMap'
@@ -502,6 +502,7 @@ function RestaurantContent() {
   const [activeTab, setActiveTab] = useState<'catalogo' | 'perfil'>('catalogo')
   const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(false)
+  const [otherBusinesses, setOtherBusinesses] = useState<Business[]>([])
 
   useEffect(() => {
     const loadRestaurantData = async () => {
@@ -538,6 +539,17 @@ function RestaurantContent() {
         // Filtrar solo productos disponibles
         const availableProducts = productsData.filter(product => product.isAvailable)
         setProducts(availableProducts)
+
+        // Cargar otras tiendas aleatorias
+        try {
+          const all = await getAllBusinesses()
+          const others = all
+            .filter(b => b.username !== username && b.isActive !== false)
+            .sort(() => 0.5 - Math.random())
+          setOtherBusinesses(others)
+        } catch (e) {
+          console.error('Error loading other businesses:', e)
+        }
       } catch (err) {
         console.error('Error loading restaurant data:', err)
         setError('Error al cargar el restaurante')
@@ -1385,6 +1397,102 @@ function RestaurantContent() {
             @keyframes slideDown {
               from { transform: translateY(-20px); opacity: 0; }
               to { transform: translateY(0); opacity: 1; }
+            }
+          `}</style>
+        </div>
+      )}
+
+      {/* Otras tiendas - Carrusel Horizontal Rediseñado */}
+      {otherBusinesses.length > 0 && (
+        <div className="max-w-7xl mx-auto px-4 py-16 sm:py-24 border-t border-gray-100 mt-12">
+          <div className="flex items-center gap-4 mb-10">
+            <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
+              Explora otras tiendas
+            </h2>
+            <div className="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent"></div>
+          </div>
+
+          <div className="relative group/carousel px-0 md:px-8">
+            <div className="flex gap-5 overflow-x-auto pb-8 no-scrollbar snap-x scroll-smooth other-stores-carousel">
+              {otherBusinesses.map((store) => (
+                <Link
+                  key={store.id}
+                  href={`/${store.username}`}
+                  className="flex-shrink-0 w-64 sm:w-72 group/card snap-start"
+                >
+                  <div className="bg-white rounded-[1.5rem] overflow-hidden border border-gray-100 shadow-sm hover:shadow-xl hover:border-red-100 transition-all duration-500 h-full flex flex-col">
+                    <div className="relative h-40 bg-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                      <img
+                        src={store.coverImage || store.image || 'https://via.placeholder.com/150?text=' + store.name}
+                        alt={store.name}
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover/card:scale-110"
+                      />
+                    </div>
+                    <div className="p-5 flex flex-col flex-1">
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="font-black text-gray-900 text-lg line-clamp-1 group-hover/card:text-red-500 transition-colors">
+                          {store.name}
+                        </h3>
+                      </div>
+                      <div className="flex flex-wrap gap-1 mb-4">
+                        {(store.categories?.slice(0, 2) || ['Restaurante']).map((cat, i) => (
+                          <span key={i} className="text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 px-2 py-0.5 rounded">
+                            {cat}
+                          </span>
+                        ))}
+                      </div>
+
+                      {store.description && (
+                        <p className="text-gray-500 text-xs line-clamp-2 mb-6 leading-relaxed">
+                          {store.description}
+                        </p>
+                      )}
+
+                      <div className="mt-auto w-full py-3 bg-gray-900 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-xl flex items-center justify-center gap-2 group-hover/card:bg-red-500 transition-all">
+                        Ver menú
+                        <i className="bi bi-arrow-right opacity-0 group-hover/card:opacity-100 group-hover/card:translate-x-1 transition-all"></i>
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+
+            {/* Hint de scroll para móvil */}
+            <div className="md:hidden absolute -bottom-2 left-1/2 -translate-x-1/2 flex gap-1 opacity-20">
+              <div className="w-8 h-1 bg-gray-300 rounded-full"></div>
+              <div className="w-2 h-1 bg-gray-200 rounded-full"></div>
+              <div className="w-1 h-1 bg-gray-200 rounded-full"></div>
+            </div>
+
+            {/* Navigation Arrows - Desktop Only */}
+            <button
+              onClick={() => {
+                const container = document.querySelector('.other-stores-carousel')
+                if (container) container.scrollLeft -= 300
+              }}
+              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 w-12 h-12 bg-white rounded-full shadow-xl hidden md:flex items-center justify-center text-gray-700 hover:bg-black hover:text-white transition-all z-10 border border-gray-100 opacity-0 group-hover/carousel:opacity-100"
+            >
+              <i className="bi bi-chevron-left text-xl"></i>
+            </button>
+            <button
+              onClick={() => {
+                const container = document.querySelector('.other-stores-carousel')
+                if (container) container.scrollLeft += 300
+              }}
+              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 w-12 h-12 bg-white rounded-full shadow-xl hidden md:flex items-center justify-center text-gray-700 hover:bg-black hover:text-white transition-all z-10 border border-gray-100 opacity-0 group-hover/carousel:opacity-100"
+            >
+              <i className="bi bi-chevron-right text-xl"></i>
+            </button>
+          </div>
+
+          <style jsx>{`
+            .no-scrollbar::-webkit-scrollbar {
+              display: none;
+            }
+            .no-scrollbar {
+              -ms-overflow-style: none;
+              scrollbar-width: none;
             }
           `}</style>
         </div>
