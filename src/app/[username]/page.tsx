@@ -325,7 +325,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
           {/* Área de selección con fondo gris claro y scroll suave */}
           <div className="p-6 overflow-y-auto max-h-[50vh] custom-scrollbar">
             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 ml-1">
-              {product?.variants?.length > 0 ? 'Opciones disponibles' : 'Detalle del producto'}
+              {product?.variants?.length > 0 ? 'variantes disponibles' : 'Detalle del producto'}
             </label>
 
             <div className="space-y-3">

@@ -605,64 +605,66 @@ export default function ProductList({
                           key={product.id}
                           className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 ${product.isAvailable
                             ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
-                            : 'border-gray-200 bg-gray-50/50 opacity-60'
+                            : 'border-gray-200 bg-gray-50/50'
                             }`}
                         >
-                          {/* Imagen cuadrada con diseño redondeado */}
-                          <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
-                            {product.image ? (
-                              <img
-                                src={product.image}
-                                alt={product.name}
-                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
-                                <i className="bi bi-box-seam text-2xl"></i>
-                              </div>
-                            )}
-                          </div>
+                          <div className={`flex items-center flex-1 min-w-0 ${!product.isAvailable ? 'opacity-50' : ''}`}>
+                            {/* Imagen cuadrada con diseño redondeado */}
+                            <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
+                              {product.image ? (
+                                <img
+                                  src={product.image}
+                                  alt={product.name}
+                                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
+                                  <i className="bi bi-box-seam text-2xl"></i>
+                                </div>
+                              )}
+                            </div>
 
-                          {/* Info Content */}
-                          <div className="flex-1 min-w-0 ml-4 pr-10">
-                            <div className="flex flex-col h-full justify-between">
-                              <div>
-                                <div className="flex flex-wrap items-center gap-2 mb-1">
-                                  <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
-                                    {product.name}
-                                  </h4>
-                                  {!product.isAvailable && (
-                                    <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
-                                      Oculto
-                                    </span>
+                            {/* Info Content */}
+                            <div className="flex-1 min-w-0 ml-4 pr-10">
+                              <div className="flex flex-col h-full justify-between">
+                                <div>
+                                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                                    <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
+                                      {product.name}
+                                    </h4>
+                                    {!product.isAvailable && (
+                                      <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
+                                        Oculto
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
+                                    {product.description}
+                                  </p>
+                                </div>
+
+                                <div className="mt-2 flex items-center gap-3">
+                                  <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
+                                    ${product.price.toFixed(2)}
+                                  </span>
+                                  {product.variants && product.variants.length > 0 && (
+                                    <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
+                                      <i className="bi bi-stack text-gray-400 text-[10px]"></i>
+                                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
+                                        {product.variants.length} variantes
+                                      </span>
+                                    </div>
                                   )}
                                 </div>
-                                <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
-                                  {product.description}
-                                </p>
-                              </div>
-
-                              <div className="mt-2 flex items-center gap-3">
-                                <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
-                                  ${product.price.toFixed(2)}
-                                </span>
-                                {product.variants && product.variants.length > 0 && (
-                                  <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
-                                    <i className="bi bi-stack text-gray-400 text-[10px]"></i>
-                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
-                                      {product.variants.length} Opciones
-                                    </span>
-                                  </div>
-                                )}
                               </div>
                             </div>
                           </div>
 
                           {/* Botones de acción - Desplegable */}
-                          <div className="absolute top-3 right-3 product-action-menu">
+                          <div className="absolute top-3 right-3 product-action-menu z-20">
                             <button
                               onClick={() => setActiveMenu(activeMenu === product.id ? null : product.id)}
-                              className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 rounded-full hover:bg-gray-100 transition-all active:scale-95"
+                              className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-white shadow-sm border border-gray-100 transition-all active:scale-95 bg-white"
                             >
                               <i className="bi bi-three-dots-vertical text-lg"></i>
                             </button>
@@ -756,64 +758,66 @@ export default function ProductList({
                           key={product.id}
                           className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 ${product.isAvailable
                             ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
-                            : 'border-gray-200 bg-gray-50/50 opacity-60'
+                            : 'border-gray-200 bg-gray-50/50'
                             }`}
                         >
-                          {/* Imagen cuadrada con diseño redondeado */}
-                          <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
-                            {product.image ? (
-                              <img
-                                src={product.image}
-                                alt={product.name}
-                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
-                                <i className="bi bi-box-seam text-2xl"></i>
-                              </div>
-                            )}
-                          </div>
+                          <div className={`flex items-center flex-1 min-w-0 ${!product.isAvailable ? 'opacity-50' : ''}`}>
+                            {/* Imagen cuadrada con diseño redondeado */}
+                            <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
+                              {product.image ? (
+                                <img
+                                  src={product.image}
+                                  alt={product.name}
+                                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
+                                  <i className="bi bi-box-seam text-2xl"></i>
+                                </div>
+                              )}
+                            </div>
 
-                          {/* Info Content */}
-                          <div className="flex-1 min-w-0 ml-4 pr-10">
-                            <div className="flex flex-col h-full justify-between">
-                              <div>
-                                <div className="flex flex-wrap items-center gap-2 mb-1">
-                                  <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
-                                    {product.name}
-                                  </h4>
-                                  {!product.isAvailable && (
-                                    <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
-                                      Oculto
-                                    </span>
+                            {/* Info Content */}
+                            <div className="flex-1 min-w-0 ml-4 pr-10">
+                              <div className="flex flex-col h-full justify-between">
+                                <div>
+                                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                                    <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
+                                      {product.name}
+                                    </h4>
+                                    {!product.isAvailable && (
+                                      <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
+                                        Oculto
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
+                                    {product.description}
+                                  </p>
+                                </div>
+
+                                <div className="mt-2 flex items-center gap-3">
+                                  <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
+                                    ${product.price.toFixed(2)}
+                                  </span>
+                                  {product.variants && product.variants.length > 0 && (
+                                    <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
+                                      <i className="bi bi-stack text-gray-400 text-[10px]"></i>
+                                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
+                                        {product.variants.length} variantes
+                                      </span>
+                                    </div>
                                   )}
                                 </div>
-                                <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
-                                  {product.description}
-                                </p>
-                              </div>
-
-                              <div className="mt-2 flex items-center gap-3">
-                                <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
-                                  ${product.price.toFixed(2)}
-                                </span>
-                                {product.variants && product.variants.length > 0 && (
-                                  <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
-                                    <i className="bi bi-stack text-gray-400 text-[10px]"></i>
-                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
-                                      {product.variants.length} Opciones
-                                    </span>
-                                  </div>
-                                )}
                               </div>
                             </div>
                           </div>
 
                           {/* Botones de acción - Desplegable */}
-                          <div className="absolute top-3 right-3 product-action-menu">
+                          <div className="absolute top-3 right-3 product-action-menu z-20">
                             <button
                               onClick={() => setActiveMenu(activeMenu === product.id ? null : product.id)}
-                              className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 rounded-full hover:bg-gray-100 transition-all active:scale-95"
+                              className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-white shadow-sm border border-gray-100 transition-all active:scale-95 bg-white"
                             >
                               <i className="bi bi-three-dots-vertical text-lg"></i>
                             </button>
@@ -891,11 +895,11 @@ export default function ProductList({
                     key={product.id}
                     className={`group border rounded-[2.5rem] p-5 hover:shadow-2xl hover:shadow-slate-200/50 transition-all duration-500 hover:-translate-y-1 ${product.isAvailable
                       ? 'bg-white border-slate-100 shadow-sm'
-                      : 'bg-slate-50 border-slate-200 opacity-60'
+                      : 'bg-slate-50 border-slate-200'
                       }`}
                   >
                     <div className="flex flex-row items-center justify-between gap-5">
-                      <div className="flex items-center gap-5 min-w-0 flex-1">
+                      <div className={`flex items-center gap-5 min-w-0 flex-1 ${!product.isAvailable ? 'opacity-50' : ''}`}>
                         {/* Imagen */}
                         <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-[2rem] flex items-center justify-center overflow-hidden shadow-inner border border-slate-50 ${product.isAvailable ? 'bg-slate-50' : 'bg-slate-200'
                           }`}>
@@ -931,7 +935,7 @@ export default function ProductList({
                               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-2xl border border-slate-100">
                                 <i className="bi bi-stack text-slate-400 text-xs"></i>
                                 <span className="text-[11px] font-black text-slate-600 uppercase tracking-tighter">
-                                  {product.variants.length} Opciones
+                                  {product.variants.length} variantes
                                 </span>
                               </div>
                             )}
@@ -940,10 +944,10 @@ export default function ProductList({
                       </div>
 
                       {/* Botones de acción - Desplegable */}
-                      <div className="relative product-action-menu">
+                      <div className="relative product-action-menu z-20">
                         <button
                           onClick={() => setActiveMenu(activeMenu === product.id ? null : product.id)}
-                          className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-gray-100 transition-all active:scale-90"
+                          className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full bg-white shadow-sm border border-gray-100 transition-all active:scale-90"
                         >
                           <i className="bi bi-three-dots-vertical text-xl"></i>
                         </button>
