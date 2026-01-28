@@ -691,6 +691,33 @@ export default function ProductList({
                                   <i className="bi bi-pencil text-blue-600"></i>
                                   Editar
                                 </button>
+                                <button
+                                  onClick={async () => {
+                                    const productUrl = `${window.location.origin}/${business?.username}/${product.slug || product.id}`
+                                    try {
+                                      if (navigator.clipboard && window.isSecureContext) {
+                                        await navigator.clipboard.writeText(productUrl)
+                                      } else {
+                                        const textArea = document.createElement('textarea')
+                                        textArea.value = productUrl
+                                        textArea.style.position = 'fixed'
+                                        textArea.style.opacity = '0'
+                                        document.body.appendChild(textArea)
+                                        textArea.focus()
+                                        textArea.select()
+                                        document.execCommand('copy')
+                                        document.body.removeChild(textArea)
+                                      }
+                                      setActiveMenu(null)
+                                    } catch (err) {
+                                      console.error('Error al copiar enlace:', err)
+                                    }
+                                  }}
+                                  className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                                >
+                                  <i className="bi bi-link-45deg text-purple-600"></i>
+                                  Copiar link
+                                </button>
                                 <div className="border-t border-gray-50 my-1"></div>
                                 <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
                                   Mover
@@ -843,6 +870,33 @@ export default function ProductList({
                                 >
                                   <i className="bi bi-pencil text-blue-600"></i>
                                   Editar
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    const productUrl = `${window.location.origin}/${business?.username}/${product.slug || product.id}`
+                                    try {
+                                      if (navigator.clipboard && window.isSecureContext) {
+                                        await navigator.clipboard.writeText(productUrl)
+                                      } else {
+                                        const textArea = document.createElement('textarea')
+                                        textArea.value = productUrl
+                                        textArea.style.position = 'fixed'
+                                        textArea.style.opacity = '0'
+                                        document.body.appendChild(textArea)
+                                        textArea.focus()
+                                        textArea.select()
+                                        document.execCommand('copy')
+                                        document.body.removeChild(textArea)
+                                      }
+                                      setActiveMenu(null)
+                                    } catch (err) {
+                                      console.error('Error al copiar enlace:', err)
+                                    }
+                                  }}
+                                  className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                                >
+                                  <i className="bi bi-link-45deg text-purple-600"></i>
+                                  Copiar link
                                 </button>
                                 <div className="border-t border-gray-50 my-1"></div>
                                 <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">

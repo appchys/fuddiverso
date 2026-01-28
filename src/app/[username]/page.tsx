@@ -1422,11 +1422,17 @@ function RestaurantContent() {
                 >
                   <div className="bg-white rounded-[1.5rem] overflow-hidden border border-gray-100 shadow-sm hover:shadow-xl hover:border-red-100 transition-all duration-500 h-full flex flex-col">
                     <div className="relative h-40 bg-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0">
-                      <img
-                        src={store.coverImage || store.image || 'https://via.placeholder.com/150?text=' + store.name}
-                        alt={store.name}
-                        className="w-full h-full object-cover transition-transform duration-700 group-hover/card:scale-110"
-                      />
+                      {store.image ? (
+                        <img
+                          src={store.image}
+                          alt={store.name}
+                          className="w-full h-full object-cover transition-transform duration-700 group-hover/card:scale-110"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+                          <i className="bi bi-shop text-5xl text-gray-300 transition-transform duration-700 group-hover/card:scale-110"></i>
+                        </div>
+                      )}
                     </div>
                     <div className="p-5 flex flex-col flex-1">
                       <div className="flex justify-between items-start mb-2">
