@@ -10,13 +10,10 @@ import {
   searchClientByPhone,
   createClient,
   updateClient,
-  setClientPin,
   getClientLocations,
   ClientLocation,
   getDeliveryFeeForLocation,
   registerOrderConsumption,
-  clearClientPin,
-  registerClientForgotPin,
   getQRCodesByBusiness,
   getUserQRProgress,
   completeQRRedemptions,
@@ -305,14 +302,8 @@ export function CheckoutContent({
   const [clientFound, setClientFound] = useState<any | null>(null)
   const [clientSearching, setClientSearching] = useState(false)
   const [showNameField, setShowNameField] = useState(false)
-  const [registerPin, setRegisterPin] = useState('')
-  const [registerPinConfirm, setRegisterPinConfirm] = useState('')
-  const [registerError, setRegisterError] = useState('')
-  const [registerLoading, setRegisterLoading] = useState(false)
-  const [loginPin, setLoginPin] = useState('')
-  const [loginPinError, setLoginPinError] = useState('')
-  const [loginPinLoading, setLoginPinLoading] = useState(false)
-  const [pinAttempted, setPinAttempted] = useState(false)
+  const [phoneError, setPhoneError] = useState('')
+  const [nameError, setNameError] = useState('')
 
   const [customerData, setCustomerData] = useState<CustomerData>({ name: '', phone: '' })
 
@@ -506,7 +497,7 @@ export function CheckoutContent({
       // Solo sincronizar si hay usuario
       const effectiveClientId = user?.id || clientFound?.id
       console.log('🔄 Checkout Sync Debug - effectiveClientId:', effectiveClientId)
-      
+
       if (!effectiveClientId) {
         console.log('❌ Checkout Sync Debug - No hay clientId efectivo')
         return
@@ -523,7 +514,7 @@ export function CheckoutContent({
           console.debug('Error reading search params:', e)
         }
       }
-      
+
       // Si tenemos business data, usar su ID
       if (!businessIdToSync && business?.id) {
         businessIdToSync = business.id
@@ -550,7 +541,7 @@ export function CheckoutContent({
           paymentData,
           currentStep
         }
-        
+
         console.log('🔄 Checkout Sync Debug - Sincronizando datos:', progressData)
         await updateCheckoutProgress(effectiveClientId, businessIdToSync, progressData)
       } catch (error) {
@@ -584,7 +575,7 @@ export function CheckoutContent({
     if (isProcessingOrder && !loading) {
       const effectiveClientId = user?.id || clientFound?.id
       let businessIdToClean = embeddedBusinessId || business?.id
-      
+
       if (!businessIdToClean && typeof window !== 'undefined') {
         try {
           const params = new URLSearchParams(window.location.search)
@@ -593,7 +584,7 @@ export function CheckoutContent({
           console.debug('Error reading search params:', e)
         }
       }
-      
+
       if (effectiveClientId && businessIdToClean) {
         clearCheckoutProgress(effectiveClientId, businessIdToClean).catch(console.error)
       }
@@ -675,51 +666,67 @@ export function CheckoutContent({
       setShowNameField(false);
       setClientLocations([]);
       setSelectedLocation(null);
+      setPhoneError('');
       return;
     }
 
     // Normalizar el número de teléfono antes de validar y buscar
     const normalizedPhone = normalizeEcuadorianPhone(phone);
-    setPinAttempted(false);
 
     if (!validateEcuadorianPhone(normalizedPhone)) {
       setClientFound(null);
       setShowNameField(false);
       setClientLocations([]);
       setSelectedLocation(null);
+      setPhoneError('');
       return;
     }
 
     setClientSearching(true);
+    setPhoneError('');
     try {
       // Buscar con el número normalizado
       const client = await searchClientByPhone(normalizedPhone);
       if (client) {
+        // Cliente encontrado - auto login
         setClientFound(client);
-        // Prefill nombre si existe; mostrar casillero de nombre solo cuando el cliente NO tiene nombres y NO tiene PIN
         setCustomerData(prev => ({
           ...prev,
-          name: client.pinHash ? (client.nombres || '') : '',
-          phone: normalizedPhone // Actualizar con el número normalizado
+          name: client.nombres || '',
+          phone: normalizedPhone
         }));
-        setShowNameField(!client.pinHash);
+        setShowNameField(false);
+
+        // Auto-login del cliente
+        login(client as any);
+
+        // Registrar login desde Checkout
+        if (client.id) {
+          await updateClient(client.id, {
+            lastLoginAt: serverTimestamp(),
+            loginSource: 'checkout'
+          });
+        }
+
         setClientLocations([]);
         setSelectedLocation(null);
       } else {
+        // Cliente no encontrado - pedir nombre
         setClientFound(null);
         setShowNameField(true);
         setCustomerData(prev => ({
           ...prev,
           name: '',
-          phone: normalizedPhone // Actualizar con el número normalizado
+          phone: normalizedPhone
         }));
         setClientLocations([]);
         setSelectedLocation(null);
       }
     } catch (error) {
       console.error('Error searching client:', error);
+      setPhoneError('Error al buscar el cliente. Intenta nuevamente.');
       setClientFound(null);
-      setShowNameField(true);
+      setShowNameField(false);
       setClientLocations([]);
       setSelectedLocation(null);
     } finally {
@@ -730,249 +737,76 @@ export function CheckoutContent({
   // Función para crear nuevo cliente
   async function handleCreateClient() {
     if (!customerData.phone || !customerData.name) {
+      setNameError('El nombre es requerido');
       return;
     }
 
     // Normalizar el número antes de crear el cliente
     const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
+    setNameError('');
 
     try {
       if (clientFound && clientFound.id) {
         // Actualizar cliente existente con el nombre proporcionado
         try {
-          await updateClient(clientFound.id, { nombres: customerData.name.trim() })
+          await updateClient(clientFound.id, {
+            nombres: customerData.name.trim(),
+            lastLoginAt: serverTimestamp(),
+            loginSource: 'checkout'
+          });
         } catch (e) {
-          console.warn('No se pudo actualizar el nombre del cliente existente:', e)
+          console.warn('No se pudo actualizar el nombre del cliente existente:', e);
         }
 
         // Refrescar estado local del cliente encontrado
-        setClientFound((prev: any) => prev ? { ...prev, nombres: customerData.name.trim() } : prev)
-        setShowNameField(false)
-        // Ensure phone is normalized in customerData
-        setCustomerData(prev => ({ ...prev, phone: normalizedPhone }))
-        return
+        const updatedClient = { ...clientFound, nombres: customerData.name.trim() };
+        setClientFound(updatedClient);
+        setShowNameField(false);
+        setCustomerData(prev => ({ ...prev, phone: normalizedPhone }));
+
+        // Auto-login del cliente actualizado
+        login(updatedClient as any);
+        return;
       }
 
       const newClient = await createClient({
         celular: normalizedPhone,
-        nombres: customerData.name,
+        nombres: customerData.name.trim(),
         fecha_de_registro: new Date().toISOString()
       });
+
+      // Registrar login desde Checkout
+      if (newClient && newClient.id) {
+        await updateClient(newClient.id, {
+          lastRegistrationAt: serverTimestamp(),
+          lastLoginAt: serverTimestamp(),
+          loginSource: 'checkout'
+        });
+      }
 
       // Actualizar el estado con el cliente recién creado
-      setClientFound({
+      const clientData = {
         id: newClient.id,
-        nombres: customerData.name,
+        nombres: customerData.name.trim(),
         celular: normalizedPhone,
         fecha_de_registro: new Date().toISOString()
-      });
+      };
 
-      // Actualizar customerData con el número normalizado
+      setClientFound(clientData);
       setCustomerData(prev => ({
         ...prev,
         phone: normalizedPhone
       }));
-
       setShowNameField(false);
+
+      // Auto-login del nuevo cliente
+      login(clientData as any);
     } catch (error) {
       console.error('Error creating/updating client:', error);
-      // Aquí podrías agregar manejo de errores para mostrar al usuario
+      setNameError('Error al crear el cliente. Intenta nuevamente.');
     }
   }
 
-  // Función para hashear el PIN de manera consistente (misma lógica que ClientLoginModal)
-  async function hashPin(pin: string): Promise<string> {
-    // Implementación de hash simple pero consistente
-    const simpleHash = (str: string): string => {
-      let hash = 0
-      for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i)
-        hash = ((hash << 5) - hash) + char
-        hash = hash & hash // Convierte a 32bit entero
-      }
-      return Math.abs(hash).toString(16).padStart(8, '0')
-    }
-
-    // Para compatibilidad con hashes existentes, intentar usar SHA-256
-    try {
-      if (typeof window !== 'undefined' && window.crypto?.subtle?.digest) {
-        // Si el hash existente del cliente tiene 64 caracteres, asumimos SHA-256
-        if (clientFound?.pinHash?.length === 64) {
-          const encoder = new TextEncoder()
-          const data = encoder.encode(pin)
-          const hashBuffer = await window.crypto.subtle.digest('SHA-256', data)
-          const hashArray = Array.from(new Uint8Array(hashBuffer))
-          return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-        }
-      }
-    } catch (e) {
-      console.warn('Error usando Web Crypto API, usando hash simple', e)
-    }
-
-    // Por defecto, usar el hash simple
-    return simpleHash(pin)
-  }
-
-  // Handle registering or setting PIN from checkout
-  const handleCheckoutRegisterOrSetPin = async () => {
-    setRegisterError('')
-    // Requerir nombre cuando el cliente no existe o existe pero no tiene PIN (queremos que escriba su nombre)
-    const requireName = !clientFound || (clientFound && !clientFound.pinHash)
-    if (requireName && (!customerData.name || !customerData.name.trim())) {
-      setRegisterError('Ingresa tu nombre')
-      return
-    }
-    if (!/^[0-9]{4,6}$/.test(registerPin)) {
-      setRegisterError('El PIN debe contener entre 4 y 6 dígitos')
-      return
-    }
-    if (registerPin !== registerPinConfirm) {
-      setRegisterError('Los PIN no coinciden')
-      return
-    }
-
-    setRegisterLoading(true)
-    try {
-      const pinHash = await hashPin(registerPin)
-      const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
-
-      let registeredClientId = clientFound?.id;
-
-      if (clientFound && clientFound.id) {
-        // Update name only if user provided one (to avoid wiping existing nombres)
-        try {
-          if (customerData.name && customerData.name.trim()) {
-            await updateClient(clientFound.id, { nombres: customerData.name.trim() })
-          }
-        } catch (e) {
-          console.warn('Could not update client name before setting PIN', e)
-        }
-        // Set PIN
-        await setClientPin(clientFound.id, pinHash)
-
-        // Registrar login/update desde Checkout
-        await updateClient(clientFound.id, {
-          lastLoginAt: serverTimestamp(),
-          loginSource: 'checkout'
-        })
-
-        const updated = await searchClientByPhone(normalizedPhone)
-        if (updated) {
-          login(updated as any)
-          setClientFound(updated)
-          setShowNameField(false)
-          registeredClientId = updated.id
-        }
-      } else {
-        const newClient = await createClient({ celular: normalizedPhone, nombres: customerData.name, pinHash })
-
-        // Registrar registro/login desde Checkout
-        if (newClient && newClient.id) {
-          await updateClient(newClient.id, {
-            lastRegistrationAt: serverTimestamp(),
-            lastLoginAt: serverTimestamp(),
-            loginSource: 'checkout'
-          })
-        }
-
-        login(newClient as any)
-        setClientFound(newClient as any)
-        setShowNameField(false)
-        registeredClientId = newClient.id
-      }
-
-      // Cargar las ubicaciones del cliente después de registrarse/crear PIN
-      if (registeredClientId) {
-        setLoadingLocations(true);
-        try {
-          const locations = await getClientLocations(registeredClientId);
-          setClientLocations(locations);
-        } catch (error) {
-          console.error('Error loading client locations after registration:', error);
-          setClientLocations([]);
-        } finally {
-          setLoadingLocations(false);
-        }
-      }
-      // clear pins
-      setRegisterPin('')
-      setRegisterPinConfirm('')
-    } catch (error) {
-      console.error('Error registering/setting PIN in checkout:', error)
-      setRegisterError('Error al procesar registro. Intenta nuevamente.')
-    } finally {
-      setRegisterLoading(false)
-    }
-  }
-
-  const handleCheckoutLoginWithPin = async () => {
-    setLoginPinError('')
-    setPinAttempted(true)
-    if (!clientFound) return
-    if (!/^[0-9]{4,6}$/.test(loginPin)) {
-      setLoginPinError('PIN inválido')
-      return
-    }
-    setLoginPinLoading(true)
-    try {
-      const pinHash = await hashPin(loginPin)
-      if (pinHash === clientFound.pinHash) {
-        // Registrar login desde Checkout
-        if (clientFound.id) {
-          await updateClient(clientFound.id, {
-            lastLoginAt: serverTimestamp(),
-            loginSource: 'checkout'
-          })
-        }
-
-        login(clientFound as any)
-        // Ensure checkout form reflects logged-in client
-        setCustomerData(prev => ({ ...prev, name: clientFound.nombres || '', phone: normalizeEcuadorianPhone(prev.phone) }))
-        setShowNameField(false)
-        setLoginPin('')
-
-        // Cargar las ubicaciones del cliente después de ingresar el PIN
-        if (clientFound?.id) {
-          setLoadingLocations(true);
-          try {
-            const locations = await getClientLocations(clientFound.id);
-            setClientLocations(locations);
-          } catch (error) {
-            console.error('Error loading client locations after PIN login:', error);
-            setClientLocations([]);
-          } finally {
-            setLoadingLocations(false);
-          }
-        }
-      } else {
-        setLoginPinError('PIN incorrecto')
-      }
-    } catch (error) {
-      console.error('Error validating PIN in checkout:', error)
-      setLoginPinError('Error al verificar PIN')
-    } finally {
-      setLoginPinLoading(false)
-    }
-  }
-
-  const handleCheckoutResetPin = async () => {
-    if (!clientFound?.id) return;
-    try {
-      setLoginPinLoading(true)
-      await registerClientForgotPin(clientFound.id)
-      await clearClientPin(clientFound.id)
-      // Refrescar UI para mostrar flujo de crear PIN
-      setClientFound((prev: any | null) => (prev ? { ...prev, pinHash: null } : prev))
-      setLoginPin('')
-      setLoginPinError('')
-      setShowNameField(true) // Mostrar campo de nombre para que pueda actualizarlo si desea
-    } catch (e) {
-      console.error('Error al limpiar PIN:', e)
-      setLoginPinError('No se pudo restablecer el PIN. Intenta nuevamente.')
-    } finally {
-      setLoginPinLoading(false)
-    }
-  }
 
   // Función unificada para seleccionar una ubicación del cliente
   const handleLocationSelect = async (location: ClientLocation) => {
@@ -1698,9 +1532,8 @@ export function CheckoutContent({
                         }
                         setClientFound(null)
                         setCustomerData({ name: '', phone: '' })
-                        setShowNameField(true)
+                        setShowNameField(false)
                         setSelectedLocation(null)
-                        setPinAttempted(false)
                       }}
                       className="px-3 py-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 rounded-lg transition-all shadow-sm flex-shrink-0"
                     >
@@ -1730,10 +1563,10 @@ export function CheckoutContent({
                               setCustomerData({ ...customerData, phone: normalizedPhone });
                             }
                           }}
-                          className={`w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all ${errors.phone ? 'ring-2 ring-red-100 border-red-300' : ''}`}
+                          className={`w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all ${errors.phone || phoneError ? 'ring-2 ring-red-100 border-red-300' : ''}`}
                           placeholder="0999999999"
                           maxLength={10}
-                          disabled={!!clientFound}
+                          disabled={clientSearching}
                         />
                       </div>
                       {clientFound && (
@@ -1741,9 +1574,9 @@ export function CheckoutContent({
                           onClick={() => {
                             setClientFound(null)
                             setCustomerData({ name: '', phone: '' })
-                            setShowNameField(true)
+                            setShowNameField(false)
                             setSelectedLocation(null)
-                            setPinAttempted(false)
+                            setPhoneError('')
                           }}
                           className="px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors"
                           title="Cambiar número"
@@ -1752,111 +1585,43 @@ export function CheckoutContent({
                         </button>
                       )}
                     </div>
-                    {errors.phone && <p className="text-red-500 text-xs mt-2 ml-1">{errors.phone}</p>}
-                  </div>
-                )}
+                    {(errors.phone || phoneError) && <p className="text-red-500 text-xs mt-2 ml-1">{errors.phone || phoneError}</p>}
 
-                {/* Lógica solicitada:
-                        - Si el número está vacío: no mostrar nada más.
-                        - Si hay sesión (`user`): ya se muestra la tarjeta de usuario arriba.
-                        - Si no hay sesión y se ingresó teléfono: según `clientFound` mostrar:
-                          * cliente con pinHash -> pedir PIN para iniciar sesión
-                          * cliente sin pinHash -> formulario de registro (pero si existe `nombres` no pedir nombre, solo crear PIN)
-                          * cliente no encontrado -> formulario de registro (pedir nombre + crear PIN)
-                    */}
-
-                {customerData.phone.trim() && !user && (
-                  <div>
-                    {/* clientSearching ya se muestra junto al input; evitemos duplicarlo */}
+                    {/* Searching indicator */}
                     {clientSearching && (
-                      <p className="text-blue-500 text-sm mt-1">Buscando cliente...</p>
-                    )}
-
-                    {!clientSearching && clientFound && clientFound.pinHash && (
-                      // Cliente existente con PIN -> mostrar saludo y pedir PIN para iniciar sesión
-                      <div className="mt-4">
-                        <p className="text-sm text-gray-700 mb-2">Hola <strong>{clientFound.nombres || clientFound.celular}</strong></p>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Ingresa tu PIN</label>
-                        <input
-                          type="password"
-                          value={loginPin}
-                          onChange={(e) => setLoginPin(e.target.value)}
-                          maxLength={6}
-                          className="w-full px-3 py-2 border rounded-xl"
-                          onKeyPress={(e) => e.key === 'Enter' && handleCheckoutLoginWithPin()}
-                        />
-                        {pinAttempted && (
-                          <div className="text-right mt-1">
-                            <button
-                              type="button"
-                              onClick={handleCheckoutResetPin}
-                              className="text-xs text-gray-500 hover:text-red-500 transition-colors"
-                            >
-                              ¿Olvidaste tu PIN?
-                            </button>
-                          </div>
-                        )}
-                        {loginPinError && <p className="text-red-500 text-sm mt-1">{loginPinError}</p>}
-                        <div className="mt-3">
-                          <button onClick={handleCheckoutLoginWithPin} disabled={loginPinLoading} className="w-full px-4 py-2 bg-red-500 text-white rounded-xl">{loginPinLoading ? 'Verificando...' : 'Iniciar sesión'}</button>
-                        </div>
+                      <div className="mt-3 flex items-center gap-2 text-blue-600 animate-fadeIn">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                        <p className="text-sm">Buscando cliente...</p>
                       </div>
                     )}
 
-                    {!clientSearching && clientFound && !clientFound.pinHash && (
-                      // Cliente existente sin PIN -> formulario de registro
-                      <div className="mt-4">
-                        {/* Mostrar siempre input Nombre (prellenado si clientFound.nombres existe) para permitir actualizar el nombre y luego crear PIN */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
-                          <input
-                            type="text"
-                            required
-                            value={customerData.name}
-                            onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
-                            className={`w-full px-3 py-2 border rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
-                            placeholder="Juan Pérez"
-                          />
-                          {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-                        </div>
-
-                        <div className="mt-3">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Crea un PIN (4-6 dígitos)</label>
-                          <input type="password" value={registerPin} onChange={(e) => setRegisterPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-xl" />
-                          <label className="block text-sm font-medium text-gray-700 mb-2 mt-2">Confirmar PIN</label>
-                          <input type="password" value={registerPinConfirm} onChange={(e) => setRegisterPinConfirm(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-xl" />
-                          {registerError && <p className="text-red-500 text-sm mt-1">{registerError}</p>}
-                          <div className="mt-3">
-                            <button onClick={handleCheckoutRegisterOrSetPin} disabled={registerLoading} className="w-full px-4 py-2 bg-red-500 text-white rounded-xl">{registerLoading ? 'Procesando...' : 'Registrarse'}</button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {!clientSearching && !clientFound && customerData.phone.trim() && (
-                      // Teléfono no encontrado -> formulario de registro (pedir nombre + crear PIN)
+                    {/* Cliente no encontrado - pedir nombre para registrar */}
+                    {!clientSearching && !clientFound && showNameField && customerData.phone.trim() && validateEcuadorianPhone(normalizeEcuadorianPhone(customerData.phone)) && (
                       <div className="mt-4 pt-4 border-t border-gray-100 animate-fadeIn">
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                          <p className="text-sm text-blue-800">
+                            <i className="bi bi-info-circle mr-2"></i>
+                            Número no registrado. Por favor ingresa tu nombre para continuar.
+                          </p>
+                        </div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
                         <input
                           type="text"
                           required
                           value={customerData.name}
                           onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
-                          className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all ${errors.name ? 'border-red-300 ring-red-100' : 'border-gray-200'}`}
+                          className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all ${errors.name || nameError ? 'border-red-300 ring-red-100' : 'border-gray-200'}`}
                           placeholder="Juan Pérez"
                         />
-                        {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
+                        {(errors.name || nameError) && <p className="text-red-500 text-sm mt-1">{errors.name || nameError}</p>}
 
-                        <div className="mt-3">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Crea un PIN (4-6 dígitos)</label>
-                          <input type="password" value={registerPin} onChange={(e) => setRegisterPin(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-xl" />
-                          <label className="block text-sm font-medium text-gray-700 mb-2 mt-2">Confirmar PIN</label>
-                          <input type="password" value={registerPinConfirm} onChange={(e) => setRegisterPinConfirm(e.target.value)} maxLength={6} className="w-full px-3 py-2 border rounded-xl" />
-                          {registerError && <p className="text-red-500 text-sm mt-1">{registerError}</p>}
-                          <div className="mt-3">
-                            <button onClick={handleCheckoutRegisterOrSetPin} disabled={registerLoading} className="w-full px-4 py-2 bg-red-500 text-white rounded-xl">{registerLoading ? 'Procesando...' : 'Registrarse'}</button>
-                          </div>
-                        </div>
+                        <button
+                          onClick={handleCreateClient}
+                          disabled={!customerData.name.trim()}
+                          className="w-full mt-3 px-4 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
+                        >
+                          Continuar
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1877,7 +1642,7 @@ export function CheckoutContent({
                     type="button"
                     onClick={() => {
                       if (!user) {
-                        alert('Por favor, inicia sesión con tu PIN para continuar con el pedido a domicilio.');
+                        alert('Por favor, completa tus datos en el Paso 1 para continuar con el pedido a domicilio.');
                         return;
                       }
                       setDeliveryData(prev => ({ ...prev, type: 'delivery', tarifa: '0' }));
