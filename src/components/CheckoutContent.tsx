@@ -1672,10 +1672,10 @@ export function CheckoutContent({
                             value={phoneConfirmation}
                             onChange={(e) => setPhoneConfirmation(e.target.value)}
                             className={`w-full pl-10 pr-12 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 transition-all ${phoneConfirmation.trim() && phoneConfirmation === customerData.phone
-                                ? 'border-green-300 ring-2 ring-green-100 focus:ring-green-900'
-                                : phoneConfirmation.trim() && phoneConfirmation !== customerData.phone
-                                  ? 'border-red-300 ring-2 ring-red-100 focus:ring-red-900'
-                                  : 'border-gray-200 focus:ring-gray-900'
+                              ? 'border-green-300 ring-2 ring-green-100 focus:ring-green-900'
+                              : phoneConfirmation.trim() && phoneConfirmation !== customerData.phone
+                                ? 'border-red-300 ring-2 ring-red-100 focus:ring-red-900'
+                                : 'border-gray-200 focus:ring-gray-900'
                               }`}
                             placeholder="Vuelve a escribir tu celular"
                             maxLength={10}
@@ -2407,13 +2407,29 @@ export function CheckoutContent({
                               </div>
                             </div>
 
-                            <div className="mt-6 p-4 bg-gray-900 text-white rounded-xl shadow-lg flex gap-3 items-start">
-                              <i className="bi bi-cash-stack text-xl"></i>
+
+                            {/* Bloque informativo condicional */}
+                            <div className={`mt-6 p-4 rounded-xl shadow-lg flex gap-3 items-start ${!deliveryData.type
+                              ? 'bg-amber-600 text-white'
+                              : 'bg-gray-900 text-white'
+                              }`}>
+                              <i className={`text-xl ${!deliveryData.type ? 'bi bi-exclamation-triangle-fill' : 'bi bi-cash-stack'}`}></i>
                               <div>
-                                <p className="font-bold text-lg mb-1">Total a transferir: ${total.toFixed(2)}</p>
-                                <p className="text-sm text-gray-300 leading-snug">
-                                  Realiza la transferencia exacta y sube tu comprobante a continuación para confirmar tu pedido.
-                                </p>
+                                {!deliveryData.type ? (
+                                  <>
+                                    <p className="font-bold text-lg mb-1">Estimado: ${subtotal.toFixed(2)}</p>
+                                    <p className="text-sm text-amber-50 leading-snug">
+                                      Completa el paso 2 para poder subir tu comprobante de transferencia.
+                                    </p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <p className="font-bold text-lg mb-1">Total a transferir: ${total.toFixed(2)}</p>
+                                    <p className="text-sm text-gray-300 leading-snug">
+                                      Transfiere el monto exacto y sube tu comprobante a continuación para confirmar tu pedido.
+                                    </p>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -2421,8 +2437,9 @@ export function CheckoutContent({
                       </>
                     )}
 
-                    {/* Componente para subir comprobante - SIEMPRE VISIBLE */}
-                    {paymentData.selectedBank && clientFound && (
+
+                    {/* Componente para subir comprobante - Solo visible si completó paso 2 */}
+                    {paymentData.selectedBank && clientFound && deliveryData.type && (
                       <TransferReceiptUploader
                         onReceiptUpload={handleReceiptUpload}
                         uploadedImageUrl={paymentData.receiptImageUrl || null}
