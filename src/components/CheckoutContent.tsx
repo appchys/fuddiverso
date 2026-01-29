@@ -20,7 +20,7 @@ import {
   serverTimestamp,
   updateCheckoutProgress,
   clearCheckoutProgress,
-  getDeliveries
+  getDeliveriesByStatus
 } from '@/lib/database'
 import { Business } from '@/types'
 import LocationMap from '@/components/LocationMap'
@@ -1316,7 +1316,7 @@ export function CheckoutContent({
       let assignedDeliveryId: string | undefined = undefined;
       if (deliveryData.type === 'delivery') {
         try {
-          const deliveries = await getDeliveries();
+          const deliveries = await getDeliveriesByStatus('activo');
           // Buscar a Sergio Alvarado como delivery predeterminado
           const defaultDelivery = deliveries.find(d => d.celular === '0978697867');
           if (defaultDelivery) {
