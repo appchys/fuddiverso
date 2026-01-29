@@ -14,7 +14,8 @@ export default function NotificationSettings({
     // Inicializar estado local con los valores del negocio o defaults
     const [localSettings, setLocalSettings] = useState(business.notificationSettings || {
         emailOrderClient: true,
-        emailOrderManual: true
+        emailOrderManual: true,
+        emailCheckoutProgress: false
     })
 
     // Sincronizar estado local si cambian las props (ej: al cargar o si otra persona actualiza)
@@ -76,6 +77,22 @@ export default function NotificationSettings({
                             onClick={() => handleToggle('emailOrderManual')}
                         >
                             <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${localSettings.emailOrderManual ? 'translate-x-6' : ''}`}></div>
+                        </div>
+                    </div>
+
+                    {/* Notificaciones de Checkout en Progreso */}
+                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100">
+                        <div>
+                            <h4 className="font-medium text-gray-900">Checkout en Progreso</h4>
+                            <p className="text-sm text-gray-500">
+                                Recibir correo cuando un cliente inicia el proceso de checkout.
+                            </p>
+                        </div>
+                        <div
+                            className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${localSettings.emailCheckoutProgress ? 'bg-red-500' : 'bg-gray-200'}`}
+                            onClick={() => handleToggle('emailCheckoutProgress')}
+                        >
+                            <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${localSettings.emailCheckoutProgress ? 'translate-x-6' : ''}`}></div>
                         </div>
                     </div>
 

@@ -318,7 +318,8 @@ export async function createBusinessFromForm(formData: {
     },
     notificationSettings: {
       emailOrderClient: true,
-      emailOrderManual: true
+      emailOrderManual: true,
+      emailCheckoutProgress: false
     },
     isActive: true,
     updatedAt: new Date()
@@ -1266,7 +1267,8 @@ export async function createBusinessFromGoogleAuth(userData: {
       },
       notificationSettings: {
         emailOrderClient: true,
-        emailOrderManual: true
+        emailOrderManual: true,
+        emailCheckoutProgress: false
       },
       isActive: true,
       updatedAt: new Date()
@@ -3919,7 +3921,7 @@ export async function updateCheckoutProgress(
     const docId = `${clientId}_${businessId}`
     console.log('💾 Checkout Progress Debug - Guardando en documento:', docId)
     console.log('💾 Checkout Progress Debug - Datos:', progressData)
-    
+
     const docRef = doc(db, 'checkoutProgress', docId)
     await setDoc(docRef, {
       clientId,
@@ -3928,7 +3930,7 @@ export async function updateCheckoutProgress(
       lastActivityAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     }, { merge: true })
-    
+
     console.log('✅ Checkout Progress Debug - Datos guardados exitosamente')
   } catch (error) {
     console.error('❌ Error updating checkout progress:', error)
@@ -3960,7 +3962,7 @@ export function onCheckoutProgressChange(
   try {
     const docId = `${clientId}_${businessId}`
     console.log('👂 Real-time Debug - Suscribiendo a documento:', docId)
-    
+
     const docRef = doc(db, 'checkoutProgress', docId)
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       console.log('📨 Real-time Debug - Snapshot recibido, existe:', docSnap.exists())
@@ -3975,7 +3977,7 @@ export function onCheckoutProgressChange(
     return unsubscribe
   } catch (error) {
     console.error('❌ Error subscribing to checkout progress:', error)
-    return () => {}
+    return () => { }
   }
 }
 

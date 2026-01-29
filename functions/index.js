@@ -387,6 +387,35 @@ exports.onCheckoutProgressUpdate = onDocumentCreated("checkoutProgress/{docId}",
   try {
     console.log(`🛒 Cliente ${clientId} empezó checkout en negocio ${businessId}`);
 
+    // Obtener datos del negocio
+    let businessEmail = 'info@fuddi.shop';
+    let businessName = 'Negocio';
+
+    const businessDoc = await admin.firestore().collection('businesses').doc(businessId).get();
+    if (businessDoc.exists) {
+      const businessData = businessDoc.data();
+      businessName = businessData.name || businessName;
+
+      if (businessData.email) {
+        businessEmail = businessData.email;
+      }
+
+      // Verificar configuración de notificaciones
+      const settings = businessData.notificationSettings || {
+        emailOrderClient: true,
+        emailOrderManual: true,
+        emailCheckoutProgress: false // Por defecto desactivado
+      };
+
+      if (!settings.emailCheckoutProgress) {
+        console.log(`🔕 Notificaciones de checkout desactivadas para negocio ${businessId}. Email cancelado.`);
+        return;
+      }
+    } else {
+      console.warn(`⚠️ No se encontró el negocio ${businessId}`);
+      return;
+    }
+
     // Obtener datos del cliente
     let customerName = 'Cliente';
     try {
@@ -399,21 +428,9 @@ exports.onCheckoutProgressUpdate = onDocumentCreated("checkoutProgress/{docId}",
       console.warn(`⚠️ No se pudo obtener datos del cliente ${clientId}:`, e.message);
     }
 
-    // Obtener datos del negocio
-    let businessName = 'Negocio';
-    try {
-      const businessDoc = await admin.firestore().collection('businesses').doc(businessId).get();
-      if (businessDoc.exists) {
-        const businessData = businessDoc.data();
-        businessName = businessData.name || businessName;
-      }
-    } catch (e) {
-      console.warn(`⚠️ No se pudo obtener datos del negocio ${businessId}:`, e.message);
-    }
-
     const mailOptions = {
       from: 'sistema@fuddi.shop',
-      to: 'appchys.ec@gmail.com',
+      to: businessEmail,
       subject: `🛒 ${customerName} está haciendo checkout en ${businessName}`,
       html: `
         <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
@@ -454,7 +471,7 @@ exports.onCheckoutProgressUpdate = onDocumentCreated("checkoutProgress/{docId}",
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`✅ Email de checkout enviado para cliente ${clientId} en negocio ${businessId}`);
+    console.log(`✅ Email de checkout enviado a ${businessEmail} para cliente ${clientId} en negocio ${businessId}`);
 
   } catch (error) {
     console.error(`❌ Error enviando email de checkout para ${docId}:`, error);

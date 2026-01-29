@@ -57,6 +57,7 @@ export interface Business {
   notificationSettings?: {
     emailOrderClient: boolean // Notificaciones de pedidios hechos por cliente
     emailOrderManual: boolean // Notificaciones de pedidos manuales
+    emailCheckoutProgress: boolean // Notificaciones cuando un cliente inicia checkout
   }
 }
 
