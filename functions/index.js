@@ -694,6 +694,15 @@ exports.sendScheduledOrderReminders = onSchedule({
           deliveryInfo = order.delivery?.references || 'Dirección no especificada';
         }
 
+        // Generar resumen de productos para vista previa
+        let previewItems = [];
+        if (Array.isArray(order.items)) {
+          order.items.forEach(item => {
+            previewItems.push(`x${item.quantity} ${item.name}`);
+          });
+        }
+        const previewText = previewItems.join(', ');
+
         // Generar HTML de productos
         let productsHtml = '<ul style="padding-left:20px;">';
         if (Array.isArray(order.items)) {
@@ -718,6 +727,10 @@ exports.sendScheduledOrderReminders = onSchedule({
         // Crear el email de recordatorio
         const htmlContent = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+            <!-- Preview text (visible in notification preview, hidden in email body) -->
+            <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
+              ${previewText}
+            </div>
             <div style="background: linear-gradient(135deg, #ff6b35 0%, #aa1918 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
               <h1 style="margin: 0; font-size: 24px;">⏰ Recordatorio de Entrega</h1>
               <p style="margin: 8px 0 0 0; opacity: 0.9;">¡Faltan 30 minutos para la entrega!</p>
@@ -780,7 +793,7 @@ exports.sendScheduledOrderReminders = onSchedule({
         const mailOptions = {
           from: 'recordatorios@fuddi.shop',
           to: businessEmail,
-          subject: `⏰ Recordatorio: Entrega en 30 min - ${customerName} - Fuddi`,
+          subject: `⏰ Recordatorio: ${customerName}`,
           html: htmlContent
         };
 
