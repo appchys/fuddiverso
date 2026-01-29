@@ -1260,6 +1260,22 @@ export function CheckoutContent({
         return
       }
 
+      // VALIDACIÓN CRÍTICA: Si el método de pago es transferencia, debe existir comprobante
+      if (paymentData.method === 'transfer') {
+        if (!paymentData.selectedBank) {
+          alert('Por favor selecciona un banco para la transferencia')
+          setLoading(false)
+          setIsProcessingOrder(false)
+          return
+        }
+        if (!paymentData.receiptImageUrl) {
+          alert('Por favor sube el comprobante de transferencia antes de confirmar el pedido')
+          setLoading(false)
+          setIsProcessingOrder(false)
+          return
+        }
+      }
+
       // Crear cliente si no está creado y es necesario
       if (showNameField && customerData.name.trim()) {
         await handleCreateClient()
