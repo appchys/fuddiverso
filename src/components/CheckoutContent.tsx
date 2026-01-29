@@ -19,7 +19,8 @@ import {
   completeQRRedemptions,
   serverTimestamp,
   updateCheckoutProgress,
-  clearCheckoutProgress
+  clearCheckoutProgress,
+  getDeliveries
 } from '@/lib/database'
 import { Business } from '@/types'
 import LocationMap from '@/components/LocationMap'
@@ -1311,6 +1312,23 @@ export function CheckoutContent({
       const total = subtotal + deliveryCost;
       const businessId = (isEmbedded ? embeddedBusinessId : (searchParams.get('businessId') || ''))
 
+      // Asignar delivery automáticamente si es una orden de delivery
+      let assignedDeliveryId: string | undefined = undefined;
+      if (deliveryData.type === 'delivery') {
+        try {
+          const deliveries = await getDeliveries();
+          // Buscar a Sergio Alvarado como delivery predeterminado
+          const defaultDelivery = deliveries.find(d => d.celular === '0978697867');
+          if (defaultDelivery) {
+            assignedDeliveryId = defaultDelivery.id;
+            console.log('✅ Delivery asignado automáticamente:', defaultDelivery.nombres);
+          }
+        } catch (error) {
+          console.error('Error obteniendo deliveries:', error);
+          // Continuar sin asignar delivery si hay error
+        }
+      }
+
       // Luego crear el objeto orderData
       const orderData = {
         businessId: businessId,
@@ -1330,7 +1348,8 @@ export function CheckoutContent({
           references: deliveryData.type === 'delivery' ? (deliveryData.address || '') : '',
           latlong: selectedLocation?.latlong || '',
           photo: selectedLocation?.photo || '', // ADDED: Photo de la ubicación
-          deliveryCost: deliveryData.type === 'delivery' ? deliveryCost : 0
+          deliveryCost: deliveryData.type === 'delivery' ? deliveryCost : 0,
+          assignedDelivery: assignedDeliveryId // Asignar delivery automáticamente
         },
         timing: {
           type: (timingData.type || 'immediate') as 'immediate' | 'scheduled',
