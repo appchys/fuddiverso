@@ -2408,17 +2408,21 @@ export function CheckoutContent({
                             </div>
 
 
+
                             {/* Bloque informativo condicional */}
-                            <div className={`mt-6 p-4 rounded-xl shadow-lg flex gap-3 items-start ${!deliveryData.type
-                              ? 'bg-amber-600 text-white'
-                              : 'bg-gray-900 text-white'
+                            <div className={`mt-6 p-4 rounded-xl flex gap-3 items-start ${!deliveryData.type
+                                ? 'bg-amber-50 border border-amber-200'
+                                : 'bg-gray-900 text-white shadow-lg'
                               }`}>
-                              <i className={`text-xl ${!deliveryData.type ? 'bi bi-exclamation-triangle-fill' : 'bi bi-cash-stack'}`}></i>
-                              <div>
+                              <i className={`text-xl flex-shrink-0 mt-0.5 ${!deliveryData.type
+                                  ? 'bi bi-info-circle-fill text-amber-600'
+                                  : 'bi bi-cash-stack text-white'
+                                }`}></i>
+                              <div className="flex-1">
                                 {!deliveryData.type ? (
                                   <>
-                                    <p className="font-bold text-lg mb-1">Estimado: ${subtotal.toFixed(2)}</p>
-                                    <p className="text-sm text-amber-50 leading-snug">
+                                    <p className="font-medium text-amber-900">Estimado: ${subtotal.toFixed(2)}</p>
+                                    <p className="text-sm text-amber-700 mt-1">
                                       Completa el paso 2 para poder subir tu comprobante de transferencia.
                                     </p>
                                   </>
