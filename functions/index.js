@@ -171,9 +171,18 @@ exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => 
       }
     }
 
+    // Texto de vista previa para notificaciones
+    const previewText = order.delivery?.type === 'delivery'
+      ? `🏍️ ${order.delivery?.references || 'Dirección no especificada'}`
+      : '🏪 Retiro en tienda';
+
     // Generar HTML del email
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+        <!-- Preview text (visible in notification preview, hidden in email body) -->
+        <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
+          ${previewText}
+        </div>
         <div style="background-color: #aa1918; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
           <h1 style="margin: 0; font-size: 24px;">¡Nuevo Pedido Recibido!</h1>
           <p style="margin: 8px 0 0 0; opacity: 0.9;">Pedido #${orderId.substring(0, 8).toUpperCase()}</p>
@@ -452,74 +461,7 @@ exports.onCheckoutProgressUpdate = onDocumentCreated("checkoutProgress/{docId}",
   }
 });
 
-/**
- * Cloud Function: Notificar cuando un CLIENTE ya existente inicia sesión
- */
-exports.onClientUpdated = onDocumentUpdated("clients/{clientId}", async (event) => {
-  const before = event.data.before.data();
-  const after = event.data.after.data();
-  const clientId = event.params.clientId;
-  const adminEmail = 'appchys.ec@gmail.com';
 
-  // Solo notificar si cambió lastLoginAt y NO es un registro nuevo (lastRegistrationAt no cambió)
-  const loginChanged = after.lastLoginAt && (!before.lastLoginAt || !after.lastLoginAt.isEqual(before.lastLoginAt));
-  const isNewRegistration = after.lastRegistrationAt && (!before.lastRegistrationAt || !after.lastRegistrationAt.isEqual(before.lastRegistrationAt));
-
-  if (loginChanged && !isNewRegistration) {
-    try {
-      console.log(`🔑 Cliente inició sesión: ${after.nombres}`);
-
-      // Token para el botón de "Ver avance" (será usado con un businessId específico)
-      const monitorToken = Buffer.from(`${clientId}|${new Date().getTime()}`).toString('base64'); const businessId = after.businessId || '';// INSERT_BUSINESS_ID_HERE\n      const businessId = after.businessId || '';
-
-      const mailOptions = {
-        from: 'sistema@fuddi.shop',
-        to: adminEmail,
-        subject: `🔑 Cliente inició sesión [${after.loginSource || 'N/A'}] - ${after.nombres}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
-            <h2 style="color: #444;">🔑 Inicio de Sesión de Cliente</h2>
-            <p>Un cliente recurrente ha ingresado desde: <strong>${after.loginSource || 'Desconocido'}</strong></p>
-            <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
-              <tr><td style="padding: 5px;"><strong>Nombre:</strong></td><td>${after.nombres}</td></tr>
-              <tr><td style="padding: 5px;"><strong>WhatsApp:</strong></td><td>${after.celular}</td></tr>
-              <tr><td style="padding: 5px;"><strong>Origen:</strong></td><td>${after.loginSource || 'No especificado'}</td></tr>
-              <tr><td style="padding: 5px;"><strong>Fecha:</strong></td><td>${new Date().toLocaleString('es-EC')}</td></tr>
-            </table>
-
-            <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
-
-            <div style="background-color: #e3f2fd; border-left: 4px solid #2196F3; padding: 15px; margin: 20px 0; border-radius: 4px;">
-              <p style="margin-top: 0; color: #1565c0;">
-                <strong>💡 Tip:</strong> Usa el botón abajo para ver en tiempo real el progreso del pedido que está creando este cliente.
-              </p>
-              <p style="margin-bottom: 0; color: #1565c0; font-size: 12px;">
-                Se actualizará automáticamente mientras selecciona productos, dirección, horario y método de pago.
-              </p>
-            </div>
-
-            <div style="text-align: center; margin: 20px 0;">
-              <a href="https://fuddi.shop/admin/checkout-monitor/${clientId}?businessId=${businessId}" 
-                 style="display: inline-block; background-color: #2196F3; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
-                👁️ Ver Avance del Checkout
-              </a>
-              <p style="margin-top: 10px; font-size: 12px; color: #666;">
-                <strong>Importante:</strong> Reemplaza <code>${businessId}</code> con el ID del negocio que está visitando el cliente.
-              </p>
-            </div>
-
-            <p style="font-size: 12px; color: #999; margin-top: 20px;">
-              Este es un email automático de monitoreo del sistema. No responder.
-            </p>
-          </div>
-        `
-      };
-      await transporter.sendMail(mailOptions);
-    } catch (error) {
-      console.error('❌ Error enviando email de login de cliente:', error);
-    }
-  }
-});
 
 /**
  * Cloud Function: Notificar cuando un nuevo NEGOCIO se registra
