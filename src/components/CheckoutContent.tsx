@@ -307,6 +307,7 @@ export function CheckoutContent({
   const [nameError, setNameError] = useState('')
 
   const [customerData, setCustomerData] = useState<CustomerData>({ name: '', phone: '' })
+  const [phoneConfirmation, setPhoneConfirmation] = useState('')
 
   const [clientLocations, setClientLocations] = useState<ClientLocation[]>([])
 
@@ -668,6 +669,7 @@ export function CheckoutContent({
       setClientLocations([]);
       setSelectedLocation(null);
       setPhoneError('');
+      setPhoneConfirmation(''); // Limpiar confirmación
       return;
     }
 
@@ -680,6 +682,7 @@ export function CheckoutContent({
       setClientLocations([]);
       setSelectedLocation(null);
       setPhoneError('');
+      setPhoneConfirmation(''); // Limpiar confirmación
       return;
     }
 
@@ -1074,6 +1077,14 @@ export function CheckoutContent({
       if (showNameField && !customerData.name.trim()) {
         newErrors.name = 'El nombre es requerido'
       }
+      // Validar confirmación de teléfono para nuevos clientes
+      if (showNameField && !clientFound) {
+        if (!phoneConfirmation.trim()) {
+          newErrors.phoneConfirmation = 'Por favor confirma tu número de celular'
+        } else if (phoneConfirmation !== customerData.phone) {
+          newErrors.phoneConfirmation = 'Los números no coinciden'
+        }
+      }
     }
 
     if (step === 2) {
@@ -1191,6 +1202,10 @@ export function CheckoutContent({
     const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
     if (!validateEcuadorianPhone(normalizedPhone)) return false;
     if (showNameField && !customerData.name.trim()) return false;
+    // Validar confirmación de teléfono para nuevos clientes
+    if (showNameField && !clientFound) {
+      if (!phoneConfirmation.trim() || phoneConfirmation !== customerData.phone) return false;
+    }
     if (!user) return false;
 
     // Paso 2: entrega
@@ -1569,6 +1584,7 @@ export function CheckoutContent({
                         setCustomerData({ name: '', phone: '' })
                         setShowNameField(false)
                         setSelectedLocation(null)
+                        setPhoneConfirmation('') // Limpiar confirmación
                       }}
                       className="px-3 py-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 rounded-lg transition-all shadow-sm flex-shrink-0"
                     >
@@ -1585,6 +1601,8 @@ export function CheckoutContent({
                         </span>
                         <input
                           type="tel"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           value={customerData.phone}
                           onChange={(e) => {
                             const phone = e.target.value;
@@ -1612,6 +1630,7 @@ export function CheckoutContent({
                             setShowNameField(false)
                             setSelectedLocation(null)
                             setPhoneError('')
+                            setPhoneConfirmation('') // Limpiar confirmación
                           }}
                           className="px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors"
                           title="Cambiar número"
@@ -1636,9 +1655,44 @@ export function CheckoutContent({
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
                           <p className="text-sm text-blue-800">
                             <i className="bi bi-info-circle mr-2"></i>
-                            Número no registrado. Por favor ingresa tu nombre para continuar.
+                            Número no registrado. Por favor ingresa tus datos para continuar.
                           </p>
                         </div>
+
+                        {/* Campo de confirmación de teléfono */}
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Confirmar Celular *</label>
+                        <div className="relative mb-4">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                            <i className="bi bi-phone-fill"></i>
+                          </span>
+                          <input
+                            type="tel"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={phoneConfirmation}
+                            onChange={(e) => setPhoneConfirmation(e.target.value)}
+                            className={`w-full pl-10 pr-12 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 transition-all ${phoneConfirmation.trim() && phoneConfirmation === customerData.phone
+                                ? 'border-green-300 ring-2 ring-green-100 focus:ring-green-900'
+                                : phoneConfirmation.trim() && phoneConfirmation !== customerData.phone
+                                  ? 'border-red-300 ring-2 ring-red-100 focus:ring-red-900'
+                                  : 'border-gray-200 focus:ring-gray-900'
+                              }`}
+                            placeholder="Vuelve a escribir tu celular"
+                            maxLength={10}
+                          />
+                          {/* Ícono de validación */}
+                          {phoneConfirmation.trim() && (
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                              {phoneConfirmation === customerData.phone ? (
+                                <i className="bi bi-check-circle-fill text-green-500 text-xl"></i>
+                              ) : (
+                                <i className="bi bi-x-circle-fill text-red-500 text-xl"></i>
+                              )}
+                            </span>
+                          )}
+                        </div>
+                        {errors.phoneConfirmation && <p className="text-red-500 text-xs mt-[-8px] mb-4 ml-1">{errors.phoneConfirmation}</p>}
+
                         <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
                         <input
                           type="text"
@@ -1652,7 +1706,7 @@ export function CheckoutContent({
 
                         <button
                           onClick={handleCreateClient}
-                          disabled={!customerData.name.trim()}
+                          disabled={!customerData.name.trim() || !phoneConfirmation.trim() || phoneConfirmation !== customerData.phone}
                           className="w-full mt-3 px-4 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
                         >
                           Continuar
