@@ -872,7 +872,12 @@ function RestaurantContent() {
       const code = await generateReferralLink(
         product.id,
         business.id,
-        clientPhone || undefined
+        clientPhone || undefined,
+        product.name,
+        product.image,
+        business.name,
+        business.username,
+        product.slug
       )
 
       const referralUrl = `${window.location.origin}/${business.username}/${product.slug}?ref=${code}`

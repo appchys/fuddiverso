@@ -4017,7 +4017,12 @@ export async function clearCheckoutProgress(clientId: string, businessId: string
 export async function generateReferralLink(
   productId: string,
   businessId: string,
-  userId?: string
+  userId?: string,
+  productName?: string,
+  productImage?: string,
+  businessName?: string,
+  businessUsername?: string,
+  productSlug?: string
 ): Promise<string> {
   try {
     // Generar código único
@@ -4027,6 +4032,11 @@ export async function generateReferralLink(
       code,
       productId,
       businessId,
+      productName: productName || null,
+      productImage: productImage || null,
+      businessName: businessName || null,
+      businessUsername: businessUsername || null,
+      productSlug: productSlug || null,
       createdBy: userId || null,
       createdAt: serverTimestamp(),
       clicks: 0,
@@ -4038,6 +4048,47 @@ export async function generateReferralLink(
   } catch (error) {
     console.error('Error generating referral link:', error)
     throw error
+  }
+}
+
+/**
+ * Obtiene todos los links de referido creados por un usuario
+ */
+export async function getUserReferrals(userId: string): Promise<any[]> {
+  try {
+    const q = query(
+      collection(db, 'referralLinks'),
+      where('createdBy', '==', userId),
+      orderBy('createdAt', 'desc')
+    )
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }))
+  } catch (error) {
+    console.error('Error getting user referrals:', error)
+    return []
+  }
+}
+
+/**
+ * Obtiene todos los créditos de un usuario en todas las tiendas
+ */
+export async function getAllUserCredits(userId: string): Promise<any[]> {
+  try {
+    const q = query(
+      collection(db, 'userCredits'),
+      where('userId', '==', userId)
+    )
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }))
+  } catch (error) {
+    console.error('Error getting all user credits:', error)
+    return []
   }
 }
 
