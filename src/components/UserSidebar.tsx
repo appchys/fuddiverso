@@ -284,19 +284,56 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     useEffect(() => {
         if (user?.id) {
             const loadReferralData = async () => {
+                console.log('🚀 Debug Referral - Sidebar loading data for user ID:', user.id, 'and phone:', user.celular)
                 setLoadingReferrals(true)
                 try {
-                    const [userReferrals, userCreditsList] = await Promise.all([
+                    // Consultar por ambos IDs para compatibilidad con registros antiguos
+                    const [referralsById, referralsByPhone, creditsById, creditsByPhone] = await Promise.all([
                         getUserReferrals(user.id),
-                        getAllUserCredits(user.id)
+                        user.celular ? getUserReferrals(user.celular) : Promise.resolve([]),
+                        getAllUserCredits(user.id),
+                        user.celular ? getAllUserCredits(user.celular) : Promise.resolve([])
                     ])
 
-                    setReferrals(userReferrals)
+                    // Combinar referidos y eliminar duplicados
+                    const combinedReferrals = [...referralsById]
+                    referralsByPhone.forEach(ref => {
+                        if (!combinedReferrals.some(r => r.id === ref.id)) {
+                            combinedReferrals.push(ref)
+                        }
+                    })
+
+                    // Combinar créditos y eliminar duplicados (por businessId)
+                    const combinedCredits = [...creditsById]
+                    creditsByPhone.forEach(credit => {
+                        if (!combinedCredits.some(c => c.businessId === credit.businessId)) {
+                            combinedCredits.push(credit)
+                        } else {
+                            // Si ya existe por businessId, sumar los créditos (opcional, dependiendo de si queremos consolidar)
+                            const index = combinedCredits.findIndex(c => c.businessId === credit.businessId)
+                            combinedCredits[index].availableCredits = (combinedCredits[index].availableCredits || 0) + (credit.availableCredits || 0)
+                            combinedCredits[index].totalCredits = (combinedCredits[index].totalCredits || 0) + (credit.totalCredits || 0)
+                        }
+                    })
+
+                    // Ordenar referidos por fecha descendente
+                    combinedReferrals.sort((a, b) => {
+                        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt)
+                        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt)
+                        return dateB.getTime() - dateA.getTime()
+                    })
+
+                    console.log('🚀 Debug Referral - Sidebar data combined:', {
+                        referralsCount: combinedReferrals.length,
+                        creditsCount: combinedCredits.length
+                    })
+
+                    setReferrals(combinedReferrals)
 
                     const stats = {
-                        totalClicks: userReferrals.reduce((sum, r) => sum + (r.clicks || 0), 0),
-                        totalSales: userReferrals.reduce((sum, r) => sum + (r.conversions || 0), 0),
-                        totalCredits: userCreditsList.reduce((sum, c) => sum + (c.availableCredits || 0), 0)
+                        totalClicks: combinedReferrals.reduce((sum, r) => sum + (r.clicks || 0), 0),
+                        totalSales: combinedReferrals.reduce((sum, r) => sum + (r.conversions || 0), 0),
+                        totalCredits: combinedCredits.reduce((sum, c) => sum + (c.availableCredits || 0), 0)
                     }
                     setReferralStats(stats)
                 } catch (error) {

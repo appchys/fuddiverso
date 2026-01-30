@@ -14,6 +14,7 @@ import UserSidebar from '@/components/UserSidebar'
 import ClientLoginModal from '@/components/ClientLoginModal'
 import { isStoreOpen } from '@/lib/store-utils'
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
+import { useAuth } from '@/contexts/AuthContext'
 
 // Componente para structured data JSON-LD
 function BusinessStructuredData({ business }: { business: Business }) {
@@ -631,6 +632,7 @@ export default function RestaurantPage() {
 
 function RestaurantContent() {
   const { user } = useBusinessAuth()
+  const { user: clientUser } = useAuth()
   const params = useParams()
   const router = useRouter()
   const username = params.username as string
@@ -872,7 +874,7 @@ function RestaurantContent() {
       const code = await generateReferralLink(
         product.id,
         business.id,
-        clientPhone || undefined,
+        clientUser?.id || clientPhone || undefined,
         product.name,
         product.image,
         business.name,

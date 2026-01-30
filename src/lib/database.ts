@@ -4024,6 +4024,7 @@ export async function generateReferralLink(
   businessUsername?: string,
   productSlug?: string
 ): Promise<string> {
+  console.log('🚀 Debug Referral - Generating link:', { productId, businessId, userId, productName })
   try {
     // Generar código único
     const code = `REF-${Math.random().toString(36).substring(2, 10).toUpperCase()}`
@@ -4043,10 +4044,11 @@ export async function generateReferralLink(
       conversions: 0
     }
 
+    console.log('🚀 Debug Referral - Saving to Firestore:', referralData)
     await addDoc(collection(db, 'referralLinks'), referralData)
     return code
   } catch (error) {
-    console.error('Error generating referral link:', error)
+    console.error('❌ Error generating referral link:', error)
     throw error
   }
 }
@@ -4055,6 +4057,7 @@ export async function generateReferralLink(
  * Obtiene todos los links de referido creados por un usuario
  */
 export async function getUserReferrals(userId: string): Promise<any[]> {
+  console.log('🚀 Debug Referral - Getting referrals for user:', userId)
   try {
     const q = query(
       collection(db, 'referralLinks'),
@@ -4062,12 +4065,13 @@ export async function getUserReferrals(userId: string): Promise<any[]> {
       orderBy('createdAt', 'desc')
     )
     const snapshot = await getDocs(q)
+    console.log(`🚀 Debug Referral - Found ${snapshot.size} referrals`)
     return snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }))
   } catch (error) {
-    console.error('Error getting user referrals:', error)
+    console.error('❌ Error getting user referrals:', error)
     return []
   }
 }
