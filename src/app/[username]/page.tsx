@@ -93,7 +93,9 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
   businessUsername?: string
 }) {
   const [imgLoaded, setImgLoaded] = useState(false)
-  const handleCardClick = () => onAddToCart(product)
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [copySuccess, setCopySuccess] = useState(false)
+  const handleCardClick = () => onShowDetails(product)
 
   const handleCopyProductLink = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -112,6 +114,11 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
         document.execCommand('copy')
         document.body.removeChild(textArea)
       }
+      setCopySuccess(true)
+      setTimeout(() => {
+        setCopySuccess(false)
+        setIsMenuOpen(false)
+      }, 1500)
     } catch (err) {
       console.error('Error al copiar enlace:', err)
     }
@@ -126,21 +133,47 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
       className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 cursor-pointer active:scale-[0.98] ${quantity > 0 ? 'border-red-200 shadow-md ring-1 ring-red-50' : 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
         }`}
     >
-      {/* Botón compartir producto (solo visible en hover) */}
-      <button
-        onClick={handleCopyProductLink}
-        className="absolute top-3 right-3 p-1.5 text-gray-400 hover:text-red-500 rounded-full opacity-0 md:group-hover:opacity-100 transition-opacity z-10 hidden md:block"
-        title="Copiar enlace del producto"
-      >
-        <i className="bi bi-link-45deg text-lg"></i>
-      </button>
+      {/* Botón de menú de 3 puntos */}
+      <div className="absolute top-3 right-3 z-10">
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            setIsMenuOpen(!isMenuOpen)
+          }}
+          className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all"
+          title="Opciones"
+        >
+          <i className="bi bi-three-dots-vertical text-lg"></i>
+        </button>
+
+        {/* Menú desplegable */}
+        {isMenuOpen && (
+          <>
+            {/* Overlay para cerrar el menú al hacer clic fuera */}
+            <div
+              className="fixed inset-0 z-20"
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsMenuOpen(false)
+              }}
+            />
+
+            {/* Menú */}
+            <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-30 animate-in fade-in zoom-in duration-200">
+              <button
+                onClick={handleCopyProductLink}
+                className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-3"
+              >
+                <i className={`bi ${copySuccess ? 'bi-check-circle text-emerald-500' : 'bi-link-45deg text-gray-400'} text-lg`}></i>
+                <span className="font-medium">{copySuccess ? '¡Enlace copiado!' : 'Copiar enlace'}</span>
+              </button>
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Imagen cuadrada con diseño redondeado */}
       <div
-        onClick={(e) => {
-          e.stopPropagation();
-          onShowDetails(product);
-        }}
         className="w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 hover:opacity-90 transition-opacity"
       >
         <div className={`absolute inset-0 animate-pulse bg-gray-100 ${imgLoaded ? 'hidden' : 'block'}`}></div>
@@ -1404,7 +1437,7 @@ function RestaurantContent() {
 
       {/* Otras tiendas - Carrusel Horizontal Rediseñado */}
       {otherBusinesses.length > 0 && (
-        <div className="max-w-7xl mx-auto px-4 py-16 sm:py-24 border-t border-gray-100 mt-12">
+        <div className="max-w-7xl mx-auto px-4 py-8 sm:py-12 border-t border-gray-100 mt-4">
           <div className="flex items-center gap-4 mb-10">
             <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
               Explora otras tiendas
