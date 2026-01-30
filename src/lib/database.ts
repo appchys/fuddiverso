@@ -954,6 +954,20 @@ export async function updateOrderStatus(orderId: string, status: Order['status']
     // Además, mantener un alias plano deliveredAt para consultas/UX cuando aplica
     if (status === 'delivered') {
       updatePayload.deliveredAt = serverTimestamp()
+
+      // Acreditar referido si existe
+      try {
+        const orderDoc = await getDoc(docRef)
+        if (orderDoc.exists()) {
+          const orderData = orderDoc.data()
+          if (orderData.referralCode) {
+            await creditReferral(orderId, orderData.referralCode)
+          }
+        }
+      } catch (refError) {
+        console.error('Error crediting referral on delivery:', refError)
+        // No lanzar error para no bloquear la actualización del estado
+      }
     }
 
     await updateDoc(docRef, updatePayload)
@@ -3992,3 +4006,221 @@ export async function clearCheckoutProgress(clientId: string, businessId: string
     console.error('Error clearing checkout progress:', error)
   }
 }
+
+// ============================================================================
+// SISTEMA DE REFERIDOS Y CRÉDITOS
+// ============================================================================
+
+/**
+ * Genera un código único de referido para un producto
+ */
+export async function generateReferralLink(
+  productId: string,
+  businessId: string,
+  userId?: string
+): Promise<string> {
+  try {
+    // Generar código único
+    const code = `REF-${Math.random().toString(36).substring(2, 10).toUpperCase()}`
+
+    const referralData = {
+      code,
+      productId,
+      businessId,
+      createdBy: userId || null,
+      createdAt: serverTimestamp(),
+      clicks: 0,
+      conversions: 0
+    }
+
+    await addDoc(collection(db, 'referralLinks'), referralData)
+    return code
+  } catch (error) {
+    console.error('Error generating referral link:', error)
+    throw error
+  }
+}
+
+/**
+ * Registra un click en un link de referido
+ */
+export async function trackReferralClick(referralCode: string): Promise<void> {
+  try {
+    const q = query(
+      collection(db, 'referralLinks'),
+      where('code', '==', referralCode),
+      limit(1)
+    )
+    const snapshot = await getDocs(q)
+
+    if (!snapshot.empty) {
+      const docRef = snapshot.docs[0].ref
+      await updateDoc(docRef, {
+        clicks: firestoreIncrement(1),
+        lastUsedAt: serverTimestamp()
+      })
+    }
+  } catch (error) {
+    console.error('Error tracking referral click:', error)
+  }
+}
+
+/**
+ * Obtiene información de un link de referido por su código
+ */
+export async function getReferralByCode(code: string): Promise<any | null> {
+  try {
+    const q = query(
+      collection(db, 'referralLinks'),
+      where('code', '==', code),
+      limit(1)
+    )
+    const snapshot = await getDocs(q)
+
+    if (!snapshot.empty) {
+      const doc = snapshot.docs[0]
+      return {
+        id: doc.id,
+        ...doc.data()
+      }
+    }
+    return null
+  } catch (error) {
+    console.error('Error getting referral by code:', error)
+    return null
+  }
+}
+
+/**
+ * Obtiene o crea el registro de créditos de un usuario
+ */
+export async function getUserCredits(
+  userId: string,
+  businessId: string
+): Promise<any | null> {
+  try {
+    const q = query(
+      collection(db, 'userCredits'),
+      where('userId', '==', userId),
+      where('businessId', '==', businessId),
+      limit(1)
+    )
+    const snapshot = await getDocs(q)
+
+    if (!snapshot.empty) {
+      const doc = snapshot.docs[0]
+      return {
+        id: doc.id,
+        ...doc.data()
+      }
+    }
+
+    // Crear nuevo registro si no existe
+    const newCredits = {
+      userId,
+      businessId,
+      totalCredits: 0,
+      availableCredits: 0,
+      usedCredits: 0,
+      referrals: [],
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }
+
+    const docRef = await addDoc(collection(db, 'userCredits'), newCredits)
+    return {
+      id: docRef.id,
+      ...newCredits,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+  } catch (error) {
+    console.error('Error getting user credits:', error)
+    return null
+  }
+}
+
+/**
+ * Acredita un crédito cuando una orden referida se completa
+ */
+export async function creditReferral(
+  orderId: string,
+  referralCode: string
+): Promise<void> {
+  try {
+    // Obtener información del referido
+    const referral = await getReferralByCode(referralCode)
+    if (!referral || !referral.createdBy) {
+      console.log('Referral not found or anonymous, skipping credit')
+      return
+    }
+
+    // Obtener el negocio de la orden
+    const orderDoc = await getDoc(doc(db, 'orders', orderId))
+    if (!orderDoc.exists()) return
+
+    const order = orderDoc.data()
+    const businessId = order.businessId
+
+    // Obtener o crear créditos del usuario
+    const q = query(
+      collection(db, 'userCredits'),
+      where('userId', '==', referral.createdBy),
+      where('businessId', '==', businessId),
+      limit(1)
+    )
+    const snapshot = await getDocs(q)
+
+    const referralRecord = {
+      orderId,
+      referralCode,
+      creditAmount: 1,
+      status: 'completed',
+      createdAt: new Date(),
+      completedAt: new Date()
+    }
+
+    if (!snapshot.empty) {
+      // Actualizar créditos existentes
+      const docRef = snapshot.docs[0].ref
+      const currentData = snapshot.docs[0].data()
+      const referrals = currentData.referrals || []
+
+      await updateDoc(docRef, {
+        totalCredits: firestoreIncrement(1),
+        availableCredits: firestoreIncrement(1),
+        referrals: [...referrals, referralRecord],
+        updatedAt: serverTimestamp()
+      })
+    } else {
+      // Crear nuevo registro de créditos
+      await addDoc(collection(db, 'userCredits'), {
+        userId: referral.createdBy,
+        businessId,
+        totalCredits: 1,
+        availableCredits: 1,
+        usedCredits: 0,
+        referrals: [referralRecord],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      })
+    }
+
+    // Actualizar contador de conversiones en el link
+    const linkQuery = query(
+      collection(db, 'referralLinks'),
+      where('code', '==', referralCode),
+      limit(1)
+    )
+    const linkSnapshot = await getDocs(linkQuery)
+    if (!linkSnapshot.empty) {
+      await updateDoc(linkSnapshot.docs[0].ref, {
+        conversions: firestoreIncrement(1)
+      })
+    }
+  } catch (error) {
+    console.error('Error crediting referral:', error)
+    throw error
+  }
+}
+

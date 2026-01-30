@@ -173,6 +173,25 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+
+// Colección de progreso de checkout (sincronización en tiempo real desde frontend)
+    match /checkoutProgress/{document} {
+      // Lectura: pública (para que el monitor admin pueda ver sin auth, o el cliente vea su propio progreso)
+      allow read: if true;
+
+      // Escritura: pública (permitir que el cliente sin auth Firebase escriba su progreso durante checkout)
+      // Puedes agregar validaciones más estrictas si quieres
+      allow write: if true;
+
+      // Opcional: si quieres restringir un poco más (recomendado en producción)
+      // allow create, update: if 
+      //   request.resource.data.keys().hasAll(['currentStep']) &&  // al menos debe tener paso actual
+      //   request.resource.data.currentStep is int &&
+      //   request.resource.data.currentStep >= 1 &&
+      //   request.resource.data.currentStep <= 4;  // ajusta según tus pasos
+    }
+
+
     // Colección de movimientos de stock de ingredientes
     // Acceso restringido a usuarios autenticados del negocio
     match /ingredientStockMovements/{document} {
@@ -188,6 +207,44 @@ service cloud.firestore {
       
       // Eliminación: permitida para usuarios autenticados (para recuperación de stock al borrar órdenes)
       allow delete: if request.auth != null;
+    }
+
+    // Sistema de Referidos - Colección de links de referido
+    match /referralLinks/{document} {
+      // Lectura pública (necesario para verificar códigos y mostrar estadísticas)
+      allow read: if true;
+      
+      // Escritura pública (permitir que usuarios sin auth generen links de referido)
+      // La validación de datos se hace en la aplicación
+      allow create, update: if true;
+      
+      // No permitir eliminación (mantener historial de referidos)
+      allow delete: if false;
+    }
+
+    // Sistema de Referidos - Colección de créditos de usuarios
+    match /userCredits/{document} {
+      // Lectura pública (usuarios pueden ver sus créditos sin auth)
+      allow read: if true;
+      
+      // Crear/actualizar: solo desde backend o usuarios autenticados
+      // Los créditos se acreditan automáticamente al completar órdenes
+      allow create, update: if request.auth != null;
+      
+      // No permitir eliminación (mantener historial de créditos)
+      allow delete: if false;
+    }
+
+    // Sistema de Referidos - Colección de registros de referidos
+    match /referralRecords/{document} {
+      // Lectura: usuarios autenticados pueden ver registros
+      allow read: if request.auth != null;
+      
+      // Crear: solo desde backend cuando se acredita un referido
+      allow create: if request.auth != null;
+      
+      // No permitir actualización ni eliminación (registro inmutable)
+      allow update, delete: if false;
     }
   }
 }

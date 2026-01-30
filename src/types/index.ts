@@ -198,6 +198,7 @@ export interface Order {
   updatedAt: Date
   deliveredAt?: Date | Timestamp // Fecha y hora cuando se marcó como entregado
   createdByAdmin?: boolean
+  referralCode?: string // Código de referido si la orden vino de un link de recomendación
   // Timestamps para cada cambio de estado
   statusHistory?: {
     pendingAt?: Date | Timestamp
@@ -246,5 +247,39 @@ export interface UserQRProgress {
   businessId: string
   createdAt: Date
   updatedAt?: Date
+}
+
+// Sistema de Referidos
+export interface ReferralLink {
+  id: string
+  code: string // Código único del referido (ej: "REF-ABC123")
+  productId: string
+  businessId: string
+  createdBy?: string // Teléfono del usuario que creó el link (opcional, puede ser anónimo)
+  createdAt: Date
+  clicks: number // Contador de clicks en el link
+  conversions: number // Contador de ventas completadas
+  lastUsedAt?: Date
+}
+
+export interface ReferralRecord {
+  orderId: string
+  referralCode: string
+  creditAmount: number // Normalmente 1
+  status: 'pending' | 'completed' | 'cancelled'
+  createdAt: Date
+  completedAt?: Date
+}
+
+export interface UserCredits {
+  id?: string
+  userId: string // Teléfono del usuario
+  businessId: string
+  totalCredits: number // Total de créditos acumulados
+  availableCredits: number // Créditos disponibles para usar
+  usedCredits: number // Créditos ya utilizados
+  referrals: ReferralRecord[] // Historial de referidos
+  createdAt: Date
+  updatedAt: Date
 }
 

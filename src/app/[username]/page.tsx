@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Head from 'next/head'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses } from '@/lib/database'
+import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick } from '@/lib/database'
 import CartSidebar from '@/components/CartSidebar'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import LocationMap from '@/components/LocationMap'
@@ -83,14 +83,15 @@ function BusinessStructuredData({ business }: { business: Business }) {
   )
 }
 
-function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartItemQuantity, updateQuantity, businessImage, businessUsername }: {
+function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartItemQuantity, updateQuantity, businessImage, businessUsername, onGenerateReferral }: {
   product: any,
   onAddToCart: (item: any) => void,
   onShowDetails: (product: any) => void,
   getCartItemQuantity: (id: string, variantName?: string | null) => number,
   updateQuantity: (id: string, quantity: number, variantName?: string | null) => void,
   businessImage?: string,
-  businessUsername?: string
+  businessUsername?: string,
+  onGenerateReferral: (product: any) => void
 }) {
   const [imgLoaded, setImgLoaded] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -166,6 +167,19 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
               >
                 <i className={`bi ${copySuccess ? 'bi-check-circle text-emerald-500' : 'bi-link-45deg text-gray-400'} text-lg`}></i>
                 <span className="font-medium">{copySuccess ? '¡Enlace copiado!' : 'Copiar enlace'}</span>
+              </button>
+
+              {/* NUEVA OPCIÓN: Recomendar */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onGenerateReferral(product)
+                  setIsMenuOpen(false)
+                }}
+                className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-3"
+              >
+                <i className="bi bi-gift text-red-500 text-lg"></i>
+                <span className="font-medium">Recomendar</span>
               </button>
             </div>
           </>
@@ -496,6 +510,117 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
   )
 }
 
+// Modal para compartir link de referido
+function ReferralModal({
+  isOpen,
+  onClose,
+  product,
+  referralLink,
+  businessName
+}: {
+  isOpen: boolean
+  onClose: () => void
+  product: any
+  referralLink: string
+  businessName: string
+}) {
+  const [copied, setCopied] = useState(false)
+
+  if (!isOpen || !product) return null
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(referralLink)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('Error copying:', err)
+    }
+  }
+
+  const shareOnWhatsApp = () => {
+    const text = `¡Mira este producto de ${businessName}! ${product.name} - ${referralLink}`
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+  }
+
+  const shareOnFacebook = () => {
+    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(referralLink)}`, '_blank')
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-hidden">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+
+      <div className="flex items-center justify-center min-h-screen p-4">
+        <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl p-6 animate-in fade-in zoom-in duration-300">
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all"
+          >
+            <i className="bi bi-x-lg text-xl"></i>
+          </button>
+
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <i className="bi bi-gift text-red-500 text-3xl"></i>
+            </div>
+            <h3 className="text-2xl font-black text-gray-900 mb-2">
+              ¡Recomienda y Gana!
+            </h3>
+            <p className="text-gray-500 text-sm">
+              Comparte este producto y gana 1 crédito por cada venta completada
+            </p>
+          </div>
+
+          <div className="bg-gray-50 rounded-2xl p-4 mb-6">
+            <div className="flex items-center gap-3 mb-3">
+              <img
+                src={product.image}
+                alt={product.name}
+                className="w-12 h-12 rounded-lg object-cover"
+              />
+              <div className="flex-1 min-w-0">
+                <h4 className="font-bold text-gray-900 text-sm truncate">{product.name}</h4>
+                <p className="text-red-500 font-black text-sm">${product.price?.toFixed(2)}</p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl p-3 border border-gray-200">
+              <p className="text-xs text-gray-400 mb-1">Tu link de referido:</p>
+              <p className="text-xs text-gray-900 break-all font-mono">{referralLink}</p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleCopy}
+            className="w-full py-3 bg-gray-900 text-white font-bold rounded-xl hover:bg-black transition-all mb-3 flex items-center justify-center gap-2"
+          >
+            <i className={`bi ${copied ? 'bi-check-circle' : 'bi-clipboard'}`}></i>
+            {copied ? '¡Copiado!' : 'Copiar enlace'}
+          </button>
+
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={shareOnWhatsApp}
+              className="py-3 bg-green-500 text-white font-bold rounded-xl hover:bg-green-600 transition-all flex items-center justify-center gap-2"
+            >
+              <i className="bi bi-whatsapp"></i>
+              WhatsApp
+            </button>
+            <button
+              onClick={shareOnFacebook}
+              className="py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+            >
+              <i className="bi bi-facebook"></i>
+              Facebook
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function RestaurantPage() {
   return (
     <BusinessAuthProvider>
@@ -536,6 +661,13 @@ function RestaurantContent() {
   const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [otherBusinesses, setOtherBusinesses] = useState<Business[]>([])
+
+  // Estados para sistema de referidos
+  const [referralModalOpen, setReferralModalOpen] = useState(false)
+  const [selectedProductForReferral, setSelectedProductForReferral] = useState<any>(null)
+  const [generatedReferralLink, setGeneratedReferralLink] = useState<string>('')
+  const [referralCode, setReferralCode] = useState<string | null>(null)
+
 
   useEffect(() => {
     const loadRestaurantData = async () => {
@@ -605,6 +737,27 @@ function RestaurantContent() {
     }
   }, [])
 
+  // Detectar código de referido en URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const ref = params.get('ref')
+
+    if (ref) {
+      // Guardar en localStorage
+      localStorage.setItem('pendingReferral', ref)
+      setReferralCode(ref)
+
+      // Registrar click
+      trackReferralClick(ref).catch(console.error)
+    } else {
+      // Verificar si hay un referido pendiente
+      const pending = localStorage.getItem('pendingReferral')
+      if (pending) {
+        setReferralCode(pending)
+      }
+    }
+  }, [])
+
   useEffect(() => {
     const loadQrData = async () => {
       if (!business?.id || !clientPhone) {
@@ -661,6 +814,7 @@ function RestaurantContent() {
     return () => window.removeEventListener('online', onOnline)
   }, [])
 
+
   // Cargar carrito específico de esta tienda desde localStorage
   useEffect(() => {
     if (business?.id) {
@@ -708,6 +862,27 @@ function RestaurantContent() {
     setTimeout(() => {
       setNotification({ show: false, message: '', type: 'success' })
     }, 3000)
+  }
+
+  // Función para generar link de referido
+  const handleGenerateReferral = async (product: any) => {
+    if (!business?.id) return
+
+    try {
+      const code = await generateReferralLink(
+        product.id,
+        business.id,
+        clientPhone || undefined
+      )
+
+      const referralUrl = `${window.location.origin}/${business.username}?ref=${code}`
+      setGeneratedReferralLink(referralUrl)
+      setSelectedProductForReferral(product)
+      setReferralModalOpen(true)
+    } catch (error) {
+      console.error('Error generating referral:', error)
+      showNotification('Error al generar link de referido', 'error')
+    }
   }
 
   const addToCart = (product: any) => {
@@ -1335,6 +1510,7 @@ function RestaurantContent() {
                       updateQuantity={updateQuantity}
                       businessImage={business?.image}
                       businessUsername={business?.username}
+                      onGenerateReferral={handleGenerateReferral}
                     />
                   ))}
                 </div>
@@ -1549,6 +1725,15 @@ function RestaurantContent() {
           setClientPhone(phone)
           setShowLoginModal(false)
         }}
+      />
+
+      {/* Modal de Referidos */}
+      <ReferralModal
+        isOpen={referralModalOpen}
+        onClose={() => setReferralModalOpen(false)}
+        product={selectedProductForReferral}
+        referralLink={generatedReferralLink}
+        businessName={business?.name || ''}
       />
     </div>
   )

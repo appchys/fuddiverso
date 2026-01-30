@@ -1393,6 +1393,8 @@ export function CheckoutContent({
           paymentStatus: (paymentData.method === 'transfer' ? 'pending' : undefined) as 'pending' | 'validating' | 'paid' | undefined,
           receiptImageUrl: paymentData.receiptImageUrl || ''
         },
+        // NUEVO: Agregar código de referido si existe
+        referralCode: typeof window !== 'undefined' ? localStorage.getItem('pendingReferral') || undefined : undefined,
         total,
         subtotal,
         status: 'pending' as const,
@@ -1459,6 +1461,13 @@ export function CheckoutContent({
         } catch (e) {
           console.error('Error updating carts in localStorage', e)
         }
+      }
+
+      // Limpiar código de referido pendiente después de crear la orden
+      try {
+        localStorage.removeItem('pendingReferral')
+      } catch (e) {
+        console.error('Error removing pending referral:', e)
       }
 
       if (onClearCart) {
@@ -2411,12 +2420,12 @@ export function CheckoutContent({
 
                             {/* Bloque informativo condicional */}
                             <div className={`mt-6 p-4 rounded-xl flex gap-3 items-start ${!deliveryData.type
-                                ? 'bg-amber-50 border border-amber-200'
-                                : 'bg-gray-900 text-white shadow-lg'
+                              ? 'bg-amber-50 border border-amber-200'
+                              : 'bg-gray-900 text-white shadow-lg'
                               }`}>
                               <i className={`text-xl flex-shrink-0 mt-0.5 ${!deliveryData.type
-                                  ? 'bi bi-info-circle-fill text-amber-600'
-                                  : 'bi bi-cash-stack text-white'
+                                ? 'bi bi-info-circle-fill text-amber-600'
+                                : 'bi bi-cash-stack text-white'
                                 }`}></i>
                               <div className="flex-1">
                                 {!deliveryData.type ? (
