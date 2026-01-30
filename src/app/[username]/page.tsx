@@ -875,7 +875,7 @@ function RestaurantContent() {
         clientPhone || undefined
       )
 
-      const referralUrl = `${window.location.origin}/${business.username}?ref=${code}`
+      const referralUrl = `${window.location.origin}/${business.username}/${product.slug}?ref=${code}`
       setGeneratedReferralLink(referralUrl)
       setSelectedProductForReferral(product)
       setReferralModalOpen(true)

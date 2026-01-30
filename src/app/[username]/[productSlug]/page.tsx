@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { getProduct, getProductBySlug, getBusinessByProduct, getProductsByBusiness, unredeemQRCodePrize } from '@/lib/database'
+import { getProduct, getProductBySlug, getBusinessByProduct, getProductsByBusiness, unredeemQRCodePrize, trackReferralClick } from '@/lib/database'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import type { Product, Business } from '@/types/index'
 import CartSidebar from '@/components/CartSidebar'
@@ -93,6 +93,20 @@ export default function ProductPageByUsername() {
       loadProduct()
     }
   }, [productSlug])
+
+  // Detectar código de referido en URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const ref = params.get('ref')
+
+    if (ref) {
+      // Guardar en localStorage
+      localStorage.setItem('pendingReferral', ref)
+
+      // Registrar click
+      trackReferralClick(ref).catch(console.error)
+    }
+  }, [])
 
   useEffect(() => {
     if (business?.id) {
