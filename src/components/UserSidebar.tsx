@@ -167,17 +167,6 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
 
     const [userLocations, setUserLocations] = useState<any[]>([])
 
-    // Referral states
-    const [referrals, setReferrals] = useState<any[]>([])
-    const [referralStats, setReferralStats] = useState({
-        totalClicks: 0,
-        totalSales: 0,
-        totalCredits: 0
-    })
-    const [loadingReferrals, setLoadingReferrals] = useState(false)
-    const [showReferrals, setShowReferrals] = useState(false)
-    const [copyingId, setCopyingId] = useState<string | null>(null)
-
 
     // Modal states
     const [isLocationModalOpen, setIsLocationModalOpen] = useState(false)
@@ -268,7 +257,6 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                     }
                 }
 
-                // Default fallback: select first location if no match found
                 if (!foundMatch && locs && locs.length > 0) {
                     handleSelectLocation(locs[0])
                 }
@@ -279,73 +267,6 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
             setSavedLocation(null)
         }
     }, [user])
-
-    // Load referral data when user changes or showReferrals is toggled
-    useEffect(() => {
-        if (user?.id) {
-            const loadReferralData = async () => {
-                console.log('🚀 Debug Referral - Sidebar loading data for user ID:', user.id, 'and phone:', user.celular)
-                setLoadingReferrals(true)
-                try {
-                    // Consultar por ambos IDs para compatibilidad con registros antiguos
-                    const [referralsById, referralsByPhone, creditsById, creditsByPhone] = await Promise.all([
-                        getUserReferrals(user.id),
-                        user.celular ? getUserReferrals(user.celular) : Promise.resolve([]),
-                        getAllUserCredits(user.id),
-                        user.celular ? getAllUserCredits(user.celular) : Promise.resolve([])
-                    ])
-
-                    // Combinar referidos y eliminar duplicados
-                    const combinedReferrals = [...referralsById]
-                    referralsByPhone.forEach(ref => {
-                        if (!combinedReferrals.some(r => r.id === ref.id)) {
-                            combinedReferrals.push(ref)
-                        }
-                    })
-
-                    // Combinar créditos y eliminar duplicados (por businessId)
-                    const combinedCredits = [...creditsById]
-                    creditsByPhone.forEach(credit => {
-                        if (!combinedCredits.some(c => c.businessId === credit.businessId)) {
-                            combinedCredits.push(credit)
-                        } else {
-                            // Si ya existe por businessId, sumar los créditos (opcional, dependiendo de si queremos consolidar)
-                            const index = combinedCredits.findIndex(c => c.businessId === credit.businessId)
-                            combinedCredits[index].availableCredits = (combinedCredits[index].availableCredits || 0) + (credit.availableCredits || 0)
-                            combinedCredits[index].totalCredits = (combinedCredits[index].totalCredits || 0) + (credit.totalCredits || 0)
-                        }
-                    })
-
-                    // Ordenar referidos por fecha descendente
-                    combinedReferrals.sort((a, b) => {
-                        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt)
-                        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt)
-                        return dateB.getTime() - dateA.getTime()
-                    })
-
-                    console.log('🚀 Debug Referral - Sidebar data combined:', {
-                        referralsCount: combinedReferrals.length,
-                        creditsCount: combinedCredits.length
-                    })
-
-                    setReferrals(combinedReferrals)
-
-                    const stats = {
-                        totalClicks: combinedReferrals.reduce((sum, r) => sum + (r.clicks || 0), 0),
-                        totalSales: combinedReferrals.reduce((sum, r) => sum + (r.conversions || 0), 0),
-                        totalCredits: combinedCredits.reduce((sum, c) => sum + (c.availableCredits || 0), 0)
-                    }
-                    setReferralStats(stats)
-                } catch (error) {
-                    console.error('Error loading referral data:', error)
-                } finally {
-                    setLoadingReferrals(false)
-                }
-            }
-
-            loadReferralData()
-        }
-    }, [user, isOpen]) // Recargar cuando se abre el sidebar
 
     const handleLocationCreated = (newLocation: ClientLocation) => {
         setUserLocations(prev => [...prev, newLocation])
@@ -555,23 +476,6 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
         localStorage.removeItem('clientData')
         onClose()
         router.push('/')
-    }
-
-    const handleCopyLink = async (ref: any) => {
-        const url = `${window.location.origin}/${ref.businessUsername || 'shop'}/${ref.productSlug || ref.productId}?ref=${ref.code}`
-        try {
-            await navigator.clipboard.writeText(url)
-            setCopyingId(ref.id)
-            setTimeout(() => setCopyingId(null), 2000)
-        } catch (e) {
-            console.error('Error copying link:', e)
-        }
-    }
-
-    const handleShareWhatsApp = (ref: any) => {
-        const url = `${window.location.origin}/${ref.businessUsername || 'shop'}/${ref.productSlug || ref.productId}?ref=${ref.code}`
-        const text = `Te recomiendo este producto en Fuddi: ${ref.productName}\n\nMíralo aquí: ${url}`
-        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
     }
 
     const getInitials = (name: string) => {
@@ -893,112 +797,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                         <i className="bi bi-chevron-right text-gray-300 group-hover:text-gray-900 transition-colors"></i>
                                     </Link>
 
-                                    {/* Sección de Referidos / Recomendaciones */}
-                                    <div className="space-y-3">
-                                        <button
-                                            onClick={() => setShowReferrals(!showReferrals)}
-                                            className="w-full flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:border-gray-900 group transition-all"
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center text-red-500 group-hover:bg-red-500 group-hover:text-white transition-all">
-                                                    <i className="bi bi-gift text-xl"></i>
-                                                </div>
-                                                <span className="font-black text-gray-900">Mis Recomendaciones</span>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                {referralStats.totalCredits > 0 && (
-                                                    <span className="bg-emerald-500 text-white text-[10px] rounded-full px-2 py-0.5 font-black flex items-center gap-1">
-                                                        <i className="bi bi-star-fill text-[8px]"></i>
-                                                        {referralStats.totalCredits}
-                                                    </span>
-                                                )}
-                                                <i className={`bi bi-chevron-${showReferrals ? 'up' : 'down'} text-gray-300 group-hover:text-gray-900 transition-colors`}></i>
-                                            </div>
-                                        </button>
-
-                                        {showReferrals && (
-                                            <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300 ml-4">
-                                                {/* Card de Resumen */}
-                                                <div className="bg-gradient-to-br from-red-500 to-pink-600 p-5 rounded-[2rem] text-white shadow-lg shadow-red-200/50">
-                                                    <div className="flex justify-between items-center mb-4">
-                                                        <div>
-                                                            <p className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">Recompensa Total</p>
-                                                            <h3 className="text-3xl font-black">{referralStats.totalCredits} <span className="text-sm font-bold opacity-80">Créditos</span></h3>
-                                                        </div>
-                                                        <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center">
-                                                            <i className="bi bi-lightning-fill text-2xl"></i>
-                                                        </div>
-                                                    </div>
-                                                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/10">
-                                                        <div>
-                                                            <p className="text-[10px] font-black uppercase tracking-widest opacity-80">Clics Totales</p>
-                                                            <p className="text-xl font-black">{referralStats.totalClicks}</p>
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-[10px] font-black uppercase tracking-widest opacity-80">Ventas</p>
-                                                            <p className="text-xl font-black">{referralStats.totalSales}</p>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                {/* Lista de productos recomendados */}
-                                                <div className="space-y-2">
-                                                    {loadingReferrals ? (
-                                                        <div className="py-4 text-center">
-                                                            <i className="bi bi-arrow-repeat animate-spin text-gray-300 text-xl"></i>
-                                                        </div>
-                                                    ) : referrals.length > 0 ? (
-                                                        referrals.map((ref) => (
-                                                            <div key={ref.id} className="bg-white p-3 rounded-2xl border border-gray-100 flex items-center gap-3">
-                                                                <div className="w-12 h-12 rounded-xl bg-gray-50 overflow-hidden flex-shrink-0 border border-gray-100">
-                                                                    {ref.productImage ? (
-                                                                        <img src={ref.productImage} alt={ref.productName} className="w-full h-full object-cover" />
-                                                                    ) : (
-                                                                        <div className="w-full h-full flex items-center justify-center text-gray-300">
-                                                                            <i className="bi bi-image text-xl"></i>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                                <div className="flex-1 min-w-0">
-                                                                    <h5 className="font-bold text-gray-900 text-xs truncate leading-tight">{ref.productName || 'Producto'}</h5>
-                                                                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest truncate">{ref.businessName || 'Tienda'}</p>
-                                                                    <div className="flex items-center gap-3 mt-1">
-                                                                        <span className="text-[10px] font-bold text-gray-500 flex items-center gap-1">
-                                                                            <i className="bi bi-cursor-fill text-[8px]"></i> {ref.clicks || 0}
-                                                                        </span>
-                                                                        <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1">
-                                                                            <i className="bi bi-cart-check-fill text-[8px]"></i> {ref.conversions || 0}
-                                                                        </span>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex items-center gap-2">
-                                                                    <button
-                                                                        onClick={() => handleCopyLink(ref)}
-                                                                        className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-gray-900 hover:text-white transition-all shadow-sm"
-                                                                        title="Copiar link"
-                                                                    >
-                                                                        <i className={`bi ${copyingId === ref.id ? 'bi-check-lg text-emerald-500' : 'bi-link-45deg'} text-sm`}></i>
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => handleShareWhatsApp(ref)}
-                                                                        className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-500 hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
-                                                                        title="Compartir por WhatsApp"
-                                                                    >
-                                                                        <i className="bi bi-whatsapp text-xs"></i>
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        ))
-                                                    ) : (
-                                                        <div className="p-8 text-center bg-white rounded-2xl border border-dashed border-gray-200">
-                                                            <i className="bi bi-gift text-2xl text-gray-100 block mb-2"></i>
-                                                            <p className="text-xs font-bold text-gray-400 italic">Aún no has recomendado productos</p>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
+                                    {/* Sección de Stickers o Extras */}
 
                                     <Link
                                         href="/collection"

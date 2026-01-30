@@ -12,7 +12,9 @@ import {
   getQRCodesByBusiness,
   redeemQRCodePrize,
   unredeemQRCodePrize,
-  storage
+  storage,
+  getUserReferrals,
+  getAllUserCredits
 } from '@/lib/database'
 import CartSidebar from '@/components/CartSidebar'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -43,7 +45,7 @@ interface EnrichedCard {
 export default function ProfilePage() {
   const { user, isAuthenticated, login } = useAuth()
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<'locations' | 'cards' | 'reviews' | 'info'>('cards')
+  const [activeTab, setActiveTab] = useState<'locations' | 'cards' | 'reviews' | 'info' | 'recommendations'>('cards')
 
   // DATA STATES
   const [locations, setLocations] = useState<any[]>([])
@@ -67,6 +69,16 @@ export default function ProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(false)
+
+  // REFERRAL STATES
+  const [referrals, setReferrals] = useState<any[]>([])
+  const [referralStats, setReferralStats] = useState({
+    totalClicks: 0,
+    totalSales: 0,
+    totalCredits: 0
+  })
+  const [loadingReferrals, setLoadingReferrals] = useState(false)
+  const [copyingId, setCopyingId] = useState<string | null>(null)
 
   // INIT
   useEffect(() => {
@@ -162,6 +174,59 @@ export default function ProfilePage() {
 
     } catch (e) {
       console.error('Error loading cards progress:', e)
+    }
+
+    // 3. Cargar Datos de Referidos (Búsqueda Dual)
+    if (user?.id) {
+      setLoadingReferrals(true)
+      try {
+        const [referralsById, referralsByPhone, creditsById, creditsByPhone] = await Promise.all([
+          getUserReferrals(user.id),
+          user.celular ? getUserReferrals(user.celular) : Promise.resolve([]),
+          getAllUserCredits(user.id),
+          user.celular ? getAllUserCredits(user.celular) : Promise.resolve([])
+        ])
+
+        // Combinar referidos y eliminar duplicados
+        const combinedReferrals = [...referralsById]
+        referralsByPhone.forEach(ref => {
+          if (!combinedReferrals.some(r => r.id === ref.id)) {
+            combinedReferrals.push(ref)
+          }
+        })
+
+        // Combinar créditos y eliminar duplicados (por businessId)
+        const combinedCredits = [...creditsById]
+        creditsByPhone.forEach(credit => {
+          if (!combinedCredits.some(c => c.businessId === credit.businessId)) {
+            combinedCredits.push(credit)
+          } else {
+            const index = combinedCredits.findIndex(c => c.businessId === credit.businessId)
+            combinedCredits[index].availableCredits = (combinedCredits[index].availableCredits || 0) + (credit.availableCredits || 0)
+            combinedCredits[index].totalCredits = (combinedCredits[index].totalCredits || 0) + (credit.totalCredits || 0)
+          }
+        })
+
+        // Ordenar referidos por fecha descendente
+        combinedReferrals.sort((a, b) => {
+          const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt)
+          const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt)
+          return dateB.getTime() - dateA.getTime()
+        })
+
+        setReferrals(combinedReferrals)
+
+        const stats = {
+          totalClicks: combinedReferrals.reduce((sum, r) => sum + (r.clicks || 0), 0),
+          totalSales: combinedReferrals.reduce((sum, r) => sum + (r.conversions || 0), 0),
+          totalCredits: combinedCredits.reduce((sum, c) => sum + (c.availableCredits || 0), 0)
+        }
+        setReferralStats(stats)
+      } catch (error) {
+        console.error('Error loading referral data:', error)
+      } finally {
+        setLoadingReferrals(false)
+      }
     }
   }
 
@@ -304,6 +369,20 @@ export default function ProfilePage() {
     }
     setSelectedBusinessCart(newCart)
     updateCartInStorage(selectedBusiness.id, newCart)
+  }
+
+  // REFERRAL HANDLERS
+  const handleCopyLink = (referral: any) => {
+    const referralUrl = `${window.location.origin}/${referral.businessUsername}/${referral.productSlug}?ref=${referral.code}`
+    navigator.clipboard.writeText(referralUrl)
+    setCopyingId(referral.id)
+    setTimeout(() => setCopyingId(null), 2000)
+  }
+
+  const handleShareWhatsApp = (referral: any) => {
+    const referralUrl = `${window.location.origin}/${referral.businessUsername}/${referral.productSlug}?ref=${referral.code}`
+    const message = `¡Mira este producto en ${referral.businessName}! 🤩\n\n${referral.productName}\n${referralUrl}`
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank')
   }
 
   const handleRedeem = async (card: EnrichedCard, qr: any) => {
@@ -488,6 +567,18 @@ export default function ProfilePage() {
               Reseñas
             </button>
             <button
+              onClick={() => setActiveTab('recommendations')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm mr-8 whitespace-nowrap ${activeTab === 'recommendations'
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+            >
+              Mis Recomendaciones
+              <span className="ml-2 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">
+                {referrals.length}
+              </span>
+            </button>
+            <button
               onClick={() => setActiveTab('info')}
               className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${activeTab === 'info'
                 ? 'border-gray-900 text-gray-900'
@@ -632,6 +723,99 @@ export default function ProfilePage() {
           <div className="py-12 text-center bg-white rounded-xl border border-dashed border-gray-300">
             <i className="bi bi-star text-4xl text-gray-300 mb-3 block"></i>
             <p className="text-gray-500">Aún no has escrito reseñas.</p>
+          </div>
+        )}
+
+        {/* RECOMENDACIONES */}
+        {activeTab === 'recommendations' && (
+          <div className="space-y-6">
+            {/* Dashboard de Impacto */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm text-center">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center mx-auto mb-2">
+                  <i className="bi bi-wallet2 text-sm"></i>
+                </div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Créditos</p>
+                <p className="text-xl font-black text-gray-900">${referralStats.totalCredits.toFixed(2)}</p>
+              </div>
+              <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm text-center">
+                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center mx-auto mb-2">
+                  <i className="bi bi-mouse2 text-sm"></i>
+                </div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Clics</p>
+                <p className="text-xl font-black text-gray-900">{referralStats.totalClicks}</p>
+              </div>
+              <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm text-center">
+                <div className="w-8 h-8 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center mx-auto mb-2">
+                  <i className="bi bi-bag-check text-sm"></i>
+                </div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Ventas</p>
+                <p className="text-xl font-black text-gray-900">{referralStats.totalSales}</p>
+              </div>
+            </div>
+
+            {/* Listado de Productos Recomendados */}
+            <div className="space-y-3">
+              <h3 className="font-black text-gray-900 text-lg">Productos Recomendados</h3>
+              {loadingReferrals ? (
+                <div className="py-12 text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+                </div>
+              ) : referrals.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {referrals.map((ref: any) => (
+                    <div key={ref.id} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 hover:border-gray-900 transition-all group">
+                      <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-50 flex-shrink-0 border border-gray-50">
+                        <img
+                          src={ref.productImage || '/placeholder.png'}
+                          alt={ref.productName}
+                          className="w-full h-full object-cover"
+                          onError={(e: any) => e.target.src = '/default-restaurant-og.svg'}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-black text-gray-900 text-sm truncate">{ref.productName}</h4>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider truncate mb-2">{ref.businessName}</p>
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-1">
+                            <i className="bi bi-mouse2 text-[10px] text-gray-300"></i>
+                            <span className="text-[10px] font-bold text-gray-500">{ref.clicks || 0} clics</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <i className="bi bi-bag-check text-[10px] text-gray-300"></i>
+                            <span className="text-[10px] font-bold text-gray-500">{ref.conversions || 0} ventas</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleCopyLink(ref)}
+                          className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-gray-900 hover:text-white transition-all shadow-sm"
+                          title="Copiar link"
+                        >
+                          <i className={`bi ${copyingId === ref.id ? 'bi-check-lg text-emerald-500' : 'bi-link-45deg'} text-lg`}></i>
+                        </button>
+                        <button
+                          onClick={() => handleShareWhatsApp(ref)}
+                          className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-500 hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
+                          title="Compartir por WhatsApp"
+                        >
+                          <i className="bi bi-whatsapp text-sm"></i>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-12 text-center bg-white rounded-2xl border border-dashed border-gray-200">
+                  <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
+                    <i className="bi bi-share text-2xl"></i>
+                  </div>
+                  <p className="text-gray-500 font-bold">Aún no has recomendado productos.</p>
+                  <p className="text-xs text-gray-400 mt-1">Comparte tus productos favoritos y gana créditos.</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
