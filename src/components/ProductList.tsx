@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { Business, Product, ProductVariant, Ingredient } from '@/types'
 import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem } from '@/lib/database'
+import { optimizeImage } from '@/lib/image-utils'
 
 interface ProductListProps {
   business: Business | null
@@ -403,8 +404,11 @@ export default function ProductList({
       let imageUrl = editingProduct?.image || ''
       if (formData.image) {
         const timestamp = Date.now()
-        const path = `products/${timestamp}_${formData.image.name}`
-        imageUrl = await uploadImage(formData.image, path)
+        const path = `products/${timestamp}_${formData.image.name.split('.')[0]}.webp`
+
+        // Optimizar imagen antes de subir (Max 1000px, 0.8 calidad, formato WebP)
+        const optimizedBlob = await optimizeImage(formData.image, 1000, 0.8)
+        imageUrl = await uploadImage(optimizedBlob as File, path)
       }
 
       // Agregar ingredientes a cada variante
