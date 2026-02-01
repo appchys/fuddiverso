@@ -27,7 +27,8 @@ import LocationMap from '@/components/LocationMap'
 import LocationSelectionModal from '@/components/LocationSelectionModal'
 import { useAuth } from '@/contexts/AuthContext'
 import { storage } from '@/lib/firebase'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { optimizeImage } from '@/lib/image-utils'
 import { Timestamp } from 'firebase/firestore'
 import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate, getNextAvailableSlot } from '@/lib/store-utils'
 
@@ -74,16 +75,26 @@ function TransferReceiptUploader({
     if (!validateFile(file)) return
 
     try {
-      // Crear preview local
-      const previewUrl = URL.createObjectURL(file)
+      // Optimizar imagen antes de subir (maxWidth=1200 por defecto para comprobantes, calidad 0.7)
+      const optimizedBlob = await optimizeImage(file, 1200, 0.7)
+
+      // Crear un nuevo archivo WebP a partir del blob
+      const optimizedFile = new File(
+        [optimizedBlob],
+        file.name.replace(/\.[^/.]+$/, "") + ".webp",
+        { type: 'image/webp' }
+      )
+
+      // Crear preview local con la imagen optimizada
+      const previewUrl = URL.createObjectURL(optimizedFile)
       setPreviewImage(previewUrl)
 
       // Subir a Firebase Storage siguiendo la estructura: comprobantes/{clientId}/{timestamp}_{filename}
       const timestamp = Date.now()
-      const fileName = `comprobantes/${clientId}/${timestamp}_${file.name}`
+      const fileName = `comprobantes/${clientId}/${timestamp}_${optimizedFile.name}`
       const storageRef = ref(storage, fileName)
 
-      await uploadBytes(storageRef, file)
+      await uploadBytes(storageRef, optimizedFile)
       const downloadUrl = await getDownloadURL(storageRef)
 
       // Limpiar preview local y usar URL de Firebase
