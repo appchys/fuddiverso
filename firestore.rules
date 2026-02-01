@@ -25,16 +25,16 @@ service cloud.firestore {
       
       // Subcolección de biblioteca de ingredientes
       match /ingredientLibrary/{ingredientId} {
-        // Lectura: usuarios autenticados pueden leer ingredientes de su negocio
-        allow read: if request.auth != null;
-        // Escritura: usuarios autenticados pueden crear/actualizar/eliminar ingredientes
-        allow write: if request.auth != null;
+        // Lectura: pública (necesario para que el cliente vea info de ingredientes si aplica)
+        allow read: if true;
+        // Escritura: pública para que recordStockMovement pueda actualizar usageCount
+        allow write: if true;
       }
       
       // Subcolección de biblioteca de ingredientes únicos
       match /businessIngredients/{ingredientId} {
-        allow read: if request.auth != null;
-        allow write: if request.auth != null;
+        allow read: if true; // Lectura pública para checkout
+        allow write: if true; // Escritura pública para que el cliente descuente stock
       }
       
       // Subcolección de calificaciones
@@ -127,7 +127,8 @@ service cloud.firestore {
     // Colección de deliveries (repartidores)
     // Acceso restringido a usuarios autenticados (admin/bussiness)
     match /deliveries/{document} {
-      allow read: if request.auth != null;
+      // Lectura pública: necesaria para tracking y para asignar delivery predeterminado en checkout
+      allow read: if true;
       allow write: if request.auth != null;
     }
 
@@ -199,14 +200,10 @@ service cloud.firestore {
       allow read: if request.auth != null &&
         request.auth.uid != null;
       
-      // Escritura: usuarios autenticados pueden crear/actualizar movimientos
-      // Se valida en la aplicación que pertenezcan al negocio correcto
-      allow create, update: if request.auth != null &&
-        request.auth.uid != null &&
-        request.resource.data.businessId is string;
-      
-      // Eliminación: permitida para usuarios autenticados (para recuperación de stock al borrar órdenes)
-      allow delete: if request.auth != null;
+      // Escritura: permitir creación pública (descuento automático de stock) 
+      // pero actualización/eliminación solo a usuarios autenticados
+      allow create: if true;
+      allow update, delete: if request.auth != null;
     }
 
     // Sistema de Referidos - Colección de links de referido

@@ -26,8 +26,6 @@ export default function OrderPublicClient({ orderId }: Props) {
   const [rating, setRating] = useState(0)
   const [hover, setHover] = useState(0)
   const [review, setReview] = useState('')
-  const [clientName, setClientName] = useState('')
-  const [clientEmail, setClientEmail] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [reviewSubmitted, setReviewSubmitted] = useState(false)
   const [orderRated, setOrderRated] = useState(false)
@@ -60,9 +58,9 @@ export default function OrderPublicClient({ orderId }: Props) {
 
     setIsSubmitting(true);
     try {
-      // Usar el nombre del cliente de la orden (customer.name) si existe, o el proporcionado en el formulario
-      const clientNameToUse = clientName.trim() || order.customer?.name || 'Cliente';
-      // Usar el teléfono del cliente de la orden (customer.phone) si existe
+      // Usar el nombre del cliente de la orden (customer.name)
+      const clientNameToUse = order.customer?.name || 'Cliente';
+      // Usar el teléfono del cliente de la orden (customer.phone)
       const clientPhone = order.customer?.phone || '';
 
       await saveBusinessRating(
@@ -72,8 +70,7 @@ export default function OrderPublicClient({ orderId }: Props) {
         review,
         {
           name: clientNameToUse,
-          phone: clientPhone,
-          email: clientEmail.trim() || undefined
+          phone: clientPhone
         }
       );
 
@@ -743,16 +740,16 @@ export default function OrderPublicClient({ orderId }: Props) {
                 )}
               </div>
               <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl ${timeInfo.isLate ? 'bg-red-100 text-red-600' :
-                  (order.status === 'on_way' && estimatedArrival ? 'bg-blue-100 text-blue-600' : 'bg-orange-50 text-orange-500')
+                (order.status === 'on_way' && estimatedArrival ? 'bg-blue-100 text-blue-600' : 'bg-orange-50 text-orange-500')
                 }`}>
                 <i className={`bi ${timeInfo.isLate ? 'bi-exclamation-triangle' :
-                    (order.status === 'on_way' && estimatedArrival ? 'bi-bicycle' : 'bi-clock-history')
+                  (order.status === 'on_way' && estimatedArrival ? 'bi-bicycle' : 'bi-clock-history')
                   }`}></i>
               </div>
             </div>
             {/* Decoración de fondo */}
             <div className={`absolute -right-4 -bottom-4 w-24 h-24 rounded-full opacity-10 ${timeInfo.isLate ? 'bg-red-500' :
-                (order.status === 'on_way' && estimatedArrival ? 'bg-blue-500' : 'bg-orange-500')
+              (order.status === 'on_way' && estimatedArrival ? 'bg-blue-500' : 'bg-orange-500')
               }`}></div>
           </div>
         )}
@@ -902,29 +899,6 @@ export default function OrderPublicClient({ orderId }: Props) {
               </div>
 
               <div className="space-y-4 text-left">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Tu nombre</label>
-                    <input
-                      type="text"
-                      className="w-full px-4 py-3 bg-slate-50 border border-gray-100 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none transition-all placeholder:text-gray-300"
-                      placeholder="Ej: Juan P."
-                      value={clientName}
-                      onChange={(e) => setClientName(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Tu correo</label>
-                    <input
-                      type="email"
-                      className="w-full px-4 py-3 bg-slate-50 border border-gray-100 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none transition-all placeholder:text-gray-300"
-                      placeholder="opcional"
-                      value={clientEmail}
-                      onChange={(e) => setClientEmail(e.target.value)}
-                    />
-                  </div>
-                </div>
-
                 <div>
                   <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Comentario</label>
                   <textarea
@@ -969,7 +943,7 @@ export default function OrderPublicClient({ orderId }: Props) {
             className="w-full bg-white border-2 border-green-500 text-green-600 font-black uppercase tracking-widest text-xs py-4 rounded-2xl flex items-center justify-center gap-3 transition-all hover:bg-green-50 active:scale-95"
           >
             <i className="bi bi-whatsapp text-lg"></i>
-            Pedir asistencia por WhatsApp
+            Obtener comprobante
           </button>
 
           {order.status !== 'delivered' && order.status !== 'cancelled' && (
@@ -985,76 +959,80 @@ export default function OrderPublicClient({ orderId }: Props) {
       </div>
 
       {/* Modal de confirmación Premium */}
-      {showReceivedConfirm && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
-          <div className="bg-white rounded-[32px] shadow-2xl max-w-sm w-full p-8 text-center animate-in zoom-in-95 duration-300">
-            <div className="mx-auto w-20 h-20 rounded-3xl bg-blue-50 text-blue-600 flex items-center justify-center text-4xl mb-6">
-              <i className="bi bi-box-seam"></i>
-            </div>
-            <h3 className="text-xl font-black text-gray-900 mb-2">¿Recibiste tu pedido?</h3>
-            <p className="text-sm text-gray-500 font-medium mb-8">
-              Confirma si ya tienes todo en tus manos para completar el proceso.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowReceivedConfirm(false)}
-                className="flex-1 py-4 bg-slate-50 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-100 transition-colors"
-                disabled={loading}
-              >
-                No aún
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    setLoading(true);
-                    await updateOrderStatus(orderId, 'delivered');
-                    const updatedOrder = await getOrder(orderId);
-                    if (updatedOrder) setOrder(updatedOrder);
-                    setShowReceivedConfirm(false);
-                  } catch (error) {
-                    alert('Hubo un error. Intenta de nuevo.');
-                  } finally {
-                    setLoading(false);
-                  }
-                }}
-                className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all flex items-center justify-center"
-                disabled={loading}
-              >
-                {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : 'Confirmar'}
-              </button>
+      {
+        showReceivedConfirm && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+            <div className="bg-white rounded-[32px] shadow-2xl max-w-sm w-full p-8 text-center animate-in zoom-in-95 duration-300">
+              <div className="mx-auto w-20 h-20 rounded-3xl bg-blue-50 text-blue-600 flex items-center justify-center text-4xl mb-6">
+                <i className="bi bi-box-seam"></i>
+              </div>
+              <h3 className="text-xl font-black text-gray-900 mb-2">¿Recibiste tu pedido?</h3>
+              <p className="text-sm text-gray-500 font-medium mb-8">
+                Confirma si ya tienes todo en tus manos para completar el proceso.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowReceivedConfirm(false)}
+                  className="flex-1 py-4 bg-slate-50 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-100 transition-colors"
+                  disabled={loading}
+                >
+                  No aún
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      setLoading(true);
+                      await updateOrderStatus(orderId, 'delivered');
+                      const updatedOrder = await getOrder(orderId);
+                      if (updatedOrder) setOrder(updatedOrder);
+                      setShowReceivedConfirm(false);
+                    } catch (error) {
+                      alert('Hubo un error. Intenta de nuevo.');
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all flex items-center justify-center"
+                  disabled={loading}
+                >
+                  {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : 'Confirmar'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal Comprobante Premium */}
-      {showReceiptModal && order.payment?.receiptImageUrl && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/90 backdrop-blur-md p-4 animate-in fade-in duration-300"
-          onClick={() => setShowReceiptModal(false)}
-        >
-          <div className="relative max-w-2xl w-full bg-white rounded-[32px] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Comprobante de pago</h3>
-              <button onClick={() => setShowReceiptModal(false)} className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center hover:bg-gray-100 transition-colors">
-                <i className="bi bi-x-lg"></i>
-              </button>
-            </div>
-            <div className="p-4 max-h-[70vh] overflow-auto">
-              <img src={order.payment.receiptImageUrl} alt="Comprobante" className="w-full h-auto rounded-2xl shadow-inner border border-gray-50" />
-            </div>
-            <div className="p-6 bg-gray-50 flex gap-3">
-              <button
-                onClick={() => window.open(order.payment.receiptImageUrl, '_blank')}
-                className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-blue-200 hover:scale-[1.02] active:scale-95 transition-all"
-              >
-                <i className="bi bi-box-arrow-up-right"></i>
-                Expandir imagen
-              </button>
+      {
+        showReceiptModal && order.payment?.receiptImageUrl && (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/90 backdrop-blur-md p-4 animate-in fade-in duration-300"
+            onClick={() => setShowReceiptModal(false)}
+          >
+            <div className="relative max-w-2xl w-full bg-white rounded-[32px] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Comprobante de pago</h3>
+                <button onClick={() => setShowReceiptModal(false)} className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center hover:bg-gray-100 transition-colors">
+                  <i className="bi bi-x-lg"></i>
+                </button>
+              </div>
+              <div className="p-4 max-h-[70vh] overflow-auto">
+                <img src={order.payment.receiptImageUrl} alt="Comprobante" className="w-full h-auto rounded-2xl shadow-inner border border-gray-50" />
+              </div>
+              <div className="p-6 bg-gray-50 flex gap-3">
+                <button
+                  onClick={() => window.open(order.payment.receiptImageUrl, '_blank')}
+                  className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-blue-200 hover:scale-[1.02] active:scale-95 transition-all"
+                >
+                  <i className="bi bi-box-arrow-up-right"></i>
+                  Expandir imagen
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   )
 }
