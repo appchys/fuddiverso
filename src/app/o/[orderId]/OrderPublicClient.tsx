@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getOrder, getBusiness, getDelivery, saveBusinessRating, hasOrderBeenRated, updateOrderStatus, createRatingNotification, generateReferralLink, trackReferralClick, generateProductSlug } from '@/lib/database'
+import { getOrder, getBusiness, getDelivery, saveBusinessRating, hasOrderBeenRated, updateOrderStatus, createRatingNotification, generateReferralLink, trackReferralClick, generateProductSlug, getAllBusinesses } from '@/lib/database'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 import { sendOrderToStore } from '@/components/WhatsAppUtils'
 import { useAuth } from '@/contexts/AuthContext'
@@ -40,6 +40,7 @@ export default function OrderPublicClient({ orderId }: Props) {
   const [referralModalOpen, setReferralModalOpen] = useState(false)
   const [selectedProductForReferral, setSelectedProductForReferral] = useState<any>(null)
   const [generatedReferralLink, setGeneratedReferralLink] = useState<string>('')
+  const [otherBusinesses, setOtherBusinesses] = useState<any[]>([])
 
 
   // Verificar si la orden ya fue calificada
@@ -239,6 +240,26 @@ export default function OrderPublicClient({ orderId }: Props) {
       if (unsubscribe) unsubscribe()
     }
   }, [order?.delivery?.assignedDelivery, order?.status, order?.delivery?.latlong])
+
+  // Cargar otras tiendas para descubrimiento
+  useEffect(() => {
+    const loadOtherBusinesses = async () => {
+      try {
+        const all = await getAllBusinesses();
+        const filtered = all
+          .filter(b => b.id !== order?.businessId && !b.isHidden)
+          .sort(() => 0.5 - Math.random())
+          .slice(0, 4);
+        setOtherBusinesses(filtered);
+      } catch (error) {
+        console.error('Error loading other businesses:', error);
+      }
+    };
+
+    if (order?.businessId) {
+      loadOtherBusinesses();
+    }
+  }, [order?.businessId]);
 
   const formatDate = (d: any, timeOnly: boolean = false) => {
     try {
@@ -1115,6 +1136,50 @@ export default function OrderPublicClient({ orderId }: Props) {
               <i className="bi bi-shop"></i>
               Visitar {business.name}
             </a>
+          )}
+
+          {/* Sección Descubre otras tiendas */}
+          {otherBusinesses.length > 0 && (
+            <div className="pt-8 pb-4">
+              <div className="flex items-center gap-2 mb-6 ml-2">
+                <div className="w-8 h-8 rounded-xl bg-red-50 text-red-500 flex items-center justify-center">
+                  <i className="bi bi-compass"></i>
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">Descubre otras tiendas</h3>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Seleccionadas para ti</p>
+                </div>
+              </div>
+
+              <div className="flex gap-4 overflow-x-auto pb-6 scrollbar-hide -mx-4 px-4">
+                {otherBusinesses.map((biz) => (
+                  <a
+                    key={biz.id}
+                    href={`/${biz.username}`}
+                    className="flex-shrink-0 w-32 group bg-white rounded-[32px] p-4 border border-gray-100 shadow-sm hover:border-red-500 hover:shadow-md transition-all active:scale-95 text-center"
+                  >
+                    <div className="w-16 h-16 rounded-full overflow-hidden mx-auto mb-3 bg-gray-50 border border-gray-50 group-hover:border-red-100 transition-colors shadow-inner">
+                      {biz.image ? (
+                        <img src={biz.image} alt={biz.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-300">
+                          <i className="bi bi-shop text-2xl"></i>
+                        </div>
+                      )}
+                    </div>
+                    <h4 className="text-[11px] font-black text-gray-900 line-clamp-2 uppercase tracking-tight mb-2 min-h-[2.5rem] flex items-center justify-center leading-tight">
+                      {biz.name}
+                    </h4>
+                    {biz.ratingAverage > 0 && (
+                      <div className="flex items-center justify-center gap-1 text-[9px] font-black text-yellow-500 bg-yellow-50 w-fit mx-auto px-2 py-0.5 rounded-full uppercase tracking-widest">
+                        <i className="bi bi-star-fill"></i>
+                        {biz.ratingAverage.toFixed(1)}
+                      </div>
+                    )}
+                  </a>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>

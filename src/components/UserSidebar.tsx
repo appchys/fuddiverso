@@ -805,7 +805,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                             {user && activeOrders.length > 0 && (
                                 <div className="space-y-3">
                                     <div className="flex items-center justify-between ml-4 mb-1">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Órdenes Activas</p>
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Órdenes Activas</p>
                                         <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
                                     </div>
 
@@ -828,10 +828,10 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center justify-between gap-2">
-                                                        <h4 className="font-black text-gray-900 text-sm truncate uppercase tracking-tight">
+                                                        <h4 className="font-bold text-gray-900 text-[13px] truncate tracking-tight">
                                                             {order.businessName || 'Tienda'}
                                                         </h4>
-                                                        <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full uppercase tracking-widest">
+                                                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full uppercase tracking-widest">
                                                             {order.status === 'pending' ? 'Pendiente' :
                                                                 order.status === 'confirmed' ? 'Confirmado' :
                                                                     order.status === 'preparing' ? 'Preparando' :
@@ -853,7 +853,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
 
                             {user ? (
                                 <div className="space-y-2">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-4 mb-3">Mi Actividad</p>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 ml-4 mb-3">Mi Actividad</p>
 
                                     <Link
                                         href="/profile?tab=recommendations"
@@ -864,7 +864,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                             <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-500 group-hover:text-white transition-all">
                                                 <i className="bi bi-gift text-xl"></i>
                                             </div>
-                                            <span className="font-black text-gray-900">Mis Recomendaciones</span>
+                                            <span className="font-bold text-gray-900">Mis Recomendaciones</span>
                                         </div>
                                         <i className="bi bi-chevron-right text-gray-300 group-hover:text-gray-900 transition-colors"></i>
                                     </Link>
@@ -872,13 +872,13 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                     <Link
                                         href="/my-orders"
                                         onClick={onClose}
-                                        className="flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:border-gray-900 group transition-all"
+                                        className="flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:border-gray-900 hover:shadow-md group transition-all"
                                     >
                                         <div className="flex items-center gap-4">
                                             <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center text-orange-500 group-hover:bg-orange-500 group-hover:text-white transition-all">
                                                 <i className="bi bi-bag-check text-xl"></i>
                                             </div>
-                                            <span className="font-black text-gray-900">Mis Pedidos</span>
+                                            <span className="font-bold text-gray-900">Mis Pedidos</span>
                                         </div>
                                         <i className="bi bi-chevron-right text-gray-300 group-hover:text-gray-900 transition-colors"></i>
                                     </Link>
@@ -888,13 +888,13 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                     <Link
                                         href="/collection"
                                         onClick={onClose}
-                                        className="flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:border-gray-900 group transition-all"
+                                        className="flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:border-gray-900 hover:shadow-md group transition-all"
                                     >
                                         <div className="flex items-center gap-4">
                                             <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center text-purple-500 group-hover:bg-purple-500 group-hover:text-white transition-all">
                                                 <i className="bi bi-grid-1x2 text-xl"></i>
                                             </div>
-                                            <span className="font-black text-gray-900">Mis Stickers</span>
+                                            <span className="font-bold text-gray-900">Mis Stickers</span>
                                         </div>
                                         <i className="bi bi-chevron-right text-gray-300 group-hover:text-gray-900 transition-colors"></i>
                                     </Link>
@@ -902,13 +902,13 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                     <Link
                                         href="/my-locations"
                                         onClick={onClose}
-                                        className="flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:border-gray-900 group transition-all"
+                                        className="flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:border-gray-900 hover:shadow-md group transition-all"
                                     >
                                         <div className="flex items-center gap-4">
                                             <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-500 group-hover:bg-blue-500 group-hover:text-white transition-all">
                                                 <i className="bi bi-geo-alt text-xl"></i>
                                             </div>
-                                            <span className="font-black text-gray-900">Mis Ubicaciones</span>
+                                            <span className="font-bold text-gray-900">Mis Ubicaciones</span>
                                         </div>
                                         <i className="bi bi-chevron-right text-gray-300 group-hover:text-gray-900 transition-colors"></i>
                                     </Link>

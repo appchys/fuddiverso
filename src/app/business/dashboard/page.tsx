@@ -303,9 +303,9 @@ export default function BusinessDashboard() {
           ...businessAccess.adminBusinesses
         ];
 
-        // Remover duplicados por si acaso
+        // Remover duplicados y filtrar tiendas ocultas
         let uniqueBusinesses = allUserBusinesses.filter((business, index, self) =>
-          index === self.findIndex(b => b.id === business.id)
+          index === self.findIndex(b => b.id === business.id) && business.isHidden !== true
         );
 
         // Función para obtener el timestamp de una fecha de Firebase
@@ -335,11 +335,17 @@ export default function BusinessDashboard() {
           return 0;
         };
 
-        // Ordenar por fecha de creación (más antigua primero)
+        // Ordenar por fecha de creación (más antigua primero) y por nombre como fallback
         uniqueBusinesses = uniqueBusinesses.sort((a, b) => {
           const timeA = getTimestamp(a.createdAt);
           const timeB = getTimestamp(b.createdAt);
-          return timeA - timeB; // Orden ascendente (más antigua primero)
+
+          if (timeA !== timeB) {
+            return timeA - timeB; // Orden ascendente por tiempo
+          }
+
+          // Si el tiempo es igual (o ambos son 0), ordenar alfabéticamente por nombre
+          return (a.name || '').localeCompare(b.name || '');
         });
 
         setBusinesses(uniqueBusinesses);
@@ -2689,12 +2695,6 @@ export default function BusinessDashboard() {
                           <span className="text-gray-700 font-medium">
                             {business?.name || 'Cargando...'}
                           </span>
-                          {userRole && (
-                            <span className="text-xs text-gray-500">
-                              {userRole === 'owner' ? 'Propietario' :
-                                userRole === 'admin' ? 'Administrador' : 'Gerente'}
-                            </span>
-                          )}
                         </div>
                         <i className={`bi bi-chevron-down text-gray-500 text-xs transition-transform ${showBusinessDropdown ? 'rotate-180' : ''
                           }`}></i>
@@ -2742,18 +2742,24 @@ export default function BusinessDashboard() {
                                 <p className="font-medium text-gray-900 truncate">{biz.name}</p>
                                 <div className="flex items-center space-x-2">
                                   <p className="text-sm text-gray-500 truncate">@{biz.username}</p>
-                                  <span className={`text-xs px-2 py-0.5 rounded-full ${role === 'owner'
-                                    ? 'bg-red-100 text-red-700'
-                                    : 'bg-blue-100 text-blue-700'
-                                    }`}>
-                                    {role === 'owner' ? 'Propietario' :
-                                      role === 'admin' ? 'Admin' : 'Gerente'}
-                                  </span>
                                 </div>
                               </div>
-                              {selectedBusinessId === biz.id && (
-                                <i className="bi bi-check-circle-fill text-red-500 flex-shrink-0"></i>
-                              )}
+
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <a
+                                  href={`/${biz.username}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                  title="Visitar perfil"
+                                >
+                                  <i className="bi bi-shop text-lg"></i>
+                                </a>
+                                {selectedBusinessId === biz.id && (
+                                  <i className="bi bi-check-circle-fill text-red-500"></i>
+                                )}
+                              </div>
                             </button>
                           );
                         })}

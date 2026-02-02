@@ -711,8 +711,9 @@ function RestaurantContent() {
         try {
           const all = await getAllBusinesses()
           const others = all
-            .filter(b => b.username !== username && b.isActive !== false)
+            .filter(b => b.username !== username && b.isActive !== false && b.isHidden !== true)
             .sort(() => 0.5 - Math.random())
+            .slice(0, 4)
           setOtherBusinesses(others)
         } catch (e) {
           console.error('Error loading other businesses:', e)
