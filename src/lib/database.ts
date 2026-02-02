@@ -4149,6 +4149,57 @@ export async function getAllUserCredits(userId: string): Promise<any[]> {
 }
 
 /**
+ * Obtiene todos los créditos de todos los usuarios (Administrativo)
+ */
+export async function getAllUserCreditsGlobal(): Promise<any[]> {
+  try {
+    const q = query(collection(db, 'userCredits'), orderBy('totalCredits', 'desc'))
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }))
+  } catch (error) {
+    console.error('Error getting global user credits:', error)
+    return []
+  }
+}
+
+/**
+ * Obtiene todos los links de referido del sistema (Administrativo)
+ */
+export async function getAllReferralLinksGlobal(): Promise<any[]> {
+  try {
+    const q = query(collection(db, 'referralLinks'), orderBy('createdAt', 'desc'))
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }))
+  } catch (error) {
+    console.error('Error getting global referral links:', error)
+    return []
+  }
+}
+
+/**
+ * Obtiene todos los clientes registrados (Administrativo)
+ */
+export async function getAllClientsGlobal(): Promise<any[]> {
+  try {
+    const q = query(collection(db, 'clients'), orderBy('nombres', 'asc'))
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }))
+  } catch (error) {
+    console.error('Error getting global clients:', error)
+    return []
+  }
+}
+
+/**
  * Registra un click en un link de referido
  */
 export async function trackReferralClick(referralCode: string): Promise<void> {
