@@ -9,6 +9,7 @@ interface BusinessUser {
   uid: string
   email: string | null
   displayName: string | null
+  photoURL?: string | null
 }
 
 interface BusinessAuthContextType {
@@ -68,7 +69,8 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
         setUser({
           uid: firebaseUser.uid,
           email: firebaseUser.email,
-          displayName: firebaseUser.displayName
+          displayName: firebaseUser.displayName,
+          photoURL: firebaseUser.photoURL
         })
         setBusinessIdState(currentBusinessId)
         setOwnerIdState(currentOwnerId)

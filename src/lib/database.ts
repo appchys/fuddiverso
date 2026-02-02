@@ -398,6 +398,40 @@ export async function updateBusiness(businessId: string, data: Partial<Business>
   }
 }
 
+// Elimina un negocio y todos sus datos relacionados
+export async function deleteBusiness(businessId: string): Promise<void> {
+  try {
+    // 1. Eliminar productos del negocio
+    const productsQuery = query(
+      collection(db, 'products'),
+      where('businessId', '==', businessId)
+    )
+    const productsSnapshot = await getDocs(productsQuery)
+    for (const productDoc of productsSnapshot.docs) {
+      await deleteDoc(productDoc.ref)
+    }
+
+    // 2. Eliminar órdenes del negocio (opcional, podrías querer mantenerlas)
+    const ordersQuery = query(
+      collection(db, 'orders'),
+      where('businessId', '==', businessId)
+    )
+    const ordersSnapshot = await getDocs(ordersQuery)
+    for (const orderDoc of ordersSnapshot.docs) {
+      await deleteDoc(orderDoc.ref)
+    }
+
+    // 3. Eliminar el negocio
+    const businessRef = doc(db, 'businesses', businessId)
+    await deleteDoc(businessRef)
+
+    console.log('Business deleted successfully:', businessId)
+  } catch (error) {
+    console.error('Error deleting business:', error)
+    throw error
+  }
+}
+
 // Funciones para administradores de negocios
 export async function addBusinessAdministrator(
   businessId: string,

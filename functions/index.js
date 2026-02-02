@@ -1020,9 +1020,19 @@ exports.sendDailyOrderSummary = onSchedule({
         `;
       }
 
+      // Formatear fecha para el preview (ej: 2 de febrero)
+      const previewDateStr = nowEcuador.toLocaleDateString('es-EC', {
+        day: 'numeric',
+        month: 'long'
+      });
+
       // Generar email HTML completo
       const htmlContent = `
         <div style="font-family: Arial, sans-serif; max-width: 650px; margin: 0 auto; color: #333;">
+          <!-- Preview text (visible in notification preview, hidden in email body) -->
+          <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
+            Resumen del ${previewDateStr}
+          </div>
           <div style="background: linear-gradient(135deg, #aa1918 0%, #8a1515 100%); color: white; padding: 24px; border-radius: 8px 8px 0 0; text-align: center;">
             <h1 style="margin: 0; font-size: 22px;">📋 Resumen de Órdenes del Día</h1>
             <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px;">${todayFormatted}</p>
@@ -1060,7 +1070,7 @@ exports.sendDailyOrderSummary = onSchedule({
       const mailOptions = {
         from: 'resumen@fuddi.shop',
         to: businessEmail,
-        subject: `📋 Resumen del día: ${todayOrders.length} ${todayOrders.length === 1 ? 'orden programada' : 'órdenes programadas'} - ${todayFormatted}`,
+        subject: `${businessName}! Tienes ${todayOrders.length} ${todayOrders.length === 1 ? 'pedido programado' : 'pedidos programados'} para hoy!`,
         html: htmlContent
       };
 

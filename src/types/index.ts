@@ -33,6 +33,9 @@ export interface Business {
     }
   }
   manualStoreStatus?: 'open' | 'closed' | null // Control manual: open/closed override, null = usar horario
+  isHidden?: boolean // Ocultar la tienda del público
+  category?: string // Categoría del negocio (restaurante, cafetería, etc.)
+  isOpen?: boolean // Estado actual de apertura
   isActive: boolean
   createdAt: Date
   updatedAt: Date

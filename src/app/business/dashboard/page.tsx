@@ -18,6 +18,7 @@ import IngredientStockManagement from '@/components/IngredientStockManagement'
 import { sendWhatsAppToDelivery, sendWhatsAppToCustomer } from '@/components/WhatsAppUtils'
 import BusinessProfileDashboard from '@/components/BusinessProfileDashboard'
 import QueueStatusIndicator from '@/components/QueueStatusIndicator'
+import DashboardSidebar from '@/components/DashboardSidebar'
 import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import {
   getBusiness,
@@ -2560,176 +2561,26 @@ export default function BusinessDashboard() {
         )}
 
         {/* Sidebar */}
-        <div className={`
-          w-64 bg-white shadow-sm border-r border-gray-200 fixed h-full overflow-y-auto z-50 transition-transform duration-300 ease-in-out
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        `}>
-          <div className="p-4">
-            {/* Header del sidebar */}
-            <div className="flex justify-between items-center mb-4">
-              <span className="font-semibold text-gray-900">Menú</span>
-              <button
-                onClick={() => setSidebarOpen(false)}
-                className="p-2 rounded-lg text-gray-600 hover:bg-gray-100"
-              >
-                <i className="bi bi-x-lg"></i>
-              </button>
-            </div>
-
-            <nav className="space-y-2">
-              <button
-                onClick={() => {
-                  setActiveTab('orders')
-                  setSidebarOpen(false)
-                }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'orders'
-                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                  : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-              >
-                <i className="bi bi-clipboard-check me-3 text-lg"></i>
-                <span className="font-medium">Pedidos</span>
-                <span className="ml-auto bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs">
-                  {orders.length}
-                </span>
-              </button>
-
-              <div>
-                <button
-                  onClick={() => setIsTiendaMenuOpen(!isTiendaMenuOpen)}
-                  className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'profile'
-                    ? 'bg-red-50 text-red-600'
-                    : 'text-gray-700 hover:bg-gray-50'
-                    }`}
-                >
-                  <i className="bi bi-shop me-3 text-lg"></i>
-                  <span className="font-medium">Tienda</span>
-                  <i className={`bi bi-chevron-down ml-auto transition-transform ${isTiendaMenuOpen ? 'rotate-180' : ''}`}></i>
-                </button>
-
-                {(isTiendaMenuOpen || activeTab === 'profile') && (
-                  <div className="ml-9 mt-1 space-y-1">
-                    {[
-                      { id: 'general', label: 'Generales', icon: 'bi-info-circle' },
-                      { id: 'products', label: 'Productos', icon: 'bi-box-seam' },
-                      { id: 'fidelizacion', label: 'Fidelización', icon: 'bi-gift' },
-                      { id: 'notifications', label: 'Notificaciones', icon: 'bi-bell' }
-                    ].map((sub) => (
-                      <button
-                        key={sub.id}
-                        onClick={() => {
-                          setActiveTab('profile')
-                          setProfileSubTab(sub.id as any)
-                          setSidebarOpen(false)
-                        }}
-                        className={`w-full flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${activeTab === 'profile' && profileSubTab === sub.id
-                          ? 'text-red-600 bg-red-50 font-bold'
-                          : 'text-gray-600 hover:bg-gray-50'
-                          }`}
-                      >
-                        <i className={`bi ${sub.icon} me-2`}></i>
-                        {sub.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <button
-                onClick={() => {
-                  setActiveTab('admins')
-                  setSidebarOpen(false)
-                }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'admins'
-                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                  : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-              >
-                <i className="bi bi-people me-3 text-lg"></i>
-                <span className="font-medium">Administradores</span>
-              </button>
-
-              <div>
-                <button
-                  onClick={() => setIsReportsMenuOpen(!isReportsMenuOpen)}
-                  className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'reports'
-                    ? 'bg-red-50 text-red-600'
-                    : 'text-gray-700 hover:bg-gray-50'
-                    }`}
-                >
-                  <i className="bi bi-graph-up me-3 text-lg"></i>
-                  <span className="font-medium">Reportes</span>
-                  <i className={`bi bi-chevron-down ml-auto transition-transform ${isReportsMenuOpen ? 'rotate-180' : ''}`}></i>
-                </button>
-
-                {(isReportsMenuOpen || activeTab === 'reports') && (
-                  <div className="ml-9 mt-1 space-y-1">
-                    {[
-                      { id: 'general', label: 'General', icon: 'bi-graph-up' },
-                      { id: 'deliveries', label: 'Por delivery', icon: 'bi-truck' },
-                      { id: 'costs', label: 'Costos e ingredientes', icon: 'bi-basket' }
-                    ].map((sub) => (
-                      <button
-                        key={sub.id}
-                        onClick={() => {
-                          setActiveTab('reports')
-                          setReportsSubTab(sub.id as any)
-                          setSidebarOpen(false)
-                        }}
-                        className={`w-full flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${activeTab === 'reports' && reportsSubTab === sub.id
-                          ? 'text-red-600 bg-red-50 font-bold'
-                          : 'text-gray-600 hover:bg-gray-50'
-                          }`}
-                      >
-                        <i className={`bi ${sub.icon} me-2`}></i>
-                        {sub.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <button
-                onClick={() => {
-                  setActiveTab('inventory')
-                  setSidebarOpen(false)
-                }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'inventory'
-                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                  : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-              >
-                <i className="bi bi-box-seam me-3 text-lg"></i>
-                <span className="font-medium">Inventario / Stock</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setActiveTab('qrcodes')
-                  setSidebarOpen(false)
-                }}
-                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'qrcodes'
-                  ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                  : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-              >
-                <i className="bi bi-qr-code me-3 text-lg"></i>
-                <span className="font-medium">Códigos QR</span>
-              </button>
-
-              {/* Botón de Notificaciones - solo si no es iOS y necesita acción */}
-              {!isIOS && needsUserAction && (
-                <button
-                  onClick={requestPermission}
-                  className="w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors bg-blue-50 text-blue-600 hover:bg-blue-100 border-l-4 border-blue-500"
-                >
-                  <i className="bi bi-bell me-3 text-lg"></i>
-                  <span className="font-medium">Activar Notificaciones</span>
-                </button>
-              )}
-            </nav>
-          </div>
-        </div>
+        <DashboardSidebar
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          profileSubTab={profileSubTab}
+          setProfileSubTab={setProfileSubTab}
+          reportsSubTab={reportsSubTab}
+          setReportsSubTab={setReportsSubTab}
+          isTiendaMenuOpen={isTiendaMenuOpen}
+          setIsTiendaMenuOpen={setIsTiendaMenuOpen}
+          isReportsMenuOpen={isReportsMenuOpen}
+          setIsReportsMenuOpen={setIsReportsMenuOpen}
+          ordersCount={orders.length}
+          isIOS={isIOS}
+          needsUserAction={needsUserAction}
+          requestPermission={requestPermission}
+          user={user}
+          onLogout={logout}
+        />
         <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
           {/* Header - ahora dentro del contenedor scrollable */}
           <header className="bg-white shadow-sm border-b sticky top-0 z-10">
