@@ -4332,7 +4332,7 @@ export async function creditReferral(
     const referralRecord = {
       orderId,
       referralCode,
-      creditAmount: 1,
+      creditAmount: 0.25,
       status: 'completed',
       createdAt: new Date(),
       completedAt: new Date()
@@ -4345,8 +4345,8 @@ export async function creditReferral(
       const referrals = currentData.referrals || []
 
       await updateDoc(docRef, {
-        totalCredits: firestoreIncrement(1),
-        availableCredits: firestoreIncrement(1),
+        totalCredits: firestoreIncrement(0.25),
+        availableCredits: firestoreIncrement(0.25),
         referrals: [...referrals, referralRecord],
         updatedAt: serverTimestamp()
       })
@@ -4355,8 +4355,8 @@ export async function creditReferral(
       await addDoc(collection(db, 'userCredits'), {
         userId: referral.createdBy,
         businessId,
-        totalCredits: 1,
-        availableCredits: 1,
+        totalCredits: 0.25,
+        availableCredits: 0.25,
         usedCredits: 0,
         referrals: [referralRecord],
         createdAt: serverTimestamp(),

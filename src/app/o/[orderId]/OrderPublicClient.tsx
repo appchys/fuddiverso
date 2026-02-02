@@ -1307,7 +1307,7 @@ function ReferralModal({
             </div>
             <h3 className="text-3xl font-black text-gray-900 mb-3 leading-tight">¡WhatsApp <br /> Enviado!</h3>
             <p className="text-gray-500 text-sm font-medium">
-              Asegúrate de enviarlo a tus grupos. <br /> Ganarás <span className="text-emerald-600 font-bold">$1 de crédito</span> si compran
+              Asegúrate de enviarlo a tus grupos. <br /> Ganarás <span className="text-emerald-600 font-bold">$0,25</span> si compran
             </p>
           </div>
           <div className="bg-slate-50 rounded-3xl p-5 mb-8 border border-slate-100">

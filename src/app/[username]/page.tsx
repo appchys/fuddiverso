@@ -569,7 +569,7 @@ function ReferralModal({
               ¡Recomienda y Gana!
             </h3>
             <p className="text-gray-500 text-sm">
-              Comparte este producto y gana 1 crédito por cada venta completada
+              Comparte este producto y gana $0,25 por cada venta completada
             </p>
           </div>
 
