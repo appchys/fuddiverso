@@ -4047,6 +4047,7 @@ export async function clearCheckoutProgress(clientId: string, businessId: string
 
 /**
  * Genera un código único de referido para un producto
+ * Si el usuario ya tiene un link para este producto, retorna el existente
  */
 export async function generateReferralLink(
   productId: string,
@@ -4060,7 +4061,24 @@ export async function generateReferralLink(
 ): Promise<string> {
   console.log('🚀 Debug Referral - Generating link:', { productId, businessId, userId, productName })
   try {
-    // Generar código único
+    // Si hay un userId, buscar si ya existe un referral para este producto
+    if (userId) {
+      const existingQuery = query(
+        collection(db, 'referralLinks'),
+        where('createdBy', '==', userId),
+        where('productId', '==', productId)
+      )
+      const existingSnapshot = await getDocs(existingQuery)
+
+      if (!existingSnapshot.empty) {
+        // Ya existe un link para este producto, retornar el código existente
+        const existingLink = existingSnapshot.docs[0].data()
+        console.log('🚀 Debug Referral - Found existing link:', existingLink.code)
+        return existingLink.code
+      }
+    }
+
+    // No existe, generar código único
     const code = `REF-${Math.random().toString(36).substring(2, 10).toUpperCase()}`
 
     const referralData = {
@@ -4078,7 +4096,7 @@ export async function generateReferralLink(
       conversions: 0
     }
 
-    console.log('🚀 Debug Referral - Saving to Firestore:', referralData)
+    console.log('🚀 Debug Referral - Saving new to Firestore:', referralData)
     await addDoc(collection(db, 'referralLinks'), referralData)
     return code
   } catch (error) {

@@ -765,13 +765,19 @@ export default function ProfilePage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {referrals.map((ref: any) => (
                     <div key={ref.id} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 hover:border-gray-900 transition-all group">
-                      <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-50 flex-shrink-0 border border-gray-50">
-                        <img
-                          src={ref.productImage || '/placeholder.png'}
-                          alt={ref.productName}
-                          className="w-full h-full object-cover"
-                          onError={(e: any) => e.target.src = '/default-restaurant-og.svg'}
-                        />
+                      <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0 border border-gray-50">
+                        {ref.productImage ? (
+                          <img
+                            src={ref.productImage}
+                            alt={ref.productName}
+                            className="w-full h-full object-cover"
+                            onError={(e: any) => e.target.parentElement.innerHTML = '<div class="w-full h-full flex items-center justify-center text-gray-400"><i class="bi bi-box-seam text-xl"></i></div>'}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-400">
+                            <i className="bi bi-box-seam text-xl"></i>
+                          </div>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <h4 className="font-black text-gray-900 text-sm truncate">{ref.productName}</h4>

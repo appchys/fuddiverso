@@ -1379,7 +1379,8 @@ export function CheckoutContent({
           name: item.variantName || item.productName || item.name,
           price: item.price,
           quantity: item.quantity,
-          variant: item.variantName || item.name
+          variant: item.variantName || item.name,
+          image: item.image
         })),
         customer: {
           name: customerData.name,

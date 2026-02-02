@@ -2,9 +2,10 @@
 
 import React, { useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getOrder, getBusiness, getDelivery, saveBusinessRating, hasOrderBeenRated, updateOrderStatus, createRatingNotification } from '@/lib/database'
+import { getOrder, getBusiness, getDelivery, saveBusinessRating, hasOrderBeenRated, updateOrderStatus, createRatingNotification, generateReferralLink, trackReferralClick, generateProductSlug } from '@/lib/database'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 import { sendOrderToStore } from '@/components/WhatsAppUtils'
+import { useAuth } from '@/contexts/AuthContext'
 
 type Props = {
   orderId: string
@@ -33,6 +34,12 @@ export default function OrderPublicClient({ orderId }: Props) {
   // Estados para tracking del delivery
   const [deliveryLocation, setDeliveryLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [estimatedArrival, setEstimatedArrival] = useState<number | null>(null) // minutos
+
+  // Estados para recomendaciones
+  const { user: clientUser } = useAuth()
+  const [referralModalOpen, setReferralModalOpen] = useState(false)
+  const [selectedProductForReferral, setSelectedProductForReferral] = useState<any>(null)
+  const [generatedReferralLink, setGeneratedReferralLink] = useState<string>('')
 
 
   // Verificar si la orden ya fue calificada
@@ -660,55 +667,159 @@ export default function OrderPublicClient({ orderId }: Props) {
 
   const statusColors = getStatusColor(order.status)
 
+  // Función para obtener el mensaje de estado con emoji
+  const getStatusMessage = (status: string) => {
+    const businessName = business?.name || 'El negocio'
+    const messages: { [key: string]: { text: string; emoji: string } } = {
+      'pending': { text: `${businessName} ha recibido tu pedido`, emoji: '📋' },
+      'confirmed': { text: `¡${businessName} confirmó tu pedido!`, emoji: '✅' },
+      'preparing': { text: `${businessName} está preparando tu pedido`, emoji: '👨‍🍳' },
+      'ready': { text: '¡Tu pedido está listo!', emoji: '🎉' },
+      'on_way': { text: 'Tu pedido va en camino', emoji: '🚴' },
+      'delivered': { text: '¡Pedido entregado!', emoji: '🎊' },
+      'cancelled': { text: 'Pedido cancelado', emoji: '❌' }
+    }
+    return messages[status] || { text: 'Estado del pedido', emoji: '📦' }
+  }
+
+  const statusMessage = getStatusMessage(order.status)
+
+  const handleGenerateReferral = async (item: any) => {
+    if (!business?.id) return
+
+    try {
+      const productData = {
+        id: item.productId || item.id,
+        name: item.product?.name || item.name,
+        image: item.product?.image || item.image || business.image,
+        slug: item.product?.slug || item.slug || generateProductSlug(business.username, item.productId || item.id)
+      }
+
+      const code = await generateReferralLink(
+        productData.id,
+        business.id,
+        clientUser?.id || undefined,
+        productData.name,
+        productData.image,
+        business.name,
+        business.username,
+        productData.slug
+      )
+
+      const referralUrl = `${window.location.origin}/${business.username}/${productData.slug}?ref=${code}`
+
+      // Guardar estados para el modal de incentivo
+      setGeneratedReferralLink(referralUrl)
+      setSelectedProductForReferral(productData)
+
+      // Enviar directamente a WhatsApp
+      const text = `¡Mira este producto de ${business.name}! ${productData.name} - ${referralUrl}`
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+
+      // Abrir modal de incentivo
+      setReferralModalOpen(true)
+    } catch (error) {
+      console.error('Error generating referral:', error)
+      alert('Error al generar link de referido')
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-slate-50 pb-24">
-      {/* Header Premium */}
-      <div className="bg-white/80 backdrop-blur-md sticky top-0 z-30 border-b border-gray-100 shadow-sm">
-        <div className="max-w-md mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {business?.image ? (
-                <div className="relative">
-                  <img
-                    src={business.image}
-                    alt={business.name}
-                    className="w-12 h-12 rounded-2xl object-cover border border-gray-100 shadow-sm"
-                  />
-                  <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${statusColors.dot}`}></div>
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white pb-8">
+      {/* Referral/Incentive Modal */}
+      <ReferralModal
+        isOpen={referralModalOpen}
+        onClose={() => setReferralModalOpen(false)}
+        product={selectedProductForReferral}
+        referralLink={generatedReferralLink}
+        businessName={business?.name || ''}
+      />
+      {/* Header Principal con Estado Dinámico */}
+      <div className={`relative overflow-hidden ${order.status === 'delivered' ? 'bg-gradient-to-br from-emerald-500 to-green-600' :
+        order.status === 'on_way' ? 'bg-gradient-to-br from-blue-500 to-cyan-600' :
+          order.status === 'preparing' ? 'bg-gradient-to-br from-orange-500 to-amber-600' :
+            order.status === 'cancelled' ? 'bg-gradient-to-br from-red-500 to-rose-600' :
+              'bg-gradient-to-br from-red-500 to-rose-600'
+        }`}>
+        {/* Decoraciones de fondo */}
+        <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+        <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2"></div>
+
+        <div className="max-w-md mx-auto px-4 py-6 relative z-10">
+          {/* Foto del negocio + Estado */}
+          <div className="flex items-center gap-4">
+            {/* Foto redonda del negocio */}
+            {business?.image ? (
+              <img
+                src={business.image}
+                alt={business.name}
+                className="w-16 h-16 rounded-full object-cover border-4 border-white/30 shadow-xl flex-shrink-0"
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center border-4 border-white/30 flex-shrink-0">
+                <i className="bi bi-shop text-2xl text-white"></i>
+              </div>
+            )}
+
+            {/* Estado del pedido */}
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-3xl">{statusMessage.emoji}</span>
+              </div>
+              <h1 className="text-xl font-black text-white leading-tight">
+                {statusMessage.text}
+              </h1>
+            </div>
+          </div>
+
+          {/* Total del pedido - con lógica de pago */}
+          <div className="mt-5 bg-white/20 backdrop-blur-sm rounded-2xl px-5 py-4">
+            {order.payment?.method === 'transfer' ? (
+              // Transferencia: mostrar "Pagado"
+              <div className="flex items-center justify-center gap-3">
+                <div className="w-10 h-10 bg-white/30 rounded-full flex items-center justify-center">
+                  <i className="bi bi-check-lg text-white text-xl"></i>
                 </div>
-              ) : (
-                <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center border border-gray-100">
-                  <i className="bi bi-shop text-xl text-gray-400"></i>
-                </div>
-              )}
-              <div>
-                <h1 className="font-bold text-gray-900 text-sm leading-tight line-clamp-1">{business?.name || 'Negocio'}</h1>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${statusColors.bg} ${statusColors.text} border ${statusColors.border}`}>
-                    {getStatusTranslation(order.status)}
-                  </span>
+                <div>
+                  <p className="text-white/70 text-xs font-bold uppercase tracking-wider">Estado del pago</p>
+                  <p className="text-xl font-black text-white">Pagado ✓</p>
                 </div>
               </div>
-            </div>
-            <div className="text-right">
-              <p className="text-xs text-gray-400 font-medium">Total pedido</p>
-              <p className="text-lg font-black text-gray-900 leading-none mt-0.5">${order.total?.toFixed(2)}</p>
-            </div>
+            ) : order.payment?.method === 'mixed' ? (
+              // Mixto: mostrar el restante
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-white/70 text-xs font-bold uppercase tracking-wider mb-1">Restante a pagar</p>
+                  <p className="text-2xl font-black text-white">
+                    ${(order.total - (order.payment?.transferAmount || 0)).toFixed(2)}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-white/60 text-[10px] font-medium">Transferido</p>
+                  <p className="text-white/80 text-sm font-bold">${order.payment?.transferAmount?.toFixed(2) || '0.00'}</p>
+                </div>
+              </div>
+            ) : (
+              // Efectivo: mostrar total normal
+              <div className="text-center">
+                <p className="text-white/70 text-xs font-bold uppercase tracking-wider mb-1">Total a pagar</p>
+                <p className="text-3xl font-black text-white">${order.total?.toFixed(2)}</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="max-w-md mx-auto px-4 pt-6 space-y-4">
-        {/* Contador de tiempo Premium */}
+      <div className="max-w-md mx-auto px-4 -mt-4 space-y-4 relative z-20">
+        {/* Contador de tiempo */}
         {timeInfo !== null && (
-          <div className={`relative overflow-hidden rounded-3xl p-5 border shadow-sm transition-all duration-500 ${timeInfo.isLate
+          <div className={`relative overflow-hidden rounded-3xl p-5 border shadow-lg transition-all duration-500 ${timeInfo.isLate
             ? 'bg-red-50 border-red-100'
             : 'bg-white border-gray-100'
             }`}>
             <div className={`relative z-10 flex items-center justify-between`}>
               <div>
                 {order.status === 'on_way' && estimatedArrival ? (
-                  // Mostrar ETA calculado en tiempo real
                   <>
                     <p className="text-[10px] font-bold uppercase tracking-widest mb-1 text-blue-500">
                       🚴 Tu delivery está en camino
@@ -721,7 +832,6 @@ export default function OrderPublicClient({ orderId }: Props) {
                     </p>
                   </>
                 ) : (
-                  // Mostrar tiempo programado original
                   <>
                     <p className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${timeInfo.isLate ? 'text-red-500' : 'text-gray-400'
                       }`}>
@@ -747,83 +857,17 @@ export default function OrderPublicClient({ orderId }: Props) {
                   }`}></i>
               </div>
             </div>
-            {/* Decoración de fondo */}
-            <div className={`absolute -right-4 -bottom-4 w-24 h-24 rounded-full opacity-10 ${timeInfo.isLate ? 'bg-red-500' :
-              (order.status === 'on_way' && estimatedArrival ? 'bg-blue-500' : 'bg-orange-500')
-              }`}></div>
           </div>
         )}
 
-        {/* Información rápida del cliente (Card flotante) */}
-        {order.customer && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-lg">
-                <i className="bi bi-person"></i>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 font-medium">Cliente</p>
-                <p className="text-sm font-bold text-gray-900">{order.customer.name || 'No especificado'}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                const phoneNumber = order.customer?.phone;
-                const customerName = order.customer?.name;
-                window.dispatchEvent(new CustomEvent('openLoginModal', {
-                  detail: { phone: phoneNumber, name: customerName }
-                }));
-              }}
-              className="text-xs font-bold text-red-500 bg-red-50 px-3 py-2 rounded-xl hover:bg-red-100 transition-colors"
-            >
-              Crea tu cuenta
-            </button>
-          </div>
-        )}
+        {/* Información del Delivery */}
+        {order.delivery?.type === 'delivery' && (
+          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
+            <h3 className="font-black text-gray-900 uppercase tracking-widest text-[10px] mb-4 flex items-center gap-2">
+              <i className="bi bi-truck text-red-500"></i>
+              Información del delivery
+            </h3>
 
-        {/* Tabs de navegación modernizadas */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-1.5 flex gap-1.5">
-          <button
-            onClick={() => setActiveTab('status')}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-bold transition-all duration-300 ${activeTab === 'status'
-              ? 'bg-red-500 text-white shadow-md shadow-red-200'
-              : 'text-gray-500 hover:bg-gray-50'
-              }`}
-          >
-            <i className={`bi bi-activity ${activeTab === 'status' ? 'text-white' : 'text-gray-400'}`}></i>
-            Seguimiento
-          </button>
-          <button
-            onClick={() => setActiveTab('details')}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-bold transition-all duration-300 ${activeTab === 'details'
-              ? 'bg-red-500 text-white shadow-md shadow-red-200'
-              : 'text-gray-500 hover:bg-gray-50'
-              }`}
-          >
-            <i className={`bi bi-receipt ${activeTab === 'details' ? 'text-white' : 'text-gray-400'}`}></i>
-            Detalles
-          </button>
-        </div>
-
-        {/* Contenido de las pestañas */}
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 min-h-[300px]">
-          {activeTab === 'status' ? (
-            <div>
-              <div className="flex items-center justify-between mb-8">
-                <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Estado del pedido</h3>
-                <span className="text-[10px] font-bold text-gray-400 py-1 px-2 bg-gray-50 rounded-lg">ID: {orderId.slice(-6).toUpperCase()}</span>
-              </div>
-              {renderStatusTimeline()}
-            </div>
-          ) : (
-            renderOrderDetails()
-          )}
-        </div>
-
-        {/* Información del repartidor Premium */}
-        {order.delivery?.type === 'delivery' && ['ready', 'preparing', 'confirmed', 'delivered'].includes(order.status) && (
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
-            <h3 className="font-black text-gray-900 uppercase tracking-widest text-[10px] mb-4">Repartidor asignado</h3>
             {deliveryPerson ? (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -863,19 +907,109 @@ export default function OrderPublicClient({ orderId }: Props) {
                 )}
               </div>
             ) : (
-              <div className="flex flex-col items-center py-6">
-                <div className="w-16 h-16 bg-slate-50 rounded-3xl flex items-center justify-center mb-4 relative overflow-hidden group">
-                  <i className="bi bi-search text-gray-300 text-2xl animate-pulse"></i>
-                  <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/50 to-transparent animate-shimmer"></div>
+              <div className="flex items-center gap-4 py-2">
+                <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center relative overflow-hidden">
+                  <i className="bi bi-search text-gray-300 text-xl animate-pulse"></i>
                 </div>
-                <p className="text-sm font-black text-gray-900 leading-tight">Buscando repartidor</p>
-                <p className="text-xs text-gray-400 mt-1 text-center font-medium max-w-[180px]">Estamos conectando con los repartidores cercanos</p>
+                <div>
+                  <p className="text-sm font-black text-gray-900 leading-tight">Buscando repartidor</p>
+                  <p className="text-xs text-gray-400 font-medium mt-0.5">Conectando con repartidores cercanos...</p>
+                </div>
+              </div>
+            )}
+
+            {/* Dirección de entrega */}
+            {order.delivery?.references && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center text-red-500 flex-shrink-0">
+                    <i className="bi bi-geo-alt"></i>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Dirección</p>
+                    <p className="text-sm font-bold text-gray-900 leading-snug">{order.delivery.references}</p>
+                  </div>
+                </div>
               </div>
             )}
           </div>
         )}
 
-        {/* Sección de Calificación Premium */}
+        {/* Productos Comprados */}
+        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
+          <h3 className="font-black text-gray-900 uppercase tracking-widest text-[10px] mb-4 flex items-center gap-2">
+            <i className="bi bi-bag-check text-red-500"></i>
+            Tu pedido
+          </h3>
+
+          <div className="space-y-3">
+            {order.items?.map((item: any, index: number) => (
+              <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl">
+                {/* Imagen del producto */}
+                <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-200 flex-shrink-0">
+                  {(item.product?.image || item.image || business?.image) ? (
+                    <img
+                      src={item.product?.image || item.image || business?.image}
+                      alt={item.variant || item.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-400">
+                      <i className="bi bi-box text-xl"></i>
+                    </div>
+                  )}
+                </div>
+
+                {/* Info del producto */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-gray-900 leading-tight truncate">
+                    {item.variant || item.product?.name || item.name || 'Producto'}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {item.quantity}x ${item.price?.toFixed(2)}
+                  </p>
+                </div>
+
+                {/* Subtotal */}
+                <div className="flex flex-col items-end gap-2">
+                  <p className="text-sm font-black text-gray-900 leading-none">${(item.quantity * item.price)?.toFixed(2)}</p>
+
+                  {/* Solo mostrar botón de recomendar si no es un regalo (precio > 0) */}
+                  {item.price > 0 && (
+                    <button
+                      onClick={() => handleGenerateReferral(item)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-emerald-100 transition-all active:scale-95 whitespace-nowrap"
+                    >
+                      <i className="bi bi-whatsapp"></i>
+                      Recomendar
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Resumen */}
+          <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-gray-500">Subtotal</span>
+              <span className="text-sm font-bold text-gray-700">${order.subtotal?.toFixed(2)}</span>
+            </div>
+            {order.delivery?.deliveryCost > 0 && (
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-gray-500">Envío</span>
+                <span className="text-sm font-bold text-gray-700">${order.delivery?.deliveryCost?.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center pt-2 border-t border-dashed border-gray-200">
+              <span className="text-sm font-black text-gray-900">Total</span>
+              <span className="text-lg font-black text-red-600">${order.total?.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+
+
+        {/* Sección de Calificación */}
         {order?.status === 'delivered' && !orderRated && !reviewSubmitted && (
           <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8 text-center">
             <h3 className="text-xl font-black text-gray-900 mb-2">¿Qué tal estuvo todo?</h3>
@@ -925,7 +1059,7 @@ export default function OrderPublicClient({ orderId }: Props) {
           </div>
         )}
 
-        {/* Mensajes de éxito de calificación */}
+        {/* Mensaje de calificación enviada */}
         {(reviewSubmitted || orderRated) && (
           <div className="bg-emerald-50 border border-emerald-100 rounded-3xl p-6 text-center">
             <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl">
@@ -936,11 +1070,11 @@ export default function OrderPublicClient({ orderId }: Props) {
           </div>
         )}
 
-        {/* Botones de acción fijos al fondo o al final */}
-        <div className="space-y-3 pt-4">
+        {/* Botones de Acción */}
+        <div className="space-y-3 pt-2">
           <button
             onClick={() => business && sendOrderToStore(order, business)}
-            className="w-full bg-white border-2 border-green-500 text-green-600 font-black uppercase tracking-widest text-xs py-4 rounded-2xl flex items-center justify-center gap-3 transition-all hover:bg-green-50 active:scale-95"
+            className="w-full bg-white border-2 border-green-500 text-green-600 font-black uppercase tracking-widest text-xs py-4 rounded-2xl flex items-center justify-center gap-3 transition-all hover:bg-green-50 active:scale-95 shadow-sm"
           >
             <i className="bi bi-whatsapp text-lg"></i>
             Obtener comprobante
@@ -955,84 +1089,171 @@ export default function OrderPublicClient({ orderId }: Props) {
               Ya recibí mi pedido
             </button>
           )}
+
+          {/* Link para visitar la tienda */}
+          {business?.username && (
+            <a
+              href={`/${business.username}`}
+              className="w-full bg-gray-100 text-gray-700 font-bold text-sm py-4 rounded-2xl flex items-center justify-center gap-2 transition-all hover:bg-gray-200 active:scale-95"
+            >
+              <i className="bi bi-shop"></i>
+              Visitar {business.name}
+            </a>
+          )}
         </div>
       </div>
 
-      {/* Modal de confirmación Premium */}
-      {
-        showReceivedConfirm && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
-            <div className="bg-white rounded-[32px] shadow-2xl max-w-sm w-full p-8 text-center animate-in zoom-in-95 duration-300">
-              <div className="mx-auto w-20 h-20 rounded-3xl bg-blue-50 text-blue-600 flex items-center justify-center text-4xl mb-6">
-                <i className="bi bi-box-seam"></i>
-              </div>
-              <h3 className="text-xl font-black text-gray-900 mb-2">¿Recibiste tu pedido?</h3>
-              <p className="text-sm text-gray-500 font-medium mb-8">
-                Confirma si ya tienes todo en tus manos para completar el proceso.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowReceivedConfirm(false)}
-                  className="flex-1 py-4 bg-slate-50 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-100 transition-colors"
-                  disabled={loading}
-                >
-                  No aún
-                </button>
-                <button
-                  onClick={async () => {
-                    try {
-                      setLoading(true);
-                      await updateOrderStatus(orderId, 'delivered');
-                      const updatedOrder = await getOrder(orderId);
-                      if (updatedOrder) setOrder(updatedOrder);
-                      setShowReceivedConfirm(false);
-                    } catch (error) {
-                      alert('Hubo un error. Intenta de nuevo.');
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                  className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all flex items-center justify-center"
-                  disabled={loading}
-                >
-                  {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : 'Confirmar'}
-                </button>
-              </div>
+      {/* Modal de confirmación */}
+      {showReceivedConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-[32px] shadow-2xl max-w-sm w-full p-8 text-center animate-in zoom-in-95 duration-300">
+            <div className="mx-auto w-20 h-20 rounded-3xl bg-blue-50 text-blue-600 flex items-center justify-center text-4xl mb-6">
+              <i className="bi bi-box-seam"></i>
+            </div>
+            <h3 className="text-xl font-black text-gray-900 mb-2">¿Recibiste tu pedido?</h3>
+            <p className="text-sm text-gray-500 font-medium mb-8">
+              Confirma si ya tienes todo en tus manos para completar el proceso.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowReceivedConfirm(false)}
+                className="flex-1 py-4 bg-slate-50 text-slate-500 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-100 transition-colors"
+                disabled={loading}
+              >
+                No aún
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    await updateOrderStatus(orderId, 'delivered');
+                    const updatedOrder = await getOrder(orderId);
+                    if (updatedOrder) setOrder(updatedOrder);
+                    setShowReceivedConfirm(false);
+                  } catch (error) {
+                    alert('Hubo un error. Intenta de nuevo.');
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all flex items-center justify-center"
+                disabled={loading}
+              >
+                {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : 'Confirmar'}
+              </button>
             </div>
           </div>
-        )
-      }
+        </div>
+      )}
 
-      {/* Modal Comprobante Premium */}
-      {
-        showReceiptModal && order.payment?.receiptImageUrl && (
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/90 backdrop-blur-md p-4 animate-in fade-in duration-300"
-            onClick={() => setShowReceiptModal(false)}
-          >
-            <div className="relative max-w-2xl w-full bg-white rounded-[32px] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
-              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Comprobante de pago</h3>
-                <button onClick={() => setShowReceiptModal(false)} className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center hover:bg-gray-100 transition-colors">
-                  <i className="bi bi-x-lg"></i>
-                </button>
-              </div>
-              <div className="p-4 max-h-[70vh] overflow-auto">
-                <img src={order.payment.receiptImageUrl} alt="Comprobante" className="w-full h-auto rounded-2xl shadow-inner border border-gray-50" />
-              </div>
-              <div className="p-6 bg-gray-50 flex gap-3">
-                <button
-                  onClick={() => window.open(order.payment.receiptImageUrl, '_blank')}
-                  className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-blue-200 hover:scale-[1.02] active:scale-95 transition-all"
-                >
-                  <i className="bi bi-box-arrow-up-right"></i>
-                  Expandir imagen
-                </button>
-              </div>
+      {/* Modal Comprobante */}
+      {showReceiptModal && order.payment?.receiptImageUrl && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/90 backdrop-blur-md p-4 animate-in fade-in duration-300"
+          onClick={() => setShowReceiptModal(false)}
+        >
+          <div className="relative max-w-2xl w-full bg-white rounded-[32px] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Comprobante de pago</h3>
+              <button onClick={() => setShowReceiptModal(false)} className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center hover:bg-gray-100 transition-colors">
+                <i className="bi bi-x-lg"></i>
+              </button>
+            </div>
+            <div className="p-4 max-h-[70vh] overflow-auto">
+              <img src={order.payment.receiptImageUrl} alt="Comprobante" className="w-full h-auto rounded-2xl shadow-inner border border-gray-50" />
+            </div>
+            <div className="p-6 bg-gray-50 flex gap-3">
+              <button
+                onClick={() => window.open(order.payment.receiptImageUrl, '_blank')}
+                className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-blue-200 hover:scale-[1.02] active:scale-95 transition-all"
+              >
+                <i className="bi bi-box-arrow-up-right"></i>
+                Expandir imagen
+              </button>
             </div>
           </div>
-        )
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ReferralModal({
+  isOpen,
+  onClose,
+  product,
+  referralLink,
+  businessName
+}: {
+  isOpen: boolean
+  onClose: () => void
+  product: any
+  referralLink: string
+  businessName: string
+}) {
+  const [copied, setCopied] = useState(false)
+  if (!isOpen || !product) return null
+  const handleCopy = async () => {
+    try {
+      if (navigator.clipboard) await navigator.clipboard.writeText(referralLink)
+      else {
+        const textArea = document.createElement('textarea')
+        textArea.value = referralLink
+        document.body.appendChild(textArea)
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
       }
-    </div >
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) { console.error('Error copying:', err) }
+  }
+  const shareOnWhatsApp = () => {
+    const text = `¡Mira este producto de ${businessName}! ${product.name} - ${referralLink}`
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+  }
+  return (
+    <div className="fixed inset-0 z-[200] overflow-hidden">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="flex items-center justify-center min-h-screen p-4">
+        <div className="relative w-full max-w-md bg-white rounded-[40px] shadow-2xl p-8 animate-in fade-in zoom-in duration-300 border border-emerald-100 border-t-8 border-t-emerald-500">
+          <button onClick={onClose} className="absolute top-6 right-6 w-10 h-10 bg-gray-50 text-gray-400 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all">
+            <i className="bi bi-x-lg"></i>
+          </button>
+          <div className="text-center mb-8">
+            <div className="w-20 h-20 bg-emerald-100 rounded-3xl flex items-center justify-center mx-auto mb-6 transform -rotate-6">
+              <i className="bi bi-whatsapp text-emerald-600 text-4xl"></i>
+            </div>
+            <h3 className="text-3xl font-black text-gray-900 mb-3 leading-tight">¡WhatsApp <br /> Enviado!</h3>
+            <p className="text-gray-500 text-sm font-medium">
+              Asegúrate de enviarlo a tus grupos. <br /> Ganarás <span className="text-emerald-600 font-bold">$1 de crédito</span> si compran
+            </p>
+          </div>
+          <div className="bg-slate-50 rounded-3xl p-5 mb-8 border border-slate-100">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-sm border-2 border-white flex-shrink-0">
+                <img src={product.image || '/placeholder.png'} alt={product.name} className="w-full h-full object-cover" />
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <h4 className="font-black text-gray-900 text-sm truncate uppercase tracking-tight">{product.name}</h4>
+                <p className="text-emerald-600 text-[10px] font-black uppercase tracking-widest mt-0.5">Producto Recomendado</p>
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl p-4 border border-slate-200/50 shadow-inner">
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1 text-center">Tu link mágico</p>
+              <p className="text-[11px] text-gray-400 break-all font-mono leading-tight text-center">{referralLink}</p>
+            </div>
+          </div>
+          <button onClick={handleCopy} className="w-full py-5 bg-emerald-600 text-white font-black uppercase tracking-widest text-xs rounded-2xl hover:bg-emerald-700 transition-all mb-4 flex items-center justify-center gap-3 shadow-xl active:scale-95 shadow-emerald-200">
+            <i className={`bi ${copied ? 'bi-check-lg' : 'bi-clipboard-check'} text-lg`}></i>
+            {copied ? '¡ENLACE COPIADO!' : 'COPIAR ENLACE OTRA VEZ'}
+          </button>
+          <button onClick={shareOnWhatsApp} className="w-full py-4 bg-white text-emerald-600 border-2 border-emerald-600 font-black uppercase tracking-widest text-[10px] rounded-2xl hover:bg-emerald-50 transition-all flex items-center justify-center gap-2 active:scale-95 font-bold">
+            <i className="bi bi-whatsapp"></i> REINTENTAR WHATSAPP
+          </button>
+          <p className="text-center text-gray-400 text-[9px] font-bold uppercase tracking-widest mt-6">Comparte y ayuda a este negocio</p>
+        </div>
+      </div>
+    </div>
   )
 }
