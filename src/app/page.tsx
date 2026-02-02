@@ -61,8 +61,10 @@ function HomePageContent() {
   // Cargar categorías únicas solo una vez al inicio
   useEffect(() => {
     getAllBusinesses().then((allBusinesses) => {
+      // Filtrar negocios ocultos
+      const visibleBusinesses = allBusinesses.filter(b => !b.isHidden)
       const uniqueCategories = new Set<string>()
-      allBusinesses.forEach(b => b.categories?.forEach(c => uniqueCategories.add(c)))
+      visibleBusinesses.forEach(b => b.categories?.forEach(c => uniqueCategories.add(c)))
       const shuffled = Array.from(uniqueCategories).sort(() => 0.5 - Math.random())
       setCategories(['all', ...shuffled])
     }).catch((err) => console.error('Error loading categories:', err))
@@ -83,10 +85,11 @@ function HomePageContent() {
     try {
       const allBusinesses = await getAllBusinesses()
 
-      // Filtrar negocios por categoría si es necesario
+      // Filtrar negocios ocultos y por categoría si es necesario
+      const visibleBusinesses = allBusinesses.filter(b => !b.isHidden)
       const filteredBusinesses = category === 'all'
-        ? allBusinesses
-        : allBusinesses.filter(b => b.categories?.includes(category))
+        ? visibleBusinesses
+        : visibleBusinesses.filter(b => b.categories?.includes(category))
 
       const allProducts: Product[] = []
 
@@ -120,7 +123,9 @@ function HomePageContent() {
       const data = search || category !== 'all'
         ? await searchBusinesses(search, category)
         : await getAllBusinesses()
-      setBusinesses(data)
+      // Filtrar negocios ocultos
+      const visibleBusinesses = data.filter(b => !b.isHidden)
+      setBusinesses(visibleBusinesses)
     } finally {
       setLoading(false)
     }
