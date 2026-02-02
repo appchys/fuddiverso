@@ -18,6 +18,9 @@ const transporter = nodemailer.createTransport({
   auth: {
     user: process.env.EMAIL_USER || 'appchys.ec@gmail.com',
     pass: process.env.EMAIL_PASS || 'oukz zreo izmi clul'
+  },
+  tls: {
+    rejectUnauthorized: false // Permite certificados auto-firmados (necesario en algunos entornos)
   }
 });
 
@@ -822,6 +825,262 @@ exports.sendScheduledOrderReminders = onSchedule({
 });
 
 /**
+ * Cloud Function: Enviar resumen diario de órdenes programadas a las 6 AM Ecuador
+ * Se ejecuta todos los días a las 6:00 AM hora de Ecuador (UTC-5)
+ */
+exports.sendDailyOrderSummary = onSchedule({
+  schedule: "0 6 * * *", // Todos los días a las 6:00 AM
+  timeZone: "America/Guayaquil",
+  retryCount: 0
+}, async (event) => {
+  console.log('📊 Iniciando envío de resumen diario de órdenes programadas...');
+
+  try {
+    // Calcular el inicio y fin del día de hoy en hora de Ecuador
+    const nowUtc = new Date();
+    // Ajustar a UTC-5 (Ecuador)
+    const nowEcuador = new Date(nowUtc.getTime() - (5 * 60 * 60 * 1000));
+
+    // Inicio del día (00:00:00)
+    const startOfDay = new Date(nowEcuador);
+    startOfDay.setHours(0, 0, 0, 0);
+
+    // Fin del día (23:59:59)
+    const endOfDay = new Date(nowEcuador);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Convertir a timestamps de Firestore (en segundos)
+    const startSeconds = Math.floor(startOfDay.getTime() / 1000);
+    const endSeconds = Math.floor(endOfDay.getTime() / 1000);
+
+    const todayFormatted = nowEcuador.toLocaleDateString('es-EC', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
+    console.log(`📅 Fecha de hoy (Ecuador): ${todayFormatted}`);
+    console.log(`🔍 Buscando órdenes programadas entre ${startOfDay.toISOString()} y ${endOfDay.toISOString()}`);
+
+    // Obtener todos los negocios activos
+    const businessesSnapshot = await admin.firestore().collection('businesses').get();
+
+    if (businessesSnapshot.empty) {
+      console.log('ℹ️ No hay negocios registrados');
+      return;
+    }
+
+    let emailsSent = 0;
+
+    // Procesar cada negocio
+    for (const businessDoc of businessesSnapshot.docs) {
+      const business = businessDoc.data();
+      const businessId = businessDoc.id;
+      const businessEmail = business.email;
+      const businessName = business.name || 'Tu Negocio';
+
+      if (!businessEmail) {
+        console.log(`⚠️ Negocio ${businessId} no tiene email configurado`);
+        continue;
+      }
+
+      // Buscar órdenes programadas para hoy de este negocio
+      const ordersSnapshot = await admin.firestore()
+        .collection('orders')
+        .where('businessId', '==', businessId)
+        .where('timing.type', '==', 'scheduled')
+        .get();
+
+      // Filtrar manualmente las órdenes del día de hoy
+      const todayOrders = [];
+
+      for (const orderDoc of ordersSnapshot.docs) {
+        const order = orderDoc.data();
+        const scheduledDate = order.timing?.scheduledDate;
+
+        if (!scheduledDate) continue;
+
+        // Obtener los segundos del timestamp
+        const orderSeconds = scheduledDate.seconds || scheduledDate._seconds;
+
+        if (orderSeconds && orderSeconds >= startSeconds && orderSeconds <= endSeconds) {
+          // Obtener datos del cliente
+          let customerName = order.customer?.name || 'Cliente no especificado';
+
+          if (order.customer?.id) {
+            try {
+              const clientDoc = await admin.firestore().collection('clients').doc(order.customer.id).get();
+              if (clientDoc.exists) {
+                const clientData = clientDoc.data();
+                customerName = clientData.nombres || customerName;
+              }
+            } catch (e) {
+              console.warn(`⚠️ Error obteniendo cliente:`, e.message);
+            }
+          }
+
+          // Resumen de productos
+          let itemsSummary = '';
+          if (Array.isArray(order.items)) {
+            itemsSummary = order.items.map(item => {
+              const qty = item.quantity || 1;
+              const name = item.name || 'Producto';
+              return `${qty} ${name}`;
+            }).join(', ');
+          }
+
+          todayOrders.push({
+            id: orderDoc.id,
+            scheduledTime: order.timing?.scheduledTime || '00:00',
+            customerName: customerName,
+            customerPhone: order.customer?.phone || '',
+            itemsSummary: itemsSummary,
+            total: order.total || 0,
+            deliveryType: order.delivery?.type || 'pickup',
+            status: order.status || 'pending'
+          });
+        }
+      }
+
+      // Ordenar por hora programada
+      todayOrders.sort((a, b) => {
+        const timeA = a.scheduledTime.replace(/[^0-9:]/g, '');
+        const timeB = b.scheduledTime.replace(/[^0-9:]/g, '');
+        return timeA.localeCompare(timeB);
+      });
+
+      console.log(`📦 Negocio ${businessName}: ${todayOrders.length} órdenes programadas para hoy`);
+
+      // Generar contenido del email
+      let ordersHtml = '';
+      let totalRevenue = 0;
+
+      if (todayOrders.length === 0) {
+        ordersHtml = `
+          <div style="background-color: #f0f0f0; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
+            <p style="font-size: 16px; color: #666; margin: 0;">
+              📭 No hay órdenes programadas para hoy
+            </p>
+            <p style="font-size: 14px; color: #999; margin: 10px 0 0 0;">
+              ¡Un buen momento para promocionar tus productos!
+            </p>
+          </div>
+        `;
+      } else {
+        ordersHtml = `
+          <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+            <thead>
+              <tr style="background-color: #aa1918; color: white;">
+                <th style="padding: 12px 8px; text-align: left; border-radius: 8px 0 0 0;">Hora</th>
+                <th style="padding: 12px 8px; text-align: left;">Cliente</th>
+                <th style="padding: 12px 8px; text-align: left;">Productos</th>
+                <th style="padding: 12px 8px; text-align: right; border-radius: 0 8px 0 0;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        todayOrders.forEach((order, index) => {
+          totalRevenue += order.total;
+          const bgColor = index % 2 === 0 ? '#ffffff' : '#f9f9f9';
+          const deliveryIcon = order.deliveryType === 'delivery' ? '🚚' : '🏪';
+
+          ordersHtml += `
+            <tr style="background-color: ${bgColor};">
+              <td style="padding: 12px 8px; border-bottom: 1px solid #eee; font-weight: bold; color: #aa1918;">
+                ${order.scheduledTime}
+              </td>
+              <td style="padding: 12px 8px; border-bottom: 1px solid #eee;">
+                ${deliveryIcon} ${order.customerName}
+              </td>
+              <td style="padding: 12px 8px; border-bottom: 1px solid #eee; font-size: 13px; color: #666;">
+                ${order.itemsSummary}
+              </td>
+              <td style="padding: 12px 8px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">
+                $${order.total.toFixed(2)}
+              </td>
+            </tr>
+          `;
+        });
+
+        ordersHtml += `
+            </tbody>
+            <tfoot>
+              <tr style="background-color: #f0f0f0;">
+                <td colspan="3" style="padding: 12px 8px; font-weight: bold; border-radius: 0 0 0 8px;">
+                  📊 Total del día (${todayOrders.length} ${todayOrders.length === 1 ? 'orden' : 'órdenes'})
+                </td>
+                <td style="padding: 12px 8px; text-align: right; font-weight: bold; font-size: 18px; color: #aa1918; border-radius: 0 0 8px 0;">
+                  $${totalRevenue.toFixed(2)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        `;
+      }
+
+      // Generar email HTML completo
+      const htmlContent = `
+        <div style="font-family: Arial, sans-serif; max-width: 650px; margin: 0 auto; color: #333;">
+          <div style="background: linear-gradient(135deg, #aa1918 0%, #8a1515 100%); color: white; padding: 24px; border-radius: 8px 8px 0 0; text-align: center;">
+            <h1 style="margin: 0; font-size: 22px;">📋 Resumen de Órdenes del Día</h1>
+            <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px;">${todayFormatted}</p>
+          </div>
+
+          <div style="background-color: #ffffff; padding: 24px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 8px 8px;">
+            
+            <p style="margin: 0 0 16px 0; font-size: 16px;">
+              ¡Buenos días, <strong>${businessName}</strong>! 👋
+            </p>
+            
+            <p style="margin: 0 0 20px 0; color: #666;">
+              Aquí tienes el resumen de las órdenes programadas para hoy:
+            </p>
+
+            ${ordersHtml}
+
+            <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;">
+
+            <div style="text-align: center;">
+              <a href="https://fuddi.shop/business/dashboard" 
+                 style="display: inline-block; background-color: #aa1918; color: white; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;">
+                📊 Ir al Dashboard
+              </a>
+            </div>
+
+            <p style="margin: 20px 0 0 0; font-size: 12px; color: #999; text-align: center;">
+              Este es un correo automático enviado a las 6:00 AM. No responder.
+            </p>
+          </div>
+        </div>
+      `;
+
+      // Enviar el email
+      const mailOptions = {
+        from: 'resumen@fuddi.shop',
+        to: businessEmail,
+        subject: `📋 Resumen del día: ${todayOrders.length} ${todayOrders.length === 1 ? 'orden programada' : 'órdenes programadas'} - ${todayFormatted}`,
+        html: htmlContent
+      };
+
+      try {
+        await transporter.sendMail(mailOptions);
+        emailsSent++;
+        console.log(`✅ Resumen enviado a ${businessName} (${businessEmail})`);
+      } catch (emailError) {
+        console.error(`❌ Error enviando resumen a ${businessName}:`, emailError);
+      }
+    }
+
+    console.log(`✅ Proceso completado. Resúmenes enviados: ${emailsSent}`);
+
+  } catch (error) {
+    console.error('❌ Error en sendDailyOrderSummary:', error);
+  }
+});
+
+/**
  * Cloud Function: Notificar al delivery cuando se crea una orden con delivery asignado
  * Se ejecuta cuando se CREA una orden que ya tiene assignedDelivery
  */
@@ -1534,5 +1793,3 @@ exports.handleDeliveryOrderAction = onRequest(async (request, response) => {
     response.status(500).json({ error: 'Error procesando la acción' });
   }
 });
-
-
