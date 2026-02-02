@@ -146,6 +146,8 @@ export default function OrderPublicClient({ orderId }: Props) {
               } catch (deliveryError) {
                 console.error('Error loading delivery person:', deliveryError)
               }
+            } else {
+              setDeliveryPerson(null)
             }
 
             setLoading(false)
@@ -861,11 +863,11 @@ export default function OrderPublicClient({ orderId }: Props) {
         )}
 
         {/* Información del Delivery */}
-        {order.delivery?.type === 'delivery' && (
+        {order.delivery && order.delivery.type !== 'pickup' && (
           <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
             <h3 className="font-black text-gray-900 uppercase tracking-widest text-[10px] mb-4 flex items-center gap-2">
               <i className="bi bi-truck text-red-500"></i>
-              Información del delivery
+              Información del repartidor
             </h3>
 
             {deliveryPerson ? (
@@ -907,15 +909,27 @@ export default function OrderPublicClient({ orderId }: Props) {
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-4 py-2">
-                <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center relative overflow-hidden">
-                  <i className="bi bi-search text-gray-300 text-xl animate-pulse"></i>
+              // Solo mostrar "Buscando repartidor" si el pedido no está entregado ni cancelado
+              !['delivered', 'cancelled'].includes(order.status) ? (
+                <div className="flex items-center gap-4 py-2">
+                  <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center relative overflow-hidden text-blue-500">
+                    <i className="bi bi-search text-xl animate-pulse"></i>
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-gray-900 leading-tight">Buscando repartidor</p>
+                    <p className="text-xs text-gray-400 font-medium mt-0.5">Conectando con repartidores cercanos...</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-black text-gray-900 leading-tight">Buscando repartidor</p>
-                  <p className="text-xs text-gray-400 font-medium mt-0.5">Conectando con repartidores cercanos...</p>
+              ) : (
+                <div className="flex items-center gap-4 py-2">
+                  <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-300">
+                    <i className="bi bi-person-x text-xl"></i>
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-gray-400 leading-tight">Sin repartidor asignado</p>
+                  </div>
                 </div>
-              </div>
+              )
             )}
 
             {/* Dirección de entrega */}
@@ -1072,13 +1086,15 @@ export default function OrderPublicClient({ orderId }: Props) {
 
         {/* Botones de Acción */}
         <div className="space-y-3 pt-2">
-          <button
-            onClick={() => business && sendOrderToStore(order, business)}
-            className="w-full bg-white border-2 border-green-500 text-green-600 font-black uppercase tracking-widest text-xs py-4 rounded-2xl flex items-center justify-center gap-3 transition-all hover:bg-green-50 active:scale-95 shadow-sm"
-          >
-            <i className="bi bi-whatsapp text-lg"></i>
-            Obtener comprobante
-          </button>
+          {(order.status === 'pending' || order.status === 'confirmed') && (
+            <button
+              onClick={() => business && sendOrderToStore(order, business)}
+              className="w-full bg-white border-2 border-green-500 text-green-600 font-black uppercase tracking-widest text-xs py-4 rounded-2xl flex items-center justify-center gap-3 transition-all hover:bg-green-50 active:scale-95 shadow-sm"
+            >
+              <i className="bi bi-whatsapp text-lg"></i>
+              Obtener comprobante
+            </button>
+          )}
 
           {order.status !== 'delivered' && order.status !== 'cancelled' && (
             <button

@@ -7,7 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import {
     searchClientByPhone, createClient, updateClient, getClientLocations,
     serverTimestamp, createClientLocation, deleteLocation,
-    getUserReferrals, getAllUserCredits
+    getUserReferrals, getAllUserCredits, getOrdersByClient, getBusiness
 } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 import LocationSelectionModal from '@/components/LocationSelectionModal'
@@ -166,6 +166,8 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     const [savedLocation, setSavedLocation] = useState<{ referencia: string; lat: number; lng: number } | null>(null)
 
     const [userLocations, setUserLocations] = useState<any[]>([])
+    const [activeOrders, setActiveOrders] = useState<any[]>([])
+    const [loadingOrders, setLoadingOrders] = useState(false)
 
 
     // Modal states
@@ -261,10 +263,32 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                     handleSelectLocation(locs[0])
                 }
             }).catch(console.error)
+
+            // Cargar órdenes activas
+            if (user.celular) {
+                setLoadingOrders(true)
+                getOrdersByClient(user.celular)
+                    .then(async (orders) => {
+                        const active = orders.filter((o: any) =>
+                            !['delivered', 'cancelled'].includes(o.status)
+                        )
+
+                        // Enriquecer con datos básicos del negocio para el logo/nombre
+                        const enriched = await Promise.all(active.map(async (o: any) => {
+                            const biz = await getBusiness(o.businessId)
+                            return { ...o, businessName: biz?.name, businessImage: biz?.image }
+                        }))
+
+                        setActiveOrders(enriched)
+                    })
+                    .catch(console.error)
+                    .finally(() => setLoadingOrders(false))
+            }
         } else {
-            // Si cierra sesión, limpiar ubicaciones
+            // Si cierra sesión, limpiar datos
             setUserLocations([])
             setSavedLocation(null)
+            setActiveOrders([])
         }
     }, [user])
 
@@ -777,8 +801,56 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                             )}
                         </div>
 
-                        {/* Navigation Links */}
-                        <div className="flex-1 px-6 space-y-4">
+                        <div className="flex-1 px-6 space-y-6">
+                            {user && activeOrders.length > 0 && (
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between ml-4 mb-1">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Órdenes Activas</p>
+                                        <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        {activeOrders.map((order) => (
+                                            <Link
+                                                key={order.id}
+                                                href={`/o/${order.id}`}
+                                                onClick={onClose}
+                                                className="flex items-center gap-4 p-3 bg-white rounded-2xl shadow-sm border border-emerald-100 hover:border-emerald-500 transition-all group"
+                                            >
+                                                <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0 border border-gray-50">
+                                                    {order.businessImage ? (
+                                                        <img src={order.businessImage} alt={order.businessName} className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                                            <i className="bi bi-shop"></i>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <h4 className="font-black text-gray-900 text-sm truncate uppercase tracking-tight">
+                                                            {order.businessName || 'Tienda'}
+                                                        </h4>
+                                                        <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full uppercase tracking-widest">
+                                                            {order.status === 'pending' ? 'Pendiente' :
+                                                                order.status === 'confirmed' ? 'Confirmado' :
+                                                                    order.status === 'preparing' ? 'Preparando' :
+                                                                        order.status === 'ready' ? 'Listo' : order.status}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center justify-between mt-1">
+                                                        <p className="text-[10px] font-bold text-gray-400 truncate uppercase tracking-widest">
+                                                            Total: <span className="text-gray-900">${(order.total || 0).toFixed(2)}</span>
+                                                        </p>
+                                                        <i className="bi bi-arrow-right text-gray-300 group-hover:text-emerald-500 transition-colors"></i>
+                                                    </div>
+                                                </div>
+                                            </Link>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             {user ? (
                                 <div className="space-y-2">
                                     <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-4 mb-3">Mi Actividad</p>
