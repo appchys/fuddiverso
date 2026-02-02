@@ -784,6 +784,20 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                     <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-4 mb-3">Mi Actividad</p>
 
                                     <Link
+                                        href="/profile?tab=recommendations"
+                                        onClick={onClose}
+                                        className="flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:border-gray-900 group transition-all"
+                                    >
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-500 group-hover:text-white transition-all">
+                                                <i className="bi bi-gift text-xl"></i>
+                                            </div>
+                                            <span className="font-black text-gray-900">Mis Recomendaciones</span>
+                                        </div>
+                                        <i className="bi bi-chevron-right text-gray-300 group-hover:text-gray-900 transition-colors"></i>
+                                    </Link>
+
+                                    <Link
                                         href="/my-orders"
                                         onClick={onClose}
                                         className="flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:border-gray-900 group transition-all"

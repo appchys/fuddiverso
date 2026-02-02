@@ -46,6 +46,7 @@ export default function ProfilePage() {
   const { user, isAuthenticated, login } = useAuth()
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'locations' | 'cards' | 'reviews' | 'info' | 'recommendations'>('cards')
+  const [authLoading, setAuthLoading] = useState(true)
 
   // DATA STATES
   const [locations, setLocations] = useState<any[]>([])
@@ -82,11 +83,18 @@ export default function ProfilePage() {
 
   // INIT
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/')
-      return
-    }
+    // Pequeño delay para permitir que AuthContext cargue de localStorage
+    const timer = setTimeout(() => {
+      setAuthLoading(false)
+      if (!isAuthenticated) {
+        router.push('/')
+      }
+    }, 500)
 
+    return () => clearTimeout(timer)
+  }, [isAuthenticated, router])
+
+  useEffect(() => {
     if (user) {
       setFormData({
         nombres: user.nombres || '',
@@ -95,7 +103,18 @@ export default function ProfilePage() {
       })
       loadProfileData()
     }
-  }, [user, isAuthenticated, router])
+  }, [user])
+
+  // Manejar tabs desde la URL
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const tab = params.get('tab')
+      if (tab === 'recommendations' || tab === 'locations' || tab === 'cards' || tab === 'reviews' || tab === 'info') {
+        setActiveTab(tab as any)
+      }
+    }
+  }, [])
 
   const loadProfileData = async () => {
     if (!user?.id) return
@@ -459,13 +478,15 @@ export default function ProfilePage() {
     }
   }
 
-  if (!isAuthenticated || !user) {
+  if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
       </div>
     )
   }
+
+  if (!isAuthenticated || !user) return null
 
   const clientInitials = (user.nombres || 'User').charAt(0).toUpperCase()
 

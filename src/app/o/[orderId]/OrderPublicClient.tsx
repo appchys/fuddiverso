@@ -1216,8 +1216,8 @@ function ReferralModal({
     <div className="fixed inset-0 z-[200] overflow-hidden">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="flex items-center justify-center min-h-screen p-4">
-        <div className="relative w-full max-w-md bg-white rounded-[40px] shadow-2xl p-8 animate-in fade-in zoom-in duration-300 border border-emerald-100 border-t-8 border-t-emerald-500">
-          <button onClick={onClose} className="absolute top-6 right-6 w-10 h-10 bg-gray-50 text-gray-400 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all">
+        <div className="relative w-full max-w-md bg-white rounded-[40px] shadow-2xl p-8 animate-in fade-in zoom-in duration-300 border border-emerald-100 border-t-8 border-t-emerald-500 max-h-[90vh] overflow-y-auto custom-scrollbar">
+          <button onClick={onClose} className="absolute top-6 right-6 w-10 h-10 bg-gray-50 text-gray-400 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all z-10">
             <i className="bi bi-x-lg"></i>
           </button>
           <div className="text-center mb-8">
@@ -1248,9 +1248,20 @@ function ReferralModal({
             <i className={`bi ${copied ? 'bi-check-lg' : 'bi-clipboard-check'} text-lg`}></i>
             {copied ? '¡ENLACE COPIADO!' : 'COPIAR ENLACE OTRA VEZ'}
           </button>
-          <button onClick={shareOnWhatsApp} className="w-full py-4 bg-white text-emerald-600 border-2 border-emerald-600 font-black uppercase tracking-widest text-[10px] rounded-2xl hover:bg-emerald-50 transition-all flex items-center justify-center gap-2 active:scale-95 font-bold">
-            <i className="bi bi-whatsapp"></i> REINTENTAR WHATSAPP
-          </button>
+
+          <div className="space-y-3">
+            <button onClick={shareOnWhatsApp} className="w-full py-4 bg-white text-emerald-600 border-2 border-emerald-600 font-black uppercase tracking-widest text-[10px] rounded-2xl hover:bg-emerald-50 transition-all flex items-center justify-center gap-2 active:scale-95 font-bold">
+              <i className="bi bi-whatsapp"></i> REINTENTAR WHATSAPP
+            </button>
+
+            <button
+              onClick={() => window.location.href = '/profile?tab=recommendations'}
+              className="w-full py-4 bg-slate-100 text-slate-600 font-black uppercase tracking-widest text-[10px] rounded-2xl hover:bg-slate-200 transition-all flex items-center justify-center gap-2 active:scale-95"
+            >
+              <i className="bi bi-gift-fill"></i> VER MIS RECOMENDACIONES
+            </button>
+          </div>
+
           <p className="text-center text-gray-400 text-[9px] font-bold uppercase tracking-widest mt-6">Comparte y ayuda a este negocio</p>
         </div>
       </div>
