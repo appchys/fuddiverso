@@ -179,7 +179,7 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
                 }}
                 className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-3"
               >
-                <i className="bi bi-gift text-red-500 text-lg"></i>
+                <span className="text-lg">🔥</span>
                 <span className="font-medium">Recomendar</span>
               </button>
             </div>
@@ -390,7 +390,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
                       <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-1">
                         <button
                           onClick={() => updateQuantity(product.id, getCartItemQuantity(product.id, null) - 1, null)}
-                          className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-red-500 transition-colors"
+                          className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-red-500 transition-all"
                         >
                           <span className="text-lg">−</span>
                         </button>
@@ -399,7 +399,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
                         </span>
                         <button
                           onClick={() => updateQuantity(product.id, getCartItemQuantity(product.id, null) + 1, null)}
-                          className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-green-600 transition-colors"
+                          className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-green-600 transition-all"
                         >
                           <span className="text-lg">+</span>
                         </button>
@@ -419,7 +419,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
                             productId: product.id,
                           });
                         }}
-                        className="w-10 h-10 flex items-center justify-center bg-gray-900 text-white rounded-xl shadow-lg hover:bg-black transition-all active:scale-90"
+                        className="w-10 h-10 flex items-center justify-center bg-gray-900/5 text-gray-900 hover:bg-gray-900 hover:text-white rounded-xl transition-all active:scale-95"
                       >
                         <i className="bi bi-plus-lg text-sm"></i>
                       </button>
@@ -563,7 +563,7 @@ function ReferralModal({
 
           <div className="text-center mb-6">
             <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <i className="bi bi-gift text-red-500 text-3xl"></i>
+              <span className="text-3xl">🔥</span>
             </div>
             <h3 className="text-2xl font-black text-gray-900 mb-2">
               ¡Recomienda y Gana!
