@@ -135,7 +135,21 @@ export default function ProductPageByUsername() {
 
   useEffect(() => {
     if (product) {
-      document.title = `${product.name} - fuddi.shop`
+      const storeName = business?.name || 'fuddi.shop'
+      const title = `${product.name} - ${storeName}`
+
+      // Format description based on variants
+      let descriptionPrefix = ''
+      if (product.variants && product.variants.length > 0) {
+        const minPrice = Math.min(...product.variants.map(v => v.price))
+        descriptionPrefix = `Desde $${minPrice.toFixed(2)} - `
+      } else {
+        descriptionPrefix = `$${product.price.toFixed(2)} - `
+      }
+
+      const description = `${descriptionPrefix}${product.description || `Descubre ${product.name} en ${storeName}`}`
+
+      document.title = title
 
       const updateMetaTag = (property: string, content: string, isProperty = true) => {
         const attribute = isProperty ? 'property' : 'name'
@@ -150,24 +164,24 @@ export default function ProductPageByUsername() {
         element.setAttribute('content', content)
       }
 
-      updateMetaTag('description', product.description || 'Descubre este producto en fuddi.shop', false)
+      updateMetaTag('description', description, false)
 
       const canonicalUrl = `https://fuddi.shop/${username}/${product.slug || product.id}`
 
       updateMetaTag('og:type', 'product')
-      updateMetaTag('og:title', product.name)
-      updateMetaTag('og:description', product.description || 'Descubre este producto en fuddi.shop')
+      updateMetaTag('og:title', title)
+      updateMetaTag('og:description', description)
       updateMetaTag('og:image', product.image || '')
       updateMetaTag('og:url', canonicalUrl)
       updateMetaTag('og:site_name', 'fuddi.shop')
       updateMetaTag('og:locale', 'es_ES')
 
       updateMetaTag('twitter:card', 'summary_large_image', false)
-      updateMetaTag('twitter:title', product.name, false)
-      updateMetaTag('twitter:description', product.description || 'Descubre este producto en fuddi.shop', false)
+      updateMetaTag('twitter:title', title, false)
+      updateMetaTag('twitter:description', description, false)
       updateMetaTag('twitter:image', product.image || '', false)
     }
-  }, [product, productSlug, username])
+  }, [product, business?.name, username])
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
     setNotification({ show: true, message, type })

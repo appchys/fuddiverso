@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { getProduct, getProductBySlug } from '@/lib/database'
+import { getProduct, getProductBySlug, getBusinessByProduct } from '@/lib/database'
 
 type ProductPageParams = {
   params: Promise<{
@@ -26,13 +26,27 @@ export async function generateMetadata({ params }: ProductPageParams): Promise<M
       }
     }
 
-    const title = product.name
-    const description = product.description || `Descubre ${product.name} en fuddi.shop`
+    // Fetch business info to get the store name
+    const business = await getBusinessByProduct(product.id)
+    const storeName = business?.name || 'fuddi.shop'
+
+    const title = `${product.name} - ${storeName}`
+
+    // Format description based on variants
+    let descriptionPrefix = ''
+    if (product.variants && product.variants.length > 0) {
+      const minPrice = Math.min(...product.variants.map(v => v.price))
+      descriptionPrefix = `Desde $${minPrice.toFixed(2)} - `
+    } else {
+      descriptionPrefix = `$${product.price.toFixed(2)} - `
+    }
+
+    const description = `${descriptionPrefix}${product.description || `Descubre ${product.name} en ${storeName}`}`
     const imageUrl = product.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=1200&h=630&fit=crop&crop=center'
     const url = `https://fuddi.shop/${username}/${product.slug || product.id}`
 
     return {
-      title: `${title} - fuddi.shop`,
+      title,
       description,
       openGraph: {
         title,
