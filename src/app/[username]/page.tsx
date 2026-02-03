@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Head from 'next/head'
@@ -97,7 +97,25 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
   const [imgLoaded, setImgLoaded] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [copySuccess, setCopySuccess] = useState(false)
+  const menuContainerRef = useRef<HTMLDivElement | null>(null)
   const handleCardClick = () => onShowDetails(product)
+
+  useEffect(() => {
+    if (!isMenuOpen) return
+
+    const onPointerDown = (event: PointerEvent) => {
+      const container = menuContainerRef.current
+      if (!container) return
+
+      const target = event.target as Node | null
+      if (target && !container.contains(target)) {
+        setIsMenuOpen(false)
+      }
+    }
+
+    window.addEventListener('pointerdown', onPointerDown, true)
+    return () => window.removeEventListener('pointerdown', onPointerDown, true)
+  }, [isMenuOpen])
 
   const handleCopyProductLink = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -133,10 +151,16 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
     <div
       onClick={handleCardClick}
       className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 cursor-pointer active:scale-[0.98] ${quantity > 0 ? 'border-red-200 shadow-md ring-1 ring-red-50' : 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
-        }`}
+        } ${isMenuOpen ? 'z-50' : ''}`}
     >
+      {isMenuOpen && (
+        <div
+          className="fixed inset-0 z-[55]"
+          onClick={() => setIsMenuOpen(false)}
+        />
+      )}
       {/* Botón de menú de 3 puntos */}
-      <div className="absolute top-3 right-3 z-10">
+      <div ref={menuContainerRef} className="absolute top-3 right-3 z-[60]">
         <button
           onClick={(e) => {
             e.stopPropagation()
@@ -151,17 +175,8 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
         {/* Menú desplegable */}
         {isMenuOpen && (
           <>
-            {/* Overlay para cerrar el menú al hacer clic fuera */}
-            <div
-              className="fixed inset-0 z-20"
-              onClick={(e) => {
-                e.stopPropagation()
-                setIsMenuOpen(false)
-              }}
-            />
-
             {/* Menú */}
-            <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-30 animate-in fade-in zoom-in duration-200">
+            <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-[60] animate-in fade-in zoom-in duration-200">
               <button
                 onClick={handleCopyProductLink}
                 className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-3"
