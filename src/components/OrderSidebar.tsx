@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import OrderPublicClient from '@/app/o/[orderId]/OrderPublicClient'
 
 interface OrderSidebarProps {
@@ -12,6 +11,27 @@ interface OrderSidebarProps {
 export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarProps) {
   if (!isOpen || !orderId) return null
 
+  const handleCopyLink = async () => {
+    const orderUrl = `${window.location.origin}/o/${orderId}`
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(orderUrl)
+      } else {
+        const textArea = document.createElement('textarea')
+        textArea.value = orderUrl
+        textArea.style.position = 'fixed'
+        textArea.style.opacity = '0'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+      }
+    } catch (e) {
+      console.error('Error copying order link:', e)
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-[120] overflow-hidden">
       <div
@@ -19,32 +39,29 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
         onClick={onClose}
       />
 
-      <div className="absolute right-0 top-0 h-full w-full sm:w-[500px] bg-white shadow-2xl transform transition-transform duration-300">
+      <div className="absolute right-0 top-0 h-full w-full sm:w-[500px] bg-white shadow-2xl transform transition-transform duration-300 relative">
         <div className="h-full overflow-y-auto scrollbar-hide">
           <div className="min-h-full flex flex-col">
-            <div className="px-6 pt-6 pb-4 bg-white sticky top-0 z-10 border-b border-gray-100 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <button
-                    onClick={onClose}
-                    className="p-2 -ml-2 text-gray-800 hover:bg-gray-100 rounded-full transition-colors"
-                    aria-label="Cerrar"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
-                    </svg>
-                  </button>
-                  <h3 className="text-lg font-bold text-gray-900 truncate">Tu pedido</h3>
-                </div>
-
-                <Link
-                  href={`/o/${orderId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-xl bg-gray-900 text-white hover:bg-gray-800 transition-colors"
+            <div className="absolute top-3 left-3 right-3 z-20 bg-transparent pointer-events-none">
+              <div className="flex items-center justify-between pointer-events-auto">
+                <button
+                  onClick={onClose}
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-white/90 hover:text-white hover:bg-white/10 transition-colors"
+                  aria-label="Cerrar"
                 >
-                  Abrir link
-                </Link>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-white/90 hover:text-white hover:bg-white/10 transition-colors"
+                  aria-label="Copiar enlace"
+                >
+                  <i className="bi bi-link-45deg text-xl"></i>
+                </button>
               </div>
             </div>
 
