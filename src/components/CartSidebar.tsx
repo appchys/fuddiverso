@@ -19,6 +19,7 @@ import {
 } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 import { CheckoutContent } from '@/components/CheckoutContent'
+import OrderSidebar from '@/components/OrderSidebar'
 
 interface CartSidebarProps {
     isOpen: boolean
@@ -46,6 +47,9 @@ export default function CartSidebar({
     const router = useRouter()
 
     const [view, setView] = useState<'cart' | 'checkout'>('cart')
+
+    const [orderSidebarOpen, setOrderSidebarOpen] = useState(false)
+    const [createdOrderId, setCreatedOrderId] = useState<string | null>(null)
 
     const [localClientId, setLocalClientId] = useState<string | null>(null)
     const [localClientProfile, setLocalClientProfile] = useState<any | null>(null)
@@ -77,6 +81,8 @@ export default function CartSidebar({
     useEffect(() => {
         if (!isOpen) return
         setView('cart')
+        setOrderSidebarOpen(false)
+        setCreatedOrderId(null)
         if (typeof window === 'undefined') return
 
         try {
@@ -629,7 +635,10 @@ export default function CartSidebar({
                                     onEmbeddedBack={() => setView('cart')}
                                     onClearCart={() => {
                                         setView('cart')
-                                        onClose()
+                                    }}
+                                    onOrderCreated={(orderId) => {
+                                        setCreatedOrderId(orderId)
+                                        setOrderSidebarOpen(true)
                                     }}
                                     onAddItem={addItemToCart}
                                 />
@@ -797,7 +806,13 @@ export default function CartSidebar({
                         )}
                     </div>
                 </div>
-            </div >
-        </div >
+            </div>
+
+            <OrderSidebar
+                isOpen={orderSidebarOpen}
+                onClose={() => setOrderSidebarOpen(false)}
+                orderId={createdOrderId}
+            />
+        </div>
     )
 }

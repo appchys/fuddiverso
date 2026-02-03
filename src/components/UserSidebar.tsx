@@ -11,6 +11,7 @@ import {
 } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 import LocationSelectionModal from '@/components/LocationSelectionModal'
+import OrderSidebar from '@/components/OrderSidebar'
 import { ClientLocation } from '@/lib/database'
 
 interface UserSidebarProps {
@@ -168,6 +169,9 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     const [userLocations, setUserLocations] = useState<any[]>([])
     const [activeOrders, setActiveOrders] = useState<any[]>([])
     const [loadingOrders, setLoadingOrders] = useState(false)
+
+    const [orderSidebarOpen, setOrderSidebarOpen] = useState(false)
+    const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
 
 
     // Modal states
@@ -811,20 +815,21 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
 
                                     <div className="space-y-3">
                                         {activeOrders.map((order) => (
-                                            <Link
+                                            <button
                                                 key={order.id}
-                                                href={`/o/${order.id}`}
-                                                onClick={onClose}
-                                                className="flex items-center gap-4 p-3 bg-white rounded-2xl shadow-sm border border-emerald-100 hover:border-emerald-500 transition-all group"
+                                                type="button"
+                                                onClick={() => {
+                                                    setSelectedOrderId(order.id)
+                                                    setOrderSidebarOpen(true)
+                                                }}
+                                                className="w-full text-left flex items-center gap-4 p-3 bg-white rounded-2xl shadow-sm border border-emerald-100 hover:border-emerald-500 transition-all group"
                                             >
-                                                <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0 border border-gray-50">
-                                                    {order.businessImage ? (
-                                                        <img src={order.businessImage} alt={order.businessName} className="w-full h-full object-cover" />
-                                                    ) : (
-                                                        <div className="w-full h-full flex items-center justify-center text-gray-400">
-                                                            <i className="bi bi-shop"></i>
-                                                        </div>
-                                                    )}
+                                                <div className="w-12 h-12 rounded-2xl overflow-hidden bg-emerald-50 border border-emerald-100 flex-shrink-0">
+                                                    <img
+                                                        src={order.businessImage || '/default-restaurant-og.svg'}
+                                                        alt={order.businessName || 'Tienda'}
+                                                        className="w-full h-full object-cover"
+                                                    />
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center justify-between gap-2">
@@ -842,10 +847,14 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                                         <p className="text-[10px] font-bold text-gray-400 truncate uppercase tracking-widest">
                                                             Total: <span className="text-gray-900">${(order.total || 0).toFixed(2)}</span>
                                                         </p>
-                                                        <i className="bi bi-arrow-right text-gray-300 group-hover:text-emerald-500 transition-colors"></i>
+                                                        <div className="ml-auto flex items-center gap-2">
+                                                            <div className="w-7 h-7 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-100 transition-colors">
+                                                                <i className="bi bi-chevron-right"></i>
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </Link>
+                                            </button>
                                         ))}
                                     </div>
                                 </div>
@@ -937,6 +946,12 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                     </div>
                 </div>
             </div>
+
+            <OrderSidebar
+                isOpen={orderSidebarOpen}
+                onClose={() => setOrderSidebarOpen(false)}
+                orderId={selectedOrderId}
+            />
         </div>
     )
 }

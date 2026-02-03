@@ -1,6 +1,6 @@
 import React from 'react'
 import { Metadata } from 'next'
-import OrderPublicClient from './OrderPublicClient'
+import OrderSidebarPageClient from './OrderSidebarPageClient'
 import { getOrder, getBusiness } from '@/lib/database'
 
 type Props = {
@@ -59,10 +59,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function Page({ params }: Props) {
   const { orderId } = await params
   return (
-    <main className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-4xl mx-auto px-4">
-        <OrderPublicClient orderId={orderId} />
-      </div>
-    </main>
+    <OrderSidebarPageClient orderId={orderId} />
   )
 }

@@ -9,9 +9,10 @@ import { useAuth } from '@/contexts/AuthContext'
 
 type Props = {
   orderId: string
+  embedded?: boolean
 }
 
-export default function OrderPublicClient({ orderId }: Props) {
+export default function OrderPublicClient({ orderId, embedded = false }: Props) {
   const router = useRouter()
   const [order, setOrder] = useState<any | null>(null)
   const [business, setBusiness] = useState<any | null>(null)
@@ -656,7 +657,7 @@ export default function OrderPublicClient({ orderId }: Props) {
   }
 
   if (loading) return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white flex items-center justify-center p-4">
+    <div className={`${embedded ? '' : 'min-h-screen '}bg-gradient-to-b from-blue-50 to-white flex items-center justify-center p-4`}>
       <div className="text-center">
         <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
         <p className="text-gray-600">Cargando información de tu pedido...</p>
@@ -665,7 +666,7 @@ export default function OrderPublicClient({ orderId }: Props) {
   )
 
   if (error) return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white flex items-center justify-center p-4">
+    <div className={`${embedded ? '' : 'min-h-screen '}bg-gradient-to-b from-blue-50 to-white flex items-center justify-center p-4`}>
       <div className="text-center max-w-md">
         <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
           <span className="text-2xl">❌</span>
@@ -677,7 +678,7 @@ export default function OrderPublicClient({ orderId }: Props) {
   )
 
   if (!order) return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white flex items-center justify-center p-4">
+    <div className={`${embedded ? '' : 'min-h-screen '}bg-gradient-to-b from-blue-50 to-white flex items-center justify-center p-4`}>
       <div className="text-center max-w-md">
         <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
           <span className="text-2xl">🔍</span>
@@ -748,7 +749,7 @@ export default function OrderPublicClient({ orderId }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white pb-8">
+    <div className={`${embedded ? '' : 'min-h-screen '}bg-gradient-to-b from-slate-50 to-white pb-8`}>
       {/* Referral/Incentive Modal */}
       <ReferralModal
         isOpen={referralModalOpen}

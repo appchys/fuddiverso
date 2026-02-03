@@ -249,6 +249,7 @@ export function CheckoutContent({
   embeddedCartItems,
   onEmbeddedBack,
   onClearCart,
+  onOrderCreated,
   onAddItem
 }: {
   embeddedBusinessId?: string
@@ -256,6 +257,7 @@ export function CheckoutContent({
   embeddedCartItems?: any[]
   onEmbeddedBack?: () => void
   onClearCart?: () => void
+  onOrderCreated?: (orderId: string) => void
   onAddItem?: (item: any) => void
 } = {}) {
   // Tipos locales para estados
@@ -1482,16 +1484,32 @@ export function CheckoutContent({
         console.error('Error removing pending referral:', e)
       }
 
-      if (onClearCart) {
+      if (isEmbedded && onOrderCreated) {
         try {
-          onClearCart()
+          onOrderCreated(orderId)
         } catch (e) {
-          console.error('Error clearing embedded cart after order:', e)
+          console.error('Error calling onOrderCreated:', e)
         }
-      }
 
-      // Redirigir a la página de estado del pedido con la ruta /o/[orderId]
-      router.push(`/o/${orderId}`)
+        if (onClearCart) {
+          try {
+            onClearCart()
+          } catch (e) {
+            console.error('Error clearing embedded cart after order:', e)
+          }
+        }
+      } else {
+        if (onClearCart) {
+          try {
+            onClearCart()
+          } catch (e) {
+            console.error('Error clearing embedded cart after order:', e)
+          }
+        }
+
+        // Redirigir a la página de estado del pedido con la ruta /o/[orderId]
+        router.push(`/o/${orderId}`)
+      }
     } catch (error) {
       console.error('Error creating order:', error)
       setIsProcessingOrder(false) // Resetear estado en caso de error
