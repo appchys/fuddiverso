@@ -15,6 +15,7 @@ import ClientLoginModal from '@/components/ClientLoginModal'
 import { isStoreOpen } from '@/lib/store-utils'
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { useAuth } from '@/contexts/AuthContext'
+import StarRating from '@/components/StarRating'
 
 // Componente para structured data JSON-LD
 function BusinessStructuredData({ business }: { business: Business }) {
@@ -1517,7 +1518,6 @@ function RestaurantContent() {
               <div key={category} className="mb-12">
                 <div className="flex items-center gap-3 mb-6">
                   <h3 className="text-lg sm:text-xl font-bold text-gray-800 tracking-wide uppercase">{category}</h3>
-                  <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px] font-bold">{categoryProducts.length} items</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                   {categoryProducts.map((product) => (
@@ -1650,46 +1650,48 @@ function RestaurantContent() {
                 <Link
                   key={store.id}
                   href={`/${store.username}`}
-                  className="flex-shrink-0 w-64 sm:w-72 group/card snap-start"
+                  className="flex-shrink-0 w-64 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100"
                 >
-                  <div className="bg-white rounded-[1.5rem] overflow-hidden border border-gray-100 shadow-sm hover:shadow-xl hover:border-red-100 transition-all duration-500 h-full flex flex-col">
-                    <div className="relative h-40 bg-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0">
-                      {store.image ? (
-                        <img
-                          src={store.image}
-                          alt={store.name}
-                          className="w-full h-full object-cover transition-transform duration-700 group-hover/card:scale-110"
-                        />
-                      ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
-                          <i className="bi bi-shop text-5xl text-gray-300 transition-transform duration-700 group-hover/card:scale-110"></i>
-                        </div>
-                      )}
-                    </div>
-                    <div className="p-5 flex flex-col flex-1">
-                      <div className="flex justify-between items-start mb-2">
-                        <h3 className="font-black text-gray-900 text-lg line-clamp-1 group-hover/card:text-red-500 transition-colors">
-                          {store.name}
-                        </h3>
-                      </div>
-                      <div className="flex flex-wrap gap-1 mb-4">
-                        {(store.categories?.slice(0, 2) || ['Restaurante']).map((cat, i) => (
-                          <span key={i} className="text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 px-2 py-0.5 rounded">
+                  <div className="relative h-40 bg-gray-100 flex items-center justify-center">
+                    {store.image ? (
+                      <img
+                        src={store.image}
+                        alt={store.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <i className="bi bi-shop text-5xl text-gray-400"></i>
+                    )}
+                  </div>
+                  <div className="p-4">
+                    <h3 className="text-lg font-semibold text-gray-900 line-clamp-1">{store.name}</h3>
+                    {store.categories && store.categories.length > 0 && (
+                      <div className="flex gap-1 my-2 overflow-x-auto scrollbar-hide">
+                        {store.categories.slice(0, 3).map((cat, i) => (
+                          <span
+                            key={i}
+                            className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 whitespace-nowrap flex-shrink-0"
+                          >
                             {cat}
                           </span>
                         ))}
                       </div>
-
-                      {store.description && (
-                        <p className="text-gray-500 text-xs line-clamp-2 mb-6 leading-relaxed">
-                          {store.description}
-                        </p>
+                    )}
+                    <div className="mb-2">
+                      {store.ratingAverage ? (
+                        <div className="flex items-center">
+                          <StarRating rating={store.ratingAverage} size="sm" />
+                          <span className="text-xs text-gray-500 ml-1">({store.ratingCount || 0})</span>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-400">Sin calificaciones</div>
                       )}
-
-                      <div className="mt-auto w-full py-3 bg-gray-900 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-xl flex items-center justify-center gap-2 group-hover/card:bg-red-500 transition-all">
-                        Ver menú
-                        <i className="bi bi-arrow-right opacity-0 group-hover/card:opacity-100 group-hover/card:translate-x-1 transition-all"></i>
-                      </div>
+                    </div>
+                    {store.description && (
+                      <p className="text-sm text-gray-600 line-clamp-2 mb-3">{store.description}</p>
+                    )}
+                    <div className="text-xs text-[#aa1918] font-medium flex items-center gap-2">
+                      <span className="bg-red-50 px-2 py-0.5 rounded-full">Envío $1</span>
                     </div>
                   </div>
                 </Link>
