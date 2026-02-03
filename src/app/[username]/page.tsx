@@ -321,7 +321,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
   }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
+    <div className="fixed inset-0 z-[200] overflow-hidden">
       {/* Overlay con blur suave */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
 
