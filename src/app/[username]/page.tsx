@@ -1391,18 +1391,11 @@ function RestaurantContent() {
                       )}
 
                       <div className="flex-1 space-y-4">
-                        <div>
-                          <p className="text-xs font-bold text-gray-400 uppercase mb-1">Dirección</p>
-                          <p className="text-gray-700 flex items-start gap-2 italic">
-                            <i className="bi bi-geo-alt-fill text-red-500 mt-1"></i>
-                            {business.address || 'Dirección no especificada'}
-                          </p>
-                        </div>
-
                         {business.pickupSettings.references && (
                           <div>
                             <p className="text-xs font-bold text-gray-400 uppercase mb-1">Referencias</p>
-                            <p className="text-gray-700 text-sm leading-relaxed">
+                            <p className="text-gray-700 flex items-start gap-2 italic">
+                              <i className="bi bi-geo-alt-fill text-red-500 mt-1"></i>
                               {business.pickupSettings.references}
                             </p>
                           </div>

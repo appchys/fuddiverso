@@ -1928,14 +1928,10 @@ export function CheckoutContent({
                         <div className="flex-1 min-w-0 text-left">
                           <p className="font-medium text-gray-900">Retirar en:</p>
                           <p className="text-lg font-bold text-gray-800">{business?.name}</p>
-                          <p className="text-sm text-gray-600 mt-1">
-                            <i className="bi bi-geo-alt mr-1"></i>
-                            {business?.address || 'Dirección no disponible'}
-                          </p>
                           {business?.pickupSettings?.references && (
-                            <p className="text-xs text-gray-500 mt-2 italic">
-                              <i className="bi bi-info-circle mr-1"></i>
-                              Ref: {business.pickupSettings.references}
+                            <p className="text-sm text-gray-700 mt-2 flex items-start gap-2 italic">
+                              <i className="bi bi-geo-alt-fill text-red-500 mt-1"></i>
+                              {business.pickupSettings.references}
                             </p>
                           )}
                         </div>
