@@ -36,14 +36,6 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'general' | 'customers' | 'recommenders'>('general')
   const [customers, setCustomers] = useState<any[]>([])
   const [recommenders, setRecommenders] = useState<any[]>([])
-  const [visitData, setVisitData] = useState([
-    { hour: '00:00', visits: 12 },
-    { hour: '04:00', visits: 8 },
-    { hour: '08:00', visits: 25 },
-    { hour: '12:00', visits: 45 },
-    { hour: '16:00', visits: 38 },
-    { hour: '20:00', visits: 52 }
-  ])
   const [chartData, setChartData] = useState<any[]>([])
 
   // Estados para rango de fechas del gráfico
@@ -590,24 +582,6 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Gráfico de Visitas */}
-            <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Visitas por Hora</h3>
-              <div className="space-y-4">
-                {visitData.map((data, index) => (
-                  <div key={index} className="flex items-center space-x-4">
-                    <span className="text-sm font-medium text-gray-400 w-12">{data.hour}</span>
-                    <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
-                      <div
-                        className="bg-blue-500 h-full rounded-full transition-all duration-1000"
-                        style={{ width: `${(data.visits / 60) * 100}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-sm font-bold text-gray-700 w-8">{data.visits}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
 
             {/* Recent Orders Table */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 lg:col-span-2 overflow-hidden">
