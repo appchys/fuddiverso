@@ -538,7 +538,7 @@ export default function CartSidebar({
     if (!isOpen) return null
 
     return (
-        <div className="fixed inset-0 z-50 overflow-hidden">
+        <div className="fixed inset-0 z-[100] overflow-hidden">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
             <div className="absolute right-0 top-0 h-full w-full sm:w-[450px] bg-gray-50 shadow-2xl transform transition-transform duration-300">
                 <div className="h-full overflow-y-auto scrollbar-hide">

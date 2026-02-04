@@ -518,7 +518,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     }
 
     return (
-        <div className={`fixed inset-0 z-[60] overflow-hidden ${isOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
+        <div className={`fixed inset-0 z-[110] overflow-hidden ${isOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
             {/* Overlay */}
             <div
                 className={`absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}

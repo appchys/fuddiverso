@@ -565,7 +565,7 @@ function ReferralModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
+    <div className="fixed inset-0 z-[100] overflow-hidden">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       <div className="flex items-center justify-center min-h-screen p-4">
@@ -1538,7 +1538,7 @@ function RestaurantContent() {
 
       {/* Floating Cart Button - Ultra Modern */}
       {cartItemsCount > 0 && (
-        <div className="fixed bottom-8 right-6 z-40">
+        <div className="fixed bottom-8 right-6 z-[80]">
           <button
             onClick={() => setIsCartOpen(true)}
             className="relative bg-gray-900 text-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] hover:bg-black transition-all duration-300 transform hover:scale-105 active:scale-95 group overflow-hidden"
@@ -1607,7 +1607,7 @@ function RestaurantContent() {
 
       {/* Notificación temporal - Premium Toast */}
       {notification.show && (
-        <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[100] w-[calc(100%-2rem)] max-w-xs pointer-events-none animate-[slideDown_0.3s_ease-out]">
+        <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[300] w-[calc(100%-2rem)] max-w-xs pointer-events-none animate-[slideDown_0.3s_ease-out]">
           <div className="bg-gray-900/95 backdrop-blur-xl border border-white/10 rounded-[2rem] px-6 py-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-4">
             <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
               <i className="bi bi-bag-check-fill text-emerald-400 text-lg"></i>
