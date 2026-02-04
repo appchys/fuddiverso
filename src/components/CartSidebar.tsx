@@ -79,6 +79,17 @@ export default function CartSidebar({
     const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
 
     useEffect(() => {
+        if (isOpen) {
+            document.body.style.overflow = 'hidden'
+        } else {
+            document.body.style.overflow = ''
+        }
+        return () => {
+            document.body.style.overflow = ''
+        }
+    }, [isOpen])
+
+    useEffect(() => {
         if (!isOpen) return
         setView('cart')
         setOrderSidebarOpen(false)

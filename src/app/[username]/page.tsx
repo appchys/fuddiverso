@@ -909,6 +909,20 @@ function RestaurantContent() {
     }
   }
 
+  // Prevenir scroll del body cuando hay modales o sidebars abiertos
+  useEffect(() => {
+    const isAnyModalOpen = isCartOpen || isUserSidebarOpen || showLoginModal || isVariantModalOpen || referralModalOpen
+    if (isAnyModalOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [isCartOpen, isUserSidebarOpen, showLoginModal, isVariantModalOpen, referralModalOpen])
+
   const addToCart = (product: any) => {
     if (!business?.id) return;
 

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { GoogleMap } from './GoogleMap'
 import LocationMap from './LocationMap'
 import { ClientLocation, createClientLocation, getDeliveryFeeForLocation } from '@/lib/database'
@@ -34,6 +34,17 @@ export default function LocationSelectionModal({
 }: LocationSelectionModalProps) {
     // Estado local para controlar si estamos seleccionando o agregando
     const [isAddingNewLocation, setIsAddingNewLocation] = useState(initialAddingState)
+
+    useEffect(() => {
+        if (isOpen) {
+            document.body.style.overflow = 'hidden'
+        } else {
+            document.body.style.overflow = ''
+        }
+        return () => {
+            document.body.style.overflow = ''
+        }
+    }, [isOpen])
 
     // Si entramos con initialAddingState true, nos aseguramos de que el estado lo refleje
     // Pero solo si el modal se acaba de abrir (esto podría requerir un useEffect si el prop cambia)

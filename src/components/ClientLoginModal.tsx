@@ -54,6 +54,17 @@ export default function ClientLoginModal({
     }
   }, [isOpen, onClose])
 
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [isOpen])
+
   // Resetear todos los estados al abrir el modal (evita prellenado persistente)
   useEffect(() => {
     if (isOpen) {

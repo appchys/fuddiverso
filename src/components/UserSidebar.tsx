@@ -173,6 +173,16 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     const [orderSidebarOpen, setOrderSidebarOpen] = useState(false)
     const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
 
+    useEffect(() => {
+        if (isOpen) {
+            document.body.style.overflow = 'hidden'
+        } else {
+            document.body.style.overflow = ''
+        }
+        return () => {
+            document.body.style.overflow = ''
+        }
+    }, [isOpen])
 
     // Modal states
     const [isLocationModalOpen, setIsLocationModalOpen] = useState(false)
