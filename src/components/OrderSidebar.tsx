@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import OrderPublicClient from '@/app/o/[orderId]/OrderPublicClient'
 
 interface OrderSidebarProps {
@@ -9,6 +10,17 @@ interface OrderSidebarProps {
 }
 
 export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarProps) {
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [isOpen])
+
   if (!isOpen || !orderId) return null
 
   const handleCopyLink = async () => {

@@ -319,21 +319,6 @@ export default function LocationSelectionModal({
                                 )}
                             </div>
 
-                            {/* Reference Textarea */}
-                            <div>
-                                <label className="block text-sm font-bold text-gray-900 mb-2">
-                                    Referencia / Dirección Exacta *
-                                </label>
-                                <textarea
-                                    value={newLocationData.referencia}
-                                    onChange={handleReferenciaChange}
-                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all font-medium text-gray-900 placeholder:text-gray-400"
-                                    placeholder="Ej: Casa blanca de dos pisos, frente al parque..."
-                                    rows={3}
-                                    required
-                                />
-                            </div>
-
                             {/* Delivery Fee Status */}
                             {newLocationData.latlong && (
                                 <div className={`p-4 rounded-xl border ${Number(newLocationData.tarifa) === 1.5 || Number(newLocationData.tarifa) <= 0
@@ -358,6 +343,21 @@ export default function LocationSelectionModal({
                                     </p>
                                 </div>
                             )}
+
+                            {/* Reference Textarea */}
+                            <div>
+                                <label className="block text-sm font-bold text-gray-900 mb-2">
+                                    Referencia / Dirección Exacta *
+                                </label>
+                                <textarea
+                                    value={newLocationData.referencia}
+                                    onChange={handleReferenciaChange}
+                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all font-medium text-gray-900 placeholder:text-gray-400"
+                                    placeholder="Ej: Casa blanca de dos pisos, frente al parque..."
+                                    rows={3}
+                                    required
+                                />
+                            </div>
                         </div>
                     )}
                 </div>
