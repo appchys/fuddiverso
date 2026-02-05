@@ -380,26 +380,32 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <h1 className="text-3xl font-bold text-gray-900">Dashboard Administrativo</h1>
-        <div className="flex items-center space-x-1 bg-gray-100 p-1 rounded-xl border border-gray-200">
+    <div className="space-y-4 md:space-y-8">
+      {/* Header - Compacto en móvil */}
+      <div className="flex flex-col gap-3">
+        <h1 className="text-xl md:text-3xl font-bold text-gray-900">Dashboard Admin</h1>
+
+        {/* Tabs - Scroll horizontal en móvil */}
+        <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl border border-gray-200 overflow-x-auto -mx-4 px-4 md:mx-0 md:px-1 scrollbar-hide">
           <button
             onClick={() => setActiveTab('general')}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'general' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'general' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
+            <i className="bi bi-grid-1x2 md:hidden me-1.5"></i>
             General
           </button>
           <button
             onClick={() => setActiveTab('customers')}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'customers' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'customers' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
+            <i className="bi bi-people md:hidden me-1.5"></i>
             Clientes
           </button>
           <button
             onClick={() => setActiveTab('recommenders')}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'recommenders' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'recommenders' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
+            <i className="bi bi-share md:hidden me-1.5"></i>
             Recomendadores
           </button>
         </div>
@@ -407,92 +413,93 @@ export default function AdminDashboard() {
 
       {activeTab === 'general' ? (
         <>
-          {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+          {/* Stats Grid - 2x2 en móvil */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
+            <div className="bg-white rounded-xl shadow-sm p-4 md:p-6 border border-gray-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Pedidos Hoy</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.totalOrdersToday}</p>
+                  <p className="text-xs md:text-sm font-medium text-gray-500">Pedidos Hoy</p>
+                  <p className="text-xl md:text-2xl font-bold text-gray-900">{stats.totalOrdersToday}</p>
                 </div>
-                <div className="p-3 bg-blue-50 rounded-lg">
-                  <i className="bi bi-cart-check text-xl text-blue-600"></i>
+                <div className="p-2 md:p-3 bg-blue-50 rounded-lg">
+                  <i className="bi bi-cart-check text-lg md:text-xl text-blue-600"></i>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+            <div className="bg-white rounded-xl shadow-sm p-4 md:p-6 border border-gray-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Ingresos Hoy</p>
-                  <p className="text-2xl font-bold text-gray-900">${stats.revenueToday.toFixed(2)}</p>
+                  <p className="text-xs md:text-sm font-medium text-gray-500">Ingresos Hoy</p>
+                  <p className="text-xl md:text-2xl font-bold text-green-600">${stats.revenueToday.toFixed(0)}</p>
                 </div>
-                <div className="p-3 bg-green-50 rounded-lg">
-                  <i className="bi bi-cash-stack text-xl text-green-600"></i>
+                <div className="p-2 md:p-3 bg-green-50 rounded-lg">
+                  <i className="bi bi-cash-stack text-lg md:text-xl text-green-600"></i>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+            <div className="bg-white rounded-xl shadow-sm p-4 md:p-6 border border-gray-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Tiendas Activas</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.activeStores}</p>
+                  <p className="text-xs md:text-sm font-medium text-gray-500">Tiendas</p>
+                  <p className="text-xl md:text-2xl font-bold text-gray-900">{stats.activeStores}</p>
                 </div>
-                <div className="p-3 bg-purple-50 rounded-lg">
-                  <i className="bi bi-shop text-xl text-purple-600"></i>
+                <div className="p-2 md:p-3 bg-purple-50 rounded-lg">
+                  <i className="bi bi-shop text-lg md:text-xl text-purple-600"></i>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+            <div className="bg-white rounded-xl shadow-sm p-4 md:p-6 border border-gray-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Ventas Totales</p>
-                  <p className="text-2xl font-bold text-gray-900">${stats.totalRevenue.toFixed(2)}</p>
+                  <p className="text-xs md:text-sm font-medium text-gray-500">Total Ventas</p>
+                  <p className="text-xl md:text-2xl font-bold text-gray-900">${stats.totalRevenue.toFixed(0)}</p>
                 </div>
-                <div className="p-3 bg-orange-50 rounded-lg">
-                  <i className="bi bi-graph-up text-xl text-orange-600"></i>
+                <div className="p-2 md:p-3 bg-orange-50 rounded-lg">
+                  <i className="bi bi-graph-up text-lg md:text-xl text-orange-600"></i>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* Accesos Rápidos - Scroll horizontal en móvil */}
+          <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0 md:grid md:grid-cols-3 lg:grid-cols-4 scrollbar-hide">
             <a
               href="/admin/orders"
-              className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg shadow-sm p-6 border border-orange-200 hover:shadow-md transition-shadow cursor-pointer"
+              className="flex-shrink-0 w-36 md:w-auto bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl shadow-sm p-4 md:p-6 border border-orange-200 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-orange-700">Pedidos</p>
-                  <p className="text-xs text-orange-600 mt-1">Ver actividad</p>
+                  <p className="text-sm font-semibold text-orange-700">Pedidos</p>
+                  <p className="text-[11px] text-orange-600 mt-0.5">Ver actividad</p>
                 </div>
-                <i className="bi bi-clipboard-list text-2xl text-orange-600"></i>
+                <i className="bi bi-clipboard-list text-xl md:text-2xl text-orange-600"></i>
               </div>
             </a>
             <a
               href="/admin/coverage-zones"
-              className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg shadow-sm p-6 border border-purple-200 hover:shadow-md transition-shadow cursor-pointer"
+              className="flex-shrink-0 w-36 md:w-auto bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl shadow-sm p-4 md:p-6 border border-purple-200 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-purple-700">Zonas</p>
-                  <p className="text-xs text-purple-600 mt-1">Cobertura</p>
+                  <p className="text-sm font-semibold text-purple-700">Zonas</p>
+                  <p className="text-[11px] text-purple-600 mt-0.5">Cobertura</p>
                 </div>
-                <i className="bi bi-map text-2xl text-purple-600"></i>
+                <i className="bi bi-map text-xl md:text-2xl text-purple-600"></i>
               </div>
             </a>
             <a
               href="/business"
-              className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg shadow-sm p-6 border border-blue-200 hover:shadow-md transition-shadow cursor-pointer"
+              className="flex-shrink-0 w-36 md:w-auto bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl shadow-sm p-4 md:p-6 border border-blue-200 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-blue-700">Negocios</p>
-                  <p className="text-xs text-blue-600 mt-1">Administrar</p>
+                  <p className="text-sm font-semibold text-blue-700">Negocios</p>
+                  <p className="text-[11px] text-blue-600 mt-0.5">Administrar</p>
                 </div>
-                <i className="bi bi-shop text-2xl text-blue-600"></i>
+                <i className="bi bi-shop text-xl md:text-2xl text-blue-600"></i>
               </div>
             </a>
           </div>
@@ -583,46 +590,89 @@ export default function AdminDashboard() {
             </div>
 
 
-            {/* Recent Orders Table */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 lg:col-span-2 overflow-hidden">
-              <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">Pedidos Recientes</h3>
-                <a href="/admin/orders" className="text-sm font-medium text-blue-600 hover:underline">
+            {/* Pedidos Recientes - Mobile First */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 lg:col-span-2 overflow-hidden">
+              <div className="p-4 md:p-6 border-b border-gray-100 flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Pedidos Recientes</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">{orders.length} pedidos totales</p>
+                </div>
+                <a href="/admin/orders" className="text-sm font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1">
                   Ver todos
+                  <i className="bi bi-chevron-right text-xs"></i>
                 </a>
               </div>
-              <div className="overflow-x-auto">
+
+              {/* Vista Móvil - Cards */}
+              <div className="md:hidden divide-y divide-gray-100">
+                {orders.slice(0, 5).map((order) => {
+                  const business = businesses.find(b => b.id === order.businessId)
+                  if (!order || !order.customer) return null
+
+                  const statusConfig: Record<string, { bg: string; text: string; label: string }> = {
+                    pending: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Pendiente' },
+                    confirmed: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Confirmado' },
+                    preparing: { bg: 'bg-orange-100', text: 'text-orange-800', label: 'Preparando' },
+                    ready: { bg: 'bg-green-100', text: 'text-green-800', label: 'Listo' },
+                    delivered: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Entregado' },
+                    cancelled: { bg: 'bg-red-100', text: 'text-red-800', label: 'Cancelado' }
+                  }
+                  const status = statusConfig[order.status] || statusConfig.pending
+
+                  return (
+                    <div key={order.id} className="p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-bold text-gray-900 truncate">
+                              {order.customer?.name || 'Sin nombre'}
+                            </span>
+                            <span className={`inline-flex px-2 py-0.5 text-[10px] font-bold rounded-full ${status.bg} ${status.text}`}>
+                              {status.label}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <span>#{order.id?.slice(-6)}</span>
+                            <span>•</span>
+                            <span>{business?.name || 'N/A'}</span>
+                          </div>
+                          <div className="text-[11px] text-gray-400 mt-1">
+                            {order.createdAt ? new Date(order.createdAt).toLocaleString('es-EC', {
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            }) : 'Sin fecha'}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-lg font-bold text-gray-900">
+                            ${order.total?.toFixed(2) || '0.00'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }).filter(Boolean)}
+              </div>
+
+              {/* Vista Desktop - Tabla */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Pedido
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Cliente
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Tienda
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Total
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Estado
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Fecha
-                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pedido</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tienda</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {orders.slice(0, 5).map((order) => {
                       const business = businesses.find(b => b.id === order.businessId)
-
-                      // Validaciones para evitar errores
-                      if (!order || !order.customer) {
-                        return null // Skip orders without customer data
-                      }
+                      if (!order || !order.customer) return null
 
                       return (
                         <tr key={order.id} className="hover:bg-gray-50">
@@ -637,7 +687,7 @@ export default function AdminDashboard() {
                             <div className="text-sm text-gray-900">{business?.name || 'N/A'}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">${order.total?.toFixed(2) || '0.00'}</div>
+                            <div className="text-sm font-bold text-gray-900">${order.total?.toFixed(2) || '0.00'}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${order.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
@@ -651,8 +701,7 @@ export default function AdminDashboard() {
                                 order.status === 'confirmed' ? 'Confirmado' :
                                   order.status === 'preparing' ? 'Preparando' :
                                     order.status === 'ready' ? 'Listo' :
-                                      order.status === 'delivered' ? 'Entregado' :
-                                        'Cancelado'}
+                                      order.status === 'delivered' ? 'Entregado' : 'Cancelado'}
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
