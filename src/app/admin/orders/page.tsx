@@ -534,6 +534,9 @@ export default function OrderManagement() {
                       )}
                     </div>
                     <div className="min-w-0">
+                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-tight truncate mb-0.5">
+                        {business?.name || 'N/A'}
+                      </div>
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="text-sm font-bold text-gray-900 truncate">
                           {order.customer?.name || 'Sin nombre'}
@@ -587,8 +590,6 @@ export default function OrderManagement() {
                       <div className="flex items-center gap-1.5 text-xs text-gray-500">
                         <i className="bi bi-clock text-[10px]"></i>
                         <span className="font-medium">{getScheduledTime(order)}</span>
-                        <span className="text-gray-300">•</span>
-                        <span className="truncate">{business?.name || 'N/A'}</span>
                       </div>
                     </div>
                   </div>
@@ -616,10 +617,10 @@ export default function OrderManagement() {
                     </div>
                     <button
                       onClick={() => handleOpenOrderSidebar(order.id!)}
-                      className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 active:scale-95 transition-all shadow-sm border border-blue-100"
+                      className="p-1 px-2 text-gray-400 hover:text-blue-600 active:scale-95 transition-all"
                       title="Ver Detalle"
                     >
-                      <i className="bi bi-eye text-lg"></i>
+                      <i className="bi bi-code text-lg"></i>
                     </button>
                   </div>
                 </div>
@@ -868,10 +869,10 @@ export default function OrderManagement() {
                       <div className="flex items-center">
                         <button
                           onClick={() => handleOpenOrderSidebar(order.id!)}
-                          className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 hover:bg-blue-100 transition-colors"
+                          className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
                           title="Ver Detalle"
                         >
-                          <i className="bi bi-eye"></i>
+                          <i className="bi bi-code text-lg"></i>
                         </button>
                       </div>
                     </td>

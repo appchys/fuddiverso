@@ -25,7 +25,8 @@ export default function LayoutWrapper({
   const isBusinessRoute = pathname.startsWith('/business')
   const isDeliveryRoute = pathname.startsWith('/delivery')
   const isCheckoutRoute = pathname === '/checkout'
-  const showHeader = !isBusinessRoute && !isDeliveryRoute && !isCheckoutRoute && !isStoreRoute
+  const isAdminRoute = pathname.startsWith('/admin')
+  const showHeader = !isBusinessRoute && !isDeliveryRoute && !isCheckoutRoute && !isStoreRoute && !isAdminRoute
 
   return (
     <>

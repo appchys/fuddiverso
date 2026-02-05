@@ -491,6 +491,18 @@ export default function AdminDashboard() {
               </div>
             </a>
             <a
+              href="/admin/deliveries"
+              className="flex-shrink-0 w-36 md:w-auto bg-gradient-to-br from-green-50 to-green-100 rounded-xl shadow-sm p-4 md:p-6 border border-green-200 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-green-700">Deliveries</p>
+                  <p className="text-[11px] text-green-600 mt-0.5">Gestión</p>
+                </div>
+                <i className="bi bi-scooter text-xl md:text-2xl text-green-600"></i>
+              </div>
+            </a>
+            <a
               href="/business"
               className="flex-shrink-0 w-36 md:w-auto bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl shadow-sm p-4 md:p-6 border border-blue-200 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"
             >
