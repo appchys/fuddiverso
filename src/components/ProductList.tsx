@@ -1139,6 +1139,12 @@ export default function ProductList({
                     <div>
                       <label htmlFor="image-upload" className="block cursor-pointer">
                         <div className="relative w-full aspect-square bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 hover:border-red-400 hover:bg-red-50 transition-colors flex items-center justify-center overflow-hidden group">
+                          {uploading && formData.image && (
+                            <div className="absolute inset-0 z-20 bg-black/50 backdrop-blur-[1px] flex flex-col items-center justify-center">
+                              <i className="bi bi-arrow-clockwise animate-spin text-white text-3xl mb-3"></i>
+                              <p className="text-white text-sm font-black uppercase tracking-widest">Subiendo imagen</p>
+                            </div>
+                          )}
                           {formData.image ? (
                             <div className="absolute inset-0 w-full h-full">
                               <img src={URL.createObjectURL(formData.image)} alt="Preview" className="w-full h-full object-cover" />
@@ -1832,7 +1838,7 @@ export default function ProductList({
                     {uploading ? (
                       <>
                         <i className="bi bi-arrow-clockwise animate-spin"></i>
-                        Guardando...
+                        {formData.image ? 'Subiendo imagen' : 'Guardando...'}
                       </>
                     ) : (
                       <>

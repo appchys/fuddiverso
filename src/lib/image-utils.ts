@@ -7,9 +7,44 @@ export async function optimizeImage(
     quality = 0.7,
     mimeType: 'image/webp' | 'image/jpeg' | 'image/png' = 'image/webp'
 ): Promise<Blob> {
+    const isHeicLike = (f: File) => {
+        const name = (f.name || '').toLowerCase();
+        const type = (f.type || '').toLowerCase();
+        return type === 'image/heic' || type === 'image/heif' || name.endsWith('.heic') || name.endsWith('.heif');
+    }
+
+    const convertHeicToJpegIfNeeded = async (f: File): Promise<File> => {
+        if (!isHeicLike(f)) return f;
+
+        if (typeof window === 'undefined') return f;
+
+        try {
+            const mod: any = await import('heic2any');
+            const heic2any = mod?.default || mod;
+            const converted: any = await heic2any({
+                blob: f,
+                toType: 'image/jpeg',
+                quality: Math.min(1, Math.max(0.1, quality))
+            });
+
+            const convertedBlob: Blob = Array.isArray(converted) ? converted[0] : converted;
+            return new File([
+                convertedBlob
+            ], (f.name || 'image').replace(/\.(heic|heif)$/i, '.jpg'), { type: 'image/jpeg' });
+        } catch (e) {
+            console.warn('No se pudo convertir HEIC/HEIF a JPEG, intentando continuar:', e);
+            return f;
+        }
+    }
+
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.readAsDataURL(file);
+        // Nota: en iPhone algunas fotos llegan como HEIC/HEIF; convertir a JPEG antes de cargar en <img>
+        convertHeicToJpegIfNeeded(file)
+            .then((convertedFile) => {
+                reader.readAsDataURL(convertedFile);
+            })
+            .catch(reject);
         reader.onload = (event) => {
             const img = new Image();
             img.src = event.target?.result as string;
