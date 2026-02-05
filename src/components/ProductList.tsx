@@ -404,11 +404,16 @@ export default function ProductList({
       let imageUrl = editingProduct?.image || ''
       if (formData.image) {
         const timestamp = Date.now()
-        const path = `products/${timestamp}_${formData.image.name.split('.')[0]}.webp`
+        const path = `products/${timestamp}_${formData.image.name.split('.')[0]}.jpg`
 
-        // Optimizar imagen antes de subir (Max 1000px, 0.8 calidad, formato WebP)
-        const optimizedBlob = await optimizeImage(formData.image, 1000, 0.8)
-        imageUrl = await uploadImage(optimizedBlob as File, path)
+        // Optimizar imagen antes de subir (Max 1000px, 0.8 calidad, formato JPEG para compatibilidad OG)
+        const optimizedBlob = await optimizeImage(formData.image, 1000, 0.8, 'image/jpeg')
+        const optimizedFile = new File(
+          [optimizedBlob],
+          `${timestamp}_${formData.image.name.split('.')[0]}.jpg`,
+          { type: optimizedBlob.type || 'image/jpeg' }
+        )
+        imageUrl = await uploadImage(optimizedFile, path)
       }
 
       // Agregar ingredientes a cada variante

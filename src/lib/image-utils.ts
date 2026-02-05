@@ -1,7 +1,12 @@
 /**
  * Optimiza una imagen comprimiéndola y redimensionándola antes de subirla
  */
-export async function optimizeImage(file: File, maxWidth = 800, quality = 0.7): Promise<Blob> {
+export async function optimizeImage(
+    file: File,
+    maxWidth = 800,
+    quality = 0.7,
+    mimeType: 'image/webp' | 'image/jpeg' | 'image/png' = 'image/webp'
+): Promise<Blob> {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
@@ -30,18 +35,42 @@ export async function optimizeImage(file: File, maxWidth = 800, quality = 0.7): 
 
                 ctx.drawImage(img, 0, 0, width, height);
 
-                // Convertir a blob (formato WebP es más eficiente)
-                canvas.toBlob(
-                    (blob) => {
-                        if (blob) {
-                            resolve(blob);
-                        } else {
-                            reject(new Error('Error al comprimir la imagen'));
-                        }
-                    },
-                    'image/webp',
-                    quality
-                );
+                const tryEncode = (
+                    type: 'image/webp' | 'image/jpeg' | 'image/png',
+                    onDone: (blob: Blob | null) => void
+                ) => {
+                    canvas.toBlob(
+                        (blob) => onDone(blob),
+                        type,
+                        quality
+                    );
+                }
+
+                // Convertir a blob (por defecto WebP; fallback a JPEG si WebP no está soportado)
+                tryEncode(mimeType, (blob) => {
+                    if (blob && blob.type) {
+                        resolve(blob);
+                        return;
+                    }
+
+                    if (mimeType === 'image/webp') {
+                        tryEncode('image/jpeg', (jpegBlob) => {
+                            if (jpegBlob) {
+                                resolve(jpegBlob);
+                            } else {
+                                reject(new Error('Error al comprimir la imagen'));
+                            }
+                        })
+                        return
+                    }
+
+                    if (blob) {
+                        resolve(blob)
+                        return
+                    }
+
+                    reject(new Error('Error al comprimir la imagen'));
+                })
             };
             img.onerror = (err) => reject(err);
         };
