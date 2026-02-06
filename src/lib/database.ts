@@ -295,6 +295,8 @@ export async function createBusinessFromForm(formData: {
     image: formData.image,
     coverImage: formData.coverImage,
     ownerId: formData.ownerId,
+    administrators: [], // Inicializar vacío para administradores adicionales
+    adminEmails: [], // Inicializar vacío para queries optimizadas
     references: formData.references || '',
     categories: [],
     mapLocation: {
@@ -469,8 +471,13 @@ export async function addBusinessAdministrator(
 
     // Agregar el nuevo administrador
     const updatedAdmins = [...currentAdmins, newAdmin]
+
+    // Extraer emails para el campo adminEmails
+    const adminEmails = updatedAdmins.map(admin => admin.email)
+
     await updateDoc(businessRef, {
       administrators: updatedAdmins,
+      adminEmails: adminEmails, // Sincronizar campo para queries optimizadas
       updatedAt: serverTimestamp() // Solo usar serverTimestamp en campos top-level
     })
 
@@ -495,7 +502,14 @@ export async function removeBusinessAdministrator(businessId: string, adminEmail
 
     // Filtrar el administrador a remover
     const updatedAdmins = currentAdmins.filter(admin => admin.email !== adminEmail)
-    await updateDoc(businessRef, { administrators: updatedAdmins })
+
+    // Extraer emails para el campo adminEmails
+    const adminEmails = updatedAdmins.map(admin => admin.email)
+
+    await updateDoc(businessRef, {
+      administrators: updatedAdmins,
+      adminEmails: adminEmails // Sincronizar campo para queries optimizadas
+    })
 
     return true
   } catch (error) {
@@ -1857,6 +1871,77 @@ async function getBusinessesByAdministratorLegacy(userEmail: string): Promise<Bu
     throw error;
   }
 }
+
+/**
+ * Función de migración única: Poblar adminEmails desde administrators
+ * Esta función sincroniza el campo adminEmails en todos los negocios existentes
+ * para habilitar queries optimizadas.
+ * 
+ * Ejecutar una sola vez después del despliegue del nuevo campo.
+ */
+export async function migrateAdminEmailsField(): Promise<{
+  total: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+}> {
+  console.log('🔄 Starting adminEmails migration...');
+  const results = {
+    total: 0,
+    updated: 0,
+    skipped: 0,
+    errors: [] as string[]
+  };
+
+  try {
+    // Obtener todos los negocios
+    const q = query(collection(db, 'businesses'));
+    const querySnapshot = await getDocs(q);
+    results.total = querySnapshot.size;
+
+    console.log(`📊 Found ${results.total} businesses to migrate`);
+
+    // Procesar cada negocio
+    for (const docSnapshot of querySnapshot.docs) {
+      try {
+        const businessData = docSnapshot.data();
+        const businessId = docSnapshot.id;
+        const administrators = businessData.administrators || [];
+        const currentAdminEmails = businessData.adminEmails || [];
+
+        // Extraer emails de administrators
+        const newAdminEmails = administrators.map((admin: any) => admin.email).filter(Boolean);
+
+        // Solo actualizar si hay cambios
+        const needsUpdate =
+          !businessData.adminEmails || // No tiene el campo
+          JSON.stringify(currentAdminEmails.sort()) !== JSON.stringify(newAdminEmails.sort()); // Contenido diferente
+
+        if (needsUpdate) {
+          await updateDoc(doc(db, 'businesses', businessId), {
+            adminEmails: newAdminEmails
+          });
+          results.updated++;
+          console.log(`✅ Updated business ${businessId} with ${newAdminEmails.length} admin emails`);
+        } else {
+          results.skipped++;
+          console.log(`⏭️ Skipped business ${businessId} (already up to date)`);
+        }
+      } catch (error: any) {
+        const errorMsg = `Failed to update business ${docSnapshot.id}: ${error.message}`;
+        results.errors.push(errorMsg);
+        console.error(`❌ ${errorMsg}`);
+      }
+    }
+
+    console.log(`✅ Migration complete! Updated: ${results.updated}, Skipped: ${results.skipped}, Errors: ${results.errors.length}`);
+    return results;
+  } catch (error) {
+    console.error('❌ Migration failed:', error);
+    throw error;
+  }
+}
+
 
 // Función para verificar si un usuario tiene acceso a alguna tienda (como propietario o administrador)
 export async function getUserBusinessAccess(userEmail: string, userId: string): Promise<{
