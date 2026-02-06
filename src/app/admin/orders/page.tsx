@@ -6,6 +6,7 @@ import { Order, Business } from '@/types'
 import { db } from '@/lib/firebase'
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
 import OrderSidebar from '@/components/OrderSidebar'
+import { sendWhatsAppToDelivery } from '@/components/WhatsAppUtils'
 
 export default function OrderManagement() {
   const [orders, setOrders] = useState<Order[]>([])
@@ -130,6 +131,26 @@ export default function OrderManagement() {
     } finally {
       setUpdatingDelivery(null)
     }
+  }
+
+  const handleSendWhatsAppToDelivery = async (order: Order) => {
+    const business = businesses.find(b => b.id === order.businessId)
+
+    // Actualizar localmente inmediatamente
+    setOrders(prevOrders =>
+      prevOrders.map(o => o.id === order.id ? { ...o, waSentToDelivery: true } : o)
+    );
+
+    // Actualizar en DB
+    updateOrder(order.id, { waSentToDelivery: true }).catch(err => {
+      console.error('Error updating waSentToDelivery:', err);
+    });
+
+    await sendWhatsAppToDelivery(
+      { ...order, waSentToDelivery: true },
+      deliveries,
+      business || null
+    );
   }
 
   // Funciones para Pago
@@ -279,7 +300,7 @@ export default function OrderManagement() {
   // Obtener hora/fecha programada del pedido
   const getScheduledTime = (order: Order) => {
     try {
-      if (order.timing?.type === 'scheduled' && order.timing?.scheduledDate) {
+      if (order.timing?.scheduledDate) {
         const date = order.timing.scheduledDate instanceof Date
           ? order.timing.scheduledDate
           : new Date((order.timing.scheduledDate as any).seconds * 1000)
@@ -299,7 +320,7 @@ export default function OrderManagement() {
 
   const getTimeRemaining = (order: Order) => {
     try {
-      if (!order.timing || order.timing.type !== 'scheduled' || !order.timing.scheduledDate) {
+      if (!order.timing || !order.timing.scheduledDate) {
         return null // Para pedidos inmediatos usaremos el tiempo transcurrido
       }
 
@@ -361,6 +382,14 @@ export default function OrderManagement() {
   const filteredOrders = orders.filter(order => {
     // Validación básica del pedido
     if (!order || !order.customer || !order.customer.name) return false
+
+    // Solo mostrar órdenes de hoy
+    const today = new Date().toDateString()
+    const orderDate = order.timing?.scheduledDate
+      ? (order.timing.scheduledDate instanceof Date ? order.timing.scheduledDate : new Date((order.timing.scheduledDate as any).seconds * 1000))
+      : (order.createdAt instanceof Date ? order.createdAt : new Date((order.createdAt as any).seconds * 1000))
+
+    if (orderDate.toDateString() !== today) return false
 
     const business = businesses.find(b => b?.id === order?.businessId)
 
@@ -541,6 +570,14 @@ export default function OrderManagement() {
                         <span className="text-sm font-bold text-gray-900 truncate">
                           {order.customer?.name || 'Sin nombre'}
                         </span>
+                        {/* Indicador Manual/Automático */}
+                        <span
+                          className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
+                            }`}
+                          title={order.createdByAdmin ? 'Pedido creado por la tienda (manual)' : 'Pedido creado por el cliente (automático)'}
+                        >
+                          <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[10px]`}></i>
+                        </span>
 
                         {/* Indicador de Estado con Menú Desplegable */}
                         <div className="relative">
@@ -622,6 +659,18 @@ export default function OrderManagement() {
                     >
                       <i className="bi bi-code text-lg"></i>
                     </button>
+                    {((order.delivery?.type === 'delivery' && order.delivery?.assignedDelivery) || (order.delivery?.type === 'pickup' && business?.phone)) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleSendWhatsAppToDelivery(order)
+                        }}
+                        className={`${order.waSentToDelivery ? 'text-green-600 hover:text-green-800 hover:bg-green-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'} p-1 px-2 rounded-md transition-all active:scale-95`}
+                        title={order.waSentToDelivery ? 'Notificación enviada' : 'Notify Delivery/Store'}
+                      >
+                        <i className="bi bi-whatsapp text-lg"></i>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -649,7 +698,7 @@ export default function OrderManagement() {
                   </div>
                 )}
 
-                {/* Info de Pago - Simplificada */}
+                {/* Info de Pago - Estilo Dashboard */}
                 <div className="flex items-center gap-3 mb-3 text-xs text-gray-500">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${order.payment?.method === 'transfer' ? 'bg-blue-100 text-blue-700' :
                     order.payment?.method === 'mixed' ? 'bg-purple-100 text-purple-700' :
@@ -660,18 +709,20 @@ export default function OrderManagement() {
                     {order.payment?.method === 'transfer' ? 'Transf.' :
                       order.payment?.method === 'mixed' ? 'Mixto' : 'Efectivo'}
                   </span>
-                  {(order.payment?.method === 'transfer' || order.payment?.method === 'mixed') && (
-                    <button
-                      onClick={() => handleEditPayment(order)}
-                      className={`p-1 rounded-md ${order.payment?.paymentStatus === 'paid' ? 'text-green-600' :
-                        order.payment?.paymentStatus === 'validating' ? 'text-yellow-600 animate-pulse' :
-                          'text-blue-600'
-                        }`}
-                    >
-                      <i className={`bi ${order.payment?.paymentStatus === 'paid' ? 'bi-patch-check-fill' :
-                        order.payment?.paymentStatus === 'validating' ? 'bi-hourglass-split' : 'bi-wallet2'}`}></i>
-                    </button>
-                  )}
+                  {/* Botón de pago estilo dashboard */}
+                  <button
+                    onClick={() => handleEditPayment(order)}
+                    className={`${(() => {
+                      const status = order.payment?.paymentStatus
+                      if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
+                      if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
+                      return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+                    })()} p-1.5 rounded transition-colors`}
+                    title={order.payment?.paymentStatus === 'paid' ? 'Pago validado' :
+                      order.payment?.paymentStatus === 'validating' ? 'Validando pago' : 'Verificar pago'}
+                  >
+                    <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-base`}></i>
+                  </button>
                 </div>
 
                 {/* Selector de Delivery - Primario */}
@@ -735,7 +786,17 @@ export default function OrderManagement() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{order.customer?.name || 'Sin nombre'}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm font-medium text-gray-900">{order.customer?.name || 'Sin nombre'}</div>
+                        {/* Indicador Manual/Automático */}
+                        <span
+                          className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
+                            }`}
+                          title={order.createdByAdmin ? 'Pedido creado por la tienda (manual)' : 'Pedido creado por el cliente (automático)'}
+                        >
+                          <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[10px]`}></i>
+                        </span>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
@@ -786,17 +847,30 @@ export default function OrderManagement() {
                           {order.payment?.method === 'transfer' ? 'Transf.' :
                             order.payment?.method === 'mixed' ? 'Mixto' : 'Efectivo'}
                         </span>
-                        {(order.payment?.method === 'transfer' || order.payment?.method === 'mixed') && (
+                        {/* Botón de pago estilo dashboard */}
+                        <button
+                          onClick={() => handleEditPayment(order)}
+                          className={`${(() => {
+                            const status = order.payment?.paymentStatus
+                            if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
+                            if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
+                            return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+                          })()} p-1.5 rounded transition-colors`}
+                          title={order.payment?.paymentStatus === 'paid' ? 'Pago validado' :
+                            order.payment?.paymentStatus === 'validating' ? 'Validando pago' : 'Verificar pago'}
+                        >
+                          <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-lg`}></i>
+                        </button>
+                        {((order.delivery?.type === 'delivery' && order.delivery?.assignedDelivery) || (order.delivery?.type === 'pickup' && business?.phone)) && (
                           <button
-                            onClick={() => handleEditPayment(order)}
-                            className={`p-1 rounded-md hover:bg-gray-100 transition-colors ${order.payment?.paymentStatus === 'paid' ? 'text-green-600' :
-                              order.payment?.paymentStatus === 'validating' ? 'text-yellow-600 animate-pulse' :
-                                order.payment?.paymentStatus === 'rejected' ? 'text-red-600' : 'text-blue-600'
-                              }`}
-                            title="Verificar/Editar Pago"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleSendWhatsAppToDelivery(order)
+                            }}
+                            className={`${order.waSentToDelivery ? 'text-green-600 hover:text-green-800 hover:bg-green-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'} p-1 rounded-md transition-all`}
+                            title={order.waSentToDelivery ? 'Notificación enviada' : 'Notify Delivery/Store'}
                           >
-                            <i className={`bi ${order.payment?.paymentStatus === 'paid' ? 'bi-patch-check-fill' :
-                              order.payment?.paymentStatus === 'validating' ? 'bi-hourglass-split' : 'bi-wallet2'} text-lg`}></i>
+                            <i className="bi bi-whatsapp text-lg"></i>
                           </button>
                         )}
                       </div>

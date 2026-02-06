@@ -285,8 +285,8 @@ export const sendWhatsAppToCustomer = (order: Order) => {
 
 // Enviar mensaje a la tienda solicitando comprobante
 export const sendOrderToStore = (order: Order, business: Business) => {
-    // Número fijo solicitado
-    const fixedPhone = '0985985684'
+    // Usar el teléfono del negocio
+    const storePhone = business.phone || '0985985684' // Fallback al número viejo si no hay phone
 
     const customerName = order.customer?.name || 'Cliente'
     const productsList = order.items?.map((item: any) => `(${item.quantity}) ${item.variant || item.name || item.product?.name || 'Producto'}`).join('\n') || 'Sin productos'
@@ -347,7 +347,7 @@ export const sendOrderToStore = (order: Order, business: Business) => {
         // ignore
     }
 
-    const waPhone = `593${fixedPhone.startsWith('0') ? fixedPhone.slice(1) : fixedPhone}`
+    const waPhone = `593${storePhone.startsWith('0') ? storePhone.slice(1) : storePhone}`
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(message)}`
     window.open(whatsappUrl, '_blank')
 }

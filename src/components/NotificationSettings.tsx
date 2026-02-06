@@ -14,7 +14,7 @@ export default function NotificationSettings({
     // Inicializar estado local con los valores del negocio o defaults
     const [localSettings, setLocalSettings] = useState(business.notificationSettings || {
         emailOrderClient: true,
-        emailOrderManual: true,
+        emailOrderManual: false,
         emailCheckoutProgress: false
     })
 

@@ -320,7 +320,7 @@ export async function createBusinessFromForm(formData: {
     },
     notificationSettings: {
       emailOrderClient: true,
-      emailOrderManual: true,
+      emailOrderManual: false,
       emailCheckoutProgress: false
     },
     isActive: true,
@@ -1318,6 +1318,8 @@ export async function createBusinessFromGoogleAuth(userData: {
         lng: 0
       },
       references: '',
+      administrators: [], // Inicializar vacío para administradores adicionales
+      adminEmails: [], // Inicializar vacío para queries optimizadas
       schedule: {
         monday: { open: '09:00', close: '18:00', isOpen: true },
         tuesday: { open: '09:00', close: '18:00', isOpen: true },
@@ -1329,7 +1331,7 @@ export async function createBusinessFromGoogleAuth(userData: {
       },
       notificationSettings: {
         emailOrderClient: true,
-        emailOrderManual: true,
+        emailOrderManual: false,
         emailCheckoutProgress: false
       },
       isActive: true,
