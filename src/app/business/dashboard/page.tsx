@@ -131,6 +131,7 @@ export default function BusinessDashboard() {
   })
   const [addingAdmin, setAddingAdmin] = useState(false)
   const [updatingStoreStatus, setUpdatingStoreStatus] = useState(false)
+  const [transferringOwner, setTransferringOwner] = useState(false)
 
   // Estados para orden manual
   const [manualOrderData, setManualOrderData] = useState({
@@ -379,10 +380,18 @@ export default function BusinessDashboard() {
             setUserRole('owner');
           } else {
             // Buscar el rol como administrador
-            const adminRole = businessToSelect.administrators?.find(
+            const currentAdmin = businessToSelect.administrators?.find(
               (admin: any) => admin?.email === user?.email
             );
-            setUserRole(adminRole?.role || 'admin');
+            setUserRole(currentAdmin?.role || 'admin');
+
+            // Vincular UID si falta
+            if (currentAdmin && !currentAdmin.uid && user?.uid) {
+              const updatedAdmins = businessToSelect.administrators?.map((admin: any) =>
+                admin.email === user.email ? { ...admin, uid: user.uid } : admin
+              );
+              updateBusiness(businessToSelect.id, { administrators: updatedAdmins }).catch(console.error);
+            }
           }
         }
 
@@ -1340,6 +1349,40 @@ export default function BusinessDashboard() {
       alert('Administrador removido exitosamente');
     } catch (error: any) {
       alert(error.message || 'Error al remover administrador');
+    }
+  };
+
+  const handleTransferOwnership = async (admin: any) => {
+    if (!business || !user) return;
+
+    if (!admin.uid) {
+      alert('Este administrador aún no ha vinculado su cuenta (debe iniciar sesión al menos una vez en el dashboard). No se puede transferir la propiedad sin su identificador único.');
+      return;
+    }
+
+    const confirmMsg = `¿Estás SEGURO de que quieres transferir la propiedad de "${business.name}" a ${admin.email}?\n\n` +
+      `ADVERTENCIA: Dejarás de ser el propietario. Pasarás a ser un administrador con todos los permisos, pero ya no tendrás control total sobre la transferencia de propiedad o eliminación de la tienda.`;
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      setTransferringOwner(true);
+      const { transferBusinessOwnership } = await import('@/lib/database');
+
+      await transferBusinessOwnership(
+        business.id,
+        admin.email,
+        admin.uid,
+        user.uid,
+        user.email || ''
+      );
+
+      alert('¡Propiedad transferida exitosamente! El dashboard se recargará.');
+      window.location.reload(); // Recargar para reflejar cambios de rol y permisos
+    } catch (error: any) {
+      alert(error.message || 'Error al transferir propiedad');
+    } finally {
+      setTransferringOwner(false);
     }
   };
 
@@ -3136,6 +3179,17 @@ export default function BusinessDashboard() {
                                 <i className="bi bi-trash me-1"></i>
                                 Remover
                               </button>
+                              {userRole === 'owner' && (
+                                <button
+                                  onClick={() => handleTransferOwnership(admin)}
+                                  disabled={transferringOwner}
+                                  className="text-orange-600 hover:text-orange-700 text-sm flex items-center"
+                                  title="Convertir en dueño del negocio"
+                                >
+                                  <i className="bi bi-crown me-1"></i>
+                                  {transferringOwner ? 'Transfiriendo...' : 'Transferir Propiedad'}
+                                </button>
+                              )}
                             </div>
                           </div>
 

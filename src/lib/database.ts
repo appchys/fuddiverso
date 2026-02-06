@@ -550,9 +550,14 @@ export async function updateAdministratorPermissions(
   }
 }
 
-export async function transferBusinessOwnership(businessId: string, newOwnerEmail: string, currentOwnerUid: string) {
+export async function transferBusinessOwnership(
+  businessId: string,
+  newOwnerEmail: string,
+  newOwnerUid: string,
+  currentOwnerUid: string,
+  currentOwnerEmail: string
+) {
   try {
-    // Esta función requeriría verificaciones adicionales de seguridad
     const businessRef = doc(db, 'businesses', businessId)
     const businessDoc = await getDoc(businessRef)
 
@@ -561,16 +566,39 @@ export async function transferBusinessOwnership(businessId: string, newOwnerEmai
     }
 
     const businessData = businessDoc.data() as Business
-
-    // Verificar que el usuario actual es el propietario
     if (businessData.ownerId !== currentOwnerUid) {
       throw new Error('Solo el propietario puede transferir el negocio')
     }
 
-    // Aquí se necesitaría obtener el UID del nuevo propietario desde su email
-    // Por ahora solo actualizamos el email hasta implementar la búsqueda de usuarios
+    const currentAdmins = businessData.administrators || []
+
+    // 1. Preparar al dueño actual como nuevo administrador
+    const oldOwnerAsAdmin = {
+      uid: currentOwnerUid,
+      email: currentOwnerEmail,
+      role: 'admin' as const,
+      addedAt: new Date(),
+      addedBy: currentOwnerUid,
+      permissions: {
+        manageProducts: true,
+        manageOrders: true,
+        manageAdmins: true,
+        viewReports: true,
+        editBusiness: true
+      }
+    }
+
+    // 2. Remover al nuevo dueño de la lista de admins si estaba ahí
+    const filteredAdmins = currentAdmins.filter(admin => admin.email !== newOwnerEmail)
+
+    // 3. Agregar al dueño anterior a la lista de admins
+    const updatedAdmins = [...filteredAdmins, oldOwnerAsAdmin]
+
     await updateDoc(businessRef, {
+      ownerId: newOwnerUid,
       email: newOwnerEmail,
+      administrators: updatedAdmins,
+      adminEmails: updatedAdmins.map(a => a.email),
       updatedAt: serverTimestamp()
     })
 
