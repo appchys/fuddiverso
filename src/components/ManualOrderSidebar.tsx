@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
-import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption } from '@/lib/database'
+import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon } from '@/lib/database'
 import { searchClients } from '@/lib/client-search'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 import { storage } from '@/lib/firebase'
@@ -332,6 +332,47 @@ export default function ManualOrderSidebar({
   const handleDeliverySelect = () => {
     setManualOrderData(prev => ({ ...prev, deliveryType: 'delivery' }))
     setShowLocationModal(true)
+  }
+
+  // Buscar delivery asignado a la zona de una ubicación
+  const findDeliveryForLocation = async (location: ClientLocation) => {
+    // Si no tiene coordenadas válidas, mantener delivery actual
+    if (!location.latlong || location.latlong.startsWith('pluscode:')) {
+      console.log('[ManualOrder] Location sin coordenadas válidas, manteniendo delivery predeterminado')
+      return
+    }
+
+    try {
+      // Parsear coordenadas
+      const [lat, lng] = location.latlong.split(',').map(Number)
+      if (isNaN(lat) || isNaN(lng)) {
+        console.log('[ManualOrder] Coordenadas inválidas:', location.latlong)
+        return
+      }
+
+      // Buscar en zonas de cobertura
+      const zones = await getCoverageZones()
+      const matchingZone = zones.find(zone =>
+        zone.isActive &&
+        zone.assignedDeliveryId &&
+        isPointInPolygon({ lat, lng }, zone.polygon)
+      )
+
+      if (matchingZone?.assignedDeliveryId) {
+        const delivery = availableDeliveries.find(d => d.id === matchingZone.assignedDeliveryId)
+        if (delivery) {
+          console.log('[ManualOrder] Auto-asignando delivery de zona:', {
+            zoneName: matchingZone.name,
+            deliveryName: delivery.nombres
+          })
+          setManualOrderData(prev => ({ ...prev, selectedDelivery: delivery }))
+        }
+      } else {
+        console.log('[ManualOrder] Ubicación no está en ninguna zona con delivery asignado')
+      }
+    } catch (error) {
+      console.error('[ManualOrder] Error buscando delivery por zona:', error)
+    }
   }
 
   // Obtener fecha y hora inicial para programación
@@ -826,6 +867,7 @@ export default function ManualOrderSidebar({
       if (newLocation) {
         setManualOrderData(prev => ({ ...prev, selectedLocation: newLocation }));
         calculateTotal(manualOrderData.selectedProducts);
+        findDeliveryForLocation(newLocation);
       }
 
       // Limpiar formulario y cerrar modal
@@ -1996,6 +2038,7 @@ export default function ManualOrderSidebar({
                             setManualOrderData(prev => ({ ...prev, selectedLocation: location }));
                             setShowLocationModal(false);
                             calculateTotal(manualOrderData.selectedProducts);
+                            findDeliveryForLocation(location);
                           }}
                           className="mr-3 mt-1 flex-shrink-0"
                         />
