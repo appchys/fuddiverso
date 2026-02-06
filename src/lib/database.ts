@@ -1903,6 +1903,7 @@ export async function getCoverageZones(businessId?: string): Promise<CoverageZon
         polygon: data.polygon || [],
         deliveryFee: data.deliveryFee || 0,
         isActive: data.isActive !== false,
+        assignedDeliveryId: data.assignedDeliveryId || undefined,
         createdAt: convertToDate(data.createdAt),
         updatedAt: convertToDate(data.updatedAt)
       });

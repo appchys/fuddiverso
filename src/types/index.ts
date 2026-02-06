@@ -100,6 +100,7 @@ export interface CoverageZone {
   }[]
   deliveryFee: number
   isActive: boolean
+  assignedDeliveryId?: string // ID del delivery asignado a esta zona
   createdAt: Date
   updatedAt: Date
 }
