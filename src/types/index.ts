@@ -10,6 +10,7 @@ export interface Business {
   email: string
   ownerId?: string // UID del usuario propietario en Firebase Auth
   administrators?: BusinessAdministrator[] // Lista de administradores
+  adminEmails?: string[] // Array de emails de administradores para queries optimizadas
   image?: string // Imagen de perfil/logo de la tienda
   coverImage?: string // Imagen de portada de la tienda
   locationImage?: string // Foto del local/establecimiento

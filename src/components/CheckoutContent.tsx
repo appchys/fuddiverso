@@ -1358,53 +1358,8 @@ export function CheckoutContent({
       const total = subtotal + deliveryCost;
       const businessId = (isEmbedded ? embeddedBusinessId : (searchParams.get('businessId') || ''))
 
-      // Asignar delivery automáticamente si es una orden de delivery
-      let assignedDeliveryId: string | undefined = undefined;
-      if (deliveryData.type === 'delivery') {
-        try {
-          const deliveries = await getDeliveriesByStatus('activo');
-
-          // 1. Intentar asignar por zona de cobertura si hay coordenadas
-          if (selectedLocation?.latlong && !selectedLocation.latlong.startsWith('pluscode:')) {
-            const [lat, lng] = selectedLocation.latlong.split(',').map(Number);
-            if (!isNaN(lat) && !isNaN(lng)) {
-              const zones = await getCoverageZones();
-              const matchingZone = zones.find(zone =>
-                zone.isActive &&
-                zone.assignedDeliveryId &&
-                isPointInPolygon({ lat, lng }, zone.polygon)
-              );
-
-              if (matchingZone?.assignedDeliveryId) {
-                const zoneDelivery = deliveries.find(d => d.id === matchingZone.assignedDeliveryId);
-                if (zoneDelivery) {
-                  assignedDeliveryId = zoneDelivery.id;
-                  console.log('✅ Delivery asignado por zona:', matchingZone.name, '->', zoneDelivery.nombres);
-                }
-              }
-            }
-          }
-
-          // 2. Si no se asignó por zona, usar Pedro Sánchez como fallback
-          if (!assignedDeliveryId) {
-            const pedroDelivery = deliveries.find(d => d.celular === '0990815097');
-            if (pedroDelivery) {
-              assignedDeliveryId = pedroDelivery.id;
-              console.log('✅ Delivery asignado (fallback - fuera de zona):', pedroDelivery.nombres);
-            } else {
-              // 3. Fallback final: Sergio Alvarado si Pedro no existe
-              const sergioDelivery = deliveries.find(d => d.celular === '0978697867');
-              if (sergioDelivery) {
-                assignedDeliveryId = sergioDelivery.id;
-                console.log('✅ Delivery asignado (fallback final):', sergioDelivery.nombres);
-              }
-            }
-          }
-        } catch (error) {
-          console.error('Error obteniendo deliveries o zonas:', error);
-          // Continuar sin asignar delivery si hay error
-        }
-      }
+      // El delivery se asignará automáticamente cuando la tienda confirme el pedido en el dashboard
+      const assignedDeliveryId = undefined;
 
       // Luego crear el objeto orderData
       const orderData = {
@@ -1427,7 +1382,7 @@ export function CheckoutContent({
           latlong: selectedLocation?.latlong || '',
           photo: selectedLocation?.photo || '', // ADDED: Photo de la ubicación
           deliveryCost: deliveryData.type === 'delivery' ? deliveryCost : 0,
-          assignedDelivery: assignedDeliveryId // Asignar delivery automáticamente
+          assignedDelivery: assignedDeliveryId
         },
         timing: {
           type: (timingData.type || 'immediate') as 'immediate' | 'scheduled',

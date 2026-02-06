@@ -18,35 +18,64 @@ export default function BusinessLogin() {
     if (!user.email) {
       throw new Error("Email no disponible de Google.");
     }
-    const { getUserBusinessAccess } = await import("@/lib/database");
-    const businessAccess = await getUserBusinessAccess(user.email, user.uid);
 
-    if (!businessAccess.hasAccess) {
-      router.replace("/business/register?google=true");
-      return;
-    }
-
-    let businessId = null;
-    if (businessAccess.ownedBusinesses.length > 0) {
-      businessId = businessAccess.ownedBusinesses[0].id;
-    } else if (businessAccess.adminBusinesses.length > 0) {
-      businessId = businessAccess.adminBusinesses[0].id;
-    }
-
-    if (!businessId) {
-      throw new Error("No se encontró un negocio accesible.");
-    }
-
-    login(
-      {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName || null
-      },
-      businessId,
-      user.uid
+    // Timeout de 15 segundos para evitar esperas indefinidas en conexiones lentas
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("TIMEOUT: La conexión es muy lenta. Tu sesión se guardará y se reintentará automáticamente.")), 15000)
     );
-    // NO redirigir aquí; el useEffect lo maneja
+
+    try {
+      const { getUserBusinessAccess } = await import("@/lib/database");
+
+      // Competencia entre la verificación de acceso y el timeout
+      const businessAccess = await Promise.race([
+        getUserBusinessAccess(user.email, user.uid),
+        timeoutPromise
+      ]) as Awaited<ReturnType<typeof getUserBusinessAccess>>;
+
+      if (!businessAccess.hasAccess) {
+        router.replace("/business/register?google=true");
+        return;
+      }
+
+      let businessId = null;
+      if (businessAccess.ownedBusinesses.length > 0) {
+        businessId = businessAccess.ownedBusinesses[0].id;
+      } else if (businessAccess.adminBusinesses.length > 0) {
+        businessId = businessAccess.adminBusinesses[0].id;
+      }
+
+      if (!businessId) {
+        throw new Error("No se encontró un negocio accesible.");
+      }
+
+      login(
+        {
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || null
+        },
+        businessId,
+        user.uid
+      );
+
+      // Limpiar auth pendiente si existe
+      localStorage.removeItem('pendingAuth');
+
+      // NO redirigir aquí; el useEffect lo maneja
+    } catch (error: any) {
+      // Si es timeout, guardar estado pendiente para recuperación
+      if (error.message?.includes("TIMEOUT")) {
+        console.log('⚠️ Authentication timeout, storing pending auth for recovery');
+        localStorage.setItem('pendingAuth', JSON.stringify({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          timestamp: Date.now()
+        }));
+      }
+      throw error;
+    }
   }, [login, router]);
 
   // Redirigir si ya está autenticado
@@ -83,23 +112,43 @@ export default function BusinessLogin() {
     return () => { isMounted = false; };
   }, [login, router]);
 
-  // Login con Google (popup)
+  // Login con Google (popup) con retry logic
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setError("");
-    try {
-      const result = await signInWithGoogle();
-      if (result?.user) {
-        await verifyAndLogin(result.user); // Usar función compartida
-      } else {
-        throw new Error("No se pudo obtener el usuario de Google.");
+
+    const maxRetries = 3;
+    const baseDelay = 1000; // 1 segundo
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const result = await signInWithGoogle();
+        if (result?.user) {
+          await verifyAndLogin(result.user); // Usar función compartida
+          return; // Éxito, salir
+        } else {
+          throw new Error("No se pudo obtener el usuario de Google.");
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Error al iniciar sesión con Google. Intenta de nuevo.";
+
+        // Si es el último intento o no es un error de timeout/red, lanzar error
+        if (attempt === maxRetries - 1 || !errorMessage.includes("TIMEOUT")) {
+          setError(errorMessage);
+          break;
+        }
+
+        // Calcular delay con backoff exponencial
+        const delay = baseDelay * Math.pow(2, attempt);
+        console.log(`⚠️ Authentication failed (attempt ${attempt + 1}/${maxRetries}), retrying in ${delay}ms...`);
+        setError(`Conexión lenta detectada. Reintentando (${attempt + 1}/${maxRetries})...`);
+
+        // Esperar antes de reintentar
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Error al iniciar sesión con Google. Intenta de nuevo.";
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
     }
+
+    setLoading(false);
   };
 
   if (checkingRedirect || authLoading) {

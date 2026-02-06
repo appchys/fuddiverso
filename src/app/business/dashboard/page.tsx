@@ -46,7 +46,9 @@ import {
   deleteOrder,
   createClientLocation,
   registerOrderConsumption,
-  generateProductSlug
+  generateProductSlug,
+  getCoverageZones,
+  isPointInPolygon
 } from '@/lib/database'
 import { isStoreOpen } from '@/lib/store-utils'
 
@@ -690,13 +692,91 @@ export default function BusinessDashboard() {
 
   const handleStatusChange = async (orderId: string, newStatus: Order['status']) => {
     try {
+      // Obtener la orden actual
+      const currentOrder = orders.find(o => o.id === orderId);
+      let assignmentUpdate: any = {};
+
+      // Si el pedido pasa de 'pending' a otro estado y es delivery sin repartidor
+      if (currentOrder && currentOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending') {
+        if (currentOrder.delivery.type === 'delivery' && !currentOrder.delivery.assignedDelivery) {
+          const assignedId = await autoAssignDeliveryForOrder(currentOrder);
+          if (assignedId) {
+            assignmentUpdate['delivery.assignedDelivery'] = assignedId;
+          }
+        }
+      }
+
       await updateOrderStatus(orderId, newStatus)
+
+      if (Object.keys(assignmentUpdate).length > 0) {
+        const orderRef = doc(db, 'orders', orderId);
+        await updateDoc(orderRef, assignmentUpdate);
+      }
+
       // Actualizar estado local
       setOrders(orders.map(order =>
-        order.id === orderId ? { ...order, status: newStatus } : order
+        order.id === orderId ? {
+          ...order,
+          status: newStatus,
+          delivery: {
+            ...order.delivery,
+            assignedDelivery: assignmentUpdate['delivery.assignedDelivery'] || order.delivery.assignedDelivery
+          }
+        } : order
       ))
     } catch (error) {
-      // Error updating order status
+      console.error('Error updating order status or auto-assigning delivery:', error);
+    }
+  }
+
+  // Función para auto-asignar delivery basado en zona o fallbacks
+  const autoAssignDeliveryForOrder = async (order: Order): Promise<string | undefined> => {
+    try {
+      const deliveries = await getDeliveriesByStatus('activo');
+      let assignedDeliveryId: string | undefined = undefined;
+
+      // 1. Intentar asignar por zona de cobertura si hay coordenadas
+      const latlong = order.delivery.latlong;
+      if (latlong && !latlong.startsWith('pluscode:')) {
+        const [lat, lng] = latlong.split(',').map(Number);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const zones = await getCoverageZones();
+          const matchingZone = zones.find(zone =>
+            zone.isActive &&
+            zone.assignedDeliveryId &&
+            isPointInPolygon({ lat, lng }, zone.polygon)
+          );
+
+          if (matchingZone?.assignedDeliveryId) {
+            const zoneDelivery = deliveries.find(d => d.id === matchingZone.assignedDeliveryId);
+            if (zoneDelivery) {
+              assignedDeliveryId = zoneDelivery.id;
+              console.log('✅ Delivery asignado por zona automáticamente:', matchingZone.name, '->', zoneDelivery.nombres);
+            }
+          }
+        }
+      }
+
+      // 2. Si no se asignó por zona, usar Pedro Sánchez como fallback (0990815097)
+      if (!assignedDeliveryId) {
+        const pedroDelivery = deliveries.find(d => d.celular === '0990815097');
+        if (pedroDelivery) {
+          assignedDeliveryId = pedroDelivery.id;
+          console.log('✅ Delivery asignado (fallback - fuera de zona):', pedroDelivery.nombres);
+        } else {
+          // 3. Fallback final: Sergio Alvarado si Pedro no existe
+          const sergioDelivery = deliveries.find(d => d.celular === '0978697867');
+          if (sergioDelivery) {
+            assignedDeliveryId = sergioDelivery.id;
+            console.log('✅ Delivery asignado (fallback final):', sergioDelivery.nombres);
+          }
+        }
+      }
+
+      return assignedDeliveryId;
+    } catch (error) {
+      console.error('Error in autoAssignDeliveryForOrder:', error);
+      return undefined;
     }
   }
 
@@ -1745,8 +1825,8 @@ export default function BusinessDashboard() {
                             <h3 className="text-sm sm:text-base font-semibold text-gray-900 flex items-center">
                               <span className="mr-2">
                                 {status === 'pending' && '🕐'}
-                                {status === 'confirmed' && '✅'}
-                                {status === 'preparing' && '👨‍🍳'}
+                                {status === 'confirmed' && <i className="bi bi-check-lg text-emerald-500 mr-1"></i>}
+                                {status === 'preparing' && '🔥'}
                                 {status === 'ready' && '🔔'}
                                 {status === 'on_way' && '🛵'}
                                 {status === 'delivered' && '📦'}
@@ -1981,27 +2061,34 @@ export default function BusinessDashboard() {
                 <div className="text-sm font-medium text-gray-900 truncate">
                   {order.customer?.name || 'Cliente sin nombre'}
                 </div>
-                <div className="text-xs text-gray-500 truncate">
-                  {order.delivery?.type === 'delivery' ? (
-                    <div className="flex items-center min-w-0">
-                      <i className="bi bi-geo-alt me-1 flex-shrink-0"></i>
-                      <span
-                        className="truncate min-w-0"
-                        title={order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
-                      >
-                        {order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center min-w-0">
-                      <i className="bi bi-shop me-1 flex-shrink-0"></i>
-                      <span className="font-medium text-blue-600 truncate">Retiro en tienda</span>
-                    </div>
-                  )}
+                <div
+                  className="text-xs text-gray-500 truncate"
+                  title={order.items?.map((item: any) => `${item.quantity}x ${item.variant || item.name || item.product?.name || "Producto"}`).join(", ")}
+                >
+                  {order.items?.map((item: any) => `${item.quantity}x ${item.variant || item.name || item.product?.name || "Producto"}`).join(", ")}
                 </div>
               </div>
 
-              {/* 4. Icono expandir eliminado: la fila completa es clickeable */}
+              {/* 4. Botón de Acción Rápida - Dinámico */}
+              {['pending', 'confirmed'].includes(order.status) && (
+                <div className="flex-shrink-0 ml-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const next = order.status === 'pending' ? 'confirmed' : 'preparing';
+                      handleStatusChange(order.id, next);
+                    }}
+                    className={`p-2 transition-transform active:scale-95 flex items-center justify-center`}
+                    title={order.status === 'pending' ? 'Confirmar pedido' : 'Empezar a preparar'}
+                  >
+                    {order.status === 'pending' ? (
+                      <i className="bi bi-check-lg text-2xl font-bold text-emerald-500"></i>
+                    ) : (
+                      <span className="text-2xl">🔥</span>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Contenido expandible */}
@@ -2029,14 +2116,21 @@ export default function BusinessDashboard() {
 
                 {/* Delivery (si aplica) */}
                 {isToday && order.delivery?.type === 'delivery' && (
-                  <div>
-                    <div className="text-xs font-medium text-gray-500 mb-1">Delivery:</div>
+                  <div className="bg-gray-50/50 p-2 rounded-lg border border-gray-100">
+                    <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1 px-1 flex items-center gap-1">
+                      <i className="bi bi-truck text-xs"></i>
+                      Repartidor
+                    </div>
                     <select
                       value={order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery || ''}
                       onChange={(e) => handleDeliveryAssignment(order.id, e.target.value)}
-                      className="w-full text-sm px-2 py-1 rounded border border-gray-200"
+                      disabled={business?.email !== 'munchys.ec@gmail.com'}
+                      className={`w-full text-sm px-3 py-2 rounded-md border transition-all duration-200 outline-none ${business?.email === 'munchys.ec@gmail.com'
+                        ? 'border-gray-200 bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 cursor-pointer shadow-sm'
+                        : 'border-transparent bg-gray-100/80 text-gray-600 cursor-not-allowed appearance-none'
+                        }`}
                     >
-                      <option value="">Sin asignar</option>
+                      <option value="">Buscando delivery...</option>
                       {availableDeliveries?.map((delivery) => (
                         <option key={delivery.id} value={delivery.id}>
                           {delivery.nombres}

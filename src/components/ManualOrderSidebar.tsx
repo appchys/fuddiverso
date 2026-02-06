@@ -135,6 +135,8 @@ export default function ManualOrderSidebar({
   // Estados para modal de deliveries
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
 
+  const canChangeDelivery = business?.email === 'munchys.ec@gmail.com';
+
   // Cleanup del timeout al desmontar
   useEffect(() => {
     return () => {
@@ -1626,8 +1628,8 @@ export default function ManualOrderSidebar({
 
               {manualOrderData.selectedDelivery ? (
                 <div
-                  className="p-3 bg-blue-50 border border-blue-200 rounded-md mb-3 relative cursor-pointer hover:bg-blue-100 transition-colors"
-                  onClick={() => setShowDeliveryModal(true)}
+                  className={`p-3 bg-blue-50 border border-blue-200 rounded-md mb-3 relative transition-colors ${canChangeDelivery ? 'cursor-pointer hover:bg-blue-100' : ''}`}
+                  onClick={() => canChangeDelivery && setShowDeliveryModal(true)}
                 >
                   <div className="flex items-center space-x-3">
                     {/* Foto del delivery */}
@@ -1660,15 +1662,18 @@ export default function ManualOrderSidebar({
                       <p className="text-xs text-blue-600">{manualOrderData.selectedDelivery.celular}</p>
                     </div>
 
-                    <div className="text-blue-600 flex-shrink-0">
-                      <i className="bi bi-chevron-down"></i>
-                    </div>
+                    {canChangeDelivery && (
+                      <div className="text-blue-600 flex-shrink-0">
+                        <i className="bi bi-chevron-down"></i>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
                 <button
-                  onClick={() => setShowDeliveryModal(true)}
-                  className="w-full p-3 rounded-lg border-2 border-gray-300 hover:border-gray-400 transition-all flex items-center justify-center space-x-2 text-gray-700"
+                  onClick={() => canChangeDelivery && setShowDeliveryModal(true)}
+                  className={`w-full p-3 rounded-lg border-2 transition-all flex items-center justify-center space-x-2 ${canChangeDelivery ? 'border-gray-300 hover:border-gray-400 text-gray-700' : 'border-gray-200 text-gray-400 cursor-not-allowed'}`}
+                  disabled={!canChangeDelivery}
                 >
                   <i className="bi bi-person-plus"></i>
                   <span className="text-sm font-medium">Asignar delivery</span>

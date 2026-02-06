@@ -48,21 +48,74 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
         let currentBusinessId = savedBusinessId
         let currentOwnerId = savedOwnerId
 
-        // Si faltan datos en localStorage, intentamos recuperarlos de la DB
+        // Verificar si hay autenticación pendiente (por timeout)
+        const pendingAuthStr = localStorage.getItem('pendingAuth');
+
+        // Si faltan datos en localStorage, intentamos recuperarlos
         if (!currentBusinessId || !currentOwnerId) {
-          try {
-            const { getBusinessByOwner } = await import('@/lib/database');
-            const biz = await getBusinessByOwner(firebaseUser.uid);
-            if (biz) {
-              currentBusinessId = biz.id;
-              currentOwnerId = biz.ownerId || firebaseUser.uid;
-              // Guardar para evitar repetir la búsqueda
-              localStorage.setItem('businessId', currentBusinessId);
-              localStorage.setItem('ownerId', currentOwnerId);
-              localStorage.setItem('currentBusinessId', currentBusinessId);
+          // Primero intentar recuperar de pending auth si existe y es reciente
+          if (pendingAuthStr) {
+            try {
+              const pendingAuth = JSON.parse(pendingAuthStr);
+              const age = Date.now() - pendingAuth.timestamp;
+
+              // Solo procesar si es menor a 5 minutos
+              if (age < 300000 && pendingAuth.uid === firebaseUser.uid) {
+                console.log('🔄 Attempting to recover pending authentication...');
+                const { getUserBusinessAccess } = await import('@/lib/database');
+
+                try {
+                  const businessAccess = await getUserBusinessAccess(pendingAuth.email, pendingAuth.uid);
+
+                  if (businessAccess.hasAccess) {
+                    let businessId = null;
+                    if (businessAccess.ownedBusinesses.length > 0) {
+                      businessId = businessAccess.ownedBusinesses[0].id;
+                    } else if (businessAccess.adminBusinesses.length > 0) {
+                      businessId = businessAccess.adminBusinesses[0].id;
+                    }
+
+                    if (businessId) {
+                      currentBusinessId = businessId;
+                      currentOwnerId = firebaseUser.uid;
+                      localStorage.setItem('businessId', currentBusinessId);
+                      localStorage.setItem('ownerId', currentOwnerId);
+                      localStorage.setItem('currentBusinessId', currentBusinessId);
+                      localStorage.removeItem('pendingAuth'); // Limpiar
+                      console.log('✅ Pending authentication recovered successfully!');
+                    }
+                  }
+                } catch (err) {
+                  console.error('[Auth] Failed to recover pending auth:', err);
+                  // No limpiar pendingAuth aquí, puede ser que la conexión siga lenta
+                }
+              } else if (age >= 300000) {
+                // Expirado, limpiar
+                console.log('⏰ Pending auth expired, clearing');
+                localStorage.removeItem('pendingAuth');
+              }
+            } catch (err) {
+              console.error('[Auth] Error parsing pending auth:', err);
+              localStorage.removeItem('pendingAuth');
             }
-          } catch (err) {
-            console.error('[Auth] Error during session recovery:', err);
+          }
+
+          // Si aún no tenemos datos, intentar recuperar de la DB
+          if (!currentBusinessId || !currentOwnerId) {
+            try {
+              const { getBusinessByOwner } = await import('@/lib/database');
+              const biz = await getBusinessByOwner(firebaseUser.uid);
+              if (biz) {
+                currentBusinessId = biz.id;
+                currentOwnerId = biz.ownerId || firebaseUser.uid;
+                // Guardar para evitar repetir la búsqueda
+                localStorage.setItem('businessId', currentBusinessId);
+                localStorage.setItem('ownerId', currentOwnerId);
+                localStorage.setItem('currentBusinessId', currentBusinessId);
+              }
+            } catch (err) {
+              console.error('[Auth] Error during session recovery:', err);
+            }
           }
         }
 
@@ -88,6 +141,7 @@ export function BusinessAuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('businessId')
         localStorage.removeItem('ownerId')
         localStorage.removeItem('currentBusinessId')
+        localStorage.removeItem('pendingAuth') // También limpiar pending auth
         setAuthLoading(false)
       }
     })

@@ -1786,15 +1786,49 @@ export async function getVisitsForBusiness(businessId: string): Promise<number> 
 // Función para verificar si un usuario es administrador de alguna tienda
 export async function getBusinessesByAdministrator(userEmail: string): Promise<Business[]> {
   try {
-    const q = query(
+    // Intentar query optimizada primero (usando adminEmails array)
+    const optimizedQuery = query(
       collection(db, 'businesses'),
-      where('administrators', 'array-contains-any', [
-        { email: userEmail }
-      ])
+      where('adminEmails', 'array-contains', userEmail)
     );
 
-    // Como array-contains-any no funciona con objetos complejos, 
-    // necesitamos obtener todas las tiendas y filtrar manualmente
+    const querySnapshot = await getDocs(optimizedQuery);
+
+    // Si encontramos resultados con la query optimizada, retornarlos
+    if (!querySnapshot.empty) {
+      const businesses: Business[] = [];
+      querySnapshot.forEach((doc) => {
+        const businessData = doc.data();
+        businesses.push({
+          id: doc.id,
+          ...businessData,
+          createdAt: toSafeDate(businessData.createdAt),
+          updatedAt: toSafeDate(businessData.updatedAt)
+        } as Business);
+      });
+      console.log(`✅ Found ${businesses.length} businesses using optimized query`);
+      return businesses;
+    }
+
+    // Fallback: Si no hay resultados, intentar el método legacy
+    // (para negocios que aún no tienen el campo adminEmails)
+    console.log('⚠️ No results with optimized query, falling back to legacy method');
+    return await getBusinessesByAdministratorLegacy(userEmail);
+  } catch (error: any) {
+    // Si el error es porque el índice no existe, usar método legacy
+    if (error.code === 'failed-precondition' || error.message?.includes('index')) {
+      console.log('⚠️ Index not available, using legacy method');
+      return await getBusinessesByAdministratorLegacy(userEmail);
+    }
+    console.error('❌ Error getting businesses by administrator:', error);
+    throw error;
+  }
+}
+
+// Método legacy: full table scan (mantener para backwards compatibility)
+async function getBusinessesByAdministratorLegacy(userEmail: string): Promise<Business[]> {
+  try {
+    console.log('🔍 Using legacy full table scan for administrator lookup');
     const allBusinessesQuery = query(collection(db, 'businesses'));
     const querySnapshot = await getDocs(allBusinessesQuery);
 
@@ -1819,7 +1853,7 @@ export async function getBusinessesByAdministrator(userEmail: string): Promise<B
     });
     return adminBusinesses;
   } catch (error) {
-    console.error('❌ Error getting businesses by administrator:', error);
+    console.error('❌ Error in legacy administrator lookup:', error);
     throw error;
   }
 }
