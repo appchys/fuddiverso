@@ -25,6 +25,40 @@ const transporter = nodemailer.createTransport({
 });
 
 /**
+ * Obtener emails de administradores de un negocio
+ */
+async function getBusinessAdminEmails(businessId) {
+  try {
+    const businessDoc = await admin.firestore().collection('businesses').doc(businessId).get();
+    if (!businessDoc.exists) return [];
+
+    const data = businessDoc.data();
+    const emails = [];
+
+    // El email principal del negocio siempre se incluye (usualmente el del dueño)
+    // Pero aquí solo queremos los extras si existen
+    if (data.adminEmails && Array.isArray(data.adminEmails)) {
+      emails.push(...data.adminEmails);
+    }
+
+    // También revisar array de objetos administrators por si acaso
+    if (data.administrators && Array.isArray(data.administrators)) {
+      data.administrators.forEach(admin => {
+        if (admin.email && !emails.includes(admin.email)) {
+          emails.push(admin.email);
+        }
+      });
+    }
+
+    // Filtrar duplicados y emails vacíos
+    return [...new Set(emails)].filter(e => e && e.trim().length > 0);
+  } catch (error) {
+    console.error('Error obteniendo emails de admins:', error);
+    return [];
+  }
+}
+
+/**
  * Cloud Function: Enviar email cuando se crea una nueva orden
  * Se ejecuta cuando se crea un documento en la colección 'orders'
  */
@@ -38,6 +72,7 @@ async function sendOrderEmailLogic(order, orderId) {
 
     // Obtener datos del negocio desde Firestore
     let businessEmail = 'info@fuddi.shop';
+    let recipients = [];
     if (order.businessId) {
       try {
         const businessDoc = await admin.firestore().collection('businesses').doc(order.businessId).get();
@@ -45,7 +80,16 @@ async function sendOrderEmailLogic(order, orderId) {
           const businessData = businessDoc.data();
           if (businessData.email) {
             businessEmail = businessData.email;
+            recipients.push(businessEmail);
           }
+
+          // Obtener emails de administradores
+          const adminEmails = await getBusinessAdminEmails(order.businessId);
+          adminEmails.forEach(email => {
+            if (!recipients.includes(email)) {
+              recipients.push(email);
+            }
+          });
 
           // Verificar configuración de notificaciones
           const settings = businessData.notificationSettings || {
@@ -66,6 +110,10 @@ async function sendOrderEmailLogic(order, orderId) {
       } catch (e) {
         console.warn('⚠️ No se pudo obtener datos del negocio:', e.message);
       }
+    }
+
+    if (recipients.length === 0) {
+      recipients.push(businessEmail);
     }
 
     // Obtener datos del cliente desde la colección 'clients' usando su ID
@@ -276,13 +324,13 @@ async function sendOrderEmailLogic(order, orderId) {
     // Enviar email
     const mailOptions = {
       from: 'pedidos@fuddi.shop',
-      to: businessEmail,
+      to: recipients.join(', '),
       subject: subject,
       html: htmlContent
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`✅ Email enviado correctamente a: ${businessEmail}`);
+    console.log(`✅ Email enviado correctamente a: ${recipients.join(', ')}`);
 
   } catch (error) {
     console.error(`❌ Error enviando email para orden ${orderId}:`, error);
@@ -692,6 +740,7 @@ exports.sendScheduledOrderReminders = onSchedule({
         // Obtener datos del negocio
         let businessEmail = 'info@fuddi.shop';
         let businessName = 'Tu negocio';
+        let recipients = [];
 
         if (order.businessId) {
           try {
@@ -700,11 +749,21 @@ exports.sendScheduledOrderReminders = onSchedule({
               const businessData = businessDoc.data();
               businessEmail = businessData.email || businessEmail;
               businessName = businessData.name || businessName;
+
+              if (businessEmail) recipients.push(businessEmail);
+
+              // Agregar administradores
+              const adminEmails = await getBusinessAdminEmails(order.businessId);
+              adminEmails.forEach(email => {
+                if (!recipients.includes(email)) recipients.push(email);
+              });
             }
           } catch (e) {
             console.warn(`⚠️ No se pudo obtener datos del negocio para orden ${orderId}:`, e.message);
           }
         }
+
+        if (recipients.length === 0) recipients.push(businessEmail);
 
         // Obtener datos del cliente
         let customerName = order.customer?.name || 'Cliente no especificado';
@@ -827,7 +886,7 @@ exports.sendScheduledOrderReminders = onSchedule({
         // Enviar el email
         const mailOptions = {
           from: 'recordatorios@fuddi.shop',
-          to: businessEmail,
+          to: recipients.join(', '),
           subject: `⏰ Recordatorio: ${customerName}`,
           html: htmlContent
         };
@@ -911,9 +970,17 @@ exports.sendDailyOrderSummary = onSchedule({
       const businessId = businessDoc.id;
       const businessEmail = business.email;
       const businessName = business.name || 'Tu Negocio';
+      let recipients = [];
+      if (businessEmail) recipients.push(businessEmail);
 
-      if (!businessEmail) {
-        console.log(`⚠️ Negocio ${businessId} no tiene email configurado`);
+      // Agregar administradores
+      const adminEmails = await getBusinessAdminEmails(businessId);
+      adminEmails.forEach(email => {
+        if (!recipients.includes(email)) recipients.push(email);
+      });
+
+      if (recipients.length === 0) {
+        console.log(`⚠️ Negocio ${businessId} no tiene emails configurados`);
         continue;
       }
 
@@ -1107,7 +1174,7 @@ exports.sendDailyOrderSummary = onSchedule({
       // Enviar el email
       const mailOptions = {
         from: 'resumen@fuddi.shop',
-        to: businessEmail,
+        to: recipients.join(', '),
         subject: `${businessName}! Tienes ${todayOrders.length} ${todayOrders.length === 1 ? 'pedido programado' : 'pedidos programados'} para hoy!`,
         html: htmlContent
       };
