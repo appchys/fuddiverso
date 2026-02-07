@@ -993,25 +993,26 @@ function DeliveryDashboardContent() {
                                 </div>
 
                                 {/* Acciones */}
-                                <div className="flex gap-2">
+                                <div className="grid grid-cols-3 gap-2">
                                   <a
                                     href={`https://wa.me/593${order.customer.phone.slice(1)}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     onClick={(e) => e.stopPropagation()}
-                                    className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-white border-2 border-green-500 text-green-600 rounded-2xl font-bold text-sm hover:bg-green-50 transition-all active:scale-95 shadow-sm"
+                                    className="flex items-center justify-center gap-1.5 py-2.5 bg-white border border-green-500 text-green-600 rounded-xl font-bold text-xs hover:bg-green-50 transition-all active:scale-95 shadow-sm"
                                   >
-                                    <i className="bi bi-whatsapp text-lg"></i>
-                                    WHATSAPP
+                                    <i className="bi bi-whatsapp"></i>
+                                    Chat Cliente
                                   </a>
 
                                   <a
                                     href={`tel:${order.customer.phone}`}
                                     onClick={(e) => e.stopPropagation()}
-                                    className="w-14 flex items-center justify-center bg-white border-2 border-blue-500 text-blue-600 rounded-2xl hover:bg-blue-50 transition-all active:scale-95 shadow-sm"
+                                    className="flex items-center justify-center gap-1.5 py-2.5 bg-white border border-blue-500 text-blue-600 rounded-xl font-bold text-xs hover:bg-blue-50 transition-all active:scale-95 shadow-sm"
                                     title="Llamar"
                                   >
-                                    <i className="bi bi-telephone-fill text-lg"></i>
+                                    <i className="bi bi-telephone-fill"></i>
+                                    Llamar
                                   </a>
 
                                   <button
@@ -1019,46 +1020,23 @@ function DeliveryDashboardContent() {
                                       e.stopPropagation()
                                       sendSelfWhatsApp(order)
                                     }}
-                                    className="w-14 flex items-center justify-center bg-gray-900 border-2 border-gray-900 text-white rounded-2xl hover:bg-gray-800 transition-all active:scale-95 shadow-sm"
+                                    className="flex items-center justify-center gap-1.5 py-2.5 bg-gray-900 border border-gray-900 text-white rounded-xl font-bold text-xs hover:bg-gray-800 transition-all active:scale-95 shadow-sm"
                                     title="Enviarme datos a mi WhatsApp"
                                   >
                                     <i className="bi bi-whatsapp"></i>
-                                    <span className="sr-only">Enviarme datos</span>
+                                    Enviarme datos
                                   </button>
-
-                                  {order.status !== 'on_way' && order.status !== 'delivered' && order.status !== 'cancelled' && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleStatusChange(order.id, 'on_way')
-                                      }}
-                                      className="flex-[2] py-3.5 bg-blue-600 text-white rounded-2xl font-bold text-sm hover:bg-blue-700 transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg"
-                                    >
-                                      <i className="bi bi-bicycle text-lg"></i>
-                                      EN CAMINO
-                                    </button>
-                                  )}
-
-                                  {order.status === 'on_way' && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleStatusChange(order.id, 'delivered')
-                                      }}
-                                      className="flex-[2] py-3.5 bg-gray-900 text-white rounded-2xl font-bold text-sm hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg"
-                                    >
-                                      <i className="bi bi-check2-circle text-lg"></i>
-                                      ENTREGADO
-                                    </button>
-                                  )}
                                 </div>
+
                               </div>
-                            )}
+                            )
+                            }
                           </div>
                         );
                       })}
                     </div>
-                  )}
+                  )
+                  }
                 </div>
               )
             })
@@ -1151,45 +1129,49 @@ function DeliveryDashboardContent() {
       }
 
       {/* Lightbox Modal de Imagen */}
-      {selectedImage && (
-        <div
-          className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4 animate-fadeIn"
-          onClick={() => setSelectedImage(null)}
-        >
-          <button
-            className="absolute top-4 right-4 text-white hover:text-gray-300 p-2"
+      {
+        selectedImage && (
+          <div
+            className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4 animate-fadeIn"
             onClick={() => setSelectedImage(null)}
           >
-            <i className="bi bi-x-lg text-2xl"></i>
-          </button>
-          <img
-            src={selectedImage}
-            alt="Detalle"
-            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl animate-scaleIn"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
-      {/* Notificación sutil (Toast) */}
-      {notification.show && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] w-[calc(100%-2rem)] max-w-xs animate-[slideDown_0.3s_ease-out]">
-          <div className={`backdrop-blur-xl border border-white/10 rounded-2xl px-5 py-3.5 shadow-xl flex items-center gap-3 ${notification.type === 'success' ? 'bg-emerald-600/95 text-white' : 'bg-gray-800/95 text-white'
-            }`}>
-            <div className="flex-1">
-              <p className="font-bold text-sm leading-tight text-center">
-                {notification.message}
-              </p>
-            </div>
+            <button
+              className="absolute top-4 right-4 text-white hover:text-gray-300 p-2"
+              onClick={() => setSelectedImage(null)}
+            >
+              <i className="bi bi-x-lg text-2xl"></i>
+            </button>
+            <img
+              src={selectedImage}
+              alt="Detalle"
+              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl animate-scaleIn"
+              onClick={(e) => e.stopPropagation()}
+            />
           </div>
-          <style jsx>{`
+        )
+      }
+      {/* Notificación sutil (Toast) */}
+      {
+        notification.show && (
+          <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] w-[calc(100%-2rem)] max-w-xs animate-[slideDown_0.3s_ease-out]">
+            <div className={`backdrop-blur-xl border border-white/10 rounded-2xl px-5 py-3.5 shadow-xl flex items-center gap-3 ${notification.type === 'success' ? 'bg-emerald-600/95 text-white' : 'bg-gray-800/95 text-white'
+              }`}>
+              <div className="flex-1">
+                <p className="font-bold text-sm leading-tight text-center">
+                  {notification.message}
+                </p>
+              </div>
+            </div>
+            <style jsx>{`
             @keyframes slideDown {
               from { transform: translate(-50%, -20px); opacity: 0; }
               to { transform: translate(-50%, 0); opacity: 1; }
             }
           `}</style>
-        </div>
-      )}
-    </div>
+          </div>
+        )
+      }
+    </div >
   )
 }
 
