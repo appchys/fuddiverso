@@ -26,6 +26,14 @@ export default function OrderManagement() {
   const [isOrderSidebarOpen, setIsOrderSidebarOpen] = useState(false)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [statusMenuOrderId, setStatusMenuOrderId] = useState<string | null>(null)
+  const [expandedMaps, setExpandedMaps] = useState<Record<string, boolean>>({})
+
+  const toggleMap = (orderId: string) => {
+    setExpandedMaps(prev => ({
+      ...prev,
+      [orderId]: !prev[orderId]
+    }))
+  }
 
   // Estados para validación de pagos
   const [showEditPaymentModal, setShowEditPaymentModal] = useState(false)
@@ -447,16 +455,15 @@ export default function OrderManagement() {
   }
 
   return (
-    <div className="space-y-4 md:space-y-6">
-      {/* Header Compacto */}
-      <div className="flex items-center justify-between gap-3">
+    <div className="px-2 md:px-0">
+      <div className="flex items-center justify-between gap-4 mb-8">
         <div className="min-w-0">
-          <h1 className="text-xl md:text-3xl font-bold text-gray-900 truncate">Pedidos</h1>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800">
+          <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">Gestión de Pedidos</h1>
+          <div className="flex items-center gap-3 mt-2">
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 border border-amber-200">
               {pendingOrdersCount} pendientes
             </span>
-            <span className="text-xs text-gray-500">{orders.length} total</span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{orders.length} pedidos totales</span>
           </div>
         </div>
         <button
@@ -491,7 +498,7 @@ export default function OrderManagement() {
               <select
                 value={filters.status}
                 onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                className="pl-9 pr-8 py-2 text-[11px] font-black uppercase tracking-widest border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-50/50 appearance-none cursor-pointer transition-all hover:bg-white"
+                className="pl-9 pr-8 py-2 text-xs font-bold border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-100 transition-all hover:bg-white appearance-none cursor-pointer"
               >
                 <option value="all">Todas las activas</option>
                 <option value="pending">⏳ Pendientes</option>
@@ -509,7 +516,7 @@ export default function OrderManagement() {
               <select
                 value={filters.business}
                 onChange={(e) => setFilters({ ...filters, business: e.target.value })}
-                className="pl-9 pr-8 py-2 text-[11px] font-black uppercase tracking-widest border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-50/50 appearance-none cursor-pointer transition-all hover:bg-white"
+                className="pl-9 pr-8 py-2 text-xs font-bold border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-100 transition-all hover:bg-white appearance-none cursor-pointer"
               >
                 <option value="all">Todas las tiendas</option>
                 {businesses.map(business => (
@@ -526,7 +533,7 @@ export default function OrderManagement() {
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
-                className="pl-9 pr-8 py-2 text-[11px] font-black uppercase tracking-widest border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-50/50 appearance-none cursor-pointer transition-all hover:bg-white"
+                className="pl-9 pr-8 py-2 text-xs font-bold border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-100 transition-all hover:bg-white appearance-none cursor-pointer"
               >
                 <option value="newest">Más recientes</option>
                 <option value="oldest">Más antiguos</option>
@@ -549,9 +556,9 @@ export default function OrderManagement() {
 
           const statusConfig: Record<string, { bg: string; text: string; border: string; icon: string }> = {
             pending: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: 'bi-clock-history' },
-            confirmed: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: 'bi-check2-circle' },
+            confirmed: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', icon: 'bi-check2-circle' },
             preparing: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', icon: 'bi-fire' },
-            ready: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', icon: 'bi-bag-check' },
+            ready: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: 'bi-bag-check' },
             delivered: { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200', icon: 'bi-house-check' },
             cancelled: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', icon: 'bi-x-circle' },
             on_way: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', icon: 'bi-bicycle' }
@@ -561,35 +568,63 @@ export default function OrderManagement() {
           return (
             <div
               key={order.id}
-              className={`bg-white rounded-3xl border shadow-sm overflow-hidden transition-all active:scale-[0.99] ${order.status === 'pending' ? 'border-amber-200 ring-2 ring-amber-500/10' : 'border-gray-100'
+              className={`bg-white rounded-2xl border-l-[6px] border shadow-md overflow-hidden transition-all hover:shadow-xl ${order.status === 'pending' ? 'border-l-amber-400 border-gray-100' :
+                order.status === 'confirmed' ? 'border-l-green-400 border-gray-100' :
+                  order.status === 'preparing' ? 'border-l-orange-400 border-gray-100' :
+                    order.status === 'ready' ? 'border-l-emerald-400 border-gray-100' :
+                      order.status === 'delivered' ? 'border-l-gray-400 border-gray-100' :
+                        order.status === 'cancelled' ? 'border-l-red-400 border-gray-100' :
+                          'border-l-indigo-400 border-gray-100'
                 }`}
             >
               {/* Header: Status & ID */}
               <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${statusStyle.bg} ${statusStyle.text} border ${statusStyle.border}`}>
-                    <i className={`bi ${statusStyle.icon}`}></i>
-                    {getStatusText(order.status)}
-                  </span>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">#{order.id?.slice(-6)}</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleSendWhatsAppToDelivery(order)
+                    }}
+                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 ${order.waSentToDelivery
+                      ? 'bg-green-50 text-green-600 border-green-200'
+                      : 'bg-white text-gray-400 border-gray-100'
+                      }`}
+                    title="Notificar WhatsApp"
+                  >
+                    <i className="bi bi-whatsapp text-xs"></i>
+                  </button>
+
+                  <button
+                    onClick={() => handleEditPayment(order)}
+                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 ${order.payment?.paymentStatus === 'paid'
+                      ? 'bg-green-50 text-green-600 border-green-200'
+                      : 'bg-white text-gray-400 border-gray-100'
+                      }`}
+                    title="Gestionar Pago"
+                  >
+                    <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : 'bi-cash-stack'} text-xs`}></i>
+                  </button>
                 </div>
                 <div className="text-right">
                   {remaining ? (
-                    <span className={`text-[10px] font-black uppercase tracking-widest ${remaining.color}`}>
+                    <div className={`text-[10px] font-black uppercase tracking-widest ${remaining.color}`}>
                       {remaining.text}
-                    </span>
+                    </div>
                   ) : (
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                       Hace {timeElapsed}
-                    </span>
+                    </div>
                   )}
+                  <div className="text-[10px] font-black text-gray-900 mt-1 uppercase">
+                    {order.timing?.scheduledTime || 'Inmediato'}
+                  </div>
                 </div>
               </div>
 
               <div className="p-4">
                 {/* Business & Customer */}
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-2xl bg-gray-50 overflow-hidden border border-gray-100 flex-shrink-0">
+                  <div className="w-12 h-12 rounded-xl bg-gray-50 overflow-hidden border border-gray-100 flex-shrink-0">
                     {business?.image ? (
                       <img src={business.image} alt={business.name || ''} className="w-full h-full object-cover" />
                     ) : (
@@ -599,8 +634,8 @@ export default function OrderManagement() {
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      <h3 className="text-sm font-black text-gray-900 leading-tight truncate uppercase tracking-tight">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <h3 className="text-sm font-bold text-gray-900 leading-tight truncate">
                         {order.customer?.name || 'Sin nombre'}
                       </h3>
                       <span
@@ -611,76 +646,91 @@ export default function OrderManagement() {
                         <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[8px]`}></i>
                       </span>
                     </div>
-                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest truncate">
+                    <p className="text-xs text-gray-600 line-clamp-1">
                       {business?.name || 'Sin tienda'}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleOpenOrderSidebar(order.id!)}
-                      className="w-10 h-10 flex items-center justify-center bg-gray-50 text-gray-400 rounded-xl hover:text-blue-600 active:bg-blue-50 transition-all border border-gray-100"
-                    >
-                      <i className="bi bi-eye-fill"></i>
-                    </button>
+
+                  <div className="relative shrink-0">
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleSendWhatsAppToDelivery(order)
+                        setStatusMenuOrderId(statusMenuOrderId === order.id ? null : order.id!)
                       }}
-                      className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all border ${order.waSentToDelivery
-                        ? 'bg-green-50 text-green-600 border-green-100'
-                        : 'bg-gray-50 text-gray-400 border-gray-100'
-                        }`}
+                      className={`w-10 h-10 flex items-center justify-center text-lg rounded-xl border transition-all active:scale-90 ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}
                     >
-                      <i className="bi bi-whatsapp"></i>
+                      <i className={`bi ${statusStyle.icon}`}></i>
                     </button>
+
+                    {/* Dropdown de Estados Minimal */}
+                    {statusMenuOrderId === order.id && !['delivered', 'cancelled'].includes(order.status) && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-40"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setStatusMenuOrderId(null)
+                          }}
+                        />
+                        <div
+                          className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            onClick={() => {
+                              handleStatusUpdate(order.id!, 'delivered')
+                              setStatusMenuOrderId(null)
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 transition-colors"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                              <i className="bi bi-check2-circle text-lg"></i>
+                            </div>
+                            <span>MARCAR ENTREGADO</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleStatusUpdate(order.id!, 'cancelled')
+                              setStatusMenuOrderId(null)
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors mt-1"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
+                              <i className="bi bi-x-lg"></i>
+                            </div>
+                            <span>CANCELAR PEDIDO</span>
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 
-                {/* Programación & Pago */}
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="bg-gray-50/50 p-2.5 rounded-2xl border border-gray-100">
-                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">Entrega</p>
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
-                      <i className="bi bi-calendar-event text-blue-500"></i>
-                      {getScheduledTime(order)}
-                    </div>
-                  </div>
-                  <div className="bg-gray-50/50 p-2.5 rounded-2xl border border-gray-100">
-                    <div className="flex justify-between items-center mb-1">
-                      <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Pago</p>
-                      <button
-                        onClick={() => handleEditPayment(order)}
-                        className="text-[10px] font-black text-blue-600 uppercase tracking-widest"
-                      >
-                        Editar
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
-                      <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank text-blue-500' : 'bi-cash-stack text-green-500'}`}></i>
-                      {order.payment?.method === 'transfer' ? 'Transf.' : order.payment?.method === 'mixed' ? 'Mixto' : 'Efectivo'}
-                      {order.payment?.paymentStatus === 'paid' && <i className="bi bi-patch-check-fill text-green-500"></i>}
-                    </div>
-                  </div>
-                </div>
 
                 {/* Dirección & Mapa */}
                 {order.delivery?.type === 'delivery' && (
                   <div className="mb-4">
-                    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-                      <div className="p-3">
-                        <div className="flex items-start gap-2">
+                    <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                      <div
+                        className="p-3 cursor-pointer active:bg-gray-50 flex items-center justify-between gap-2"
+                        onClick={() => toggleMap(order.id!)}
+                      >
+                        <div className="flex items-start gap-2 min-w-0">
                           <i className="bi bi-geo-alt-fill text-red-500 mt-0.5"></i>
-                          <p className="text-xs font-bold text-gray-700 leading-tight line-clamp-2">
+                          <p className="text-xs text-gray-600 line-clamp-1 italic">
                             {order.delivery.references || 'Sin dirección registrada'}
                           </p>
                         </div>
+                        <div className={`w-6 h-6 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400 transition-transform duration-300 ${expandedMaps[order.id!] ? 'rotate-180 text-blue-600 bg-blue-50' : ''}`}>
+                          <i className="bi bi-chevron-down text-[10px]"></i>
+                        </div>
                       </div>
-                      {order.delivery.latlong && (
+
+                      {expandedMaps[order.id!] && order.delivery.latlong && (
                         <div
-                          className="h-24 w-full bg-cover bg-center border-t border-gray-50"
+                          className="h-48 w-full bg-cover bg-center border-t border-gray-50 animate-in slide-in-from-top-2 duration-300"
                           style={{
-                            backgroundImage: `url('https://maps.googleapis.com/maps/api/staticmap?center=${order.delivery.latlong}&zoom=15&size=400x120&scale=2&maptype=roadmap&markers=color:red%7C${order.delivery.latlong}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs')`
+                            backgroundImage: `url('https://maps.googleapis.com/maps/api/staticmap?center=${order.delivery.latlong}&zoom=15&size=400x200&scale=2&maptype=roadmap&markers=color:red%7C${order.delivery.latlong}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs')`
                           }}
                         ></div>
                       )}
@@ -693,7 +743,7 @@ export default function OrderManagement() {
                   <div className="flex-1">
                     {order.delivery?.type === 'delivery' && (
                       <>
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 block">
                           Repartidor Asignado
                         </label>
                         <div className="relative">
@@ -702,9 +752,9 @@ export default function OrderManagement() {
                             onChange={(e) => handleDeliveryUpdate(order.id!, e.target.value || null)}
                             disabled={updatingDelivery === order.id}
                             className={`w-full appearance-none pl-3 pr-8 py-2.5 text-xs font-bold rounded-xl border-2 transition-all outline-none ${order.delivery?.assignedDelivery
-                              ? 'bg-green-50 border-green-200 text-green-800'
-                              : 'bg-orange-50 border-orange-200 text-orange-700'
-                              } ${updatingDelivery === order.id ? 'opacity-50' : 'active:scale-[0.98]'}`}
+                              ? 'bg-green-50/50 border-green-200 text-green-700'
+                              : 'bg-orange-50/50 border-orange-200 text-orange-700'
+                              } ${updatingDelivery === order.id ? 'opacity-50' : ''}`}
                           >
                             <option value="">Sin asignar</option>
                             {deliveries.map(d => (
@@ -718,35 +768,18 @@ export default function OrderManagement() {
                       </>
                     )}
                   </div>
-                  <div className="text-right pb-1">
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Total Pedido</p>
-                    <div className="text-2xl font-black text-gray-900 tracking-tighter leading-none">
-                      ${(order.total || 0).toFixed(2)}
-                    </div>
+                  <div className="shrink-0 pb-0.5">
+                    <button
+                      onClick={() => handleOpenOrderSidebar(order.id!)}
+                      className="w-10 h-10 flex items-center justify-center bg-white text-gray-400 rounded-xl hover:text-blue-600 active:bg-blue-50 transition-all border border-gray-100 shadow-sm"
+                      title="Ver Detalle"
+                    >
+                      <i className="bi bi-arrows-angle-expand text-lg"></i>
+                    </button>
                   </div>
                 </div>
               </div>
 
-              {/* Footer: Status Menu */}
-              {!['delivered', 'cancelled'].includes(order.status) && (
-                <div className="p-3 bg-gray-50 border-t border-gray-100 flex gap-2">
-                  <button
-                    onClick={() => handleStatusUpdate(order.id!, 'delivered')}
-                    disabled={updatingStatus === order.id}
-                    className="flex-1 bg-green-600 text-white font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest shadow-lg shadow-green-200 active:scale-95 transition-all flex items-center justify-center gap-2"
-                  >
-                    {updatingStatus === order.id ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <i className="bi bi-check2-circle text-sm"></i>}
-                    Entregar Pedido
-                  </button>
-                  <button
-                    onClick={() => handleStatusUpdate(order.id!, 'cancelled')}
-                    disabled={updatingStatus === order.id}
-                    className="px-4 bg-white text-red-600 border border-red-100 font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest active:scale-95 transition-all flex items-center justify-center"
-                  >
-                    <i className="bi bi-x-lg"></i>
-                  </button>
-                </div>
-              )}
             </div>
           )
         })}

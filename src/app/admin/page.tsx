@@ -653,10 +653,6 @@ export default function AdminDashboard() {
                             </p>
                           </div>
                         </div>
-                        <div className="text-right shrink-0">
-                          <div className="text-lg font-black text-gray-900 tracking-tighter">${order.total?.toFixed(2)}</div>
-                          <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">#{order.id?.slice(-6)}</div>
-                        </div>
                       </div>
 
                       <div className="flex items-center justify-between pt-3 border-t border-gray-50">
