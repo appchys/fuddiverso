@@ -327,10 +327,10 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
 
       <div className="flex items-center justify-center min-h-screen p-4">
-        <div className="relative w-full max-w-md bg-gray-50 rounded-[2.5rem] shadow-2xl overflow-hidden transform transition-all animate-in fade-in zoom-in duration-300">
+        <div className="relative w-full max-w-md bg-gray-50 rounded-[2.5rem] shadow-2xl overflow-hidden transform transition-all animate-in fade-in zoom-in duration-300 flex flex-col max-h-[calc(100svh-4rem)]">
 
           {/* Header con estilo premium */}
-          <div className="px-6 pt-8 pb-6 bg-white border-b border-gray-100 relative">
+          <div className="px-6 pt-8 pb-6 bg-white border-b border-gray-100 flex-shrink-0 relative">
             <div className="absolute top-6 right-6 flex items-center gap-2">
               <button
                 onClick={handleCopyLink}
@@ -387,7 +387,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
           </div>
 
           {/* Área de selección con fondo gris claro y scroll suave */}
-          <div className="p-6 overflow-y-auto max-h-[50vh] custom-scrollbar">
+          <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 ml-1">
               {product?.variants?.length > 0 ? 'variantes disponibles' : 'Detalle del producto'}
             </label>
@@ -513,7 +513,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
           </div>
 
           {/* Footer - Estilo Premium Bottom */}
-          <div className="p-6 bg-white border-t border-gray-100">
+          <div className="p-6 bg-white border-t border-gray-100 flex-shrink-0">
             <button
               onClick={onClose}
               className="w-full py-4 bg-gray-100 text-gray-900 font-bold rounded-2xl hover:bg-gray-200 transition-all active:scale-[0.98]"
@@ -569,15 +569,15 @@ function ReferralModal({
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       <div className="flex items-center justify-center min-h-screen p-4">
-        <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl p-6 animate-in fade-in zoom-in duration-300">
+        <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl p-6 animate-in fade-in zoom-in duration-300 flex flex-col max-h-[calc(100svh-4rem)] overflow-y-auto custom-scrollbar">
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all"
+            className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all z-10"
           >
             <i className="bi bi-x-lg text-xl"></i>
           </button>
 
-          <div className="text-center mb-6">
+          <div className="text-center mb-6 flex-shrink-0">
             <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <span className="text-3xl">🔥</span>
             </div>
