@@ -266,6 +266,7 @@ export async function createBusinessFromForm(formData: {
   address: string;
   description: string;
   category?: string;
+  businessType?: 'food_store' | 'distributor';
   image?: string;
   coverImage?: string;
   references?: string;
@@ -299,6 +300,8 @@ export async function createBusinessFromForm(formData: {
     adminEmails: [], // Inicializar vacío para queries optimizadas
     references: formData.references || '',
     categories: [],
+    category: formData.category,
+    businessType: formData.businessType || 'food_store',
     mapLocation: {
       lat,
       lng

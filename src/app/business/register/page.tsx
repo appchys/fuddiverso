@@ -20,6 +20,7 @@ function BusinessRegisterForm() {
     description: '',
     phone: '',
     category: '',
+    businessType: 'food_store' as 'food_store' | 'distributor',
     image: null as File | null,
     coverImage: null as File | null
   })
@@ -105,6 +106,7 @@ function BusinessRegisterForm() {
         image: imageUrl,
         coverImage: coverImageUrl,
         category: formData.category,
+        businessType: formData.businessType,
         references: '', // Ubicación se pedirá después
         ownerId: currentUser.uid,
         latlong: location
@@ -319,9 +321,41 @@ function BusinessRegisterForm() {
                   </div>
                 </div>
 
-                {/* Categoría */}
+                {/* Tipo de Negocio */}
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Tipo de Negocio</label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, businessType: 'food_store', category: '' }))}
+                      className={`p-4 rounded-2xl border-2 transition-all duration-300 flex flex-col items-center gap-2 ${formData.businessType === 'food_store'
+                        ? 'border-red-500 bg-red-50 shadow-md ring-1 ring-red-50'
+                        : 'border-gray-100 bg-gray-50/50 hover:border-gray-200'
+                        }`}
+                    >
+                      <i className={`bi bi-shop text-2xl ${formData.businessType === 'food_store' ? 'text-red-500' : 'text-gray-400'}`}></i>
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${formData.businessType === 'food_store' ? 'text-red-600' : 'text-gray-500'}`}>Comida Preparada</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, businessType: 'distributor', category: '' }))}
+                      className={`p-4 rounded-2xl border-2 transition-all duration-300 flex flex-col items-center gap-2 ${formData.businessType === 'distributor'
+                        ? 'border-red-500 bg-red-50 shadow-md ring-1 ring-red-50'
+                        : 'border-gray-100 bg-gray-50/50 hover:border-gray-200'
+                        }`}
+                    >
+                      <i className={`bi bi-box-seam text-2xl ${formData.businessType === 'distributor' ? 'text-red-500' : 'text-gray-400'}`}></i>
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${formData.businessType === 'distributor' ? 'text-red-600' : 'text-gray-500'}`}>Proveedor</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Categoría Dinámica */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Especialidad / Categoría</label>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">
+                    {formData.businessType === 'food_store' ? 'Especialidad Gastronómica' : 'Rubro de Suministros'}
+                  </label>
                   <div className="relative">
                     <select
                       name="category"
@@ -329,17 +363,26 @@ function BusinessRegisterForm() {
                       onChange={handleChange}
                       className={`w-full px-5 py-4 bg-gray-50 border-2 rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 transition-all duration-300 font-bold text-gray-900 appearance-none ${errors.category ? 'border-red-200' : 'border-transparent focus:border-red-500'}`}
                     >
-                      <option value="">Selecciona una especialidad</option>
-                      <option value="Comida Rápida">🍔 Comida Rápida</option>
-                      <option value="Pizza">🍕 Pizza</option>
-                      <option value="Postres">🧁 Postres y Dulces</option>
-                      <option value="Bebidas">🍹 Bebidas y Jugos</option>
-                      <option value="Saludable">🥗 Saludable</option>
-                      <option value="Cafetería">☕ Cafetería</option>
-                      <option value="Mariscos">🍤 Mariscos</option>
-                      <option value="Parrilla">🥩 Parrilla y Asados</option>
-                      <option value="Asiática">🥢 Comida Asiática</option>
-                      <option value="Mexicana">🌮 Comida Mexicana</option>
+                      <option value="">Selecciona una opción</option>
+                      {formData.businessType === 'food_store' ? (
+                        <>
+                          <option value="Comida Rápida">🍔 Comida Rápida</option>
+                          <option value="Pizza">🍕 Pizza</option>
+                          <option value="Postres">🧁 Postres y Dulces</option>
+                          <option value="Bebidas">🍹 Bebidas y Jugos</option>
+                          <option value="Saludable">🥗 Saludable</option>
+                          <option value="Cafetería">☕ Cafetería</option>
+                          <option value="Mariscos">🍤 Mariscos</option>
+                          <option value="Parrilla">🥩 Parrilla y Asados</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="Alimentos">🍎 Alimentos y Materia Prima</option>
+                          <option value="Plásticos">🥤 Materiales Plásticos / Empaques</option>
+                          <option value="Limpieza">🧹 Productos de Limpieza</option>
+                          <option value="Equipamiento">🧑‍🍳 Equipamiento de Cocina</option>
+                        </>
+                      )}
                       <option value="Otro">✨ Otro</option>
                     </select>
                     <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
@@ -368,7 +411,7 @@ function BusinessRegisterForm() {
               <div className="space-y-6">
                 <div className="flex items-center gap-3 mb-2">
                   <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">2</span>
-                  <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Contacto Regional</h3>
+                  <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Contacto</h3>
                 </div>
 
                 {/* Teléfono */}
