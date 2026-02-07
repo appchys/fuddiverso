@@ -110,7 +110,9 @@ function HomePageContent() {
       const allBusinesses = await getAllBusinesses()
 
       // Filtrar negocios ocultos y por categoría si es necesario
-      const visibleBusinesses = allBusinesses.filter(b => !b.isHidden)
+      const visibleBusinesses = allBusinesses.filter(
+        (b) => !b.isHidden && b.businessType !== 'distributor'
+      )
       const filteredBusinesses = category === 'all'
         ? visibleBusinesses
         : visibleBusinesses.filter(b => b.categories?.includes(category))
@@ -248,12 +250,35 @@ function HomePageContent() {
                       )}
                     </div>
                     <div className="p-4">
-                      <h3 className="text-sm font-bold text-gray-900 line-clamp-1 mb-1">{product.name}</h3>
-                      {business && (
-                        <p className="text-xs text-gray-500 mb-2 line-clamp-1">{business.name}</p>
-                      )}
+                      <div className="flex gap-3 mb-2">
+                        <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-100 flex-shrink-0 bg-white">
+                          {business?.image ? (
+                            <img
+                              src={business.image}
+                              alt={business.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                              <i className="bi bi-shop text-gray-400"></i>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-sm font-bold text-gray-900 line-clamp-1">
+                            {product.name}
+                          </h3>
+                          {business && (
+                            <p className="text-xs text-gray-500 line-clamp-1">
+                              {business.name}
+                            </p>
+                          )}
+                        </div>
+                      </div>
                       {product.description && (
-                        <p className="text-xs text-gray-600 line-clamp-2">{product.description}</p>
+                        <p className="text-xs text-gray-600 line-clamp-2">
+                          {product.description}
+                        </p>
                       )}
                     </div>
                   </Link>

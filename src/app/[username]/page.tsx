@@ -1634,8 +1634,8 @@ function RestaurantContent() {
           </div>
           <style jsx>{`
             @keyframes slideDown {
-              from { transform: translateY(-20px); opacity: 0; }
-              to { transform: translateY(0); opacity: 1; }
+              from { transform: translate(-50%, -20px); opacity: 0; }
+              to { transform: translate(-50%, 0); opacity: 1; }
             }
           `}</style>
         </div>
