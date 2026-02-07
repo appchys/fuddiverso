@@ -1138,12 +1138,13 @@ export default function ManualOrderSidebar({
             scheduledTime: manualOrderData.scheduledTime || ''
           }),
           ...(manualOrderData.timingType === 'immediate' && {
-            // Para pedidos inmediatos, guardar fecha actual y hora actual + 30 minutos
+            // Para pedidos inmediatos, guardar fecha actual y hora actual + tiempo definido (o 30 min)
             scheduledDate: firestoreTimestamp,
             scheduledTime: (() => {
-              const plus30 = new Date(now.getTime() + 30 * 60 * 1000);
-              const hh = String(plus30.getHours()).padStart(2, '0');
-              const mm = String(plus30.getMinutes()).padStart(2, '0');
+              const baseDeliveryTime = business?.deliveryTime || 30;
+              const deliveryTime = new Date(now.getTime() + (baseDeliveryTime + 1) * 60 * 1000);
+              const hh = String(deliveryTime.getHours()).padStart(2, '0');
+              const mm = String(deliveryTime.getMinutes()).padStart(2, '0');
               return `${hh}:${mm}`;
             })()
           })
@@ -1836,6 +1837,7 @@ export default function ManualOrderSidebar({
               >
                 <i className="bi bi-lightning-fill text-lg"></i>
                 <span className="text-xs font-medium">Inmediato</span>
+                <span className="text-[10px] opacity-70">Aprox {business?.deliveryTime || 30} min</span>
               </button>
 
               <button
