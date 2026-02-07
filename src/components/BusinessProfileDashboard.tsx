@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { Business, Product, Ingredient } from '@/types'
 import { getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, uploadImage } from '@/lib/database'
 import ProductList from './ProductList'
@@ -629,14 +630,21 @@ export default function BusinessProfileDashboard({
                   </div>
                 </div>
 
-                {/* Botón de editar */}
-                <div className="mt-6 pt-6 border-t border-gray-200">
+                {/* Botones de editar */}
+                <div className="mt-6 pt-6 border-t border-gray-200 space-y-3">
+                  <Link
+                    href="/business/profile/edit"
+                    className="w-full px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-colors font-bold flex items-center justify-center gap-2 shadow-lg shadow-red-100"
+                  >
+                    <i className="bi bi-pencil-square"></i>
+                    Editar Perfil Completo
+                  </Link>
                   <button
                     onClick={onEditProfile}
-                    className="w-full px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium flex items-center justify-center gap-2"
+                    className="w-full px-4 py-2 border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-xl transition-colors text-sm font-medium flex items-center justify-center gap-2"
                   >
-                    <i className="bi bi-pencil"></i>
-                    Editar Información
+                    <i className="bi bi-sliders"></i>
+                    Edición Rápida
                   </button>
                 </div>
               </div>
