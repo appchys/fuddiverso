@@ -1062,7 +1062,7 @@ export default function OrderManagement() {
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredOrders.map((order) => {
                 const business = businesses.find(b => b.id === order.businessId)
-                const timeElapsed = getTimeElapsed(order.createdAt)
+                const timeElapsed = getTimeElapsed(order)
 
                 return (
                   <tr key={order.id} className="hover:bg-gray-50">
