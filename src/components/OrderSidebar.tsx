@@ -51,7 +51,9 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
         onClick={onClose}
       />
 
-      <div className="absolute right-0 top-0 h-full w-full sm:w-[500px] bg-white shadow-2xl transform transition-transform duration-300 relative">
+      <div
+        className={`fixed right-0 top-0 h-full w-full sm:w-[500px] bg-white shadow-2xl transform transition-all duration-300 ease-in-out z-[130] ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+      >
         <div className="h-full overflow-y-auto scrollbar-hide">
           <div className="min-h-full flex flex-col">
             <div className="absolute top-3 left-3 right-3 z-20 bg-transparent pointer-events-none">
