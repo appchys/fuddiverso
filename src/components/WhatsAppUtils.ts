@@ -147,7 +147,9 @@ export const sendWhatsAppToDelivery = async (
     const orderType = formatScheduledDate(order.timing);
 
     // Construir mensaje
-    let message = `*Datos del cliente*\n`
+    let message = `*Pedido de ${business?.name || 'Tienda'}*${business?.phone ? ` - ${business.phone}` : ''}\n\n`
+
+    message += `*Datos del cliente*\n`
     message += `Cliente: ${customerName}\n`
     message += `Celular: ${customerPhone}\n\n`
 
@@ -178,19 +180,16 @@ export const sendWhatsAppToDelivery = async (
         message += `\n`
     }
 
-    message += `*Forma de pago*\n`
-    message += `${paymentMethod}\n`
-
     // Mostrar detalles de pago mixto si aplica
     if (order.payment?.method === 'mixed') {
         const payment = order.payment as any
-        if (payment.cashAmount && payment.transferAmount) {
-            message += `- Transferencia: $${payment.transferAmount.toFixed(2)}\n\n`
-            message += `Cobrar en efectivo: $${payment.cashAmount.toFixed(2)}`
-        }
+        message += `🏦 Transferencia: $${(payment.transferAmount || 0).toFixed(2)}\n`
+        message += `💵 *Cobrar:* $${(payment.cashAmount || 0).toFixed(2)}`
     } else if (order.payment?.method === 'cash') {
         // Solo mostrar "Total a cobrar" si es efectivo
-        message += `\nTotal a cobrar: $${order.total.toFixed(2)}`
+        message += `💵 *Cobrar:* $${order.total.toFixed(2)}`
+    } else if (order.payment?.method === 'transfer') {
+        message += `🏦 Transferencia`
     }
 
 
