@@ -13,20 +13,20 @@ export default function LayoutWrapper({
   // Rutas reservadas que NO son perfiles de tienda
   const reservedRoutes = [
     'checkout', 'profile', 'my-orders', 'my-locations',
-    'collection', 'restaurants', 'scan', 'delivery', 'admin', 'o', 'business'
+    'collection', 'restaurants', 'restaurant', 'scan', 'delivery', 'admin', 'o', 'business'
   ]
 
   const pathSegments = pathname.split('/').filter(Boolean)
 
-  // Es una ruta de tienda si tiene al menos un segmento y el primero no es una ruta reservada
-  const isStoreRoute = pathSegments.length > 0 && !reservedRoutes.includes(pathSegments[0])
+  // Es la página principal de una tienda (ej: /munchys) si tiene exactamente 1 segmento y no es una ruta reservada
+  const isStoreHomePage = pathSegments.length === 1 && !reservedRoutes.includes(pathSegments[0])
 
-  // No mostrar header en rutas de business, delivery, checkout ni en perfiles de tienda
+  // No mostrar header en rutas de business, delivery, checkout ni en la página principal de la tienda
   const isBusinessRoute = pathname.startsWith('/business')
   const isDeliveryRoute = pathname.startsWith('/delivery')
   const isCheckoutRoute = pathname === '/checkout'
   const isAdminRoute = pathname.startsWith('/admin')
-  const showHeader = !isBusinessRoute && !isDeliveryRoute && !isCheckoutRoute && !isStoreRoute && !isAdminRoute
+  const showHeader = !isBusinessRoute && !isDeliveryRoute && !isCheckoutRoute && !isStoreHomePage && !isAdminRoute
 
   return (
     <>

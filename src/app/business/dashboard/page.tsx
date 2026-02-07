@@ -111,6 +111,7 @@ export default function BusinessDashboard() {
   const [manualSidebarMode, setManualSidebarMode] = useState<'create' | 'edit'>('create')
   const [editingOrderForSidebar, setEditingOrderForSidebar] = useState<Order | null>(null)
   const [showBusinessDropdown, setShowBusinessDropdown] = useState(false)
+  const [showTimeDropdown, setShowTimeDropdown] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [editedBusiness, setEditedBusiness] = useState<Business | null>(null)
   const [uploadingCover, setUploadingCover] = useState(false)
@@ -2817,32 +2818,40 @@ export default function BusinessDashboard() {
                     </div>
                   )}
 
-                  {/* Control del Tiempo de Entrega */}
+                  {/* Control del Tiempo de Entrega Unificado */}
                   {business && (
                     <div className="flex items-center gap-2">
-                      <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-red-50 rounded-lg border border-red-100">
-                        <i className="bi bi-clock-history text-red-600"></i>
-                        <span className="text-sm font-bold text-red-700">
-                          {business.deliveryTime || 30} min
-                        </span>
-                      </div>
-
                       <div className="relative group">
                         <button
-                          className="px-3 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
+                          onClick={() => setShowTimeDropdown(!showTimeDropdown)}
+                          className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-lg border transition-colors ${(business.deliveryTime || 30) > 30
+                            ? 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'
+                            : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                            }`}
                         >
-                          <i className="bi bi-plus-circle text-gray-600"></i>
-                          <span className="hidden sm:inline text-sm font-medium">Sumar Tiempo</span>
+                          <i className={`bi bi-clock-history hidden sm:inline ${(business.deliveryTime || 30) > 30 ? 'text-orange-600' : 'text-gray-600'
+                            }`}></i>
+                          <span className="text-sm font-bold">
+                            {business.deliveryTime || 30}<span className="sm:hidden">m</span><span className="hidden sm:inline"> min</span>
+                          </span>
+                          <i className={`bi bi-plus-circle${showTimeDropdown ? '-fill' : ''} ${(business.deliveryTime || 30) > 30 ? 'text-orange-400' : 'text-gray-400'
+                            } sm:group-hover:text-red-600 transition-colors ml-1 hidden sm:inline`}></i>
                         </button>
 
-                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0">
+                        <div className={`absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50 transition-all transform ${showTimeDropdown
+                          ? 'visible opacity-100 translate-y-0'
+                          : 'invisible opacity-0 translate-y-2 sm:group-hover:visible sm:group-hover:opacity-100 sm:group-hover:translate-y-0'
+                          }`}>
                           <div className="px-4 py-2 border-b border-gray-50 mb-1">
                             <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Añadir retraso</p>
                           </div>
-                          {[10, 20, 30, 45].map((mins) => (
+                          {[5, 10, 30].map((mins) => (
                             <button
                               key={mins}
-                              onClick={() => handleUpdateDeliveryTime(mins)}
+                              onClick={() => {
+                                handleUpdateDeliveryTime(mins);
+                                setShowTimeDropdown(false);
+                              }}
                               disabled={updatingDeliveryTime}
                               className="w-full px-4 py-2 text-left hover:bg-red-50 hover:text-red-600 text-sm font-bold flex items-center justify-between group/item"
                             >
@@ -2852,7 +2861,10 @@ export default function BusinessDashboard() {
                           ))}
                           <div className="border-t border-gray-50 mt-1 pt-1">
                             <button
-                              onClick={() => handleUpdateDeliveryTime(0)}
+                              onClick={() => {
+                                handleUpdateDeliveryTime(0);
+                                setShowTimeDropdown(false);
+                              }}
                               disabled={updatingDeliveryTime}
                               className="w-full px-4 py-2 text-left hover:bg-gray-50 text-xs text-gray-500 font-medium"
                             >

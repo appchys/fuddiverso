@@ -40,6 +40,30 @@ function HomePageContent() {
   const [categories, setCategories] = useState<string[]>(['all'])
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [randomProducts, setRandomProducts] = useState<Product[]>([])
+  const [supplierProducts, setSupplierProducts] = useState<Record<string, Product[]>>({})
+
+  // Cargar productos de proveedores
+  useEffect(() => {
+    const fetchSupplierProducts = async () => {
+      const suppliers = businesses.filter(b => b.businessType === 'distributor')
+      if (suppliers.length === 0) return
+
+      const productsMap: Record<string, Product[]> = {}
+      await Promise.all(suppliers.map(async (supplier) => {
+        try {
+          const products = await getProductsByBusiness(supplier.id)
+          productsMap[supplier.id] = products.filter(p => p.isAvailable).slice(0, 4)
+        } catch (error) {
+          console.error(`Error loading products for supplier ${supplier.id}:`, error)
+        }
+      }))
+      setSupplierProducts(prev => ({ ...prev, ...productsMap }))
+    }
+
+    if (businesses.length > 0) {
+      fetchSupplierProducts()
+    }
+  }, [businesses])
 
   useEffect(() => {
     if ('geolocation' in navigator) {
@@ -264,12 +288,13 @@ function HomePageContent() {
         </div>
       </section>
 
+
       {/* LISTA DE RESTAURANTES */}
       <section className="py-12 bg-gray-50">
         <div className="max-w-6xl mx-auto px-6">
-          <div className="flex justify-between items-center mb-8">
-            <h2 className="text-2xl font-bold text-gray-900">Restaurantes cerca de ti</h2>
-            <span className="text-sm text-gray-500">{businesses.length} encontrados</span>
+          <div className="flex justify-between items-end mb-8">
+            <h2 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">Restaurantes cerca de ti</h2>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-100 px-3 py-1 rounded-full">{businesses.filter(b => b.businessType !== 'distributor').length} locales</span>
           </div>
 
           {loading ? (
@@ -277,7 +302,7 @@ function HomePageContent() {
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#aa1918] mx-auto"></div>
               <p className="mt-4 text-gray-600">Cargando restaurantes...</p>
             </div>
-          ) : businesses.length === 0 ? (
+          ) : businesses.filter(b => b.businessType !== 'distributor').length === 0 ? (
             <div className="text-center py-16">
               <div className="text-6xl mb-4">🍽️</div>
               <p className="text-gray-600 text-lg mb-4">No se encontraron restaurantes</p>
@@ -290,21 +315,21 @@ function HomePageContent() {
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-              {businesses.map((b) => {
+              {businesses.filter(b => b.businessType !== 'distributor').map((b) => {
                 const link = b.username ? `/${b.username}` : `/restaurant/${b.id}`
                 const followed = followedBusinesses.has(b.id)
                 return (
                   <Link
                     href={link}
                     key={b.id}
-                    className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100"
+                    className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100 group"
                   >
                     <div className="relative h-40 bg-gray-100 flex items-center justify-center">
                       {b.image ? (
                         <img
                           src={b.image}
                           alt={b.name}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                         />
                       ) : (
                         <i className="bi bi-shop text-5xl text-gray-400"></i>
@@ -324,13 +349,13 @@ function HomePageContent() {
                       </button>
                     </div>
                     <div className="p-4">
-                      <h3 className="text-lg font-semibold text-gray-900 line-clamp-1">{b.name}</h3>
+                      <h3 className="text-sm font-bold text-gray-900 line-clamp-1 group-hover:text-[#aa1918] transition-colors">{b.name}</h3>
                       {b.categories && b.categories.length > 0 && (
                         <div className="flex gap-1 my-2 overflow-x-auto scrollbar-hide">
                           {b.categories.map((cat, i) => (
                             <span
                               key={i}
-                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 whitespace-nowrap flex-shrink-0"
+                              className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600 whitespace-nowrap flex-shrink-0"
                             >
                               {cat}
                             </span>
@@ -344,10 +369,10 @@ function HomePageContent() {
                             <span className="text-xs text-gray-500 ml-1">({b.ratingCount || 0})</span>
                           </div>
                         ) : (
-                          <div className="text-xs text-gray-400">Sin calificaciones</div>
+                          <div className="text-[10px] font-bold text-gray-300 uppercase letter tracking-widest">Sin reseñas</div>
                         )}
                       </div>
-                      <p className="text-sm text-gray-600 line-clamp-2 mb-3">{b.description}</p>
+                      <p className="text-xs text-gray-600 line-clamp-2 mb-3 leading-relaxed">{b.description}</p>
                       <div className="text-xs text-gray-500 flex justify-between items-center">
                         <div className="flex items-center gap-2">
                           {(() => {
@@ -358,7 +383,6 @@ function HomePageContent() {
                                   .map((s) => parseFloat(s.trim()))
                                 if (!isNaN(lat) && !isNaN(lng)) return { lat, lng }
                               }
-                              // Fallback to mapLocation if available (and valid)
                               if (business.mapLocation?.lat && business.mapLocation?.lng) {
                                 return business.mapLocation
                               }
@@ -373,7 +397,7 @@ function HomePageContent() {
                                 lat2: number,
                                 lon2: number
                               ) => {
-                                const R = 6371 // km
+                                const R = 6371
                                 const dLat = ((lat2 - lat1) * Math.PI) / 180
                                 const dLon = ((lon2 - lon1) * Math.PI) / 180
                                 const a =
@@ -392,14 +416,14 @@ function HomePageContent() {
                                 businessLoc.lng
                               )
                               return (
-                                <span className="text-[#aa1918] font-medium whitespace-nowrap text-xs bg-red-50 px-2 py-0.5 rounded-full">
+                                <span className="text-[#aa1918] font-bold whitespace-nowrap text-[10px] uppercase bg-red-50 px-3 py-1 rounded-full">
                                   {dist.toFixed(1)} km
                                 </span>
                               )
                             }
                             return null
                           })()}
-                          <span className="text-[#aa1918] font-medium whitespace-nowrap ml-2">
+                          <span className="text-[#aa1918] font-bold whitespace-nowrap text-[10px] uppercase ml-2 bg-red-50 px-3 py-1 rounded-full">
                             Envío $1
                           </span>
                         </div>
@@ -413,23 +437,114 @@ function HomePageContent() {
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="bg-gradient-to-r from-[#aa1918] to-[#c72524] text-white py-16">
-        <div className="max-w-4xl mx-auto text-center px-6">
-          <h2 className="text-3xl font-bold mb-4">¿Eres dueño de un restaurante?</h2>
-          <p className="text-lg mb-8 text-red-100">
-            Únete a cientos de negocios que ya crecen con Fuddi.
-          </p>
-          <div className="flex flex-col sm:flex-row justify-center gap-4">
-            <Link href="/business/dashboard" className="bg-white text-[#aa1918] px-6 py-3 rounded-full font-semibold hover:bg-gray-100 transition">
-              Empieza aquí
-            </Link>
-            <Link href="/info" className="border-2 border-white px-6 py-3 rounded-full font-semibold hover:bg-white hover:text-[#aa1918] transition">
-              Saber más
-            </Link>
+      {/* PEQUEÑA SECCIÓN DE REGISTRO (CONVERTIDA) */}
+      <section className="py-8 bg-white border-b border-gray-100">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="bg-gradient-to-r from-red-600 to-orange-500 rounded-3xl p-6 sm:p-10 text-white shadow-xl flex flex-col sm:flex-row items-center justify-between gap-6 overflow-hidden relative group">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-20 -mt-20 blur-3xl group-hover:bg-white/20 transition-all duration-500"></div>
+            <div className="relative z-10 text-center sm:text-left">
+              <h2 className="text-2xl sm:text-3xl font-black mb-2 tracking-tight">¿Tienes un negocio?</h2>
+              <p className="text-red-50 font-medium text-sm sm:text-base opacity-90">
+                Empieza hoy mismo, vende tus productos y encuentra los mejores proveedores.
+              </p>
+            </div>
+            <div className="relative z-10 flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+              <Link
+                href="/business/register"
+                className="bg-white text-red-600 px-8 py-3 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-red-50 transition-all shadow-lg active:scale-95 text-center"
+              >
+                Vende aquí
+              </Link>
+              <button
+                onClick={() => {
+                  const el = document.getElementById('suppliers-section');
+                  el?.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="bg-red-700/30 backdrop-blur-md text-white border border-white/30 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-red-700/50 transition-all text-center"
+              >
+                Proveedores
+              </button>
+            </div>
           </div>
         </div>
       </section>
+
+      {/* SECCIÓN PROVEEDORES (NUEVA) */}
+      {businesses.filter(b => b.businessType === 'distributor').length > 0 && (
+        <section id="suppliers-section" className="py-12 bg-white border-t border-gray-100">
+          <div className="max-w-6xl mx-auto px-6">
+            <div className="flex justify-between items-end mb-8">
+              <h2 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">Proveedores Aliados</h2>
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-100 px-3 py-1 rounded-full">{businesses.filter(b => b.businessType === 'distributor').length} aliados</span>
+            </div>
+
+            <div className="space-y-10">
+              {businesses.filter(b => b.businessType === 'distributor').map((b) => {
+                const link = b.username ? `/${b.username}` : `/restaurant/${b.id}`
+                const products = supplierProducts[b.id] || []
+
+                return (
+                  <div key={b.id} className="group">
+                    {/* Header del Proveedor */}
+                    <div className="mb-4 px-2">
+                      <Link href={link} className="flex items-center gap-3 hover:opacity-80 transition-all group/header">
+                        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-orange-50 bg-orange-50 shadow-sm flex-shrink-0 group-hover/header:border-orange-500 transition-colors">
+                          {b.image ? <img src={b.image} alt={b.name} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center bg-orange-50 text-orange-200"><i className="bi bi-shop text-xl"></i></div>}
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter leading-none mb-1 group-hover/header:text-orange-600 transition-colors">{b.name}</h3>
+                          {b.description && (
+                            <p className="text-[10px] font-medium text-gray-500 line-clamp-1">{b.description}</p>
+                          )}
+                        </div>
+                      </Link>
+                    </div>
+
+                    {/* Carrusel Horizontal de Productos */}
+                    <div className="relative">
+                      <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 px-2">
+                        {products.length > 0 ? (
+                          products.map((product) => (
+                            <Link
+                              key={product.id}
+                              href={`${link}/${product.slug || product.id}`}
+                              className="flex-shrink-0 w-36 sm:w-44 bg-white rounded-2xl p-3 border border-gray-100 shadow-sm hover:shadow-xl hover:scale-[1.02] transition-all duration-300 group/product"
+                            >
+                              <div className="aspect-square rounded-xl overflow-hidden bg-gray-50 mb-3 relative">
+                                {product.image ? (
+                                  <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover/product:scale-110 transition-transform duration-500" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-gray-200 bg-gray-50">
+                                    <i className="bi bi-box text-5xl"></i>
+                                  </div>
+                                )}
+                                {product.price > 0 && (
+                                  <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-md text-gray-900 px-3 py-1 rounded-full text-[10px] font-black shadow-sm ring-1 ring-black/5">
+                                    ${product.price}
+                                  </div>
+                                )}
+                              </div>
+                              <h4 className="text-xs font-bold text-gray-900 line-clamp-1 mb-1 group-hover/product:text-orange-600 transition-colors uppercase tracking-tight">{product.name}</h4>
+                              <p className="text-[10px] text-gray-400 line-clamp-1 leading-none">{product.description || 'Sin descripción'}</p>
+                            </Link>
+                          ))
+                        ) : (
+                          [...Array(4)].map((_, i) => (
+                            <div key={i} className="flex-shrink-0 w-36 sm:w-44 aspect-[4/5] bg-gray-50 rounded-2xl border border-dashed border-gray-200 flex flex-col items-center justify-center p-4 text-center">
+                              <i className="bi bi-box text-3xl text-gray-200 mb-2"></i>
+                              <p className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Catálogo próximamente</p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* FOOTER */}
       <footer className="bg-gray-900 text-gray-400 py-10">
