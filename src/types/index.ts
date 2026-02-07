@@ -39,6 +39,7 @@ export interface Business {
   businessType?: 'food_store' | 'distributor' // Tipo de negocio
   isOpen?: boolean // Estado actual de apertura
   isActive: boolean
+  deliveryTime?: number // Tiempo de entrega estimado en minutos
   createdAt: Date
   updatedAt: Date
   lastLoginAt?: any

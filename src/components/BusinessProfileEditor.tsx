@@ -29,7 +29,8 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
         category: business.category || '',
         businessType: (business.businessType || 'food_store') as 'food_store' | 'distributor',
         isActive: business.isActive ?? true,
-        isHidden: business.isHidden ?? false
+        isHidden: business.isHidden ?? false,
+        deliveryTime: business.deliveryTime || 30
     })
 
     const [schedule, setSchedule] = useState(business.schedule || {
@@ -163,7 +164,8 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
             isHidden: formData.isHidden,
             image: logoUrl,
             coverImage: coverUrl,
-            schedule
+            schedule,
+            deliveryTime: Number(formData.deliveryTime)
         })
     }
 
@@ -201,8 +203,8 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                     key={section.key}
                                     onClick={() => setActiveSection(section.key as any)}
                                     className={`px-4 py-2 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all duration-300 flex items-center gap-2 ${activeSection === section.key
-                                            ? 'bg-red-600 text-white shadow-lg shadow-red-200'
-                                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                        ? 'bg-red-600 text-white shadow-lg shadow-red-200'
+                                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                                         }`}
                                 >
                                     <i className={`bi ${section.icon}`}></i>
@@ -533,6 +535,32 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                 <div className="flex items-center gap-3 mb-4">
                                     <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">4</span>
                                     <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Horario de Atención</h3>
+                                </div>
+
+                                <div className="p-6 bg-red-50/50 border-2 border-red-100 rounded-3xl mb-8">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-red-100">
+                                                <i className="bi bi-clock-history"></i>
+                                            </div>
+                                            <div>
+                                                <h4 className="text-sm font-black text-gray-900 uppercase tracking-tight">Tiempo de Entrega</h4>
+                                                <p className="text-[10px] text-gray-500 font-bold">Tiempo estimado en minutos</p>
+                                            </div>
+                                        </div>
+                                        <div className="relative group min-w-[120px]">
+                                            <input
+                                                type="number"
+                                                name="deliveryTime"
+                                                value={formData.deliveryTime}
+                                                onChange={handleChange}
+                                                min="1"
+                                                className="w-full px-5 py-3 bg-white border-2 border-transparent rounded-2xl focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-black text-gray-900 placeholder:text-gray-300"
+                                                placeholder="30"
+                                            />
+                                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-black text-[10px] uppercase">min</span>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div className="space-y-3">

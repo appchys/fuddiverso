@@ -1329,9 +1329,10 @@ export function CheckoutContent({
       let scheduledTime, scheduledDate;
 
       if (timingData.type === 'immediate') {
-        // Para inmediato: fecha y hora actuales + 31 minutos
+        // Para inmediato: fecha y hora actuales + tiempo de entrega definido por la tienda (o 30 min por defecto)
+        const baseDeliveryTime = business?.deliveryTime || 30;
         const now = new Date();
-        const deliveryTime = new Date(now.getTime() + 31 * 60 * 1000);
+        const deliveryTime = new Date(now.getTime() + (baseDeliveryTime + 1) * 60 * 1000); // Se añade 1 min extra de margen como estaba originalmente (30+1)
 
         // Asegurarse de que la hora esté en formato de 24h con ceros a la izquierda
         const hours = String(deliveryTime.getHours()).padStart(2, '0');
@@ -1979,7 +1980,7 @@ export function CheckoutContent({
                     </div>
                     <span className="font-bold">Lo antes posible</span>
                     <span className={`text-xs mt-1 ${timingData.type === 'immediate' ? 'text-white/80' : 'text-gray-500'}`}>
-                      {isStoreOpen(business) ? 'Aprox 30 minutos' : 'Tienda cerrada'}
+                      {isStoreOpen(business) ? `Aprox ${business?.deliveryTime || 30} minutos` : 'Tienda cerrada'}
                     </span>
                     {timingData.type === 'immediate' && isStoreOpen(business) && (
                       <div className="absolute top-2 right-2 text-white text-xs">

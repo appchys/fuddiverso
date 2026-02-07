@@ -535,6 +535,34 @@ export default function BusinessProfileDashboard({
                   </div>
                 </div>
 
+                {/* Tiempo de Entrega */}
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center text-red-600">
+                      <i className="bi bi-clock-history"></i>
+                    </div>
+                    <div className="text-left">
+                      <h3 className="text-lg font-semibold text-gray-900">Tiempo de Entrega</h3>
+                      <p className="text-sm text-gray-500">Estimado promedio en minutos</p>
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={editedBusiness?.deliveryTime || 30}
+                      onChange={(e) => onBusinessFieldChange('deliveryTime', parseInt(e.target.value) || 0)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 pl-10"
+                      min="1"
+                    />
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                      <i className="bi bi-clock"></i>
+                    </span>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">
+                      minutos
+                    </span>
+                  </div>
+                </div>
+
                 {/* Botones de acción */}
                 <div className="flex gap-3 mt-6 pt-6 border-t border-gray-200">
                   <button
@@ -628,6 +656,17 @@ export default function BusinessProfileDashboard({
                       )
                     })}
                   </div>
+                </div>
+
+                {/* Tiempo de Entrega */}
+                <div className="mt-4 pt-4 border-t border-gray-200 flex justify-between items-center text-sm">
+                  <span className="text-gray-600 flex items-center gap-2">
+                    <i className="bi bi-truck text-red-500"></i>
+                    Tiempo de Entrega:
+                  </span>
+                  <span className="font-bold text-gray-900 bg-red-50 px-3 py-1 rounded-full border border-red-100">
+                    {displayBusiness.deliveryTime || 30} min
+                  </span>
                 </div>
 
                 {/* Botones de editar */}

@@ -109,7 +109,8 @@ function BusinessRegisterForm() {
         businessType: formData.businessType,
         references: '', // Ubicación se pedirá después
         ownerId: currentUser.uid,
-        latlong: location
+        latlong: location,
+        deliveryTime: 30
       })
 
       // Guardar información en localStorage para la sesión

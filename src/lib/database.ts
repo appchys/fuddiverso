@@ -272,6 +272,7 @@ export async function createBusinessFromForm(formData: {
   references?: string;
   ownerId?: string;
   latlong?: string;
+  deliveryTime?: number;
 }) {
   // Parse latlong string to existing mapLocation format if available
   let lat = 0;
@@ -327,6 +328,7 @@ export async function createBusinessFromForm(formData: {
       emailCheckoutProgress: false
     },
     isActive: true,
+    deliveryTime: formData.deliveryTime,
     updatedAt: new Date()
   };
 
