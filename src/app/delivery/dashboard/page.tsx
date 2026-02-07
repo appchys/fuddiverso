@@ -19,6 +19,7 @@ function DeliveryDashboardContent() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set())
+  const [readOrderIds, setReadOrderIds] = useState<Set<string>>(new Set())
   const [waSentOrderIds, setWaSentOrderIds] = useState<Set<string>>(new Set())
   const [expandedSummary, setExpandedSummary] = useState<'none' | 'cash' | 'transfer' | 'earnings'>('none')
   const [, setTimeRefresh] = useState(0) // Para forzar re-render del tiempo cada minuto
@@ -33,6 +34,8 @@ function DeliveryDashboardContent() {
         newSet.delete(orderId)
       } else {
         newSet.add(orderId)
+        // Marcar como leída al expandir
+        setReadOrderIds(prev => new Set(prev).add(orderId))
       }
       return newSet
     })
@@ -754,8 +757,12 @@ function DeliveryDashboardContent() {
                                 })()}
                                 <div className="flex-1 min-w-0">
                                   <div className="mt-0">
-                                    <p className="text-sm font-semibold text-gray-900 leading-tight truncate">{order.customer.name}</p>
-                                    <p className="text-xs text-gray-500 font-medium line-clamp-1">{order.delivery.references || 'Sin referencia'}</p>
+                                    <p className={`text-sm leading-tight truncate transition-all ${readOrderIds.has(order.id) ? 'font-medium text-gray-600' : 'font-black text-gray-900'}`}>
+                                      {order.customer.name}
+                                    </p>
+                                    <p className={`text-xs line-clamp-1 transition-all ${readOrderIds.has(order.id) ? 'font-medium text-gray-500' : 'font-bold text-gray-800'}`}>
+                                      {order.delivery.references || 'Sin referencia'}
+                                    </p>
 
                                     {/* Método de Pago debajo de referencias */}
                                     <div className="mt-1 flex items-center gap-1.5">
@@ -800,9 +807,14 @@ function DeliveryDashboardContent() {
 
                                     return (
                                       <div className="flex flex-col items-end mb-1">
-                                        <p className="text-lg font-bold text-gray-900 leading-none">
-                                          {scheduledTime}
-                                        </p>
+                                        <div className="flex items-center gap-1">
+                                          {!readOrderIds.has(order.id) && (
+                                            <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shadow-sm"></span>
+                                          )}
+                                          <p className="text-lg font-bold text-gray-900 leading-none">
+                                            {scheduledTime}
+                                          </p>
+                                        </div>
                                         <p className={`text-xs font-semibold ${timeRemaining.colorClass} mt-0.5`}>
                                           {timeRemaining.display}
                                         </p>
