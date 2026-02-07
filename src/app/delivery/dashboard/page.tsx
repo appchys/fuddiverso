@@ -3,8 +3,8 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useDeliveryAuth } from '@/contexts/DeliveryAuthContext'
-import { getOrdersByDelivery, updateOrderStatus, getDeliveryById } from '@/lib/database'
-import { Order, Delivery } from '@/types'
+import { getOrdersByDelivery, updateOrderStatus, getDeliveryById, getAllBusinesses } from '@/lib/database'
+import { Order, Delivery, Business } from '@/types'
 import { Timestamp, collection, query, where, onSnapshot } from 'firebase/firestore'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 
@@ -13,11 +13,13 @@ function DeliveryDashboardContent() {
   const searchParams = useSearchParams()
   const { user, deliveryId, isAuthenticated, authLoading, logout } = useDeliveryAuth()
   const [orders, setOrders] = useState<Order[]>([])
+  const [businesses, setBusinesses] = useState<Business[]>([])
   const [delivery, setDelivery] = useState<Delivery | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set())
+  const [waSentOrderIds, setWaSentOrderIds] = useState<Set<string>>(new Set())
   const [expandedSummary, setExpandedSummary] = useState<'none' | 'cash' | 'transfer' | 'earnings'>('none')
   const [, setTimeRefresh] = useState(0) // Para forzar re-render del tiempo cada minuto
   const [deliveryLocation, setDeliveryLocation] = useState<{ lat: number; lng: number } | null>(null)
@@ -83,18 +85,15 @@ function DeliveryDashboardContent() {
   }
 
   // Función para calcular el tiempo restante hasta la hora de entrega
-  const getTimeRemaining = (order: Order): { display: string; isExpired: boolean } => {
+  // Función para calcular el tiempo restante hasta la hora de entrega
+  const getTimeRemaining = (order: Order): { display: string; colorClass: string } => {
     if (!order.timing?.scheduledTime) {
-      return { display: '--', isExpired: false }
+      return { display: '--', colorClass: 'text-gray-900' }
     }
 
-    // Obtener la hora de entrega programada (string: "17:08")
     const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number)
-
-    // Obtener la hora actual en UTC
     let now = new Date()
 
-    // Si la orden ya fue entregada, usamos la hora de entrega para "congelar" el contador
     if (order.status === 'delivered' && order.statusHistory?.deliveredAt) {
       const deliveredAt = order.statusHistory.deliveredAt
       if (deliveredAt instanceof Timestamp) {
@@ -102,47 +101,203 @@ function DeliveryDashboardContent() {
       } else if (deliveredAt instanceof Date) {
         now = deliveredAt
       }
-      // Nota: Si es string u otro, se queda con new Date() por defecto
     }
 
-    // Calcular la hora actual en Ecuador (UTC-5)
     const nowEcuadorMs = now.getTime() - (5 * 60 * 60 * 1000)
     const nowEcuadorDate = new Date(nowEcuadorMs)
 
-    // Obtener la fecha de hoy en Ecuador usando UTC methods
     const yearEcuador = nowEcuadorDate.getUTCFullYear()
     const monthEcuador = nowEcuadorDate.getUTCMonth()
     const dayEcuador = nowEcuadorDate.getUTCDate()
 
-    // Crear la fecha de entrega para hoy en Ecuador (en UTC)
     const deliveryEcuadorMs = Date.UTC(yearEcuador, monthEcuador, dayEcuador, hours, minutes, 0)
-
-    // Convertir de vuelta a UTC sumando 5 horas
     const deliveryTimeUTC = new Date(deliveryEcuadorMs + (5 * 60 * 60 * 1000))
 
-    // Calcular diferencia en milisegundos
+    // diff = scheduled - actual/now
+    // Positive = Early (En Xm)
+    // Negative = Late (Xm tarde)
     const diff = deliveryTimeUTC.getTime() - now.getTime()
+    const totalMinutes = Math.floor(Math.abs(diff) / 60000)
+    // const h = Math.floor(totalMinutes / 60) // Assuming minutes display is preferred for short durations as per example, but logic below handles formatting
 
-    if (diff < 0) {
-      const absDiff = Math.abs(diff)
-      const totalMinutes = Math.floor(absDiff / 60000)
-      const h = Math.floor(totalMinutes / 60)
-      const m = totalMinutes % 60
-
-      const display = h > 0 ? `-${h}h ${m}m` : `-${m}m`
-      return { display, isExpired: true }
-    }
-
-    // Convertir a horas y minutos
-    const totalMinutes = Math.floor(diff / 60000)
-    const h = Math.floor(totalMinutes / 60)
-    const m = totalMinutes % 60
-
-    if (h > 0) {
-      return { display: `${h}h ${m}m`, isExpired: false }
+    if (diff >= 0) {
+      // Early / On Time
+      // If delivered, say "Xm antes"
+      if (order.status === 'delivered') {
+        return { display: `${totalMinutes}m antes`, colorClass: 'text-green-600' }
+      } else {
+        return { display: `En ${totalMinutes}m`, colorClass: 'text-green-600' }
+      }
     } else {
-      return { display: `${m}m`, isExpired: false }
+      // Late
+      return { display: `${totalMinutes}m tarde`, colorClass: 'text-red-600' }
     }
+  }
+
+  // Helper para formatear fecha (copiado para uso local)
+  const formatScheduledDate = (timing: Order['timing']): string => {
+    if (timing?.type !== 'scheduled') return '⚡ Inmediato';
+
+    const time = timing.scheduledTime || '';
+    if (!timing.scheduledDate) return `⏰ Programado para las ${time}`;
+
+    let date: Date;
+    const rawDate = timing.scheduledDate as any;
+
+    if (typeof rawDate.toDate === 'function') {
+      date = rawDate.toDate();
+    } else if (rawDate.seconds !== undefined) {
+      date = new Date(rawDate.seconds * 1000);
+    } else if (rawDate instanceof Date) {
+      date = rawDate;
+    } else {
+      date = new Date(rawDate);
+    }
+
+    if (isNaN(date.getTime())) return `⏰ Programado para las ${time}`;
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+    if (checkDate.getTime() === today.getTime()) {
+      return `⏰ Programado para hoy a las ${time}`;
+    } else if (checkDate.getTime() === tomorrow.getTime()) {
+      return `⏰ Programado para mañana a las ${time}`;
+    } else {
+      const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+      return `⏰ Programado para:\n${date.getDate()} de ${months[date.getMonth()]} a las ${time}`;
+    }
+  }
+
+  const getTimeElapsed = (order: Order) => {
+    try {
+      const createdAt = order.createdAt
+      if (!createdAt) return '0m'
+
+      const createdDate = createdAt instanceof Date ? createdAt : new Date((createdAt as any).seconds * 1000)
+
+      let endDate = new Date()
+      if (order.status === 'delivered') {
+        const deliveredAt = order.deliveredAt || order.statusHistory?.deliveredAt
+        if (deliveredAt) {
+          endDate = deliveredAt instanceof Date ? deliveredAt : new Date((deliveredAt as any).seconds * 1000)
+        }
+      }
+
+      const diffMs = endDate.getTime() - createdDate.getTime()
+
+      if (isNaN(diffMs)) return '0m'
+
+      const diffMinutes = Math.floor(diffMs / (1000 * 60))
+      const diffHours = Math.floor(diffMinutes / 60)
+      const diffDays = Math.floor(diffHours / 24)
+
+      if (diffDays > 0) return `${diffDays}d ${diffHours % 24}h`
+      if (diffHours > 0) return `${diffHours}h ${diffMinutes % 60}m`
+      return `${Math.max(0, diffMinutes)}m`
+    } catch (e) {
+      return '0m'
+    }
+  }
+
+  const sendSelfWhatsApp = (order: Order) => {
+    if (!delivery?.celular) {
+      setNotification({ show: true, message: 'No tienes un número de celular registrado para enviarte el mensaje.', type: 'info' })
+      return
+    }
+
+    const customerName = order.customer?.name || 'Cliente sin nombre'
+    const customerPhone = order.customer?.phone || 'Sin teléfono'
+    const references = order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'
+
+    let locationLink = ''
+    if (order.delivery?.latlong) {
+      const cleanCoords = order.delivery.latlong.replace(/\s+/g, '')
+      if (cleanCoords.startsWith('pluscode:')) {
+        const plusCode = cleanCoords.replace('pluscode:', '')
+        locationLink = `https://www.google.com/maps/place/${encodeURIComponent(plusCode)}`
+      } else if (cleanCoords.includes(',')) {
+        locationLink = `https://www.google.com/maps/place/${cleanCoords}`
+      } else {
+        locationLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`
+      }
+    } else if (order.delivery?.mapLocation) {
+      locationLink = `https://www.google.com/maps/place/${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}`
+    }
+
+    const productsList = order.items?.map((item: any) =>
+      `(${item.quantity || 1}) ${item.variant || item.name || item.product?.name || 'Producto'}`
+    ).join('\n') || 'Sin productos'
+
+    const deliveryCost = order.delivery.type === 'delivery' ? (order.delivery?.deliveryCost || 1) : 0
+    const subtotal = order.total - deliveryCost
+    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' :
+      order.payment?.method === 'transfer' ? 'Transferencia' :
+        order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
+
+    const orderType = formatScheduledDate(order.timing);
+
+    let message = `*Datos del cliente*\n`
+    message += `Cliente: ${customerName}\n`
+    message += `Celular: ${customerPhone}\n\n`
+
+    message += `*Detalles de la entrega*\n`
+    message += `${orderType}\n`
+    message += `Referencias: ${references}\n`
+    if (locationLink) {
+      message += `Ubicación: ${locationLink}\n\n`
+    } else {
+      message += `\n`
+    }
+
+    message += `*Detalle del pedido*\n`
+    message += `${productsList}\n\n`
+
+    message += `*Detalles del pago*\n`
+    message += `Valor del pedido: $${subtotal.toFixed(2)}\n`
+    message += `Envío: $${deliveryCost.toFixed(2)}\n\n`
+
+    message += `*Forma de pago*\n`
+    message += `${paymentMethod}\n`
+
+    if (order.payment?.method === 'mixed') {
+      const payment = order.payment as any
+      if (payment.cashAmount && payment.transferAmount) {
+        message += `- Transferencia: $${payment.transferAmount.toFixed(2)}\n\n`
+        message += `Cobrar en efectivo: $${payment.cashAmount.toFixed(2)}`
+      }
+    } else if (order.payment?.method === 'cash') {
+      message += `\nTotal a cobrar: $${order.total.toFixed(2)}`
+    }
+
+    const cleanPhone = delivery.celular.replace(/\D/g, '')
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}&text=${encodeURIComponent(message)}`
+
+    window.open(whatsappUrl, '_blank')
+  }
+
+  const sendOnWayWhatsApp = (order: Order) => {
+    const customerPhoneRaw = order.customer?.phone || ''
+    if (!customerPhoneRaw) {
+      setNotification({ show: true, message: 'No se encontró el número del cliente', type: 'info' })
+      return
+    }
+
+    const cleanPhone = customerPhoneRaw.replace(/\D/g, '')
+    const waPhone = `593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}`
+
+    const business = businesses.find(b => b.id === order.businessId)
+    const businessName = business?.name || 'la tienda'
+
+    const message = `Hola soy delivery de ${businessName}, estoy en camino con tu pedido.\nLlegaré en aprox 7 minutos 🛵`
+
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(message)}`
+    window.open(whatsappUrl, '_blank')
+
+    setWaSentOrderIds(prev => new Set(prev).add(order.id))
   }
 
   // AJUSTADO PARA TIMING: Filtrar por getOrderDate
@@ -251,7 +406,17 @@ function DeliveryDashboardContent() {
       }
     }
 
+    const loadBusinesses = async () => {
+      try {
+        const businessesData = await getAllBusinesses()
+        if (isMounted) setBusinesses(businessesData)
+      } catch (error) {
+        console.error('Error loading businesses:', error)
+      }
+    }
+
     loadDelivery()
+    loadBusinesses()
 
     // Importar la instancia de db y usar los métodos Firestore ya importados
     import('@/lib/firebase').then(({ db }) => {
@@ -557,6 +722,7 @@ function DeliveryDashboardContent() {
                     <div className="space-y-3">
                       {groupOrders.map((order) => {
                         const isExpanded = expandedOrderIds.has(order.id);
+                        const timeElapsed = getTimeElapsed(order)
 
                         return (
                           <div
@@ -573,63 +739,121 @@ function DeliveryDashboardContent() {
 
 
                                 {/* Hora y Cliente */}
+                                {(() => {
+                                  const business = businesses.find(b => b.id === order.businessId)
+                                  if (!business?.image) return null
+                                  return (
+                                    <div className="flex-shrink-0 mr-3">
+                                      <img
+                                        src={business.image}
+                                        alt={business.name}
+                                        className="w-12 h-12 rounded-full object-cover border border-gray-100 shadow-sm"
+                                      />
+                                    </div>
+                                  )
+                                })()}
                                 <div className="flex-1 min-w-0">
-                                  {(() => {
-                                    const timeRemaining = getTimeRemaining(order)
-                                    return (
-                                      <>
-                                        <p className={`text-2xl font-bold leading-none ${timeRemaining.isExpired ? 'text-red-600' : order.timing?.type === 'scheduled' ? 'text-blue-600' : 'text-gray-900'}`}>
-                                          {timeRemaining.display}
-                                        </p>
-                                        <p className="text-xs text-gray-500 font-medium mt-1">
-                                          {order.timing?.scheduledTime
-                                            ? order.timing.scheduledTime
-                                            : new Date(getOrderDate(order)).toLocaleString('es-EC', {
-                                              hour: '2-digit',
-                                              minute: '2-digit'
-                                            })
-                                          }
-                                        </p>
-                                      </>
-                                    )
-                                  })()}
-                                  <div className="mt-2">
+                                  <div className="mt-0">
                                     <p className="text-sm font-semibold text-gray-900 leading-tight truncate">{order.customer.name}</p>
                                     <p className="text-xs text-gray-500 font-medium line-clamp-1">{order.delivery.references || 'Sin referencia'}</p>
+
+                                    {/* Método de Pago debajo de referencias */}
+                                    <div className="mt-1 flex items-center gap-1.5">
+                                      {order.payment?.method === 'cash' ? (
+                                        <>
+                                          <span className="text-sm" title="Efectivo">💵</span>
+                                          <span className="text-xs font-bold text-green-700">
+                                            Cobrar: ${order.total.toFixed(2)}
+                                          </span>
+                                        </>
+                                      ) : order.payment?.method === 'mixed' ? (
+                                        <>
+                                          <span className="text-sm" title="Pago Mixto">🔀</span>
+                                          <span className="text-xs font-bold text-green-700">
+                                            Cobrar: ${(order.payment as any).cashAmount?.toFixed(2) || '0.00'}
+                                          </span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <span className="text-sm" title="Transferencia">🏦</span>
+                                          <span className="text-xs font-medium text-blue-700">
+                                            Pagado
+                                          </span>
+                                        </>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
                               </div>
 
                               <div className="flex flex-col items-end gap-2">
-                                <div className="text-right">
-                                  {order.payment?.method !== 'transfer' && (
-                                    <p className="text-xl font-bold text-green-600 tracking-tight flex items-center justify-end gap-1">
-                                      <span className="text-lg">💵</span>
-                                      ${order.total.toFixed(2)}
-                                    </p>
-                                  )}
-                                  {order.payment?.method === 'transfer' && (
-                                    <div className="flex flex-col items-end">
-                                      <span className="text-2xl" title="Pagado por Transferencia">🏦</span>
-                                    </div>
-                                  )}
+                                <div className="text-right flex flex-col items-end">
+                                  {/* Time Display - Moved Here */}
+                                  {(() => {
+                                    const timeRemaining = getTimeRemaining(order)
+                                    const scheduledTime = order.timing?.scheduledTime
+                                      ? order.timing.scheduledTime
+                                      : new Date(getOrderDate(order)).toLocaleString('es-EC', {
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      })
+
+                                    return (
+                                      <div className="flex flex-col items-end mb-1">
+                                        <p className="text-lg font-bold text-gray-900 leading-none">
+                                          {scheduledTime}
+                                        </p>
+                                        <p className={`text-xs font-semibold ${timeRemaining.colorClass} mt-0.5`}>
+                                          {timeRemaining.display}
+                                        </p>
+                                      </div>
+                                    )
+                                  })()}
                                 </div>
 
-                                {/* Botón "En camino" - Visible en header */}
-                                {order.status !== 'on_way' && order.status !== 'delivered' && order.status !== 'cancelled' && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleStatusChange(order.id, 'on_way')
-                                    }}
-                                    className="px-3 py-1.5 bg-blue-600 text-white rounded-xl font-bold text-xs hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-1.5 shadow-md"
-                                  >
-                                    <i className="bi bi-bicycle text-sm"></i>
-                                    En camino
-                                  </button>
-                                )}
+                                {/* Botón "En camino" / "WhatsApp" / "Entregado" - Secuencia de estados */}
+                                {(order.status !== 'delivered' && order.status !== 'cancelled') && (
+                                  <>
+                                    {order.status !== 'on_way' && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleStatusChange(order.id, 'on_way')
+                                        }}
+                                        className="px-3 py-1.5 bg-blue-600 text-white rounded-xl font-bold text-xs hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-1.5 shadow-md"
+                                      >
+                                        <i className="bi bi-bicycle text-sm"></i>
+                                        En camino
+                                      </button>
+                                    )}
 
-                                <i className={`bi bi-chevron-down text-gray-300 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}></i>
+                                    {order.status === 'on_way' && !waSentOrderIds.has(order.id) && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          sendOnWayWhatsApp(order)
+                                        }}
+                                        className="px-3 py-1.5 bg-green-500 text-white rounded-xl font-bold text-xs hover:bg-green-600 transition-all active:scale-95 flex items-center gap-1.5 shadow-md"
+                                      >
+                                        <i className="bi bi-whatsapp text-sm"></i>
+                                        Avisar llegada
+                                      </button>
+                                    )}
+
+                                    {order.status === 'on_way' && waSentOrderIds.has(order.id) && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleStatusChange(order.id, 'delivered')
+                                        }}
+                                        className="px-3 py-1.5 bg-green-600 text-white rounded-xl font-bold text-xs hover:bg-green-700 transition-all active:scale-95 flex items-center gap-1.5 shadow-md"
+                                      >
+                                        <i className="bi bi-check-lg text-sm"></i>
+                                        Entregado
+                                      </button>
+                                    )}
+                                  </>
+                                )}
                               </div>
                             </div>
 
@@ -789,6 +1013,18 @@ function DeliveryDashboardContent() {
                                   >
                                     <i className="bi bi-telephone-fill text-lg"></i>
                                   </a>
+
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      sendSelfWhatsApp(order)
+                                    }}
+                                    className="w-14 flex items-center justify-center bg-gray-900 border-2 border-gray-900 text-white rounded-2xl hover:bg-gray-800 transition-all active:scale-95 shadow-sm"
+                                    title="Enviarme datos a mi WhatsApp"
+                                  >
+                                    <i className="bi bi-whatsapp"></i>
+                                    <span className="sr-only">Enviarme datos</span>
+                                  </button>
 
                                   {order.status !== 'on_way' && order.status !== 'delivered' && order.status !== 'cancelled' && (
                                     <button
