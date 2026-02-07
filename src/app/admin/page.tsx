@@ -615,53 +615,64 @@ export default function AdminDashboard() {
                 </a>
               </div>
 
-              {/* Vista Móvil - Cards */}
-              <div className="md:hidden divide-y divide-gray-100">
+              {/* Vista Móvil - Cards Dashboard */}
+              <div className="md:hidden space-y-4 p-4 bg-gray-50/30">
                 {orders.slice(0, 5).map((order) => {
                   const business = businesses.find(b => b.id === order.businessId)
                   if (!order || !order.customer) return null
 
-                  const statusConfig: Record<string, { bg: string; text: string; label: string }> = {
-                    pending: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Pendiente' },
-                    confirmed: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Confirmado' },
-                    preparing: { bg: 'bg-orange-100', text: 'text-orange-800', label: 'Preparando' },
-                    ready: { bg: 'bg-green-100', text: 'text-green-800', label: 'Listo' },
-                    delivered: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Entregado' },
-                    cancelled: { bg: 'bg-red-100', text: 'text-red-800', label: 'Cancelado' }
+                  const statusConfig: Record<string, { bg: string; text: string; icon: string }> = {
+                    pending: { bg: 'bg-amber-50', text: 'text-amber-700', icon: 'bi-clock-history' },
+                    confirmed: { bg: 'bg-blue-50', text: 'text-blue-700', icon: 'bi-check2-circle' },
+                    preparing: { bg: 'bg-orange-50', text: 'text-orange-700', icon: 'bi-fire' },
+                    ready: { bg: 'bg-green-50', text: 'text-green-700', icon: 'bi-bag-check' },
+                    delivered: { bg: 'bg-gray-50', text: 'text-gray-600', icon: 'bi-house-check' },
+                    cancelled: { bg: 'bg-red-50', text: 'text-red-700', icon: 'bi-x-circle' }
                   }
                   const status = statusConfig[order.status] || statusConfig.pending
 
                   return (
-                    <div key={order.id} className="p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-bold text-gray-900 truncate">
-                              {order.customer?.name || 'Sin nombre'}
-                            </span>
-                            <span className={`inline-flex px-2 py-0.5 text-[10px] font-bold rounded-full ${status.bg} ${status.text}`}>
-                              {status.label}
-                            </span>
+                    <div key={order.id} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm active:scale-[0.98] transition-all">
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-xl bg-gray-50 overflow-hidden border border-gray-100 shrink-0">
+                            {business?.image ? (
+                              <img src={business.image} alt={business.name || ''} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-gray-200">
+                                <i className="bi bi-shop"></i>
+                              </div>
+                            )}
                           </div>
-                          <div className="flex items-center gap-2 text-xs text-gray-500">
-                            <span>#{order.id?.slice(-6)}</span>
-                            <span>•</span>
-                            <span>{business?.name || 'N/A'}</span>
-                          </div>
-                          <div className="text-[11px] text-gray-400 mt-1">
-                            {order.createdAt ? new Date(order.createdAt).toLocaleString('es-EC', {
-                              day: '2-digit',
-                              month: 'short',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            }) : 'Sin fecha'}
+                          <div className="min-w-0">
+                            <h4 className="text-sm font-black text-gray-900 truncate uppercase tracking-tight">
+                              {order.customer?.name || 'S/N'}
+                            </h4>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest truncate">
+                              {business?.name || 'S/T'}
+                            </p>
                           </div>
                         </div>
                         <div className="text-right shrink-0">
-                          <div className="text-lg font-bold text-gray-900">
-                            ${order.total?.toFixed(2) || '0.00'}
-                          </div>
+                          <div className="text-lg font-black text-gray-900 tracking-tighter">${order.total?.toFixed(2)}</div>
+                          <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">#{order.id?.slice(-6)}</div>
                         </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-3 border-t border-gray-50">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${status.bg} ${status.text} border border-current/10`}>
+                            <i className={`bi ${status.icon}`}></i>
+                            {order.status}
+                          </span>
+                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                            {order.createdAt ? new Date(order.createdAt).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }) : ''}
+                          </span>
+                        </div>
+                        <a href="/admin/orders" className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-1">
+                          Gestionar
+                          <i className="bi bi-arrow-right"></i>
+                        </a>
                       </div>
                     </div>
                   )

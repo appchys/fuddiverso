@@ -468,294 +468,293 @@ export default function OrderManagement() {
         </button>
       </div>
 
-      {/* Filtros - Compactos en móvil */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {/* Barra de búsqueda siempre visible */}
-        <div className="p-3 md:p-4 border-b border-gray-100">
-          <div className="relative">
+      {/* Filtros Premium */}
+      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+        {/* Barra de búsqueda */}
+        <div className="p-4 border-b border-gray-50 bg-gray-50/30">
+          <div className="relative group">
             <input
               type="text"
-              placeholder="Buscar cliente, teléfono..."
+              placeholder="Buscar por cliente, teléfono o #pedido..."
               value={filters.search}
               onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-              className="w-full pl-10 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
+              className="w-full pl-11 pr-4 py-3 text-sm font-medium border-2 border-transparent bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm transition-all group-hover:border-gray-200"
             />
-            <i className="bi bi-search absolute left-3.5 top-3 text-gray-400"></i>
+            <i className="bi bi-search absolute left-4 top-3.5 text-gray-400 group-focus-within:text-blue-500 transition-colors"></i>
           </div>
         </div>
 
-        {/* Filtros en pills horizontales */}
-        <div className="flex gap-2 p-3 overflow-x-auto scrollbar-hide">
-          <select
-            value={filters.status}
-            onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-            className="shrink-0 px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none cursor-pointer"
-          >
-            <option value="all">Activas (sin entregar)</option>
-            <option value="pending">Pendiente</option>
-            <option value="confirmed">Confirmado</option>
-            <option value="preparing">Preparando</option>
-            <option value="ready">Listo</option>
-            <option value="delivered">Entregado</option>
-            <option value="cancelled">Cancelado</option>
-          </select>
+        {/* Filtros Rápidos */}
+        <div className="flex gap-2 p-4 overflow-x-auto scrollbar-hide bg-white">
+          <div className="shrink-0 flex items-center gap-2">
+            <div className="relative">
+              <select
+                value={filters.status}
+                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                className="pl-9 pr-8 py-2 text-[11px] font-black uppercase tracking-widest border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-50/50 appearance-none cursor-pointer transition-all hover:bg-white"
+              >
+                <option value="all">Todas las activas</option>
+                <option value="pending">⏳ Pendientes</option>
+                <option value="confirmed">✅ Confirmadas</option>
+                <option value="preparing">🔥 Preparando</option>
+                <option value="ready">🛍️ Listas</option>
+                <option value="delivered">🏠 Entregadas</option>
+                <option value="cancelled">❌ Canceladas</option>
+              </select>
+              <i className="bi bi-funnel absolute left-3 top-2 text-gray-400"></i>
+              <i className="bi bi-chevron-down absolute right-3 top-2 text-gray-400 pointer-events-none"></i>
+            </div>
 
-          <select
-            value={filters.business}
-            onChange={(e) => setFilters({ ...filters, business: e.target.value })}
-            className="shrink-0 px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none cursor-pointer"
-          >
-            <option value="all">Tienda: Todas</option>
-            {businesses.map(business => (
-              <option key={business.id} value={business.id}>
-                {business.name}
-              </option>
-            ))}
-          </select>
+            <div className="relative">
+              <select
+                value={filters.business}
+                onChange={(e) => setFilters({ ...filters, business: e.target.value })}
+                className="pl-9 pr-8 py-2 text-[11px] font-black uppercase tracking-widest border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-50/50 appearance-none cursor-pointer transition-all hover:bg-white"
+              >
+                <option value="all">Todas las tiendas</option>
+                {businesses.map(business => (
+                  <option key={business.id} value={business.id}>
+                    🏪 {business.name}
+                  </option>
+                ))}
+              </select>
+              <i className="bi bi-shop absolute left-3 top-2 text-gray-400"></i>
+              <i className="bi bi-chevron-down absolute right-3 top-2 text-gray-400 pointer-events-none"></i>
+            </div>
 
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="shrink-0 px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none cursor-pointer"
-          >
-            <option value="newest">Más recientes</option>
-            <option value="oldest">Más antiguos</option>
-            <option value="amount">Mayor monto</option>
-          </select>
+            <div className="relative">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="pl-9 pr-8 py-2 text-[11px] font-black uppercase tracking-widest border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-50/50 appearance-none cursor-pointer transition-all hover:bg-white"
+              >
+                <option value="newest">Más recientes</option>
+                <option value="oldest">Más antiguos</option>
+                <option value="amount">Monto mayor</option>
+              </select>
+              <i className="bi bi-sort-down absolute left-3 top-2 text-gray-400"></i>
+              <i className="bi bi-chevron-down absolute right-3 top-2 text-gray-400 pointer-events-none"></i>
+            </div>
+          </div>
         </div>
       </div>
 
 
-      {/* Lista de Pedidos */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      {/* Vista Móvil - Cards Rediseñadas */}
+      <div className="md:hidden space-y-4 p-4 bg-gray-50/50">
+        {filteredOrders.map((order) => {
+          const business = businesses.find(b => b.id === order.businessId)
+          const timeElapsed = getTimeElapsed(order.createdAt)
+          const remaining = getTimeRemaining(order)
 
-        {/* Vista Móvil - Cards */}
-        <div className="md:hidden divide-y divide-gray-100">
-          {filteredOrders.map((order) => {
-            const business = businesses.find(b => b.id === order.businessId)
-            const timeElapsed = getTimeElapsed(order.createdAt)
+          const statusConfig: Record<string, { bg: string; text: string; border: string; icon: string }> = {
+            pending: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: 'bi-clock-history' },
+            confirmed: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: 'bi-check2-circle' },
+            preparing: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', icon: 'bi-fire' },
+            ready: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', icon: 'bi-bag-check' },
+            delivered: { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200', icon: 'bi-house-check' },
+            cancelled: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', icon: 'bi-x-circle' },
+            on_way: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', icon: 'bi-bicycle' }
+          }
+          const statusStyle = statusConfig[order.status] || statusConfig.pending
 
-            const statusConfig: Record<string, { bg: string; text: string; border: string }> = {
-              pending: { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200' },
-              confirmed: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-              preparing: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
-              ready: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
-              delivered: { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200' },
-              cancelled: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
-              on_way: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' }
-            }
-            const statusStyle = statusConfig[order.status] || statusConfig.pending
+          return (
+            <div
+              key={order.id}
+              className={`bg-white rounded-3xl border shadow-sm overflow-hidden transition-all active:scale-[0.99] ${order.status === 'pending' ? 'border-amber-200 ring-2 ring-amber-500/10' : 'border-gray-100'
+                }`}
+            >
+              {/* Header: Status & ID */}
+              <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${statusStyle.bg} ${statusStyle.text} border ${statusStyle.border}`}>
+                    <i className={`bi ${statusStyle.icon}`}></i>
+                    {getStatusText(order.status)}
+                  </span>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">#{order.id?.slice(-6)}</span>
+                </div>
+                <div className="text-right">
+                  {remaining ? (
+                    <span className={`text-[10px] font-black uppercase tracking-widest ${remaining.color}`}>
+                      {remaining.text}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      Hace {timeElapsed}
+                    </span>
+                  )}
+                </div>
+              </div>
 
-            return (
-              <div key={order.id} className={`p-4 ${order.status === 'pending' ? 'bg-yellow-50/30' : ''}`}>
-                {/* Header de la tarjeta */}
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  {/* Logo tienda + info cliente */}
-                  <div className="flex items-start gap-2.5 flex-1 min-w-0">
-                    {/* Logo circular de la tienda */}
-                    <div className="w-9 h-9 rounded-full bg-gray-100 overflow-hidden shrink-0 border border-gray-200">
-                      {business?.image ? (
-                        <img src={business.image} alt={business.name || ''} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <i className="bi bi-shop text-gray-400 text-sm"></i>
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-tight truncate mb-0.5">
-                        {business?.name || 'N/A'}
+              <div className="p-4">
+                {/* Business & Customer */}
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-2xl bg-gray-50 overflow-hidden border border-gray-100 flex-shrink-0">
+                    {business?.image ? (
+                      <img src={business.image} alt={business.name || ''} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-50 text-gray-200 text-xl">
+                        <i className="bi bi-shop"></i>
                       </div>
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-sm font-bold text-gray-900 truncate">
-                          {order.customer?.name || 'Sin nombre'}
-                        </span>
-                        {/* Indicador Manual/Automático */}
-                        <span
-                          className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
-                            }`}
-                          title={order.createdByAdmin ? 'Pedido creado por la tienda (manual)' : 'Pedido creado por el cliente (automático)'}
-                        >
-                          <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[10px]`}></i>
-                        </span>
-
-                        {/* Indicador de Estado con Menú Desplegable */}
-                        <div className="relative">
-                          <button
-                            onClick={() => setStatusMenuOrderId(statusMenuOrderId === order.id ? null : order.id)}
-                            className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full ${statusStyle.bg} ${statusStyle.text} border ${statusStyle.border} active:scale-95 transition-all`}
-                          >
-                            {getStatusText(order.status)}
-                            {!['delivered', 'cancelled'].includes(order.status) && (
-                              <i className="bi bi-chevron-down ms-1"></i>
-                            )}
-                          </button>
-
-                          {/* Menú Desplegable */}
-                          {statusMenuOrderId === order.id && !['delivered', 'cancelled'].includes(order.status) && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-40"
-                                onClick={() => setStatusMenuOrderId(null)}
-                              ></div>
-                              <div className="absolute left-0 mt-1 w-32 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 z-50 animate-in fade-in zoom-in duration-200 origin-top-left">
-                                <button
-                                  onClick={() => {
-                                    handleStatusUpdate(order.id!, 'delivered')
-                                    setStatusMenuOrderId(null)
-                                  }}
-                                  className="w-full text-left px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                                >
-                                  <i className="bi bi-check2-circle text-green-600"></i>
-                                  Entregado
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    handleStatusUpdate(order.id!, 'cancelled')
-                                    setStatusMenuOrderId(null)
-                                  }}
-                                  className="w-full text-left px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-gray-50"
-                                >
-                                  <i className="bi bi-x-circle"></i>
-                                  Cancelar
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                        <i className="bi bi-clock text-[10px]"></i>
-                        <span className="font-medium">{getScheduledTime(order)}</span>
-                      </div>
-                    </div>
+                    )}
                   </div>
-                  {/* Total y Botón Ver */}
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="text-right">
-                      <div className="text-lg font-bold text-gray-900">${(order.total || 0).toFixed(2)}</div>
-                      {(() => {
-                        const remaining = getTimeRemaining(order);
-                        if (remaining) {
-                          return (
-                            <div className={`text-[11px] font-bold uppercase tracking-wider ${remaining.color}`}>
-                              {remaining.text}
-                            </div>
-                          );
-                        }
-                        return (
-                          <div className={`text-[11px] font-medium ${timeElapsed.includes('d') || parseInt(timeElapsed) > 60 ? 'text-red-600' :
-                            timeElapsed.includes('h') ? 'text-orange-600' : 'text-green-600'
-                            }`}>
-                            hace {timeElapsed}
-                          </div>
-                        );
-                      })()}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <h3 className="text-sm font-black text-gray-900 leading-tight truncate uppercase tracking-tight">
+                        {order.customer?.name || 'Sin nombre'}
+                      </h3>
+                      <span
+                        className={`inline-flex items-center justify-center w-4 h-4 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
+                          }`}
+                        title={order.createdByAdmin ? 'Pedido creado por la tienda (manual)' : 'Pedido creado por el cliente (automático)'}
+                      >
+                        <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[8px]`}></i>
+                      </span>
                     </div>
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest truncate">
+                      {business?.name || 'Sin tienda'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
                     <button
                       onClick={() => handleOpenOrderSidebar(order.id!)}
-                      className="p-1 px-2 text-gray-400 hover:text-blue-600 active:scale-95 transition-all"
-                      title="Ver Detalle"
+                      className="w-10 h-10 flex items-center justify-center bg-gray-50 text-gray-400 rounded-xl hover:text-blue-600 active:bg-blue-50 transition-all border border-gray-100"
                     >
-                      <i className="bi bi-code text-lg"></i>
+                      <i className="bi bi-eye-fill"></i>
                     </button>
-                    {((order.delivery?.type === 'delivery' && order.delivery?.assignedDelivery) || (order.delivery?.type === 'pickup' && business?.phone)) && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleSendWhatsAppToDelivery(order)
-                        }}
-                        className={`${order.waSentToDelivery ? 'text-green-600 hover:text-green-800 hover:bg-green-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'} p-1 px-2 rounded-md transition-all active:scale-95`}
-                        title={order.waSentToDelivery ? 'Notificación enviada' : 'Notify Delivery/Store'}
-                      >
-                        <i className="bi bi-whatsapp text-lg"></i>
-                      </button>
-                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleSendWhatsAppToDelivery(order)
+                      }}
+                      className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all border ${order.waSentToDelivery
+                        ? 'bg-green-50 text-green-600 border-green-100'
+                        : 'bg-gray-50 text-gray-400 border-gray-100'
+                        }`}
+                    >
+                      <i className="bi bi-whatsapp"></i>
+                    </button>
                   </div>
                 </div>
 
-                {/* Dirección y Mapa (Nuevo) */}
-                {order.delivery?.type === 'delivery' && (
-                  <div className="mb-3 space-y-2">
-                    <div className="flex items-start gap-2 text-xs">
-                      <i className="bi bi-geo-alt-fill text-red-500 mt-0.5"></i>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-bold text-gray-900 leading-tight">
-                          {order.delivery.references || 'Sin dirección registrada'}
-                        </p>
-                      </div>
+                {/* Programación & Pago */}
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="bg-gray-50/50 p-2.5 rounded-2xl border border-gray-100">
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">Entrega</p>
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
+                      <i className="bi bi-calendar-event text-blue-500"></i>
+                      {getScheduledTime(order)}
                     </div>
+                  </div>
+                  <div className="bg-gray-50/50 p-2.5 rounded-2xl border border-gray-100">
+                    <div className="flex justify-between items-center mb-1">
+                      <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Pago</p>
+                      <button
+                        onClick={() => handleEditPayment(order)}
+                        className="text-[10px] font-black text-blue-600 uppercase tracking-widest"
+                      >
+                        Editar
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
+                      <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank text-blue-500' : 'bi-cash-stack text-green-500'}`}></i>
+                      {order.payment?.method === 'transfer' ? 'Transf.' : order.payment?.method === 'mixed' ? 'Mixto' : 'Efectivo'}
+                      {order.payment?.paymentStatus === 'paid' && <i className="bi bi-patch-check-fill text-green-500"></i>}
+                    </div>
+                  </div>
+                </div>
 
-                    {order.delivery.latlong && (
-                      <div className="relative w-full h-24 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
-                        <img
-                          src={`https://maps.googleapis.com/maps/api/staticmap?center=${order.delivery.latlong}&zoom=15&size=400x120&scale=2&maptype=roadmap&markers=color:red%7C${order.delivery.latlong}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`}
-                          alt="Ubicación de entrega"
-                          className="w-full h-full object-cover"
-                        />
+                {/* Dirección & Mapa */}
+                {order.delivery?.type === 'delivery' && (
+                  <div className="mb-4">
+                    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+                      <div className="p-3">
+                        <div className="flex items-start gap-2">
+                          <i className="bi bi-geo-alt-fill text-red-500 mt-0.5"></i>
+                          <p className="text-xs font-bold text-gray-700 leading-tight line-clamp-2">
+                            {order.delivery.references || 'Sin dirección registrada'}
+                          </p>
+                        </div>
                       </div>
-                    )}
+                      {order.delivery.latlong && (
+                        <div
+                          className="h-24 w-full bg-cover bg-center border-t border-gray-50"
+                          style={{
+                            backgroundImage: `url('https://maps.googleapis.com/maps/api/staticmap?center=${order.delivery.latlong}&zoom=15&size=400x120&scale=2&maptype=roadmap&markers=color:red%7C${order.delivery.latlong}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs')`
+                          }}
+                        ></div>
+                      )}
+                    </div>
                   </div>
                 )}
 
-                {/* Info de Pago - Estilo Dashboard */}
-                <div className="flex items-center gap-3 mb-3 text-xs text-gray-500">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${order.payment?.method === 'transfer' ? 'bg-blue-100 text-blue-700' :
-                    order.payment?.method === 'mixed' ? 'bg-purple-100 text-purple-700' :
-                      'bg-green-100 text-green-700'
-                    }`}>
-                    <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-credit-card' :
-                      order.payment?.method === 'mixed' ? 'bi-cash-coin' : 'bi-cash'} me-1`}></i>
-                    {order.payment?.method === 'transfer' ? 'Transf.' :
-                      order.payment?.method === 'mixed' ? 'Mixto' : 'Efectivo'}
-                  </span>
-                  {/* Botón de pago estilo dashboard */}
+                {/* Delivery Select & Total */}
+                <div className="flex items-end gap-3">
+                  <div className="flex-1">
+                    {order.delivery?.type === 'delivery' && (
+                      <>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">
+                          Repartidor Asignado
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={order.delivery?.assignedDelivery || ''}
+                            onChange={(e) => handleDeliveryUpdate(order.id!, e.target.value || null)}
+                            disabled={updatingDelivery === order.id}
+                            className={`w-full appearance-none pl-3 pr-8 py-2.5 text-xs font-bold rounded-xl border-2 transition-all outline-none ${order.delivery?.assignedDelivery
+                              ? 'bg-green-50 border-green-200 text-green-800'
+                              : 'bg-orange-50 border-orange-200 text-orange-700'
+                              } ${updatingDelivery === order.id ? 'opacity-50' : 'active:scale-[0.98]'}`}
+                          >
+                            <option value="">Sin asignar</option>
+                            {deliveries.map(d => (
+                              <option key={d.id} value={d.id}>
+                                {d.nombres || d.name || 'Repartidor'}
+                              </option>
+                            ))}
+                          </select>
+                          <i className="bi bi-chevron-down absolute right-3 top-2.5 text-current opacity-50"></i>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div className="text-right pb-1">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Total Pedido</p>
+                    <div className="text-2xl font-black text-gray-900 tracking-tighter leading-none">
+                      ${(order.total || 0).toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer: Status Menu */}
+              {!['delivered', 'cancelled'].includes(order.status) && (
+                <div className="p-3 bg-gray-50 border-t border-gray-100 flex gap-2">
                   <button
-                    onClick={() => handleEditPayment(order)}
-                    className={`${(() => {
-                      const status = order.payment?.paymentStatus
-                      if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
-                      if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
-                      return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-                    })()} p-1.5 rounded transition-colors`}
-                    title={order.payment?.paymentStatus === 'paid' ? 'Pago validado' :
-                      order.payment?.paymentStatus === 'validating' ? 'Validando pago' : 'Verificar pago'}
+                    onClick={() => handleStatusUpdate(order.id!, 'delivered')}
+                    disabled={updatingStatus === order.id}
+                    className="flex-1 bg-green-600 text-white font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest shadow-lg shadow-green-200 active:scale-95 transition-all flex items-center justify-center gap-2"
                   >
-                    <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-base`}></i>
+                    {updatingStatus === order.id ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <i className="bi bi-check2-circle text-sm"></i>}
+                    Entregar Pedido
+                  </button>
+                  <button
+                    onClick={() => handleStatusUpdate(order.id!, 'cancelled')}
+                    disabled={updatingStatus === order.id}
+                    className="px-4 bg-white text-red-600 border border-red-100 font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest active:scale-95 transition-all flex items-center justify-center"
+                  >
+                    <i className="bi bi-x-lg"></i>
                   </button>
                 </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
 
-                {/* Selector de Delivery - Primario */}
-                {order.delivery?.type === 'delivery' && (
-                  <div className="mb-3">
-                    <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1 block">
-                      <i className="bi bi-bicycle me-1"></i>Repartidor
-                    </label>
-                    <select
-                      value={order.delivery?.assignedDelivery || ''}
-                      onChange={(e) => handleDeliveryUpdate(order.id!, e.target.value || null)}
-                      disabled={updatingDelivery === order.id}
-                      className={`w-full px-3 py-2.5 text-sm border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-medium transition-all ${order.delivery?.assignedDelivery
-                        ? 'border-green-300 text-green-800'
-                        : 'border-orange-300 text-orange-700'
-                        } ${updatingDelivery === order.id ? 'opacity-50' : ''}`}
-                    >
-                      <option value="">Sin asignar</option>
-                      {deliveries.map(d => (
-                        <option key={d.id} value={d.id}>
-                          {d.nombres || d.name || 'Repartidor'}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Vista Desktop - Tabla */}
-        <div className="hidden md:block overflow-x-auto">
+      {/* Vista Desktop - Tabla */}
+      <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -956,288 +955,288 @@ export default function OrderManagement() {
             </tbody>
           </table>
         </div>
+      </div>
 
-        {filteredOrders.length === 0 && (
-          <div className="text-center py-12">
-            <i className="bi bi-inbox text-4xl text-gray-400 mb-4"></i>
-            <p className="text-gray-500">No se encontraron pedidos</p>
-          </div>
-        )}
+      {filteredOrders.length === 0 && (
+        <div className="text-center py-12">
+          <i className="bi bi-inbox text-4xl text-gray-400 mb-4"></i>
+          <p className="text-gray-500">No se encontraron pedidos</p>
+        </div>
+      )}
 
-        {/* Modal de Edición de Método de Pago */}
-        {showEditPaymentModal && paymentEditingOrder && (
+      {/* Modal de Edición de Método de Pago */}
+      {showEditPaymentModal && paymentEditingOrder && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto"
+          onClick={() => setShowEditPaymentModal(false)}
+        >
           <div
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto"
-            onClick={() => setShowEditPaymentModal(false)}
+            className="bg-white rounded-xl max-w-md w-full shadow-2xl my-8 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div
-              className="bg-white rounded-xl max-w-md w-full shadow-2xl my-8 max-h-[90vh] overflow-y-auto"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-6">
-                {/* Header */}
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-bold text-gray-900">
-                    <i className="bi bi-credit-card me-2 text-blue-600"></i>
-                    Gestionar Pago
-                  </h2>
-                  <button
-                    onClick={() => setShowEditPaymentModal(false)}
-                    className="text-gray-400 hover:text-gray-600 text-2xl transition-colors"
-                  >
-                    <i className="bi bi-x-lg text-lg"></i>
-                  </button>
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-gray-900">
+                  <i className="bi bi-credit-card me-2 text-blue-600"></i>
+                  Gestionar Pago
+                </h2>
+                <button
+                  onClick={() => setShowEditPaymentModal(false)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl transition-colors"
+                >
+                  <i className="bi bi-x-lg text-lg"></i>
+                </button>
+              </div>
+
+              {/* Información del pedido */}
+              <div className="mb-6 p-4 bg-gray-50 rounded-xl flex justify-between items-start border border-gray-100">
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</p>
+                  <p className="text-base font-bold text-gray-900">
+                    {paymentEditingOrder?.customer?.name || 'Cliente sin nombre'}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-2">
+                    Total: <span className="font-bold text-blue-600">
+                      ${(paymentEditingOrder?.total || 0).toFixed(2)}
+                    </span>
+                  </p>
                 </div>
 
-                {/* Información del pedido */}
-                <div className="mb-6 p-4 bg-gray-50 rounded-xl flex justify-between items-start border border-gray-100">
-                  <div>
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</p>
-                    <p className="text-base font-bold text-gray-900">
-                      {paymentEditingOrder?.customer?.name || 'Cliente sin nombre'}
-                    </p>
-                    <p className="text-sm text-gray-600 mt-2">
-                      Total: <span className="font-bold text-blue-600">
-                        ${(paymentEditingOrder?.total || 0).toFixed(2)}
-                      </span>
-                    </p>
-                  </div>
-
-                  {/* Mostrar comprobante si existe */}
-                  {paymentEditingOrder?.payment?.receiptImageUrl && (
-                    <div className="ml-4">
-                      <button
-                        type="button"
-                        onClick={() => setShowReceiptPreviewModal(true)}
-                        className="block relative group"
-                        title="Ver comprobante completo"
-                      >
-                        <img
-                          src={paymentEditingOrder.payment.receiptImageUrl}
-                          alt="Comprobante"
-                          className="w-20 h-20 object-cover rounded-lg border border-gray-200 shadow-sm transition-transform group-hover:scale-105"
-                        />
-                        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded-lg">
-                          <i className="bi bi-zoom-in text-white opacity-0 group-hover:opacity-100 drop-shadow-md"></i>
-                        </div>
-                      </button>
-                      <p className="text-[10px] text-gray-500 mt-1 text-center font-medium">Click para ampliar</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Selección de método de pago */}
-                <div className="space-y-4 mb-6">
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-3">
-                      Método de Pago
-                    </label>
-                    <div className="grid grid-cols-1 gap-2">
-                      {[
-                        { id: 'cash', label: 'Efectivo', icon: 'bi-cash', color: 'text-green-600', bg: 'hover:bg-green-50' },
-                        { id: 'transfer', label: 'Transferencia', icon: 'bi-credit-card', color: 'text-blue-600', bg: 'hover:bg-blue-50' },
-                        { id: 'mixed', label: 'Mixto', icon: 'bi-cash-coin', color: 'text-purple-600', bg: 'hover:bg-purple-50' }
-                      ].map((m) => (
-                        <label
-                          key={m.id}
-                          className={`flex items-center p-3 border rounded-xl cursor-pointer transition-all ${editPaymentData.method === m.id
-                            ? 'border-blue-500 bg-blue-50/50 ring-1 ring-blue-500'
-                            : 'border-gray-200 hover:bg-gray-50'
-                            }`}
-                        >
-                          <input
-                            type="radio"
-                            name="paymentMethod"
-                            value={m.id}
-                            checked={editPaymentData.method === m.id}
-                            onChange={(e) => setEditPaymentData({
-                              ...editPaymentData,
-                              method: e.target.value as any,
-                              cashAmount: 0,
-                              transferAmount: 0,
-                              paymentStatus: m.id === 'transfer' ? 'paid' : 'pending'
-                            })}
-                            className="h-4 w-4 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="ml-3 font-medium text-gray-700 flex items-center">
-                            <i className={`bi ${m.icon} me-2 ${m.color}`}></i>
-                            {m.label}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Selector de estado de pago */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Estado Actual
-                    </label>
-                    <select
-                      value={editPaymentData.paymentStatus}
-                      onChange={(e) => setEditPaymentData({
-                        ...editPaymentData,
-                        paymentStatus: e.target.value as any
-                      })}
-                      className="w-full px-4 py-2 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm font-medium"
+                {/* Mostrar comprobante si existe */}
+                {paymentEditingOrder?.payment?.receiptImageUrl && (
+                  <div className="ml-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowReceiptPreviewModal(true)}
+                      className="block relative group"
+                      title="Ver comprobante completo"
                     >
-                      <option value="pending">⏳ Pendiente</option>
-                      <option value="validating">🕵️ Validando</option>
-                      <option value="paid">✅ Pagado</option>
-                      <option value="rejected">❌ Rechazado</option>
-                    </select>
+                      <img
+                        src={paymentEditingOrder.payment.receiptImageUrl}
+                        alt="Comprobante"
+                        className="w-20 h-20 object-cover rounded-lg border border-gray-200 shadow-sm transition-transform group-hover:scale-105"
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded-lg">
+                        <i className="bi bi-zoom-in text-white opacity-0 group-hover:opacity-100 drop-shadow-md"></i>
+                      </div>
+                    </button>
+                    <p className="text-[10px] text-gray-500 mt-1 text-center font-medium">Click para ampliar</p>
                   </div>
+                )}
+              </div>
 
-                  {/* Montos para pago mixto */}
-                  {editPaymentData.method === 'mixed' && (
-                    <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
-                      <h4 className="text-xs font-bold text-blue-800 uppercase tracking-widest mb-3">
-                        Distribución Mixta
-                      </h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-1 ml-1">EFECTIVO</label>
-                          <div className="relative">
-                            <span className="absolute left-3 top-2 text-gray-400 text-xs">$</span>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={editPaymentData.cashAmount}
-                              onChange={(e) => {
-                                const cash = parseFloat(e.target.value) || 0
-                                const transfer = (paymentEditingOrder?.total || 0) - cash
-                                setEditPaymentData({
-                                  ...editPaymentData,
-                                  cashAmount: cash,
-                                  transferAmount: Math.max(0, transfer)
-                                })
-                              }}
-                              className="w-full pl-6 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 appearance-none"
-                            />
-                          </div>
+              {/* Selección de método de pago */}
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-3">
+                    Método de Pago
+                  </label>
+                  <div className="grid grid-cols-1 gap-2">
+                    {[
+                      { id: 'cash', label: 'Efectivo', icon: 'bi-cash', color: 'text-green-600', bg: 'hover:bg-green-50' },
+                      { id: 'transfer', label: 'Transferencia', icon: 'bi-credit-card', color: 'text-blue-600', bg: 'hover:bg-blue-50' },
+                      { id: 'mixed', label: 'Mixto', icon: 'bi-cash-coin', color: 'text-purple-600', bg: 'hover:bg-purple-50' }
+                    ].map((m) => (
+                      <label
+                        key={m.id}
+                        className={`flex items-center p-3 border rounded-xl cursor-pointer transition-all ${editPaymentData.method === m.id
+                          ? 'border-blue-500 bg-blue-50/50 ring-1 ring-blue-500'
+                          : 'border-gray-200 hover:bg-gray-50'
+                          }`}
+                      >
+                        <input
+                          type="radio"
+                          name="paymentMethod"
+                          value={m.id}
+                          checked={editPaymentData.method === m.id}
+                          onChange={(e) => setEditPaymentData({
+                            ...editPaymentData,
+                            method: e.target.value as any,
+                            cashAmount: 0,
+                            transferAmount: 0,
+                            paymentStatus: m.id === 'transfer' ? 'paid' : 'pending'
+                          })}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="ml-3 font-medium text-gray-700 flex items-center">
+                          <i className={`bi ${m.icon} me-2 ${m.color}`}></i>
+                          {m.label}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Selector de estado de pago */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Estado Actual
+                  </label>
+                  <select
+                    value={editPaymentData.paymentStatus}
+                    onChange={(e) => setEditPaymentData({
+                      ...editPaymentData,
+                      paymentStatus: e.target.value as any
+                    })}
+                    className="w-full px-4 py-2 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm font-medium"
+                  >
+                    <option value="pending">⏳ Pendiente</option>
+                    <option value="validating">🕵️ Validando</option>
+                    <option value="paid">✅ Pagado</option>
+                    <option value="rejected">❌ Rechazado</option>
+                  </select>
+                </div>
+
+                {/* Montos para pago mixto */}
+                {editPaymentData.method === 'mixed' && (
+                  <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                    <h4 className="text-xs font-bold text-blue-800 uppercase tracking-widest mb-3">
+                      Distribución Mixta
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1 ml-1">EFECTIVO</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-2 text-gray-400 text-xs">$</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={editPaymentData.cashAmount}
+                            onChange={(e) => {
+                              const cash = parseFloat(e.target.value) || 0
+                              const transfer = (paymentEditingOrder?.total || 0) - cash
+                              setEditPaymentData({
+                                ...editPaymentData,
+                                cashAmount: cash,
+                                transferAmount: Math.max(0, transfer)
+                              })
+                            }}
+                            className="w-full pl-6 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 appearance-none"
+                          />
                         </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-1 ml-1">TRANSF.</label>
-                          <div className="relative">
-                            <span className="absolute left-3 top-2 text-gray-400 text-xs">$</span>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={editPaymentData.transferAmount}
-                              onChange={(e) => {
-                                const transfer = parseFloat(e.target.value) || 0
-                                const cash = (paymentEditingOrder?.total || 0) - transfer
-                                setEditPaymentData({
-                                  ...editPaymentData,
-                                  transferAmount: transfer,
-                                  cashAmount: Math.max(0, cash)
-                                })
-                              }}
-                              className="w-full pl-6 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 appearance-none"
-                            />
-                          </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1 ml-1">TRANSF.</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-2 text-gray-400 text-xs">$</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={editPaymentData.transferAmount}
+                            onChange={(e) => {
+                              const transfer = parseFloat(e.target.value) || 0
+                              const cash = (paymentEditingOrder?.total || 0) - transfer
+                              setEditPaymentData({
+                                ...editPaymentData,
+                                transferAmount: transfer,
+                                cashAmount: Math.max(0, cash)
+                              })
+                            }}
+                            className="w-full pl-6 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 appearance-none"
+                          />
                         </div>
                       </div>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
+              </div>
 
-                {/* Botones de acción */}
-                <div className="flex flex-col space-y-2">
-                  <button
-                    onClick={handleSavePaymentEdit}
-                    disabled={editPaymentData.method === 'mixed' &&
-                      Math.abs(((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)) - (paymentEditingOrder?.total || 0)) > 0.01
-                    }
-                    className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:bg-gray-400 transition-all shadow-lg shadow-blue-200"
-                  >
-                    Guardar Cambios
-                  </button>
-                  <button
-                    onClick={() => setShowEditPaymentModal(false)}
-                    className="w-full bg-gray-50 text-gray-600 font-semibold py-3 px-4 rounded-xl hover:bg-gray-100 transition-all"
-                  >
-                    Cancelar
-                  </button>
-                </div>
+              {/* Botones de acción */}
+              <div className="flex flex-col space-y-2">
+                <button
+                  onClick={handleSavePaymentEdit}
+                  disabled={editPaymentData.method === 'mixed' &&
+                    Math.abs(((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)) - (paymentEditingOrder?.total || 0)) > 0.01
+                  }
+                  className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:bg-gray-400 transition-all shadow-lg shadow-blue-200"
+                >
+                  Guardar Cambios
+                </button>
+                <button
+                  onClick={() => setShowEditPaymentModal(false)}
+                  className="w-full bg-gray-50 text-gray-600 font-semibold py-3 px-4 rounded-xl hover:bg-gray-100 transition-all"
+                >
+                  Cancelar
+                </button>
               </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Modal de Previsualización de Comprobante */}
-        {showReceiptPreviewModal && paymentEditingOrder?.payment?.receiptImageUrl && (
+      {/* Modal de Previsualización de Comprobante */}
+      {showReceiptPreviewModal && paymentEditingOrder?.payment?.receiptImageUrl && (
+        <div
+          className="fixed inset-0 bg-black/95 flex items-center justify-center z-[70] p-4 backdrop-blur-sm"
+          onClick={() => setShowReceiptPreviewModal(false)}
+        >
           <div
-            className="fixed inset-0 bg-black/95 flex items-center justify-center z-[70] p-4 backdrop-blur-sm"
-            onClick={() => setShowReceiptPreviewModal(false)}
+            className="relative max-w-4xl w-full h-[90vh] flex flex-col bg-white rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div
-              className="relative max-w-4xl w-full h-[90vh] flex flex-col bg-white rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="p-4 border-b flex items-center justify-between bg-gray-50/80">
-                <div>
-                  <h3 className="font-bold text-gray-900 flex items-center">
-                    <i className="bi bi-file-earmark-image me-2 text-blue-600"></i>
-                    Comprobante de Pago
-                  </h3>
-                  <p className="text-xs text-gray-500 font-medium">
-                    {paymentEditingOrder?.customer?.name} • <span className="text-blue-600">${(paymentEditingOrder?.total || 0).toFixed(2)}</span>
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleRejectPayment(paymentEditingOrder.id)}
-                    className="px-4 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors font-bold text-sm flex items-center gap-2 border border-red-100"
-                  >
-                    <i className="bi bi-x-circle-fill"></i>
-                    Rechazar
-                  </button>
-                  <button
-                    onClick={() => handleValidatePayment(paymentEditingOrder.id)}
-                    className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all font-bold text-sm flex items-center gap-2 shadow-lg shadow-green-200"
-                  >
-                    <i className="bi bi-patch-check-fill"></i>
-                    Validar Pago
-                  </button>
-                  <button
-                    onClick={() => setShowReceiptPreviewModal(false)}
-                    className="p-2 text-gray-400 hover:text-gray-600 transition-colors ml-2"
-                  >
-                    <i className="bi bi-x-lg text-xl"></i>
-                  </button>
-                </div>
-              </div>
-
-              {/* Imagen */}
-              <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-gray-100/50">
-                <img
-                  src={paymentEditingOrder.payment.receiptImageUrl}
-                  alt="Comprobante completo"
-                  className="max-w-full max-h-full object-contain rounded-lg shadow-inner"
-                />
-              </div>
-
-              {/* Footer */}
-              <div className="p-3 bg-gray-50/50 text-center border-t border-gray-100">
-                <p className="text-[11px] text-gray-400 font-medium italic">
-                  Al validar, el pago se marcará como confirmado y se guardarán los cambios automáticamente.
+            {/* Header */}
+            <div className="p-4 border-b flex items-center justify-between bg-gray-50/80">
+              <div>
+                <h3 className="font-bold text-gray-900 flex items-center">
+                  <i className="bi bi-file-earmark-image me-2 text-blue-600"></i>
+                  Comprobante de Pago
+                </h3>
+                <p className="text-xs text-gray-500 font-medium">
+                  {paymentEditingOrder?.customer?.name} • <span className="text-blue-600">${(paymentEditingOrder?.total || 0).toFixed(2)}</span>
                 </p>
               </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleRejectPayment(paymentEditingOrder.id)}
+                  className="px-4 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors font-bold text-sm flex items-center gap-2 border border-red-100"
+                >
+                  <i className="bi bi-x-circle-fill"></i>
+                  Rechazar
+                </button>
+                <button
+                  onClick={() => handleValidatePayment(paymentEditingOrder.id)}
+                  className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all font-bold text-sm flex items-center gap-2 shadow-lg shadow-green-200"
+                >
+                  <i className="bi bi-patch-check-fill"></i>
+                  Validar Pago
+                </button>
+                <button
+                  onClick={() => setShowReceiptPreviewModal(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 transition-colors ml-2"
+                >
+                  <i className="bi bi-x-lg text-xl"></i>
+                </button>
+              </div>
+            </div>
+
+            {/* Imagen */}
+            <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-gray-100/50">
+              <img
+                src={paymentEditingOrder.payment.receiptImageUrl}
+                alt="Comprobante completo"
+                className="max-w-full max-h-full object-contain rounded-lg shadow-inner"
+              />
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 bg-gray-50/50 text-center border-t border-gray-100">
+              <p className="text-[11px] text-gray-400 font-medium italic">
+                Al validar, el pago se marcará como confirmado y se guardarán los cambios automáticamente.
+              </p>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Sidebar de Detalle de Orden */}
-        <OrderSidebar
-          isOpen={isOrderSidebarOpen}
-          onClose={() => setIsOrderSidebarOpen(false)}
-          orderId={selectedOrderId}
-        />
-      </div>
+      {/* Sidebar de Detalle de Orden */}
+      <OrderSidebar
+        isOpen={isOrderSidebarOpen}
+        onClose={() => setIsOrderSidebarOpen(false)}
+        orderId={selectedOrderId}
+      />
     </div>
   )
 }
