@@ -4,7 +4,7 @@
  * - Notificaciones de cambios de estado
  */
 
-const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onRequest } = require("firebase-functions/v2/https");
 const admin = require('firebase-admin');
@@ -28,12 +28,10 @@ const transporter = nodemailer.createTransport({
  * Cloud Function: Enviar email cuando se crea una nueva orden
  * Se ejecuta cuando se crea un documento en la colección 'orders'
  */
-exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => {
-  const snap = event.data;
-  if (!snap) return;
-
-  const order = snap.data();
-  const orderId = event.params.orderId;
+/**
+ * Logic: Enviar email cuando se crea una nueva orden
+ */
+async function sendOrderEmailLogic(order, orderId) {
 
   try {
     console.log(`📧 Procesando email para orden: ${orderId}`);
@@ -289,38 +287,34 @@ exports.sendOrderEmail = onDocumentCreated("orders/{orderId}", async (event) => 
   } catch (error) {
     console.error(`❌ Error enviando email para orden ${orderId}:`, error);
   }
-});
+}
 
 /**
  * Cloud Function: Notificar cambio de estado de orden (opcional)
  * Se ejecuta cuando se actualiza un documento en la colección 'orders'
  */
-exports.onOrderStatusChange = onDocumentUpdated("orders/{orderId}", async (event) => {
-  const beforeData = event.data.before.data();
-  const afterData = event.data.after.data();
-
+/**
+ * Logic: Notificar cambio de estado de orden
+ */
+async function onOrderStatusChangeLogic(beforeData, afterData, orderId) {
   // Solo procesar si cambió el estado
   if (beforeData.status === afterData.status) {
     return;
   }
 
-  const orderId = event.params.orderId;
   console.log(`📌 Orden ${orderId}: Estado cambió de "${beforeData.status}" a "${afterData.status}"`);
 
   // Aquí puedes agregar más lógica si necesitas notificaciones de cambio de estado
-  // Por ejemplo: enviar email al cliente o actualizar un dashboard en tiempo real
-});
+}
 
 /**
  * Cloud Function: Crear notificación en el panel cuando llega una nueva orden
  * Se ejecuta cuando se crea un documento en la colección 'orders'
  */
-exports.createOrderNotification = onDocumentCreated("orders/{orderId}", async (event) => {
-  const snap = event.data;
-  if (!snap) return;
-
-  const order = snap.data();
-  const orderId = event.params.orderId;
+/**
+ * Logic: Crear notificación en el panel cuando llega una nueva orden
+ */
+async function createOrderNotificationLogic(order, orderId) {
 
   // Ignorar órdenes creadas por administradores (opcional, según lógica de negocio)
   if (order.createdByAdmin) {
@@ -365,7 +359,7 @@ exports.createOrderNotification = onDocumentCreated("orders/{orderId}", async (e
   } catch (error) {
     console.error(`❌ Error creando notificación para orden ${orderId}:`, error);
   }
-});
+}
 
 /**
  * Cloud Function: Notificar cuando un cliente empieza el checkout de un negocio específico
@@ -481,18 +475,37 @@ exports.onCheckoutProgressUpdate = onDocumentCreated("checkoutProgress/{docId}",
   }
 });
 
+/**
+ * Cloud Function: Único disparador para CREACIÓN de órdenes
+ */
+exports.onOrderCreated = onDocumentCreated("orders/{orderId}", async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+  const order = snap.data();
+  const orderId = event.params.orderId;
+
+  console.log(`🚀 [CONSOLIDADO] Procesando CREACIÓN de orden: ${orderId}`);
+
+  await Promise.allSettled([
+    sendOrderEmailLogic(order, orderId),
+    createOrderNotificationLogic(order, orderId),
+    notifyDeliveryOnOrderCreationLogic(order, orderId)
+  ]);
+});
+
+
 
 
 /**
  * Cloud Function: Notificar cuando un nuevo NEGOCIO se registra
  */
-exports.onBusinessCreated = onDocumentCreated("businesses/{businessId}", async (event) => {
-  const business = event.data.data();
+/**
+ * Logic: Notificar cuando un nuevo NEGOCIO se registra
+ */
+async function onBusinessCreatedLogic(business, businessId) {
   const adminEmail = 'appchys.ec@gmail.com';
-
   try {
     console.log(`🏪 Nuevo negocio registrado: ${business.name}`);
-
     const mailOptions = {
       from: 'sistema@fuddi.shop',
       to: adminEmail,
@@ -515,23 +528,22 @@ exports.onBusinessCreated = onDocumentCreated("businesses/{businessId}", async (
   } catch (error) {
     console.error('❌ Error enviando email de nuevo negocio:', error);
   }
-});
+}
 
 /**
  * Cloud Function: Notificar cuando un NEGOCIO inicia sesión
  */
-exports.onBusinessUpdated = onDocumentUpdated("businesses/{businessId}", async (event) => {
-  const before = event.data.before.data();
-  const after = event.data.after.data();
+/**
+ * Logic: Notificar cuando un NEGOCIO inicia sesión
+ */
+async function onBusinessUpdatedLogic(before, after, businessId) {
   const adminEmail = 'appchys.ec@gmail.com';
-
   const loginChanged = after.lastLoginAt && (!before.lastLoginAt || !after.lastLoginAt.isEqual(before.lastLoginAt));
   const isNewRegistration = after.lastRegistrationAt && (!before.lastRegistrationAt || !after.lastRegistrationAt.isEqual(before.lastRegistrationAt));
 
   if (loginChanged && !isNewRegistration) {
     try {
       console.log(`🔓 Negocio inició sesión: ${after.name}`);
-
       const mailOptions = {
         from: 'sistema@fuddi.shop',
         to: adminEmail,
@@ -553,6 +565,26 @@ exports.onBusinessUpdated = onDocumentUpdated("businesses/{businessId}", async (
     } catch (error) {
       console.error('❌ Error enviando email de login de negocio:', error);
     }
+  }
+}
+
+/**
+ * Cloud Function: Único disparador para CUALQUIER cambio en negocios
+ * Consolida registros e incios de sesión
+ */
+exports.onBusinessWritten = onDocumentWritten("businesses/{businessId}", async (event) => {
+  const businessId = event.params.businessId;
+  const before = event.data.before ? event.data.before.data() : null;
+  const after = event.data.after ? event.data.after.data() : null;
+
+  if (!after) return; // Eliminación, ignorar por ahora
+
+  if (!before) {
+    // Es una creación
+    await onBusinessCreatedLogic(after, businessId);
+  } else {
+    // Es una actualización
+    await onBusinessUpdatedLogic(before, after, businessId);
   }
 });
 
@@ -1100,9 +1132,10 @@ exports.sendDailyOrderSummary = onSchedule({
  * Cloud Function: Notificar al delivery cuando se crea una orden con delivery asignado
  * Se ejecuta cuando se CREA una orden que ya tiene assignedDelivery
  */
-exports.notifyDeliveryOnOrderCreation = onDocumentCreated("orders/{orderId}", async (event) => {
-  const orderData = event.data.data();
-  const orderId = event.params.orderId;
+/**
+ * Logic: Notificar al delivery cuando se crea una orden con delivery asignado
+ */
+async function notifyDeliveryOnOrderCreationLogic(orderData, orderId) {
   const assignedDeliveryId = orderData.delivery?.assignedDelivery;
 
   // Solo procesar si la orden fue creada con un delivery asignado
@@ -1444,16 +1477,16 @@ exports.notifyDeliveryOnOrderCreation = onDocumentCreated("orders/{orderId}", as
   } catch (error) {
     console.error(`❌ Error notificando al delivery:`, error);
   }
-});
+}
 
 /**
  * Cloud Function: Notificar al delivery cuando se le asigna una orden
  * Se ejecuta cuando se actualiza una orden y se asigna un delivery
  */
-exports.notifyDeliveryAssignment = onDocumentUpdated("orders/{orderId}", async (event) => {
-  const beforeData = event.data.before.data();
-  const afterData = event.data.after.data();
-  const orderId = event.params.orderId;
+/**
+ * Logic: Notificar al delivery cuando se le asigna una orden
+ */
+async function notifyDeliveryAssignmentLogic(beforeData, afterData, orderId) {
 
   // Verificar si el delivery fue asignado o cambió
   const beforeDeliveryId = beforeData.delivery?.assignedDelivery;
@@ -1812,7 +1845,24 @@ exports.notifyDeliveryAssignment = onDocumentUpdated("orders/{orderId}", async (
   } catch (error) {
     console.error(`❌ Error notificando al delivery para orden ${orderId}:`, error);
   }
+}
+
+/**
+ * Cloud Function: Único disparador para ACTUALIZACIÓN de órdenes
+ */
+exports.onOrderUpdated = onDocumentUpdated("orders/{orderId}", async (event) => {
+  const beforeData = event.data.before.data();
+  const afterData = event.data.after.data();
+  const orderId = event.params.orderId;
+
+  console.log(`🚀 [CONSOLIDADO] Procesando ACTUALIZACIÓN de orden: ${orderId}`);
+
+  await Promise.allSettled([
+    onOrderStatusChangeLogic(beforeData, afterData, orderId),
+    notifyDeliveryAssignmentLogic(beforeData, afterData, orderId)
+  ]);
 });
+
 
 /**
  * HTTP Function: Manejar acciones de confirmación/descarte de orden por parte del delivery
