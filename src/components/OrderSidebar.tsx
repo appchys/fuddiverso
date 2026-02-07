@@ -80,7 +80,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
             </div>
 
             <div className="flex-1">
-              <OrderPublicClient orderId={orderId} embedded />
+              <OrderPublicClient orderId={orderId!} embedded />
             </div>
           </div>
         </div>

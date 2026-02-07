@@ -27,6 +27,8 @@ export default function OrderManagement() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [statusMenuOrderId, setStatusMenuOrderId] = useState<string | null>(null)
   const [expandedMaps, setExpandedMaps] = useState<Record<string, boolean>>({})
+  const [isPickupExpanded, setIsPickupExpanded] = useState(false)
+  const [showSearchBar, setShowSearchBar] = useState(false)
 
   const toggleMap = (orderId: string) => {
     setExpandedMaps(prev => ({
@@ -107,7 +109,15 @@ export default function OrderManagement() {
       // Actualizar estado local
       setOrders(prevOrders =>
         prevOrders.map(order =>
-          order.id === orderId ? { ...order, status: newStatus } : order
+          order.id === orderId ? {
+            ...order,
+            status: newStatus,
+            deliveredAt: newStatus === 'delivered' ? new Date() : order.deliveredAt,
+            statusHistory: {
+              ...order.statusHistory,
+              deliveredAt: newStatus === 'delivered' ? new Date() : order.statusHistory?.deliveredAt
+            }
+          } : order
         )
       )
     } catch (error) {
@@ -283,13 +293,22 @@ export default function OrderManagement() {
     setIsOrderSidebarOpen(true)
   }
 
-  const getTimeElapsed = (createdAt: Date) => {
+  const getTimeElapsed = (order: Order) => {
     try {
+      const createdAt = order.createdAt
       if (!createdAt) return '0m'
 
-      const now = new Date()
-      const createdDate = new Date(createdAt)
-      const diffMs = now.getTime() - createdDate.getTime()
+      const createdDate = createdAt instanceof Date ? createdAt : new Date((createdAt as any).seconds * 1000)
+
+      let endDate = new Date()
+      if (order.status === 'delivered') {
+        const deliveredAt = order.deliveredAt || order.statusHistory?.deliveredAt
+        if (deliveredAt) {
+          endDate = deliveredAt instanceof Date ? deliveredAt : new Date((deliveredAt as any).seconds * 1000)
+        }
+      }
+
+      const diffMs = endDate.getTime() - createdDate.getTime()
 
       if (isNaN(diffMs)) return '0m'
 
@@ -446,6 +465,9 @@ export default function OrderManagement() {
 
   const pendingOrdersCount = orders.filter(order => order.status === 'pending').length
 
+  const deliveryOrders = filteredOrders.filter(order => order.delivery?.type !== 'pickup')
+  const pickupOrders = filteredOrders.filter(order => order.delivery?.type === 'pickup')
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -466,30 +488,45 @@ export default function OrderManagement() {
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{orders.length} pedidos totales</span>
           </div>
         </div>
-        <button
-          onClick={loadData}
-          className="shrink-0 inline-flex items-center justify-center w-10 h-10 md:w-auto md:h-auto md:px-4 md:py-2 border border-gray-300 rounded-xl md:rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 active:bg-gray-100"
-        >
-          <i className="bi bi-arrow-clockwise md:mr-2"></i>
-          <span className="hidden md:inline">Actualizar</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowSearchBar(!showSearchBar)}
+            className={`shrink-0 inline-flex items-center justify-center w-10 h-10 border rounded-xl shadow-sm text-sm font-medium transition-all ${showSearchBar
+              ? 'bg-blue-50 text-blue-600 border-blue-200 ring-2 ring-blue-500/20'
+              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            title="Buscar"
+          >
+            <i className={`bi ${showSearchBar ? 'bi-search-heart-fill' : 'bi-search'}`}></i>
+          </button>
+          <button
+            onClick={loadData}
+            className="shrink-0 inline-flex items-center justify-center w-10 h-10 md:w-auto md:h-auto md:px-4 md:py-2 border border-gray-300 rounded-xl md:rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 active:bg-gray-100"
+          >
+            <i className="bi bi-arrow-clockwise md:mr-2"></i>
+            <span className="hidden md:inline">Actualizar</span>
+          </button>
+        </div>
       </div>
 
       {/* Filtros Premium */}
       <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
         {/* Barra de búsqueda */}
-        <div className="p-4 border-b border-gray-50 bg-gray-50/30">
-          <div className="relative group">
-            <input
-              type="text"
-              placeholder="Buscar por cliente, teléfono o #pedido..."
-              value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-              className="w-full pl-11 pr-4 py-3 text-sm font-medium border-2 border-transparent bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm transition-all group-hover:border-gray-200"
-            />
-            <i className="bi bi-search absolute left-4 top-3.5 text-gray-400 group-focus-within:text-blue-500 transition-colors"></i>
+        {showSearchBar && (
+          <div className="p-4 border-b border-gray-50 bg-gray-50/30 animate-in slide-in-from-top duration-200">
+            <div className="relative group">
+              <input
+                type="text"
+                autoFocus
+                placeholder="Buscar por cliente, teléfono o #pedido..."
+                value={filters.search}
+                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                className="w-full pl-11 pr-4 py-3 text-sm font-medium border-2 border-transparent bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm transition-all group-hover:border-gray-200"
+              />
+              <i className="bi bi-search absolute left-4 top-3.5 text-gray-400 group-focus-within:text-blue-500 transition-colors"></i>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Filtros Rápidos */}
         <div className="flex gap-2 p-4 overflow-x-auto scrollbar-hide bg-white">
@@ -549,9 +586,9 @@ export default function OrderManagement() {
 
       {/* Vista Móvil - Cards Rediseñadas */}
       <div className="md:hidden space-y-4 p-4 bg-gray-50/50">
-        {filteredOrders.map((order) => {
+        {deliveryOrders.map((order) => {
           const business = businesses.find(b => b.id === order.businessId)
-          const timeElapsed = getTimeElapsed(order.createdAt)
+          const timeElapsed = getTimeElapsed(order)
           const remaining = getTimeRemaining(order)
 
           const statusConfig: Record<string, { bg: string; text: string; border: string; icon: string }> = {
@@ -783,6 +820,226 @@ export default function OrderManagement() {
             </div>
           )
         })}
+
+        {/* Sección de Retiros en Tienda */}
+        {pickupOrders.length > 0 && (
+          <div className="mt-8">
+            <button
+              onClick={() => setIsPickupExpanded(!isPickupExpanded)}
+              className="w-full flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-100 shadow-sm active:scale-[0.99] transition-all mb-4"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+                  <i className="bi bi-shop text-xl"></i>
+                </div>
+                <div className="text-left">
+                  <h3 className="text-sm font-black text-gray-900 uppercase tracking-tight">Retiros en tienda</h3>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{pickupOrders.length} pedidos listos para retiro</p>
+                </div>
+              </div>
+              <div className={`w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400 transition-transform duration-300 ${isPickupExpanded ? 'rotate-180 text-blue-600 bg-blue-50' : ''}`}>
+                <i className="bi bi-chevron-down"></i>
+              </div>
+            </button>
+
+            {isPickupExpanded && (
+              <div className="space-y-4 animate-in slide-in-from-top-2 duration-300">
+                {pickupOrders.map((order) => {
+                  const business = businesses.find(b => b.id === order.businessId)
+                  const timeElapsed = getTimeElapsed(order)
+                  const remaining = getTimeRemaining(order)
+
+                  const statusConfig: Record<string, { bg: string; text: string; border: string; icon: string }> = {
+                    pending: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: 'bi-clock-history' },
+                    confirmed: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', icon: 'bi-check2-circle' },
+                    preparing: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', icon: 'bi-fire' },
+                    ready: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: 'bi-bag-check' },
+                    delivered: { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200', icon: 'bi-house-check' },
+                    cancelled: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', icon: 'bi-x-circle' },
+                    on_way: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', icon: 'bi-bicycle' }
+                  }
+                  const statusStyle = statusConfig[order.status] || statusConfig.pending
+
+                  return (
+                    <div
+                      key={order.id}
+                      className={`bg-white rounded-2xl border-l-[6px] border shadow-md overflow-hidden transition-all hover:shadow-xl ${order.status === 'pending' ? 'border-l-amber-400 border-gray-100' :
+                        order.status === 'confirmed' ? 'border-l-green-400 border-gray-100' :
+                          order.status === 'preparing' ? 'border-l-orange-400 border-gray-100' :
+                            order.status === 'ready' ? 'border-l-emerald-400 border-gray-100' :
+                              order.status === 'delivered' ? 'border-l-gray-400 border-gray-100' :
+                                order.status === 'cancelled' ? 'border-l-red-400 border-gray-100' :
+                                  'border-l-indigo-400 border-gray-100'
+                        }`}
+                    >
+                      {/* Header: Status & ID */}
+                      <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleSendWhatsAppToDelivery(order)
+                            }}
+                            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 ${order.waSentToDelivery
+                              ? 'bg-green-50 text-green-600 border-green-200'
+                              : 'bg-white text-gray-400 border-gray-100'
+                              }`}
+                            title="Notificar WhatsApp"
+                          >
+                            <i className="bi bi-whatsapp text-xs"></i>
+                          </button>
+
+                          <button
+                            onClick={() => handleEditPayment(order)}
+                            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 ${order.payment?.paymentStatus === 'paid'
+                              ? 'bg-green-50 text-green-600 border-green-200'
+                              : 'bg-white text-gray-400 border-gray-100'
+                              }`}
+                            title="Gestionar Pago"
+                          >
+                            <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : 'bi-cash-stack'} text-xs`}></i>
+                          </button>
+                        </div>
+                        <div className="text-right">
+                          {remaining ? (
+                            <div className={`text-[10px] font-black uppercase tracking-widest ${remaining.color}`}>
+                              {remaining.text}
+                            </div>
+                          ) : (
+                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                              Hace {timeElapsed}
+                            </div>
+                          )}
+                          <div className="text-[10px] font-black text-gray-900 mt-1 uppercase">
+                            {order.timing?.scheduledTime || 'Inmediato'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-4">
+                        {/* Business & Customer */}
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-12 h-12 rounded-xl bg-gray-50 overflow-hidden border border-gray-100 flex-shrink-0">
+                            {business?.image ? (
+                              <img src={business.image} alt={business.name || ''} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-gray-50 text-gray-200 text-xl">
+                                <i className="bi bi-shop"></i>
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <h3 className="text-sm font-bold text-gray-900 leading-tight truncate">
+                                {order.customer?.name || 'Sin nombre'}
+                              </h3>
+                              <span
+                                className={`inline-flex items-center justify-center w-4 h-4 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
+                                  }`}
+                                title={order.createdByAdmin ? 'Pedido creado por la tienda (manual)' : 'Pedido creado por el cliente (automático)'}
+                              >
+                                <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[8px]`}></i>
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-600 line-clamp-1">
+                              {business?.name || 'Sin tienda'}
+                            </p>
+                          </div>
+
+                          <div className="relative shrink-0">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setStatusMenuOrderId(statusMenuOrderId === order.id ? null : order.id!)
+                              }}
+                              className={`w-10 h-10 flex items-center justify-center text-lg rounded-xl border transition-all active:scale-90 ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}
+                            >
+                              <i className={`bi ${statusStyle.icon}`}></i>
+                            </button>
+
+                            {/* Dropdown de Estados Minimal */}
+                            {statusMenuOrderId === order.id && !['delivered', 'cancelled'].includes(order.status) && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setStatusMenuOrderId(null)
+                                  }}
+                                />
+                                <div
+                                  className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <button
+                                    onClick={() => {
+                                      handleStatusUpdate(order.id!, 'delivered')
+                                      setStatusMenuOrderId(null)
+                                    }}
+                                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 transition-colors"
+                                  >
+                                    <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                                      <i className="bi bi-check2-circle text-lg"></i>
+                                    </div>
+                                    <span>MARCAR ENTREGADO</span>
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      handleStatusUpdate(order.id!, 'cancelled')
+                                      setStatusMenuOrderId(null)
+                                    }}
+                                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors mt-1"
+                                  >
+                                    <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
+                                      <i className="bi bi-x-lg"></i>
+                                    </div>
+                                    <span>CANCELAR PEDIDO</span>
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Pickups don't show map, but can show references if any */}
+                        {order.delivery.references && (
+                          <div className="mb-4">
+                            <div className="bg-white rounded-xl border border-gray-100 overflow-hidden p-3">
+                              <div className="flex items-start gap-2">
+                                <i className="bi bi-info-circle text-blue-500 mt-0.5"></i>
+                                <p className="text-xs text-gray-600 italic">
+                                  {order.delivery.references}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex items-end justify-between gap-3">
+                          <div className="bg-blue-50/50 px-3 py-1.5 rounded-lg border border-blue-100">
+                            <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-1.5">
+                              <i className="bi bi-shop"></i>
+                              Retiro en tienda
+                            </span>
+                          </div>
+                          <div className="shrink-0">
+                            <button
+                              onClick={() => handleOpenOrderSidebar(order.id!)}
+                              className="w-10 h-10 flex items-center justify-center bg-white text-gray-400 rounded-xl hover:text-blue-600 active:bg-blue-50 transition-all border border-gray-100 shadow-sm"
+                              title="Ver Detalle"
+                            >
+                              <i className="bi bi-arrows-angle-expand text-lg"></i>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Vista Desktop - Tabla */}
@@ -1046,7 +1303,7 @@ export default function OrderManagement() {
                       title="Ver comprobante completo"
                     >
                       <img
-                        src={paymentEditingOrder.payment.receiptImageUrl}
+                        src={paymentEditingOrder?.payment?.receiptImageUrl}
                         alt="Comprobante"
                         className="w-20 h-20 object-cover rounded-lg border border-gray-200 shadow-sm transition-transform group-hover:scale-105"
                       />
@@ -1223,14 +1480,14 @@ export default function OrderManagement() {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => handleRejectPayment(paymentEditingOrder.id)}
+                  onClick={() => paymentEditingOrder && handleRejectPayment(paymentEditingOrder.id)}
                   className="px-4 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors font-bold text-sm flex items-center gap-2 border border-red-100"
                 >
                   <i className="bi bi-x-circle-fill"></i>
                   Rechazar
                 </button>
                 <button
-                  onClick={() => handleValidatePayment(paymentEditingOrder.id)}
+                  onClick={() => paymentEditingOrder && handleValidatePayment(paymentEditingOrder.id)}
                   className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all font-bold text-sm flex items-center gap-2 shadow-lg shadow-green-200"
                 >
                   <i className="bi bi-patch-check-fill"></i>
@@ -1248,7 +1505,7 @@ export default function OrderManagement() {
             {/* Imagen */}
             <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-gray-100/50">
               <img
-                src={paymentEditingOrder.payment.receiptImageUrl}
+                src={paymentEditingOrder?.payment?.receiptImageUrl}
                 alt="Comprobante completo"
                 className="max-w-full max-h-full object-contain rounded-lg shadow-inner"
               />
@@ -1268,7 +1525,7 @@ export default function OrderManagement() {
       <OrderSidebar
         isOpen={isOrderSidebarOpen}
         onClose={() => setIsOrderSidebarOpen(false)}
-        orderId={selectedOrderId}
+        orderId={selectedOrderId || null}
       />
     </div>
   )
