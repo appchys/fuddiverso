@@ -918,17 +918,6 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
                     </p>
                   </div>
                 </div>
-                {deliveryPerson.celular && (
-                  <a
-                    href={`https://wa.me/593${deliveryPerson.celular.replace(/[^0-9]/g, '').replace(/^593/, '')}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-12 h-12 rounded-2xl bg-green-500 text-white flex items-center justify-center text-xl shadow-lg shadow-green-200 hover:bg-green-600 transition-all hover:scale-105"
-                    title="Contactar repartidor"
-                  >
-                    <i className="bi bi-whatsapp"></i>
-                  </a>
-                )}
               </div>
             ) : (
               // Solo mostrar "Buscando repartidor" si el pedido no está entregado ni cancelado

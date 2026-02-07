@@ -829,11 +829,11 @@ exports.sendScheduledOrderReminders = onSchedule({
  * Se ejecuta todos los días a las 6:00 AM hora de Ecuador (UTC-5)
  */
 exports.sendDailyOrderSummary = onSchedule({
-  schedule: "0 6 * * *", // Todos los días a las 6:00 AM
+  schedule: "0 7 * * *", // Todos los días a las 7:00 AM
   timeZone: "America/Guayaquil",
   retryCount: 0
 }, async (event) => {
-  console.log('📊 Iniciando envío de resumen diario de órdenes programadas...');
+  console.log('📊 Iniciando envío de resumen diario de órdenes programadas (7 AM)...');
 
   try {
     // Calcular el inicio y fin del día de hoy en hora de Ecuador
@@ -882,6 +882,12 @@ exports.sendDailyOrderSummary = onSchedule({
 
       if (!businessEmail) {
         console.log(`⚠️ Negocio ${businessId} no tiene email configurado`);
+        continue;
+      }
+
+      // NO enviar si la tienda está oculta
+      if (business.isHidden) {
+        console.log(`⏭️ Negocio ${businessName} está oculto, omitiendo resumen diario`);
         continue;
       }
 
@@ -1060,7 +1066,7 @@ exports.sendDailyOrderSummary = onSchedule({
             </div>
 
             <p style="margin: 20px 0 0 0; font-size: 12px; color: #999; text-align: center;">
-              Este es un correo automático enviado a las 6:00 AM. No responder.
+              Este es un correo automático enviado a las 7:00 AM. No responder.
             </p>
           </div>
         </div>
@@ -1264,15 +1270,50 @@ exports.notifyDeliveryOnOrderCreation = onDocumentCreated("orders/{orderId}", as
 
     // Obtener datos del negocio
     let businessName = 'Negocio';
+    let businessLogo = '';
+    let businessPhone = '';
     if (orderData.businessId) {
       try {
         const businessDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
         if (businessDoc.exists) {
-          businessName = businessDoc.data().name || businessName;
+          const bData = businessDoc.data();
+          businessName = bData.name || businessName;
+          businessLogo = bData.image || '';
+          businessPhone = bData.phone || '';
         }
       } catch (e) {
         console.warn(`⚠️ Error obteniendo datos del negocio:`, e.message);
       }
+    }
+
+    // Header del negocio para el email (Layout compatible con email)
+    let businessHeaderHtml = '';
+    if (businessName !== 'Negocio') {
+      businessHeaderHtml = `
+        <table border="0" cellpadding="0" cellspacing="0" style="width: 100%; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
+          <tr>
+            <td width="50" style="vertical-align: middle; padding-right: 12px;">
+              ${businessLogo ? `
+                <img src="${businessLogo}" alt="${businessName}" style="width: 45px; height: 45px; border-radius: 50%; object-fit: cover; display: block; border: 1px solid #eee;">
+              ` : `
+                <div style="width: 45px; height: 45px; border-radius: 50%; background-color: #aa1918; color: white; text-align: center; line-height: 45px; font-weight: bold; font-size: 20px;">
+                  ${businessName.charAt(0).toUpperCase()}
+                </div>
+              `}
+            </td>
+            <td style="vertical-align: middle;">
+              <div style="font-weight: bold; font-size: 16px; color: #333; line-height: 1.2;">${businessName}</div>
+              ${businessPhone ? `
+                <div style="margin-top: 2px;">
+                  <a href="https://wa.me/593${businessPhone.replace(/^0/, '')}" style="color: #25D366; text-decoration: none; font-size: 13px; font-weight: bold; display: flex; align-items: center;">
+                    <span>📱 WhatsApp: ${businessPhone}</span>
+                  </a>
+                </div>
+              ` : ''}
+            </td>
+          </tr>
+        </table>
+      `;
     }
 
     // Email HTML (igual al de actualización)
@@ -1288,6 +1329,8 @@ exports.notifyDeliveryOnOrderCreation = onDocumentCreated("orders/{orderId}", as
 
         <div style="background-color: #f9f9f9; padding: 24px; border: 1px solid #ddd; border-radius: 0 0 8px 8px;">
           
+          ${businessHeaderHtml}
+
           <!-- Información de Entrega -->
           <div style="background-color: #e8f5e9; border-left: 4px solid #4CAF50; padding: 12px; margin-bottom: 20px; border-radius: 4px;">
             <p style="margin: 0; color: #2E7D32; font-size: 14px;">
@@ -1595,15 +1638,50 @@ exports.notifyDeliveryAssignment = onDocumentUpdated("orders/{orderId}", async (
 
     // Obtener datos del negocio
     let businessName = 'Negocio';
+    let businessLogo = '';
+    let businessPhone = '';
     if (afterData.businessId) {
       try {
         const businessDoc = await admin.firestore().collection('businesses').doc(afterData.businessId).get();
         if (businessDoc.exists) {
-          businessName = businessDoc.data().name || businessName;
+          const bData = businessDoc.data();
+          businessName = bData.name || businessName;
+          businessLogo = bData.image || '';
+          businessPhone = bData.phone || '';
         }
       } catch (e) {
         console.warn(`⚠️ Error obteniendo datos del negocio:`, e.message);
       }
+    }
+
+    // Header del negocio para el email (Layout compatible con email)
+    let businessHeaderHtml = '';
+    if (businessName !== 'Negocio') {
+      businessHeaderHtml = `
+        <table border="0" cellpadding="0" cellspacing="0" style="width: 100%; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
+          <tr>
+            <td width="50" style="vertical-align: middle; padding-right: 12px;">
+              ${businessLogo ? `
+                <img src="${businessLogo}" alt="${businessName}" style="width: 45px; height: 45px; border-radius: 50%; object-fit: cover; display: block; border: 1px solid #eee;">
+              ` : `
+                <div style="width: 45px; height: 45px; border-radius: 50%; background-color: #aa1918; color: white; text-align: center; line-height: 45px; font-weight: bold; font-size: 20px;">
+                  ${businessName.charAt(0).toUpperCase()}
+                </div>
+              `}
+            </td>
+            <td style="vertical-align: middle;">
+              <div style="font-weight: bold; font-size: 16px; color: #333; line-height: 1.2;">${businessName}</div>
+              ${businessPhone ? `
+                <div style="margin-top: 2px;">
+                  <a href="https://wa.me/593${businessPhone.replace(/^0/, '')}" style="color: #25D366; text-decoration: none; font-size: 13px; font-weight: bold;">
+                    📱 WhatsApp: ${businessPhone}
+                  </a>
+                </div>
+              ` : ''}
+            </td>
+          </tr>
+        </table>
+      `;
     }
 
     // Generar HTML del email
@@ -1619,6 +1697,8 @@ exports.notifyDeliveryAssignment = onDocumentUpdated("orders/{orderId}", async (
 
         <div style="background-color: #f9f9f9; padding: 24px; border: 1px solid #ddd; border-radius: 0 0 8px 8px;">
           
+          ${businessHeaderHtml}
+
           <!-- Información de Entrega -->
           <div style="background-color: #e8f5e9; border-left: 4px solid #4CAF50; padding: 12px; margin-bottom: 20px; border-radius: 4px;">
             <p style="margin: 0; color: #2E7D32; font-size: 14px;">
