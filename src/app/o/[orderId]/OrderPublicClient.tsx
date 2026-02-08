@@ -1142,30 +1142,59 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
               </div>
 
               <div className="flex gap-4 overflow-x-auto pb-6 scrollbar-hide -mx-4 px-4">
-                {otherBusinesses.map((biz) => (
+                {otherBusinesses.map((b) => (
                   <a
-                    key={biz.id}
-                    href={`/${biz.username}`}
-                    className="flex-shrink-0 w-32 group bg-white rounded-[32px] p-4 border border-gray-100 shadow-sm hover:border-red-500 hover:shadow-md transition-all active:scale-95 text-center"
+                    key={b.id}
+                    href={`/${b.username}`}
+                    className="flex-shrink-0 w-52 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100 group text-left"
                   >
-                    <div className="w-16 h-16 rounded-full overflow-hidden mx-auto mb-3 bg-gray-50 border border-gray-50 group-hover:border-red-100 transition-colors shadow-inner">
-                      {biz.image ? (
-                        <img src={biz.image} alt={biz.name} className="w-full h-full object-cover" />
+                    <div className="relative h-32 bg-gray-100 flex items-center justify-center">
+                      {b.image ? (
+                        <img
+                          src={b.image}
+                          alt={b.name}
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                        />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-300">
-                          <i className="bi bi-shop text-2xl"></i>
-                        </div>
+                        <i className="bi bi-shop text-5xl text-gray-400"></i>
                       )}
                     </div>
-                    <h4 className="text-[11px] font-black text-gray-900 line-clamp-2 uppercase tracking-tight mb-2 min-h-[2.5rem] flex items-center justify-center leading-tight">
-                      {biz.name}
-                    </h4>
-                    {biz.ratingAverage > 0 && (
-                      <div className="flex items-center justify-center gap-1 text-[9px] font-black text-yellow-500 bg-yellow-50 w-fit mx-auto px-2 py-0.5 rounded-full uppercase tracking-widest">
-                        <i className="bi bi-star-fill"></i>
-                        {biz.ratingAverage.toFixed(1)}
+                    <div className="p-4">
+                      <h3 className="text-sm font-bold text-gray-900 line-clamp-1 group-hover:text-red-500 transition-colors uppercase tracking-tight">
+                        {b.name}
+                      </h3>
+                      {b.categories && b.categories.length > 0 && (
+                        <div className="flex gap-1 my-2 overflow-x-auto scrollbar-hide">
+                          {b.categories.slice(0, 3).map((cat: string, i: number) => (
+                            <span
+                              key={i}
+                              className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-500 whitespace-nowrap flex-shrink-0 uppercase tracking-wide"
+                            >
+                              {cat}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="mb-2">
+                        {b.ratingAverage ? (
+                          <div className="flex items-center">
+                            <div className="flex text-yellow-400 text-xs">
+                              <i className="bi bi-star-fill"></i>
+                            </div>
+                            <span className="text-xs font-bold text-gray-600 ml-1">{b.ratingAverage.toFixed(1)}</span>
+                            <span className="text-[10px] text-gray-400 ml-1">({b.ratingCount || 0})</span>
+                          </div>
+                        ) : (
+                          <div className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Sin reseñas</div>
+                        )}
                       </div>
-                    )}
+                      <p className="text-xs text-gray-500 line-clamp-2 mb-3 leading-relaxed">
+                        {b.description}
+                      </p>
+                      <div className="text-xs text-red-500 font-bold flex items-center gap-2 uppercase tracking-wide">
+                        <span className="bg-red-50 px-2 py-0.5 rounded-full">Envío $1</span>
+                      </div>
+                    </div>
                   </a>
                 ))}
               </div>
