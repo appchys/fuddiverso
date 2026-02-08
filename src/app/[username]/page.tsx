@@ -12,7 +12,7 @@ import LocationMap from '@/components/LocationMap'
 import { CheckoutContent } from '@/components/CheckoutContent'
 import UserSidebar from '@/components/UserSidebar'
 import ClientLoginModal from '@/components/ClientLoginModal'
-import { isStoreOpen } from '@/lib/store-utils'
+import { isStoreOpen, getNextOpeningMessage } from '@/lib/store-utils'
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
@@ -1292,6 +1292,15 @@ function RestaurantContent() {
                 </span>
               </div>
 
+              {!isStoreOpen(business) && getNextOpeningMessage(business) && (
+                <div className="mt-1 flex justify-center">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 animate-in fade-in slide-in-from-top-1 duration-500">
+                    <i className="bi bi-clock text-gray-400"></i>
+                    {getNextOpeningMessage(business)}
+                  </span>
+                </div>
+              )}
+
               {/* Navegación por Pestañas - Estilo Minimalista */}
               <div className="flex items-center justify-center gap-6 mt-8 w-fit mx-auto">
                 <button
@@ -1449,6 +1458,7 @@ function RestaurantContent() {
                     <span className={`w-2 h-2 rounded-full ${isStoreOpen(business) ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
                     La tienda está actualmente <strong>{isStoreOpen(business) ? 'Abierta' : 'Cerrada'}</strong>
                   </p>
+
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 relative z-10">
                     {Object.entries({

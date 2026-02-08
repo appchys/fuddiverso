@@ -180,3 +180,54 @@ export function getNextAvailableSlot(business: Business | null): { date: string,
     }
     return null
 }
+
+/**
+ * Obtiene un mensaje descriptivo de cuándo abrirá la tienda.
+ * Ej: "Abre el lunes a las 13:30" o "Abre en 50 minutos"
+ */
+export function getNextOpeningMessage(business: Business | null): string | null {
+    if (!business) return null
+    if (isStoreOpen(business)) return null
+
+    const now = new Date()
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+    const dayTranslations: Record<string, string> = {
+        'sunday': 'domingo',
+        'monday': 'lunes',
+        'tuesday': 'martes',
+        'wednesday': 'miércoles',
+        'thursday': 'jueves',
+        'friday': 'viernes',
+        'saturday': 'sábado'
+    }
+
+    // Buscar en los próximos 7 días
+    for (let i = 0; i < 7; i++) {
+        const date = new Date(now)
+        date.setDate(date.getDate() + i)
+        const dayName = days[date.getDay()]
+        const schedule = business.schedule?.[dayName]
+
+        if (schedule && schedule.isOpen) {
+            const [openH, openM] = normalizeTime(schedule.open).split(':').map(Number)
+            const openTime = new Date(date)
+            openTime.setHours(openH, openM, 0, 0)
+
+            // Si es hoy Y ya pasó la hora de cierre, ignoramos (salvo que sea manual close, que igual ignoramos hoy)
+            // Si es hoy Y es antes de abrir, openTime > now.
+            // Si es hoy Y estamos en medio (pero cerrado manual), openTime < now.
+
+            if (openTime > now) {
+                const diffMs = openTime.getTime() - now.getTime()
+                const diffMins = Math.floor(diffMs / 60000)
+
+                if (diffMins < 60) {
+                    return `Abre en ${diffMins} minutos`
+                } else {
+                    return `Abre el ${dayTranslations[dayName]} a las ${schedule.open}`
+                }
+            }
+        }
+    }
+    return null
+}
