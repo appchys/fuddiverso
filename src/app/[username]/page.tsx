@@ -727,7 +727,13 @@ function RestaurantContent() {
         try {
           const all = await getAllBusinesses()
           const others = all
-            .filter(b => b.username !== username && b.isActive !== false && b.isHidden !== true)
+            .filter(
+              (b) =>
+                b.username !== username &&
+                b.isActive !== false &&
+                b.isHidden !== true &&
+                b.businessType !== 'distributor'
+            )
             .sort(() => 0.5 - Math.random())
             .slice(0, 4)
           setOtherBusinesses(others)
