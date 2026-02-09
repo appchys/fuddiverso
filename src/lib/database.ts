@@ -673,6 +673,45 @@ export async function getProductsByBusiness(businessId: string): Promise<Product
   }
 }
 
+/**
+ * Obtener productos disponibles de forma aleatoria/reciente a través de todos los negocios
+ * Optimizado para evitar bucles N+1 en la home
+ */
+export async function getGlobalProducts(category: string = 'all', limitCount: number = 20): Promise<Product[]> {
+  try {
+    const productsRef = collection(db, 'products')
+    let q
+
+    if (category === 'all') {
+      q = query(
+        productsRef,
+        where('isAvailable', '==', true),
+        limit(limitCount)
+      )
+    } else {
+      q = query(
+        productsRef,
+        where('isAvailable', '==', true),
+        where('category', '==', category),
+        limit(limitCount)
+      )
+    }
+
+    const snapshot = await getDocs(q)
+    const products = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: toSafeDate(doc.data().createdAt)
+    })) as Product[]
+
+    // Mezclar en cliente para dar sensación de aleatoriedad
+    return products.sort(() => 0.5 - Math.random())
+  } catch (error) {
+    console.error('Error getting global products:', error)
+    return []
+  }
+}
+
 export async function updateProduct(productId: string, data: Partial<Product>) {
   try {
     // Filtrar valores undefined antes de enviar a Firestore

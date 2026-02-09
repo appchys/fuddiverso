@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getAllBusinesses, searchBusinesses, getProductsByBusiness } from '@/lib/database'
+import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts } from '@/lib/database'
 import { Business, Product } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
@@ -42,22 +42,23 @@ function HomePageContent() {
   const [randomProducts, setRandomProducts] = useState<Product[]>([])
   const [supplierProducts, setSupplierProducts] = useState<Record<string, Product[]>>({})
 
-  // Cargar productos de proveedores
+  // Cargar productos de proveedores de forma paralela y eficiente
   useEffect(() => {
     const fetchSupplierProducts = async () => {
       const suppliers = businesses.filter(b => b.businessType === 'distributor')
       if (suppliers.length === 0) return
 
-      const productsMap: Record<string, Product[]> = {}
-      await Promise.all(suppliers.map(async (supplier) => {
-        try {
+      try {
+        const productsMap: Record<string, Product[]> = {}
+        // Ejecutamos en paralelo para máxima velocidad
+        await Promise.all(suppliers.map(async (supplier) => {
           const products = await getProductsByBusiness(supplier.id)
           productsMap[supplier.id] = products.filter(p => p.isAvailable).slice(0, 4)
-        } catch (error) {
-          console.error(`Error loading products for supplier ${supplier.id}:`, error)
-        }
-      }))
-      setSupplierProducts(prev => ({ ...prev, ...productsMap }))
+        }))
+        setSupplierProducts(productsMap)
+      } catch (error) {
+        console.error("Error loading distributor products:", error)
+      }
     }
 
     if (businesses.length > 0) {
@@ -84,55 +85,52 @@ function HomePageContent() {
 
   // Cargar categorías únicas solo una vez al inicio
   useEffect(() => {
-    getAllBusinesses().then((allBusinesses) => {
-      // Filtrar negocios ocultos
-      const visibleBusinesses = allBusinesses.filter(b => !b.isHidden)
-      const uniqueCategories = new Set<string>()
-      visibleBusinesses.forEach(b => b.categories?.forEach(c => uniqueCategories.add(c)))
-      const shuffled = Array.from(uniqueCategories).sort(() => 0.5 - Math.random())
-      setCategories(['all', ...shuffled])
-    }).catch((err) => console.error('Error loading categories:', err))
+    const init = async () => {
+      try {
+        const allBusinesses = await getAllBusinesses()
+        const visibleBusinesses = allBusinesses.filter(b => !b.isHidden)
+
+        // Extraer categorías
+        const uniqueCategories = new Set<string>()
+        visibleBusinesses.forEach(b => b.categories?.forEach(c => uniqueCategories.add(c)))
+        const shuffled = Array.from(uniqueCategories).sort(() => 0.5 - Math.random())
+        setCategories(['all', ...shuffled])
+
+        // Cargar negocios iniciales (si no hay búsqueda en la URL)
+        const urlSearch = searchParams.get('search') || ''
+        const urlCategory = searchParams.get('category') || 'all'
+
+        if (!urlSearch && urlCategory === 'all') {
+          setBusinesses(visibleBusinesses)
+          setLoading(false)
+        } else {
+          loadBusinessesWithParams(urlSearch, urlCategory)
+        }
+
+        if (user) loadFollowedBusinesses()
+      } catch (err) {
+        console.error('Error in init:', err)
+        setLoading(false)
+      }
+    }
+    init()
   }, [])
 
-  // Cargar parámetros de la URL al inicio
+  // Sincronizar parámetros de la URL
   useEffect(() => {
     const urlSearch = searchParams.get('search') || ''
     const urlCategory = searchParams.get('category') || 'all'
-    setSearchTerm(urlSearch)
-    setSelectedCategory(urlCategory)
-    loadBusinessesWithParams(urlSearch, urlCategory)
-    if (user) loadFollowedBusinesses()
-  }, [searchParams, user])
+    if (urlSearch !== searchTerm || urlCategory !== selectedCategory) {
+      setSearchTerm(urlSearch)
+      setSelectedCategory(urlCategory)
+      loadBusinessesWithParams(urlSearch, urlCategory)
+    }
+  }, [searchParams])
 
-  // Cargar productos aleatorios filtrados por categoría
+  // Cargar productos aleatorios de forma EFICIENTE (una sola query)
   const loadRandomProducts = async (category: string = 'all') => {
     try {
-      const allBusinesses = await getAllBusinesses()
-
-      // Filtrar negocios ocultos y por categoría si es necesario
-      const visibleBusinesses = allBusinesses.filter(
-        (b) => !b.isHidden && b.businessType !== 'distributor'
-      )
-      const filteredBusinesses = category === 'all'
-        ? visibleBusinesses
-        : visibleBusinesses.filter(b => b.categories?.includes(category))
-
-      const allProducts: Product[] = []
-
-      // Obtener productos de los negocios filtrados
-      for (const business of filteredBusinesses) {
-        const products = await getProductsByBusiness(business.id)
-        // Filtrar por disponibilidad y por categoría del producto
-        const matchingProducts = products.filter(p =>
-          p.isAvailable && (category === 'all' || p.category === category)
-        )
-        allProducts.push(...matchingProducts)
-      }
-
-      // Mezclar y tomar 20 productos aleatorios
-      const shuffled = [...allProducts].sort(() => 0.5 - Math.random())
-      const selected = shuffled.slice(0, 20)
-
+      const selected = await getGlobalProducts(category, 24)
       setRandomProducts(selected)
     } catch (error) {
       console.error('Error loading random products:', error)
