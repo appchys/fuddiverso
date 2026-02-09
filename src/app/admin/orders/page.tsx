@@ -464,6 +464,14 @@ export default function OrderManagement() {
   })
 
   const pendingOrdersCount = orders.filter(order => order.status === 'pending').length
+  const activeDeliveryOrders = orders.filter(order => 
+    order.delivery?.type === 'delivery' &&
+    !['delivered', 'cancelled'].includes(order.status)
+  )
+  const unassignedDeliveryCount = activeDeliveryOrders.filter(order => 
+    !order.delivery?.assignedDelivery
+  ).length
+  const allDeliveryAssigned = unassignedDeliveryCount === 0 && activeDeliveryOrders.length > 0
 
   const deliveryOrders = filteredOrders.filter(order => order.delivery?.type !== 'pickup')
   const pickupOrders = filteredOrders.filter(order => order.delivery?.type === 'pickup')
@@ -480,10 +488,18 @@ export default function OrderManagement() {
     <div className="px-2 md:px-0">
       <div className="flex items-center justify-between gap-4 mb-8">
         <div className="min-w-0">
-          <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">Gestión de Pedidos</h1>
           <div className="flex items-center gap-3 mt-2">
             <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 border border-amber-200">
               {pendingOrdersCount} pendientes
+            </span>
+            <span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+              allDeliveryAssigned 
+                ? 'bg-green-100 text-green-700 border-green-200' 
+                : unassignedDeliveryCount > 0 
+                  ? 'bg-orange-100 text-orange-700 border-orange-200'
+                  : 'bg-gray-100 text-gray-700 border-gray-200'
+            }`}>
+              {unassignedDeliveryCount} sin delivery
             </span>
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{orders.length} pedidos totales</span>
           </div>
