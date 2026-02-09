@@ -341,7 +341,7 @@ function DeliveryDashboardContent() {
     }, 0)
   }
 
-  const activeByMe = ordersByDate.filter(o => o.status !== 'delivered' && o.status !== 'cancelled' && o.delivery?.assignedDelivery === deliveryId)
+  const activeByMe = ordersByDate.filter(o => o.status !== 'delivered' && o.status !== 'cancelled' && o.delivery?.assignedDelivery === deliveryId && o.delivery?.acceptanceStatus === 'accepted')
   const deliveredByMeInRange = ordersByDate.filter(o => o.status === 'delivered' && o.delivery?.assignedDelivery === deliveryId)
 
   // Efectivo
@@ -424,29 +424,68 @@ function DeliveryDashboardContent() {
     // Importar la instancia de db y usar los métodos Firestore ya importados
     import('@/lib/firebase').then(({ db }) => {
       const ordersRef = collection(db, 'orders')
-      const q = query(ordersRef, where('delivery.assignedDelivery', '==', deliveryId))
-      unsubscribeOrders = onSnapshot(q, (snapshot: any) => {
-        const ordersData = snapshot.docs.map((doc: any) => {
-          const data = doc.data()
-          // Log detallado para debugging
-          if (process.env.NODE_ENV === 'development') {
-            console.log('[Dashboard] Raw Firestore doc data:', {
-              orderId: doc.id,
-              deliveryObject: data.delivery,
-              deliveryType: data.delivery?.type,
-              deliveryPhoto: data.delivery?.photo,
-              deliveryLatlong: data.delivery?.latlong,
-              fullDeliveryKeys: data.delivery ? Object.keys(data.delivery) : 'no delivery object'
-            })
-          }
-          return { id: doc.id, ...data }
+
+      // 1. Pedidos asignados a mí (Query existente)
+      const assignedQuery = query(ordersRef, where('delivery.assignedDelivery', '==', deliveryId))
+
+      // 2. Pedidos disponibles (Sin asignar)
+      // Nota: Buscamos pedidos de delivery que no tengan assignedDelivery o sea null, 
+      // y que estén en estado pendiente/preparando/listo.
+      // Como Firestore no permite buscar por 'undefined' o 'null' fácilmente sin índices específicos en algunos casos,
+      // usaremos una query más amplia y filtraremos en cliente si es necesario, 
+      // pero idealmente 'delivery.assignedDelivery' == null funciona si se guarda explícitamente.
+      const availableQuery = query(
+        ordersRef,
+        where('delivery.type', '==', 'delivery'),
+        where('delivery.assignedDelivery', '==', null),
+        where('status', 'in', ['pending', 'preparing', 'ready'])
+      )
+
+      let assignedOrders: Order[] = []
+      let availableOrders: Order[] = []
+
+      const updateOrdersState = () => {
+        if (!isMounted) return
+
+        // Filtrar pedidos disponibles que ya he rechazado
+        const visibleAvailable = availableOrders.filter(o =>
+          !o.delivery?.rejectedBy?.includes(deliveryId)
+        )
+
+        // Combinar y desduplicar por ID
+        const allOrders = [...assignedOrders, ...visibleAvailable]
+        const uniqueOrders = Array.from(new Map(allOrders.map(item => [item.id, item])).values())
+
+        // Ordenar por fecha de creación (más reciente primero)
+        uniqueOrders.sort((a, b) => {
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         })
-        if (isMounted) setOrders(ordersData)
+
+        setOrders(uniqueOrders)
         setLoading(false)
+      }
+
+      // Listener para asignados
+      const unsubAssigned = onSnapshot(assignedQuery, (snapshot: any) => {
+        assignedOrders = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }))
+        updateOrdersState()
       }, (error: any) => {
-        console.error('Error en listener de pedidos:', error)
-        setLoading(false)
+        console.error('Error en listener de pedidos asignados:', error)
       })
+
+      // Listener para disponibles
+      const unsubAvailable = onSnapshot(availableQuery, (snapshot: any) => {
+        availableOrders = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }))
+        updateOrdersState()
+      }, (error: any) => {
+        console.error('Error en listener de pedidos disponibles:', error)
+        // Fallback silencioso si falla por índices
+      })
+
+      unsubscribeOrders = () => {
+        unsubAssigned()
+        unsubAvailable()
+      }
     })
 
     return () => {
@@ -602,14 +641,28 @@ function DeliveryDashboardContent() {
 
   const groupOrdersByDisplay = (ordersToGroup: Order[]) => {
     const groups: Record<string, Order[]> = {
-      'Activos': [],
-      'Entregados': []
+      'Disponibles': [], // Pedidos sin asignar
+      'Activos': [],     // Mis pedidos asignados (pendientes, en proceso)
+      'Entregados': []   // Mis pedidos entregados
     }
 
     ordersToGroup.forEach(order => {
+      // 1. Entregados (Solo míos)
       if (order.status === 'delivered') {
-        groups['Entregados'].push(order)
-      } else if (order.status !== 'cancelled') {
+        if (order.delivery?.assignedDelivery === deliveryId) {
+          groups['Entregados'].push(order)
+        }
+        return
+      }
+
+      // 2. Disponibles (Sin asignar, y no cancelados/entregados)
+      if (!order.delivery?.assignedDelivery && order.status !== 'cancelled') {
+        groups['Disponibles'].push(order)
+        return
+      }
+
+      // 3. Activos (Asignados a mí y no cancelados)
+      if (order.delivery?.assignedDelivery === deliveryId && order.status !== 'cancelled') {
         groups['Activos'].push(order)
       }
     })
@@ -626,8 +679,111 @@ function DeliveryDashboardContent() {
     return groups
   }
 
+  const handleTakeOrder = async (order: Order) => {
+    try {
+      if (!deliveryId) return
+
+      // Optimistic update
+      setOrders(prevOrders => prevOrders.map(o =>
+        o.id === order.id
+          ? { ...o, delivery: { ...o.delivery, assignedDelivery: deliveryId, acceptanceStatus: 'accepted' } }
+          : o
+      ))
+
+      const { db } = await import('@/lib/firebase')
+      const { doc, updateDoc } = await import('firebase/firestore')
+
+      const orderRef = doc(db, 'orders', order.id)
+      await updateDoc(orderRef, {
+        'delivery.assignedDelivery': deliveryId,
+        'delivery.acceptanceStatus': 'accepted'
+      })
+
+      showNotification('✅ Has tomado el pedido', 'success')
+    } catch (error) {
+      console.error('Error taking order:', error)
+      showNotification('Error al tomar el pedido', 'info')
+      // Si falla, revertir optimistic update podría ser necesario, 
+      // pero el re-fetch lo arreglará eventualmente.
+    }
+  }
+
+  const handleAcceptOrder = async (order: Order) => {
+    try {
+      if (!deliveryId) return
+
+      const { db } = await import('@/lib/firebase')
+      const { doc, updateDoc } = await import('firebase/firestore')
+
+      const orderRef = doc(db, 'orders', order.id)
+      await updateDoc(orderRef, {
+        'delivery.acceptanceStatus': 'accepted'
+      })
+
+      showNotification('✅ Has aceptado el pedido', 'success')
+    } catch (error) {
+      console.error('Error accepting order:', error)
+      showNotification('Error al aceptar el pedido', 'info')
+    }
+  }
+
+  // Estado para modal de rechazo
+  const [showRejectModal, setShowRejectModal] = useState(false)
+  const [orderToReject, setOrderToReject] = useState<Order | null>(null)
+  const rejectionReasons = [
+    'Fuera de cobertura',
+    'Problemas técnicos',
+    'Disponibilidad de horario',
+    'Cliente complicado',
+    'Otro'
+  ]
+
+  const initiateRejectOrder = (order: Order) => {
+    setOrderToReject(order)
+    setShowRejectModal(true)
+  }
+
+  const confirmRejection = async (reason: string) => {
+    if (!orderToReject || !deliveryId) return
+
+    try {
+      const { db } = await import('@/lib/firebase')
+      const { doc, updateDoc, arrayUnion } = await import('firebase/firestore')
+
+      const orderRef = doc(db, 'orders', orderToReject.id)
+      // Liberar el pedido para otros repartidores pero registrar el rechazo
+      await updateDoc(orderRef, {
+        'delivery.assignedDelivery': null,
+        'delivery.acceptanceStatus': 'pending',
+        'delivery.rejectedBy': arrayUnion(deliveryId),
+        'delivery.rejectionReason': reason
+      })
+
+      showNotification('Has rechazado el pedido', 'info')
+      setShowRejectModal(false)
+      setOrderToReject(null)
+    } catch (error) {
+      console.error('Error rejecting order:', error)
+      showNotification('Error al rechazar el pedido', 'info')
+    }
+  }
+
+  const handleRejectOrder = (order: Order) => {
+    initiateRejectOrder(order)
+  }
+
+  // Estado para la navegación inferior
+  const [activeTab, setActiveTab] = useState<'my_orders' | 'available'>('my_orders')
+
+  // Estado para menú de acciones de tienda
+  const [activeStoreMenuId, setActiveStoreMenuId] = useState<string | null>(null)
+
   const groupedOrders = groupOrdersByDisplay(ordersByDate)
-  const displayGroups = ['Activos', 'Entregados']
+
+  // Filtrar grupos según la pestaña activa
+  const displayGroups = activeTab === 'available'
+    ? ['Disponibles']
+    : ['Activos', 'Entregados']
 
   if (authLoading || loading) {
     return (
@@ -726,6 +882,7 @@ function DeliveryDashboardContent() {
                       {groupOrders.map((order) => {
                         const isExpanded = expandedOrderIds.has(order.id);
                         const timeElapsed = getTimeElapsed(order)
+                        const orderBusiness = businesses.find(b => b.id === order.businessId)
 
                         return (
                           <div
@@ -742,23 +899,80 @@ function DeliveryDashboardContent() {
 
 
                                 {/* Hora y Cliente */}
-                                {(() => {
-                                  const business = businesses.find(b => b.id === order.businessId)
-                                  if (!business?.image) return null
-                                  return (
-                                    <div className="flex-shrink-0 mr-3">
+                                {/* Imagen de Tienda con Menú de Acciones */}
+                                <div className="flex-shrink-0 mr-3 relative z-30">
+                                  <div
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setActiveStoreMenuId(activeStoreMenuId === order.id ? null : order.id)
+                                    }}
+                                    className="relative cursor-pointer group"
+                                  >
+                                    {orderBusiness?.image ? (
                                       <img
-                                        src={business.image}
-                                        alt={business.name}
-                                        className="w-12 h-12 rounded-full object-cover border border-gray-100 shadow-sm"
+                                        src={orderBusiness.image}
+                                        alt={orderBusiness?.name || 'Tienda'}
+                                        className="w-12 h-12 rounded-full object-cover border border-gray-100 shadow-sm transition-transform active:scale-95 group-hover:shadow-md"
                                       />
+                                    ) : (
+                                      <div className="w-12 h-12 rounded-full border border-gray-100 bg-gray-50 flex items-center justify-center shadow-sm active:scale-95">
+                                        <i className="bi bi-shop text-xl text-gray-400"></i>
+                                      </div>
+                                    )}
+
+                                    {/* Indicador de opciones */}
+                                    <div className="absolute -bottom-1 -right-1 bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-sm border border-gray-100">
+                                      <i className="bi bi-three-dots text-[10px] text-gray-500"></i>
                                     </div>
-                                  )
-                                })()}
+                                  </div>
+
+                                  {/* Menú Desplegable */}
+                                  {activeStoreMenuId === order.id && (
+                                    <>
+                                      <div
+                                        className="fixed inset-0 z-40"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setActiveStoreMenuId(null)
+                                        }}
+                                      ></div>
+                                      <div className="absolute top-12 left-0 z-50 bg-white rounded-xl shadow-xl border border-gray-100 w-48 overflow-hidden animate-fadeIn origin-top-left">
+                                        <div className="p-1 space-y-0.5">
+                                          <a
+                                            href={`https://wa.me/${orderBusiness?.phone?.replace(/\+/g, '')}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              setActiveStoreMenuId(null)
+                                            }}
+                                            className="flex items-center gap-3 px-3 py-2.5 hover:bg-green-50 rounded-lg text-sm text-gray-700 hover:text-green-700 transition-colors font-medium"
+                                          >
+                                            <i className="bi bi-whatsapp text-green-500 text-lg"></i>
+                                            WhatsApp
+                                          </a>
+                                          <a
+                                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(orderBusiness?.address || '')}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              setActiveStoreMenuId(null)
+                                            }}
+                                            className="flex items-center gap-3 px-3 py-2.5 hover:bg-blue-50 rounded-lg text-sm text-gray-700 hover:text-blue-700 transition-colors font-medium"
+                                          >
+                                            <i className="bi bi-geo-alt-fill text-blue-500 text-lg"></i>
+                                            Ver ubicación
+                                          </a>
+                                        </div>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="mt-0">
                                     <p className={`text-sm leading-tight truncate transition-all ${readOrderIds.has(order.id) ? 'font-medium text-gray-600' : 'font-black text-gray-900'}`}>
-                                      {order.customer.name}
+                                      {orderBusiness?.name || 'Tienda'} • {order.customer.name}
                                     </p>
                                     <p className={`text-xs line-clamp-1 transition-all ${readOrderIds.has(order.id) ? 'font-medium text-gray-500' : 'font-bold text-gray-800'}`}>
                                       {order.delivery.references || 'Sin referencia'}
@@ -823,46 +1037,94 @@ function DeliveryDashboardContent() {
                                   })()}
                                 </div>
 
-                                {/* Botón "En camino" / "WhatsApp" / "Entregado" - Secuencia de estados */}
+                                {/* Botones de Acción: Aceptar/Rechazar o Flujo de Entrega */}
                                 {(order.status !== 'delivered' && order.status !== 'cancelled') && (
                                   <>
-                                    {order.status !== 'on_way' && (
+                                    {/* Caso 1: Pedido Disponible (Sin asignar) */}
+                                    {!order.delivery?.assignedDelivery ? (
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation()
-                                          handleStatusChange(order.id, 'on_way')
+                                          handleTakeOrder(order)
                                         }}
-                                        className="px-3 py-1.5 bg-blue-600 text-white rounded-xl font-bold text-xs hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-1.5 shadow-md"
+                                        className="w-full py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all active:scale-95 flex items-center justify-center gap-2 shadow-md animate-pulse"
                                       >
-                                        <i className="bi bi-bicycle text-sm"></i>
-                                        En camino
+                                        <i className="bi bi-hand-index-thumb-fill"></i>
+                                        Tomar Pedido
                                       </button>
-                                    )}
+                                    ) : (
+                                      /* Caso 2: Pedido Asignado (Flujo normal) */
+                                      <>
+                                        {(!order.delivery.acceptanceStatus || order.delivery.acceptanceStatus === 'pending') ? (
+                                          <div className="flex items-center gap-2">
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                handleAcceptOrder(order)
+                                              }}
+                                              className="px-3 py-1.5 bg-green-600 text-white rounded-xl font-bold text-xs hover:bg-green-700 transition-all active:scale-95 flex items-center gap-1.5 shadow-md"
+                                            >
+                                              <i className="bi bi-check-circle-fill text-sm"></i>
+                                              Aceptar
+                                            </button>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                initiateRejectOrder(order)
+                                              }}
+                                              className="px-3 py-1.5 bg-red-100 text-red-700 rounded-xl font-bold text-xs hover:bg-red-200 transition-all active:scale-95 flex items-center gap-1.5 shadow-md border border-red-200"
+                                            >
+                                              <i className="bi bi-x-circle-fill text-sm"></i>
+                                              Rechazar
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <div className="flex items-center gap-2 w-full sm:w-auto">
+                                            {/* Botón Avisar llegada (Izquierda) */}
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                sendOnWayWhatsApp(order)
+                                              }}
+                                              className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-md whitespace-nowrap ${waSentOrderIds.has(order.id)
+                                                ? 'bg-gray-50 text-gray-400 border border-gray-200'
+                                                : 'bg-green-500 text-white hover:bg-green-600'
+                                                }`}
+                                              title="Avisar llegada por WhatsApp"
+                                            >
+                                              <i className={`bi ${waSentOrderIds.has(order.id) ? 'bi-check-all' : 'bi-whatsapp'} text-sm`}></i>
+                                              {order.status === 'on_way' && (
+                                                <span>{waSentOrderIds.has(order.id) ? 'Avisado' : 'Avisar llegada'}</span>
+                                              )}
+                                            </button>
 
-                                    {order.status === 'on_way' && !waSentOrderIds.has(order.id) && (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          sendOnWayWhatsApp(order)
-                                        }}
-                                        className="px-3 py-1.5 bg-green-500 text-white rounded-xl font-bold text-xs hover:bg-green-600 transition-all active:scale-95 flex items-center gap-1.5 shadow-md"
-                                      >
-                                        <i className="bi bi-whatsapp text-sm"></i>
-                                        Avisar llegada
-                                      </button>
-                                    )}
-
-                                    {order.status === 'on_way' && waSentOrderIds.has(order.id) && (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          handleStatusChange(order.id, 'delivered')
-                                        }}
-                                        className="px-3 py-1.5 bg-green-600 text-white rounded-xl font-bold text-xs hover:bg-green-700 transition-all active:scale-95 flex items-center gap-1.5 shadow-md"
-                                      >
-                                        <i className="bi bi-check-lg text-sm"></i>
-                                        Entregado
-                                      </button>
+                                            {/* Botón de Estado (Derecha: En camino / Entregado) */}
+                                            {order.status !== 'on_way' ? (
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  handleStatusChange(order.id, 'on_way')
+                                                }}
+                                                className="px-3 py-1.5 bg-blue-600 text-white rounded-xl font-bold text-xs hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-1.5 shadow-md flex-1 sm:flex-initial justify-center whitespace-nowrap"
+                                              >
+                                                <i className="bi bi-bicycle text-sm"></i>
+                                                En camino
+                                              </button>
+                                            ) : (
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  handleStatusChange(order.id, 'delivered')
+                                                }}
+                                                className="w-10 h-9 flex items-center justify-center bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all active:scale-95 shadow-md animate-pulse flex-shrink-0"
+                                                title="Marcar como Entregado"
+                                              >
+                                                <i className="bi bi-check-lg text-xl"></i>
+                                              </button>
+                                            )}
+                                          </div>
+                                        )}
+                                      </>
                                     )}
                                   </>
                                 )}
@@ -1054,7 +1316,71 @@ function DeliveryDashboardContent() {
             })
           )
         }
-      </div >
+      </div>
+
+      {/* Modal de confirmación de rechazo */}
+      {showRejectModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden animate-slideUp">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
+              <h3 className="font-bold text-gray-900">Motivo de rechazo</h3>
+              <button
+                onClick={() => setShowRejectModal(false)}
+                className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-300"
+              >
+                <i className="bi bi-x text-lg"></i>
+              </button>
+            </div>
+            <div className="p-4 space-y-2">
+              {rejectionReasons.map(reason => (
+                <button
+                  key={reason}
+                  onClick={() => confirmRejection(reason)}
+                  className="w-full text-left px-4 py-3 rounded-xl hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-all text-sm font-medium text-gray-700 active:bg-gray-100"
+                >
+                  {reason}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Barra de Navegación Inferior */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] px-4 py-2 flex items-center justify-around z-40 pb-safe safe-area-bottom">
+        <button
+          onClick={() => setActiveTab('my_orders')}
+          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all w-24 ${activeTab === 'my_orders' ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-600'
+            }`}
+        >
+          <div className="relative">
+            <i className={`bi ${activeTab === 'my_orders' ? 'bi-box-seam-fill' : 'bi-box-seam'} text-xl`}></i>
+            {/* Badge para pedidos activos míos (opcional) */}
+            {groupedOrders['Activos']?.length > 0 && (
+              <span className="absolute -top-2 -right-2 bg-blue-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full border-2 border-white">
+                {groupedOrders['Activos'].length}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] font-bold">Mis Pedidos</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('available')}
+          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all w-24 ${activeTab === 'available' ? 'text-green-600 bg-green-50' : 'text-gray-400 hover:text-gray-600'
+            }`}
+        >
+          <div className="relative">
+            <i className={`bi ${activeTab === 'available' ? 'bi-bag-plus-fill' : 'bi-bag-plus'} text-xl`}></i>
+            {groupedOrders['Disponibles']?.length > 0 && (
+              <span className="absolute -top-2 -right-3 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-white animate-pulse">
+                {groupedOrders['Disponibles'].length}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] font-bold">Disponibles</span>
+        </button>
+      </div>
 
       {/* Modal de detalles del pedido - Sin cambios mayores */}
       {

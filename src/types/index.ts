@@ -166,6 +166,9 @@ export interface DeliveryInfo {
   photo?: string
   assignedDelivery?: string // ID del delivery asignado
   deliveryCost?: number // Costo de envío desde tabla ubicaciones
+  acceptanceStatus?: 'pending' | 'accepted' | 'rejected' // Estado de aceptación por parte del delivery
+  rejectedBy?: string[] // Lista de IDs de repartidores que han rechazado este pedido
+  rejectionReason?: string // Motivo del rechazo
 }
 
 export interface OrderTiming {
