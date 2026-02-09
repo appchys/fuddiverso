@@ -7,6 +7,7 @@ import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalPro
 import { Business, Product } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
+import ProductDetailSidebar from '@/components/ProductDetailSidebar'
 
 export default function HomePage() {
   return (
@@ -41,6 +42,9 @@ function HomePageContent() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [randomProducts, setRandomProducts] = useState<Product[]>([])
   const [supplierProducts, setSupplierProducts] = useState<Record<string, Product[]>>({})
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [selectedProductBusiness, setSelectedProductBusiness] = useState<Business | null>(null)
+  const [isProductSidebarOpen, setIsProductSidebarOpen] = useState(false)
 
   // Cargar productos de proveedores de forma paralela y eficiente
   useEffect(() => {
@@ -180,6 +184,27 @@ function HomePageContent() {
     localStorage.setItem(`followedBusinesses_${user.id}`, JSON.stringify(Array.from(updated)))
   }
 
+  const handleProductClick = (product: Product, business?: Business) => {
+    if (!business) {
+      // Intentar encontrar el negocio si no se pasa explícitamente (para random products)
+      business = businesses.find(b => b.id === product.businessId)
+    }
+
+    if (business) {
+      setSelectedProduct(product)
+      setSelectedProductBusiness(business)
+      setIsProductSidebarOpen(true)
+    } else {
+      // Fallback a navegación si no se encuentra el negocio (no debería pasar)
+      const productLink = `/product/${product.id}` // Link genérico o manejar error
+      router.push(productLink)
+    }
+  }
+
+  const filteredRandomProducts = randomProducts.filter(product => {
+    const business = businesses.find(b => b.id === product.businessId)
+    return business?.businessType !== 'distributor'
+  })
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -218,16 +243,16 @@ function HomePageContent() {
         <div className="max-w-6xl mx-auto px-6">
           <div className="relative">
             <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 random-products-carousel">
-              {randomProducts.map((product) => {
+              {filteredRandomProducts.map((product) => {
                 const business = businesses.find(b => b.id === product.businessId)
                 const businessLink = business?.username ? `/${business.username}` : `/restaurant/${product.businessId}`
                 const productLink = `${businessLink}/${product.slug || product.id}`
 
                 return (
-                  <Link
+                  <div
                     key={product.id}
-                    href={productLink}
-                    className="flex-shrink-0 w-64 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100"
+                    onClick={() => handleProductClick(product, business)}
+                    className="flex-shrink-0 w-64 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100 cursor-pointer"
                   >
                     <div className="relative h-40 bg-gray-100 flex items-center justify-center">
                       {product.image ? (
@@ -279,7 +304,7 @@ function HomePageContent() {
                         </p>
                       )}
                     </div>
-                  </Link>
+                  </div>
                 )
               })}
             </div>
@@ -528,10 +553,10 @@ function HomePageContent() {
                       <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 px-2">
                         {products.length > 0 ? (
                           products.map((product) => (
-                            <Link
+                            <div
                               key={product.id}
-                              href={`${link}/${product.slug || product.id}`}
-                              className="flex-shrink-0 w-36 sm:w-44 bg-white rounded-2xl p-3 border border-gray-100 shadow-sm hover:shadow-xl hover:scale-[1.02] transition-all duration-300 group/product"
+                              onClick={() => handleProductClick(product, b)}
+                              className="flex-shrink-0 w-36 sm:w-44 bg-white rounded-2xl p-3 border border-gray-100 shadow-sm hover:shadow-xl hover:scale-[1.02] transition-all duration-300 group/product cursor-pointer"
                             >
                               <div className="aspect-square rounded-xl overflow-hidden bg-gray-50 mb-3 relative">
                                 {product.image ? (
@@ -549,7 +574,7 @@ function HomePageContent() {
                               </div>
                               <h4 className="text-xs font-bold text-gray-900 line-clamp-1 mb-1 group-hover/product:text-orange-600 transition-colors uppercase tracking-tight">{product.name}</h4>
                               <p className="text-[10px] text-gray-400 line-clamp-1 leading-none">{product.description || 'Sin descripción'}</p>
-                            </Link>
+                            </div>
                           ))
                         ) : (
                           [...Array(4)].map((_, i) => (
@@ -577,6 +602,13 @@ function HomePageContent() {
           <div className="flex justify-center gap-4 text-gray-500">
             <a href="https://instagram.com/fuddi.shop" target="_blank" rel="noopener noreferrer"><i className="bi bi-instagram text-lg hover:text-white"></i></a>
             <a href="https://wa.me/593984612236" target="_blank" rel="noopener noreferrer"><i className="bi bi-whatsapp text-lg hover:text-white"></i></a>
+            <ProductDetailSidebar
+              isOpen={isProductSidebarOpen}
+              onClose={() => setIsProductSidebarOpen(false)}
+              product={selectedProduct}
+              business={selectedProductBusiness}
+              onProductSelect={setSelectedProduct}
+            />
           </div>
           <p className="text-xs text-gray-500 pt-4 border-t border-gray-800">© 2025 Fuddi. Todos los derechos reservados.</p>
         </div>
