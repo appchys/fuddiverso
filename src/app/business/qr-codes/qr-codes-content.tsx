@@ -1,19 +1,29 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
-import { getQRCodesByBusiness, createQRCode, updateQRCode, deleteQRCode, uploadImage } from '@/lib/database'
+import { getQRCodesByBusiness, createQRCode, updateQRCode, deleteQRCode } from '@/lib/database'
 import { QRCode } from '@/types'
-import QRCodeLib from 'qrcode'
 import QRStatistics from '@/components/QRStatistics'
 
 interface QRCodesContentProps {
   businessId?: string | null
 }
 
+function generateLocalShortId(length: number = 6): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  let result = ''
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return result
+}
+
 export default function QRCodesContent({ businessId: initialBusinessId }: QRCodesContentProps) {
+  console.log('Rendering QRCodesContent, businessId:', initialBusinessId)
+
   const router = useRouter()
   const searchParams = useSearchParams()
   const [loading, setLoading] = useState(true)
@@ -23,24 +33,86 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
   const [qrImages, setQrImages] = useState<{ [key: string]: string }>({})
   const [activeTab, setActiveTab] = useState<'overview' | 'scans' | 'users'>('overview')
 
-  // Estado para el modal de generación/edición
   const [showModal, setShowModal] = useState(false)
-  const [editingCodeId, setEditingCodeId] = useState<string | null>(null) // null para creación
+  const [editingCodeId, setEditingCodeId] = useState<string | null>(null)
   const [newCodeName, setNewCodeName] = useState('')
   const [newCodePrize, setNewCodePrize] = useState('')
   const [newCodePoints, setNewCodePoints] = useState(10)
   const [newCodeIsActive, setNewCodeIsActive] = useState(true)
-  const [newCodeColor, setNewCodeColor] = useState('#f3f4f6') // Color del código QR
-  const [newCodeImage, setNewCodeImage] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [isUploading, setIsUploading] = useState(false)
+  const [newCodeColor, setNewCodeColor] = useState('#f3f4f6')
   const [nameError, setNameError] = useState('')
   const [modalTitle, setModalTitle] = useState('Generar Nuevo Código QR')
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
-  const [containerColor, setContainerColor] = useState('#f3f4f6') // Color personalizable del contenedor
+
+  const lastLoadedId = useRef<string | null>(null)
+
+  const loadQRCodes = useCallback(async (bizId: string) => {
+    console.log('loadQRCodes starting for bizId:', bizId)
+    if (!bizId) {
+      console.warn('No bizId provided to loadQRCodes')
+      setLoading(false)
+      return
+    }
+
+    try {
+      setLoading(true)
+      console.log('Fetching codes from database...')
+      const codes = await getQRCodesByBusiness(bizId)
+      console.log('Found codes:', codes.length)
+      setQrCodes(codes)
+      lastLoadedId.current = bizId
+
+      // Forzar setLoading(false) aquí para ver si carga el texto al menos
+      setLoading(false)
+
+      if (typeof window === 'undefined') return
+
+      console.log('Importing qr-code-styling...')
+      const QRCodeStyling = (await import('qr-code-styling')).default
+      const images: { [key: string]: string } = {}
+      const baseUrl = window.location.origin
+
+      for (const code of codes) {
+        try {
+          console.log('Generating QR for:', code.id)
+          const scanUrl = `${baseUrl}/scan/${code.id}`
+          const qrCode = new QRCodeStyling({
+            width: 300,
+            height: 300,
+            data: scanUrl,
+            margin: 10,
+            qrOptions: { errorCorrectionLevel: 'H' },
+            dotsOptions: { color: '#DC2626', type: 'dots' },
+            backgroundOptions: { color: 'transparent' },
+            cornersSquareOptions: { color: '#DC2626', type: 'extra-rounded' },
+            cornersDotOptions: { color: '#DC2626', type: 'dot' }
+          })
+
+          const blob = await qrCode.getRawData('png') as Blob
+          if (blob) {
+            const dataUrl = await new Promise<string>((resolve) => {
+              const reader = new FileReader()
+              reader.onloadend = () => resolve(reader.result as string)
+              reader.readAsDataURL(blob)
+            })
+            images[code.id] = dataUrl
+            setQrImages(prev => ({ ...prev, [code.id]: dataUrl }))
+          }
+        } catch (error) {
+          console.error('Error generating QR image for:', code.id, error)
+        }
+      }
+    } catch (error) {
+      console.error('Error in loadQRCodes:', error)
+    } finally {
+      setLoading(false)
+      console.log('loadQRCodes finished')
+    }
+  }, [])
 
   useEffect(() => {
     if (initialBusinessId) {
+      console.log('useEffect: initialBusinessId present, loading...')
       setBusinessId(initialBusinessId)
       loadQRCodes(initialBusinessId)
       return
@@ -48,21 +120,22 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // Fallback for standalone usage if any
+        console.log('useEffect: auth user present')
         if (!businessId) {
           const defaultBusinessId = '0FeNtdYThoTRMPJ6qaS7'
+          console.log('useEffect: no businessId, using default:', defaultBusinessId)
           setBusinessId(defaultBusinessId)
           await loadQRCodes(defaultBusinessId)
         }
       } else {
+        console.log('useEffect: no auth user, redirecting to login')
         router.push('/login')
       }
     })
 
     return () => unsubscribe()
-  }, [router, initialBusinessId])
+  }, [initialBusinessId])
 
-  // Leer el parámetro 'tab' de la URL cuando cambia
   useEffect(() => {
     const tab = searchParams.get('tab')
     if (tab === 'users' || tab === 'scans' || tab === 'overview') {
@@ -70,101 +143,32 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
     }
   }, [searchParams])
 
-  const loadQRCodes = useCallback(async (bizId: string) => {
+  const handleDeleteQR = useCallback(async (codeId: string, codeName: string) => {
+    if (!confirm(`¿Estás seguro de que quieres eliminar "${codeName}"?`)) return
     try {
-      setLoading(true)
-      const codes = await getQRCodesByBusiness(bizId)
-      setQrCodes(codes)
-
-      // Generar imágenes QR para cada código
-      const images: { [key: string]: string } = {}
-      const baseUrl = window.location.origin
-
-      for (const code of codes) {
-        try {
-          const scanUrl = `${baseUrl}/scan/${code.id}`
-          const qrDataUrl = await QRCodeLib.toDataURL(scanUrl, {
-            width: 300,
-            margin: 2,
-            color: {
-              dark: '#DC2626',
-              light: '#FFFFFF'
-            }
-          })
-          images[code.id] = qrDataUrl
-        } catch (error) {
-          console.error('Error generating QR image:', error)
-        }
-      }
-      setQrImages(images)
-    } catch (error) {
-      console.error('Error loading QR codes:', error)
-      alert('Error al cargar los códigos QR. Intenta recargar la página.')
-    } finally {
-      setLoading(false)
+      await deleteQRCode(codeId)
+      setQrCodes(prev => prev.filter(c => c.id !== codeId))
+    } catch (e) {
+      alert('Error al eliminar')
     }
   }, [])
 
-  // Función para eliminar un código QR
-  const handleDeleteQR = useCallback(async (codeId: string, codeName: string) => {
-    if (!confirm(`¿Estás seguro de que quieres eliminar el código "${codeName}"? Esta acción no se puede deshacer.`)) {
-      return
-    }
-
-    try {
-      await deleteQRCode(codeId)
-      alert('Código QR eliminado exitosamente')
-
-      // Recargar la lista y limpiar imagen
-      const updatedCodes = qrCodes.filter(code => code.id !== codeId)
-      setQrCodes(updatedCodes)
-      const updatedImages = { ...qrImages }
-      delete updatedImages[codeId]
-      setQrImages(updatedImages)
-    } catch (error) {
-      console.error('Error deleting QR code:', error)
-      alert('Error al eliminar el código QR. Verifica tu conexión.')
-    }
-  }, [qrCodes, qrImages])
-
-  // Abrir modal para edición o creación
-  // Manejar selección de imagen
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0]
-      setNewCodeImage(file)
-
-      // Crear vista previa
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string)
-      }
-      reader.readAsDataURL(file)
-    }
-  }
-
   const openModal = useCallback((code?: QRCode) => {
     if (code) {
-      // Modo edición
       setEditingCodeId(code.id)
       setNewCodeName(code.name)
       setNewCodePrize(code.prize || '')
       setNewCodePoints(code.points)
       setNewCodeIsActive(code.isActive)
       setNewCodeColor(code.color || '#f3f4f6')
-      setImagePreview(code.image || null)
-      setNewCodeImage(null)
       setModalTitle('Editar Código QR')
     } else {
-      // Modo creación
       setEditingCodeId(null)
       setNewCodeName('')
       setNewCodePrize('')
       setNewCodePoints(10)
       setNewCodeIsActive(true)
       setNewCodeColor('#f3f4f6')
-      setImagePreview(null)
-      setNewCodeImage(null)
       setModalTitle('Generar Nuevo Código QR')
     }
     setNameError('')
@@ -172,28 +176,11 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
   }, [])
 
   const handleSaveCode = async () => {
-    if (!newCodeName.trim()) {
-      setNameError('El nombre es requerido.')
-      return
-    }
-    if (newCodePoints <= 0) {
-      alert('Los puntos deben ser mayores a 0.')
-      return
-    }
-
+    if (!newCodeName.trim()) { setNameError('Requerido'); return; }
     if (!businessId) return
 
     setGenerating(true)
-    setIsUploading(true)
     try {
-      let imageUrl = imagePreview || ''
-
-      // Subir imagen si hay una nueva
-      if (newCodeImage) {
-        const filePath = `qrcodes/${Date.now()}_${newCodeImage.name}`
-        imageUrl = await uploadImage(newCodeImage, filePath)
-      }
-
       const codeData: any = {
         name: newCodeName.trim(),
         prize: newCodePrize.trim(),
@@ -203,169 +190,54 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
         businessId: businessId
       }
 
-      if (!codeData.prize) {
-        delete codeData.prize
-      }
-
-      // Solo incluir la URL de la imagen si existe
-      if (imageUrl) {
-        codeData.image = imageUrl
-      }
-
       if (editingCodeId) {
-        // Edición: actualizar existente
         await updateQRCode(editingCodeId, codeData)
-        alert('Código QR actualizado exitosamente')
       } else {
-        // Creación: nuevo código
-        await createQRCode(codeData)
-        alert('Código QR generado exitosamente')
+        const shortId = generateLocalShortId(6)
+        await createQRCode(codeData, shortId)
       }
 
-      // Limpiar formulario y cerrar modal
-      setNewCodeName('')
-      setNewCodePrize('')
-      setNewCodePoints(10)
-      setNewCodeIsActive(true)
-      setNewCodeColor('#f3f4f6')
-      setNewCodeImage(null)
-      setImagePreview(null)
-      setNameError('')
-      setEditingCodeId(null)
       setShowModal(false)
-
+      lastLoadedId.current = null
       await loadQRCodes(businessId)
-    } catch (error) {
-      console.error('Error saving QR code:', error)
-      alert('Error al guardar el código QR. Verifica tu conexión.')
+    } catch (e: any) {
+      console.error('Error saving QR code:', e)
+      alert(`Error al guardar: ${e.message || 'Error desconocido'}`)
     } finally {
       setGenerating(false)
-      setIsUploading(false)
     }
   }
 
-  const handleDownloadQR = (qrCodeId: string, name: string) => {
-    const imageUrl = qrImages[qrCodeId]
-    if (!imageUrl) return
-
-    const link = document.createElement('a')
-    link.href = imageUrl
-    link.download = `${name.replace(/\s+/g, '_')}.png`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
-
-  const handlePrintQR = (qrCodeId: string) => {
-    const imageUrl = qrImages[qrCodeId]
-    if (!imageUrl) return
-
-    const printWindow = window.open('', '_blank')
-    if (!printWindow) return
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Imprimir Código QR</title>
-          <style>
-            body {
-              display: flex;
-              justify-content: center;
-              align-items: center;
-              min-height: 100vh;
-              margin: 0;
-              font-family: Arial, sans-serif;
-            }
-            .container {
-              text-align: center;
-              padding: 20px;
-            }
-            img {
-              max-width: 400px;
-              border: 2px solid #DC2626;
-              border-radius: 8px;
-              padding: 20px;
-            }
-            h2 {
-              color: #DC2626;
-              margin-top: 20px;
-            }
-            @media print {
-              body {
-                margin: 0;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <img src="${imageUrl}" alt="Código QR" />
-            <h2>Escanea para participar</h2>
-          </div>
-        </body>
-      </html>
-    `)
-    printWindow.document.close()
-    printWindow.focus()
-    setTimeout(() => {
-      printWindow.print()
-    }, 250)
-  }
-
-  const handleCopyLink = (qrCodeId: string) => {
+  const handleDownloadQR = async (qr: QRCode) => {
+    if (typeof window === 'undefined') return
+    const QRCodeStyling = (await import('qr-code-styling')).default
     const baseUrl = window.location.origin
-    const scanUrl = `${baseUrl}/scan/${qrCodeId}`
+    const scanUrl = `${baseUrl}/scan/${qr.id}`
 
-    // Intentar usar la API moderna de clipboard
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(scanUrl).then(() => {
-        alert('¡Link copiado al portapapeles!')
-      }).catch(err => {
-        console.error('Error al copiar el link:', err)
-        // Intentar método alternativo si falla
-        fallbackCopyToClipboard(scanUrl)
-      })
-    } else {
-      // Método alternativo para navegadores que no soportan clipboard API
-      fallbackCopyToClipboard(scanUrl)
-    }
+    const qrForDownload = new QRCodeStyling({
+      width: 2000,
+      height: 2000,
+      data: scanUrl,
+      margin: 20,
+      qrOptions: { errorCorrectionLevel: 'H' },
+      dotsOptions: { color: '#DC2626', type: 'dots' },
+      backgroundOptions: { color: 'transparent' },
+      cornersSquareOptions: { color: '#DC2626', type: 'extra-rounded' },
+      cornersDotOptions: { color: '#DC2626', type: 'dot' }
+    })
+
+    qrForDownload.download({
+      name: qr.name.replace(/\s+/g, '_'),
+      extension: 'png'
+    })
   }
 
-  const fallbackCopyToClipboard = (text: string) => {
-    const textArea = document.createElement('textarea')
-    textArea.value = text
-    textArea.style.position = 'fixed'
-    textArea.style.left = '-999999px'
-    textArea.style.top = '-999999px'
-    document.body.appendChild(textArea)
-    textArea.focus()
-    textArea.select()
-
-    try {
-      const successful = document.execCommand('copy')
-      if (successful) {
-        alert('¡Link copiado al portapapeles!')
-      } else {
-        alert('No se pudo copiar el link. Por favor, cópialo manualmente: ' + text)
-      }
-    } catch (err) {
-      console.error('Error al copiar:', err)
-      alert('No se pudo copiar el link. Por favor, cópialo manualmente: ' + text)
-    }
-
-    document.body.removeChild(textArea)
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <i className="bi bi-arrow-repeat animate-spin text-4xl text-red-600 mb-4"></i>
-          <p className="text-gray-600">Cargando...</p>
-        </div>
-      </div>
-    )
-  }
+  if (loading) return (
+    <div className="min-h-[400px] flex flex-col items-center justify-center bg-white rounded-3xl p-12 border border-gray-100">
+      <i className="bi bi-arrow-repeat animate-spin text-red-600 text-5xl mb-4"></i>
+      <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Cargando códigos...</p>
+    </div>
+  )
 
   return (
     <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
@@ -374,360 +246,105 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
           <h2 className="text-3xl font-black text-slate-900 tracking-tight">Fidelización QR</h2>
           <p className="text-xs text-gray-400 font-black uppercase tracking-widest mt-1">Crea campañas de recompensas para tus clientes</p>
         </div>
-        <button
-          onClick={() => openModal()}
-          disabled={generating}
-          className="bg-red-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-xs hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all shadow-xl shadow-red-100 active:scale-95 flex items-center gap-2"
-        >
-          <i className="bi bi-plus-lg"></i>
-          Nuevo Código
+        <button onClick={() => openModal()} className="bg-red-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-xs hover:bg-red-700 transition-all shadow-xl shadow-red-100 active:scale-95 flex items-center gap-2">
+          <i className="bi bi-plus-lg"></i> Nuevo Código
         </button>
       </div>
 
       <div className="p-8">
         {qrCodes.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-md p-12 text-center">
-            <i className="bi bi-qr-code text-6xl text-gray-400 mb-4"></i>
-            <h3 className="text-xl font-bold text-gray-800 mb-2">
-              No hay códigos QR configurados
-            </h3>
-            <p className="text-gray-600 mb-6">
-              Genera tu primer código QR para comenzar la campaña de colección
-            </p>
+          <div className="text-center p-12 text-gray-400">
+            <i className="bi bi-qr-code text-6xl mb-4"></i>
+            <p className="font-bold">No hay códigos configurados para este negocio</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {qrCodes.map((qrCode, index) => (
-              <div
-                key={qrCode.id}
-                className="relative rounded-xl shadow-md hover:shadow-xl transition-all duration-300"
-                style={{ backgroundColor: qrCode.color || containerColor }}
-              >
-                {/* Menú de 3 puntos */}
+            {qrCodes.map((qr) => (
+              <div key={qr.id} className="relative rounded-xl shadow-md p-4 transition-all" style={{ backgroundColor: qr.color || '#f3f4f6' }}>
                 <div className="absolute top-2 right-2 z-10">
-                  <button
-                    onClick={() => setOpenMenuId(openMenuId === qrCode.id ? null : qrCode.id)}
-                    className="bg-white bg-opacity-90 hover:bg-opacity-100 rounded-full p-2 shadow-md transition-all"
-                  >
-                    <i className="bi bi-three-dots-vertical text-gray-700"></i>
-                  </button>
-
-                  {/* Dropdown menu */}
-                  {openMenuId === qrCode.id && (
-                    <>
-                      {/* Overlay para cerrar el menú al hacer clic fuera */}
-                      <div
-                        className="fixed inset-0 z-20"
-                        onClick={() => setOpenMenuId(null)}
-                      ></div>
-
-                      <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-30">
-                        <button
-                          onClick={() => {
-                            handleDownloadQR(qrCode.id, qrCode.name)
-                            setOpenMenuId(null)
-                          }}
-                          className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center text-sm text-gray-700"
-                        >
-                          <i className="bi bi-download me-2"></i>
-                          Descargar
-                        </button>
-                        <button
-                          onClick={() => {
-                            handlePrintQR(qrCode.id)
-                            setOpenMenuId(null)
-                          }}
-                          className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center text-sm text-gray-700"
-                        >
-                          <i className="bi bi-printer me-2"></i>
-                          Imprimir
-                        </button>
-                        <button
-                          onClick={() => {
-                            handleCopyLink(qrCode.id)
-                            setOpenMenuId(null)
-                          }}
-                          className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center text-sm text-gray-700"
-                        >
-                          <i className="bi bi-link-45deg me-2"></i>
-                          Copiar link
-                        </button>
-                        <button
-                          onClick={() => {
-                            openModal(qrCode)
-                            setOpenMenuId(null)
-                          }}
-                          className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center text-sm text-gray-700"
-                        >
-                          <i className="bi bi-pencil me-2"></i>
-                          Editar
-                        </button>
-                        <hr className="my-1 border-gray-200" />
-                        <button
-                          onClick={() => {
-                            handleDeleteQR(qrCode.id, qrCode.name)
-                            setOpenMenuId(null)
-                          }}
-                          className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center text-sm text-red-600"
-                        >
-                          <i className="bi bi-trash me-2"></i>
-                          Eliminar
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Badge de estado */}
-                <div className="absolute top-2 left-2 z-10">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${qrCode.isActive
-                    ? 'bg-green-500 text-white'
-                    : 'bg-gray-500 text-white'
-                    }`}>
-                    {qrCode.isActive ? 'Activo' : 'Inactivo'}
-                  </span>
-                </div>
-
-                <div className="p-4">
-                  {/* Imagen circular */}
-                  <div className="flex justify-center mb-3">
-                    <div className="relative">
-                      {qrCode.image ? (
-                        <img
-                          src={qrCode.image}
-                          alt={qrCode.name}
-                          className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-md"
-                        />
-                      ) : (
-                        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-gray-200 to-gray-300 border-4 border-white shadow-md flex items-center justify-center">
-                          <i className="bi bi-image text-2xl text-gray-400"></i>
-                        </div>
-                      )}
-                      {/* Badge de puntos */}
-                      <span className="absolute -bottom-1 -right-1 bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-md">
-                        {qrCode.points} pts
-                      </span>
+                  <button onClick={() => setOpenMenuId(openMenuId === qr.id ? null : qr.id)} className="bg-white/90 rounded-full p-1 shadow-sm"><i className="bi bi-three-dots-vertical"></i></button>
+                  {openMenuId === qr.id && (
+                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border p-2 z-30">
+                      <button onClick={() => { handleDownloadQR(qr); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-gray-50 text-sm flex items-center gap-2"><i className="bi bi-download"></i> Descargar</button>
+                      <button onClick={() => { openModal(qr); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-gray-50 text-sm flex items-center gap-2"><i className="bi bi-pencil"></i> Editar</button>
+                      <button onClick={() => { handleDeleteQR(qr.id, qr.name); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-red-50 text-sm text-red-600 flex items-center gap-2"><i className="bi bi-trash"></i> Eliminar</button>
                     </div>
-                  </div>
-
-                  {/* Nombre */}
-                  <h3 className="text-center font-bold text-sm text-gray-800 mb-3 truncate px-2">
-                    {qrCode.name}
-                  </h3>
-
-                  {qrCode.prize && (
-                    <p className="text-center text-xs text-gray-600 mb-3 px-2 line-clamp-2">
-                      Premio: {qrCode.prize}
-                    </p>
                   )}
-
-                  {/* Código QR */}
-                  <div className="bg-white rounded-lg p-3 mb-2 flex items-center justify-center border-2 border-gray-200">
-                    {qrImages[qrCode.id] ? (
-                      <img
-                        src={qrImages[qrCode.id]}
-                        alt={qrCode.name}
-                        className="w-full max-w-[120px]"
-                      />
-                    ) : (
-                      <i className="bi bi-qr-code text-4xl text-gray-300"></i>
-                    )}
+                </div>
+                <div className="flex justify-center mb-3">
+                  <div className="w-16 h-16 rounded-full border-4 border-white shadow-sm overflow-hidden bg-white flex items-center justify-center">
+                    <i className="bi bi-qr-code text-gray-200 text-xl"></i>
                   </div>
+                </div>
+                <h3 className="text-center font-bold text-sm truncate px-1">{qr.name}</h3>
+                <div className="bg-white rounded-lg p-2 mt-3 flex justify-center border aspect-square items-center">
+                  {qrImages[qr.id] ? (
+                    <img src={qrImages[qr.id]} className="w-full h-full object-contain" alt="QR Code" />
+                  ) : (
+                    <i className="bi bi-qr-code text-gray-100 text-4xl"></i>
+                  )}
+                </div>
+                <div className="mt-2 text-center">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${qr.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                    {qr.isActive ? 'ACTIVO' : 'INACTIVO'}
+                  </span>
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Instrucciones */}
         {qrCodes.length > 0 && (
-          <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
-            <h3 className="font-bold text-blue-900 mb-3 flex items-center">
-              <i className="bi bi-info-circle-fill me-2"></i>
-              Instrucciones
-            </h3>
-            <ul className="text-sm text-blue-800 space-y-2">
-              <li>• Genera o edita códigos QR según necesites</li>
-              <li>• Descarga o imprime cada código QR</li>
-              <li>• Coloca los códigos en diferentes ubicaciones del establecimiento</li>
-              <li>• Los clientes deben escanear los códigos para completar la colección</li>
-              <li>• Cada cliente solo puede escanear cada código una vez</li>
-              <li>• Al completar la colección, el cliente puede reclamar su recompensa</li>
-            </ul>
-          </div>
-        )}
-
-        {/* Estadísticas de QR */}
-        {qrCodes.length > 0 && (
-          <div className="mt-8">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center">
-              <i className="bi bi-graph-up me-2 text-red-600"></i>
-              Estadísticas de Códigos QR
-            </h2>
+          <div className="mt-12">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2"><i className="bi bi-graph-up text-red-600"></i> Estadísticas</h2>
             <QRStatistics businessId={businessId} qrCodes={qrCodes} initialTab={activeTab} />
           </div>
         )}
       </div>
 
-      {/* Modal para Generar/Editar Código */}
-      {
-        showModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-              <h2 className="text-xl font-bold text-gray-800 mb-4">{modalTitle}</h2>
-
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Nombre del Código *</label>
-                <input
-                  type="text"
-                  value={newCodeName}
-                  onChange={(e) => {
-                    setNewCodeName(e.target.value)
-                    if (nameError) setNameError('')
-                  }}
-                  placeholder="Ej: Entrada Principal"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                />
-                {nameError && <p className="text-red-500 text-sm mt-1">{nameError}</p>}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl overflow-y-auto max-h-[90vh]">
+            <h2 className="text-xl font-bold mb-6 text-gray-800 border-b pb-4">{modalTitle}</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Nombre</label>
+                <input type="text" value={newCodeName} onChange={(e) => { setNewCodeName(e.target.value); setNameError(''); }} className="w-full p-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-red-500 outline-none font-bold" />
+                {nameError && <p className="text-red-500 text-xs mt-1">{nameError}</p>}
               </div>
-
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Premio (Opcional)</label>
-                <textarea
-                  value={newCodePrize}
-                  onChange={(e) => setNewCodePrize(e.target.value)}
-                  placeholder="Ej: 1 café gratis / 10% de descuento / Producto sorpresa"
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                />
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Premio (Opcional)</label>
+                <textarea value={newCodePrize} onChange={(e) => setNewCodePrize(e.target.value)} className="w-full p-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-red-500 outline-none" rows={2} />
               </div>
-
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Imagen (Opcional)
-                </label>
-                <div className="mt-1 flex items-center">
-                  <label className="cursor-pointer">
-                    <div className="w-24 h-24 rounded-md overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center">
-                      {imagePreview ? (
-                        <img
-                          src={imagePreview}
-                          alt="Vista previa"
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="text-gray-400">
-                          <i className="bi bi-image text-2xl"></i>
-                        </div>
-                      )}
-                    </div>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept="image/*"
-                      onChange={handleImageChange}
-                    />
-                  </label>
-                  <div className="ml-4 text-sm text-gray-500">
-                    <p>Haz clic para subir una imagen</p>
-                    <p className="text-xs">Tamaño recomendado: 500x500px</p>
-                  </div>
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Color de Fondo</label>
+                <div className="flex gap-4">
+                  <input type="color" value={newCodeColor} onChange={(e) => setNewCodeColor(e.target.value)} className="w-12 h-12 rounded-xl border-none cursor-pointer" />
+                  <input type="text" value={newCodeColor} onChange={(e) => setNewCodeColor(e.target.value)} className="flex-1 p-3 bg-gray-50 border-none rounded-xl font-mono text-sm uppercase" maxLength={7} />
                 </div>
               </div>
-
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Color de Fondo
-                </label>
-                <div className="flex items-center gap-3">
-                  {/* Color picker visual */}
-                  <input
-                    type="color"
-                    value={newCodeColor}
-                    onChange={(e) => setNewCodeColor(e.target.value)}
-                    className="w-12 h-12 rounded-lg cursor-pointer border-2 border-gray-300"
-                  />
-
-                  {/* Hexadecimal input */}
-                  <div className="flex-1">
-                    <input
-                      type="text"
-                      value={newCodeColor}
-                      onChange={(e) => {
-                        const value = e.target.value
-                        // Validar que sea un color hexadecimal válido
-                        if (/^#[0-9A-Fa-f]{0,6}$/.test(value)) {
-                          setNewCodeColor(value)
-                        }
-                      }}
-                      placeholder="#f3f4f6"
-                      maxLength={7}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 font-mono text-sm"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Formato: #RRGGBB</p>
-                  </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Puntos</label>
+                  <input type="number" value={newCodePoints} onChange={(e) => setNewCodePoints(Number(e.target.value))} className="w-full p-4 bg-gray-50 border-none rounded-2xl font-bold" />
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Estado</label>
+                  <button onClick={() => setNewCodeIsActive(!newCodeIsActive)} className={`w-full p-4 rounded-2xl font-bold transition-all ${newCodeIsActive ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-400'}`}>
+                    {newCodeIsActive ? 'ACTIVO' : 'INACTIVO'}
+                  </button>
                 </div>
               </div>
-
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Puntos</label>
-                <input
-                  type="number"
-                  value={newCodePoints}
-                  onChange={(e) => setNewCodePoints(Number(e.target.value))}
-                  min="1"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                />
-              </div>
-
-              <div className="mb-6">
-                <label className="flex items-center text-sm font-medium text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={newCodeIsActive}
-                    onChange={(e) => setNewCodeIsActive(e.target.checked)}
-                    className="mr-2"
-                  />
-                  Activo
-                </label>
-              </div>
-
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setShowModal(false)
-                    setNewCodeName('')
-                    setNewCodePrize('')
-                    setNewCodePoints(10)
-                    setNewCodeIsActive(true)
-                    setNameError('')
-                    setEditingCodeId(null)
-                  }}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleSaveCode}
-                  disabled={generating || !newCodeName.trim()}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                >
-                  {generating ? (
-                    <span className="flex items-center">
-                      <i className="bi bi-arrow-repeat animate-spin me-2"></i>
-                      Guardando...
-                    </span>
-                  ) : editingCodeId ? (
-                    'Actualizar'
-                  ) : (
-                    'Generar'
-                  )}
+              <div className="flex gap-3 pt-6">
+                <button onClick={() => setShowModal(false)} className="flex-1 py-4 font-bold text-gray-400">Cancelar</button>
+                <button onClick={handleSaveCode} disabled={generating || !newCodeName.trim()} className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-red-100 disabled:bg-gray-200">
+                  {generating ? 'Guardando...' : 'Guardar'}
                 </button>
               </div>
             </div>
           </div>
-        )
-      }
+        </div>
+      )}
     </div>
   )
 }

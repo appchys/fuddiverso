@@ -20,6 +20,7 @@ import {
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
 export { storage, serverTimestamp, Timestamp }
+
 import { normalizeEcuadorianPhone } from './validation'
 import {
   signInWithRedirect,
@@ -2981,16 +2982,23 @@ export async function updateQRCode(qrCodeId: string, updates: Partial<QRCode>): 
 }
 
 /**
- * Crear un nuevo código QR
+ * Crear un nuevo código QR con un ID corto personalizado
  */
-export async function createQRCode(qrCode: Omit<QRCode, 'id' | 'createdAt'>): Promise<string> {
+export async function createQRCode(qrCode: Omit<QRCode, 'id' | 'createdAt'>, customId?: string): Promise<string> {
   try {
     const qrCodeData = {
       ...qrCode,
       createdAt: serverTimestamp()
     }
-    const docRef = await addDoc(collection(db, 'qrCodes'), qrCodeData)
-    return docRef.id
+
+    if (customId) {
+      const docRef = doc(db, 'qrCodes', customId)
+      await setDoc(docRef, qrCodeData)
+      return customId
+    } else {
+      const docRef = await addDoc(collection(db, 'qrCodes'), qrCodeData)
+      return docRef.id
+    }
   } catch (error) {
     console.error('Error creating QR code:', error)
     throw error
