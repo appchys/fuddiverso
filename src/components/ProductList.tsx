@@ -34,6 +34,8 @@ export default function ProductList({
   })
   const [variants, setVariants] = useState<ProductVariant[]>([])
   const [currentVariant, setCurrentVariant] = useState({ name: '', price: '' })
+  const [editingVariantId, setEditingVariantId] = useState<string | null>(null)
+  const [showVariantForm, setShowVariantForm] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [uploading, setUploading] = useState(false)
   const [newCategory, setNewCategory] = useState('')
@@ -64,6 +66,7 @@ export default function ProductList({
   const [activeTab, setActiveTab] = useState<'general' | 'ingredients'>('general')
   const [variantVisibility, setVariantVisibility] = useState<Record<string, boolean>>({})
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
+  const [activeVariantMenu, setActiveVariantMenu] = useState<string | null>(null)
 
   const handleOpenNewProduct = () => {
     setEditingProduct(null)
@@ -82,6 +85,8 @@ export default function ProductList({
     setCurrentIngredient({ name: '', unitCost: '', quantity: '' })
     setErrors({})
     setActiveTab('general')
+    setEditingVariantId(null)
+    setShowVariantForm(false)
     setShowProductForm(true)
   }
 
@@ -126,6 +131,8 @@ export default function ProductList({
     setCurrentIngredient({ name: '', unitCost: '', quantity: '' })
     setErrors({})
     setActiveTab('general')
+    setEditingVariantId(null)
+    setShowVariantForm(false)
     setShowProductForm(true)
   }
 
@@ -148,6 +155,8 @@ export default function ProductList({
     setCurrentIngredient({ name: '', unitCost: '', quantity: '' })
     setErrors({})
     setActiveTab('general')
+    setEditingVariantId(null)
+    setShowVariantForm(false)
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -165,6 +174,14 @@ export default function ProductList({
     }
   }
 
+  const handleEditVariant = (variant: ProductVariant) => {
+    setCurrentVariant({
+      name: variant.name,
+      price: variant.price.toString()
+    })
+    setEditingVariantId(variant.id)
+  }
+
   const addVariant = () => {
     if (!currentVariant.name.trim()) {
       alert('El nombre de la variante es requerido')
@@ -177,17 +194,27 @@ export default function ProductList({
       return
     }
 
-    const newVariant: ProductVariant = {
-      id: Date.now().toString(),
-      name: currentVariant.name,
-      description: '',
-      price: price,
-      isAvailable: true
-    }
+    if (editingVariantId) {
+      setVariants(prev => prev.map(v =>
+        v.id === editingVariantId
+          ? { ...v, name: currentVariant.name, price: price }
+          : v
+      ))
+      setEditingVariantId(null)
+    } else {
+      const newVariant: ProductVariant = {
+        id: Date.now().toString(),
+        name: currentVariant.name,
+        description: '',
+        price: price,
+        isAvailable: true
+      }
 
-    setVariants(prev => [...prev, newVariant])
-    setVariantVisibility(prev => ({ ...prev, [newVariant.id]: true }))
+      setVariants(prev => [...prev, newVariant])
+      setVariantVisibility(prev => ({ ...prev, [newVariant.id]: true }))
+    }
     setCurrentVariant({ name: '', price: '' })
+    setShowVariantForm(false)
   }
 
   const removeVariant = (variantId: string) => {
@@ -197,6 +224,10 @@ export default function ProductList({
       delete newVisibility[variantId]
       return newVisibility
     })
+    if (editingVariantId === variantId) {
+      setEditingVariantId(null)
+      setCurrentVariant({ name: '', price: '' })
+    }
   }
 
   const handleAddCategory = async () => {
@@ -377,11 +408,14 @@ export default function ProductList({
       if (activeMenu && !target.closest('.product-action-menu')) {
         setActiveMenu(null)
       }
+      if (activeVariantMenu && !target.closest('.variant-action-menu')) {
+        setActiveVariantMenu(null)
+      }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showIngredientSuggestions])
+  }, [showIngredientSuggestions, activeMenu, activeVariantMenu])
 
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1193,84 +1227,173 @@ export default function ProductList({
                       <h4 className="font-semibold text-gray-900 mb-4">Variantes</h4>
 
                       {variants.length > 0 && (
-                        <div className="space-y-2 mb-4">
+                        <div className="space-y-3 mb-6">
                           {variants.map((variant, index) => (
-                            <div key={variant.id} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg hover:bg-gray-100 transition-colors">
-                              <div className={`flex-1 ${variantVisibility[variant.id] === false ? 'opacity-50 grayscale' : ''}`}>
-                                <p className="font-medium text-gray-900">{variant.name}</p>
-                                <p className="text-sm text-gray-600">${variant.price.toFixed(2)}</p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <div className="flex flex-col gap-0.5 mr-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => moveVariant(index, 'up')}
-                                    disabled={index === 0}
-                                    className="text-gray-400 hover:text-blue-600 disabled:opacity-10 transition-colors"
-                                  >
-                                    <i className="bi bi-caret-up-fill text-xs"></i>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => moveVariant(index, 'down')}
-                                    disabled={index === variants.length - 1}
-                                    className="text-gray-400 hover:text-blue-600 disabled:opacity-10 transition-colors"
-                                  >
-                                    <i className="bi bi-caret-down-fill text-xs"></i>
-                                  </button>
+                            <div
+                              key={variant.id}
+                              className={`group flex items-center bg-white p-3 rounded-2xl border transition-all duration-300 ${variantVisibility[variant.id] !== false
+                                ? 'border-gray-100 shadow-sm hover:shadow-md'
+                                : 'border-gray-200 bg-gray-50/50'
+                                }`}
+                            >
+                              <div className={`flex-1 min-w-0 ${variantVisibility[variant.id] === false ? 'opacity-60 grayscale-[0.5]' : ''}`}>
+                                <div className="flex items-center gap-2">
+                                  <p className="font-bold text-gray-900 truncate leading-tight">
+                                    {variant.name}
+                                  </p>
+                                  {variantVisibility[variant.id] === false && (
+                                    <span className="text-[8px] font-black bg-gray-200 text-gray-500 px-1 py-0.5 rounded uppercase tracking-widest">
+                                      Oculto
+                                    </span>
+                                  )}
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() => setVariantVisibility(prev => ({ ...prev, [variant.id]: !prev[variant.id] }))}
-                                  className={`p-2 rounded-lg transition-colors ${variantVisibility[variant.id] !== false
-                                    ? 'text-orange-600 hover:bg-orange-50'
-                                    : 'text-green-600 hover:bg-green-50'
-                                    }`}
-                                  title={variantVisibility[variant.id] !== false ? 'Ocultar variante' : 'Mostrar variante'}
-                                >
-                                  <i className={`bi ${variantVisibility[variant.id] !== false ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => removeVariant(variant.id)}
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                                >
-                                  <i className="bi bi-trash"></i>
-                                </button>
+                                <p className="text-sm font-black text-red-500 tracking-tight mt-0.5">
+                                  ${variant.price.toFixed(2)}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                {/* Botón de 3 puntos */}
+                                <div className="relative variant-action-menu">
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveVariantMenu(activeVariantMenu === variant.id ? null : variant.id)}
+                                    className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 rounded-full hover:bg-gray-100 transition-all"
+                                  >
+                                    <i className="bi bi-three-dots-vertical"></i>
+                                  </button>
+
+                                  {activeVariantMenu === variant.id && (
+                                    <div className="absolute right-0 mt-2 w-44 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setVariantVisibility(prev => ({ ...prev, [variant.id]: !prev[variant.id] }))
+                                          setActiveVariantMenu(null)
+                                        }}
+                                        className="w-full px-4 py-2 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                                      >
+                                        <i className={`bi ${variantVisibility[variant.id] !== false ? 'bi-eye-slash text-orange-600' : 'bi-eye text-emerald-600'}`}></i>
+                                        {variantVisibility[variant.id] !== false ? 'Ocultar' : 'Mostrar'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleEditVariant(variant)
+                                          setActiveVariantMenu(null)
+                                        }}
+                                        className="w-full px-4 py-2 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                                      >
+                                        <i className="bi bi-pencil text-blue-600"></i>
+                                        Editar
+                                      </button>
+                                      <div className="border-t border-gray-50 my-1"></div>
+
+                                      <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                        Mover
+                                        <div className="flex gap-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => moveVariant(index, 'up')}
+                                            disabled={index === 0}
+                                            className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30 transition-colors"
+                                          >
+                                            <i className="bi bi-chevron-up"></i>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => moveVariant(index, 'down')}
+                                            disabled={index === variants.length - 1}
+                                            className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30 transition-colors"
+                                          >
+                                            <i className="bi bi-chevron-down"></i>
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      <div className="border-t border-gray-50 my-1"></div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          removeVariant(variant.id)
+                                          setActiveVariantMenu(null)
+                                        }}
+                                        className="w-full px-4 py-2 text-left text-sm font-medium hover:bg-red-50 flex items-center gap-3 transition-colors text-red-600"
+                                      >
+                                        <i className="bi bi-trash"></i>
+                                        Eliminar
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           ))}
                         </div>
                       )}
 
-                      <div className="space-y-2 bg-gray-50 p-4 rounded-lg">
-                        <input
-                          type="text"
-                          value={currentVariant.name}
-                          onChange={(e) => setCurrentVariant(prev => ({ ...prev, name: e.target.value }))}
-                          placeholder="Ej: Tamaño grande, Con queso extra"
-                          className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
-                        />
-                        <div className="flex gap-2">
+                      {!(showVariantForm || editingVariantId) ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowVariantForm(true)}
+                          className="w-full p-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-red-400 hover:bg-red-50 transition-all font-bold text-sm flex items-center justify-center gap-2 group"
+                        >
+                          <i className="bi bi-plus-circle text-lg group-hover:scale-110 transition-transform"></i>
+                          Agregar variante
+                        </button>
+                      ) : (
+                        <div className="space-y-3 bg-gray-50/50 p-4 rounded-2xl border border-dashed border-gray-200 animate-in fade-in slide-in-from-top-2 duration-300">
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded flex items-center justify-center text-xs">
+                              <i className={`bi ${editingVariantId ? 'bi-pencil' : 'bi-plus-lg'}`}></i>
+                            </div>
+                            <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                              {editingVariantId ? 'Editar Variante' : 'Nueva Variante'}
+                            </h5>
+                          </div>
+
                           <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={currentVariant.price}
-                            onChange={(e) => setCurrentVariant(prev => ({ ...prev, price: e.target.value }))}
-                            placeholder="Precio (opcional)"
-                            className="flex-1 px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
+                            type="text"
+                            value={currentVariant.name}
+                            onChange={(e) => setCurrentVariant(prev => ({ ...prev, name: e.target.value }))}
+                            placeholder="Ej: Tamaño grande, Con queso extra"
+                            className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-red-500 shadow-sm transition-all"
+                            autoFocus
                           />
-                          <button
-                            type="button"
-                            onClick={addVariant}
-                            className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 font-medium"
-                          >
-                            <i className="bi bi-plus-lg me-1"></i>
-                            Agregar
-                          </button>
+                          <div className="flex gap-2">
+                            <div className="relative flex-1">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={currentVariant.price}
+                                onChange={(e) => setCurrentVariant(prev => ({ ...prev, price: e.target.value }))}
+                                placeholder="Precio (opcional)"
+                                className="w-full pl-7 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-red-500 shadow-sm transition-all"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={addVariant}
+                              className={`px-6 py-3 text-white rounded-xl text-sm font-black uppercase tracking-widest transition-all shadow-lg active:scale-95 ${editingVariantId ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-100' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'}`}
+                            >
+                              {editingVariantId ? 'LISTO' : 'AÑADIR'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowVariantForm(false)
+                                setEditingVariantId(null)
+                                setCurrentVariant({ name: '', price: '' })
+                              }}
+                              className="px-4 py-3 bg-gray-100 text-gray-500 rounded-xl text-sm font-bold hover:bg-gray-200 transition-all"
+                            >
+                              <i className="bi bi-x-lg"></i>
+                            </button>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </>
                 )}
