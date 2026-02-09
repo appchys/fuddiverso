@@ -243,6 +243,15 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
     })
   }
 
+  const handleCopyLink = useCallback((qrId: string) => {
+    if (typeof window === 'undefined') return
+    const baseUrl = window.location.origin
+    const scanUrl = `${baseUrl}/scan/${qrId}`
+    navigator.clipboard.writeText(scanUrl)
+      .then(() => alert('Enlace copiado al portapapeles'))
+      .catch(() => alert('Error al copiar el enlace'))
+  }, [])
+
   if (loading) return (
     <div className="min-h-[400px] flex flex-col items-center justify-center bg-white rounded-3xl p-12 border border-gray-100">
       <i className="bi bi-arrow-repeat animate-spin text-red-600 text-5xl mb-4"></i>
@@ -276,9 +285,19 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
                   <button onClick={() => setOpenMenuId(openMenuId === qr.id ? null : qr.id)} className="bg-white/90 rounded-full p-1 shadow-sm"><i className="bi bi-three-dots-vertical"></i></button>
                   {openMenuId === qr.id && (
                     <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border p-2 z-30">
-                      <button onClick={() => { handleDownloadQR(qr); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-gray-50 text-sm flex items-center gap-2"><i className="bi bi-download"></i> Descargar</button>
-                      <button onClick={() => { openModal(qr); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-gray-50 text-sm flex items-center gap-2"><i className="bi bi-pencil"></i> Editar</button>
-                      <button onClick={() => { handleDeleteQR(qr.id, qr.name); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-red-50 text-sm text-red-600 flex items-center gap-2"><i className="bi bi-trash"></i> Eliminar</button>
+                      <button onClick={() => { handleCopyLink(qr.id); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-gray-50 text-sm flex items-center gap-2 font-medium">
+                        <i className="bi bi-link-45deg"></i> Copiar enlace
+                      </button>
+                      <button onClick={() => { handleDownloadQR(qr); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-gray-50 text-sm flex items-center gap-2 font-medium">
+                        <i className="bi bi-download"></i> Descargar
+                      </button>
+                      <hr className="my-1 border-gray-100" />
+                      <button onClick={() => { openModal(qr); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-gray-50 text-sm flex items-center gap-2 font-medium">
+                        <i className="bi bi-pencil"></i> Editar
+                      </button>
+                      <button onClick={() => { handleDeleteQR(qr.id, qr.name); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-red-50 text-sm text-red-600 flex items-center gap-2 font-medium">
+                        <i className="bi bi-trash"></i> Eliminar
+                      </button>
                     </div>
                   )}
                 </div>
