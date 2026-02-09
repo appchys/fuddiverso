@@ -569,450 +569,111 @@ export default function ProductList({
         </div>
       ) : (
         <div className="space-y-8">
-          {categories.length > 0 ? (
-            <>
-              {categories.map((category, catIndex) => {
-                const categoryProducts = products
-                  .filter(p => p.category === category)
-                  .sort((a, b) => (a.order || 0) - (b.order || 0))
+          {categories.map((category, catIndex) => {
+            const categoryProducts = products
+              .filter(p => p.category === category)
+              .sort((a, b) => (a.order || 0) - (b.order || 0))
 
-                if (categoryProducts.length === 0) return null
+            if (categoryProducts.length === 0) return null
 
-                return (
-                  <div key={category} className="mb-10 last:mb-0">
-                    <div className="flex items-center gap-3 mb-6">
-                      <h3 className="text-lg font-bold text-gray-800 tracking-wide uppercase">
-                        {category}
-                      </h3>
-                      <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px] font-bold">
-                        {categoryProducts.length} items
-                      </span>
-                      <div className="flex-1 h-px bg-gradient-to-r from-gray-100 to-transparent ml-2"></div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => moveCategory(catIndex, 'up')}
-                          disabled={catIndex === 0}
-                          className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-0"
-                          title="Subir categoría"
-                        >
-                          <i className="bi bi-chevron-up"></i>
-                        </button>
-                        <button
-                          onClick={() => moveCategory(catIndex, 'down')}
-                          disabled={catIndex === categories.length - 1}
-                          className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-0"
-                          title="Bajar categoría"
-                        >
-                          <i className="bi bi-chevron-down"></i>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-                      {categoryProducts.map((product, pIndex) => (
-                        <div
-                          key={product.id}
-                          className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 ${product.isAvailable
-                            ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
-                            : 'border-gray-200 bg-gray-50/50'
-                            }`}
-                        >
-                          <div className={`flex items-center flex-1 min-w-0 ${!product.isAvailable ? 'opacity-50' : ''}`}>
-                            {/* Imagen cuadrada con diseño redondeado */}
-                            <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
-                              {product.image ? (
-                                <img
-                                  src={product.image}
-                                  alt={product.name}
-                                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                                />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
-                                  <i className="bi bi-box-seam text-2xl"></i>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Info Content */}
-                            <div className="flex-1 min-w-0 ml-4 pr-10">
-                              <div className="flex flex-col h-full justify-between">
-                                <div>
-                                  <div className="flex flex-wrap items-center gap-2 mb-1">
-                                    <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
-                                      {product.name}
-                                    </h4>
-                                    {!product.isAvailable && (
-                                      <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
-                                        Oculto
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
-                                    {product.description}
-                                  </p>
-                                </div>
-
-                                <div className="mt-2 flex items-center gap-3">
-                                  <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
-                                    ${product.price.toFixed(2)}
-                                  </span>
-                                  {product.variants && product.variants.length > 0 && (
-                                    <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
-                                      <i className="bi bi-stack text-gray-400 text-[10px]"></i>
-                                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
-                                        {product.variants.length} variantes
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Botones de acción - Desplegable */}
-                          <div className="absolute top-3 right-3 product-action-menu z-20">
-                            <button
-                              onClick={() => setActiveMenu(activeMenu === product.id ? null : product.id)}
-                              className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-white shadow-sm border border-gray-100 transition-all active:scale-95 bg-white"
-                            >
-                              <i className="bi bi-three-dots-vertical text-lg"></i>
-                            </button>
-
-                            {activeMenu === product.id && (
-                              <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
-                                <button
-                                  onClick={() => {
-                                    handleToggleAvailability(product.id, product.isAvailable)
-                                    setActiveMenu(null)
-                                  }}
-                                  className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                                >
-                                  <i className={`bi ${product.isAvailable ? 'bi-eye-slash text-orange-600' : 'bi-eye text-emerald-600'}`}></i>
-                                  {product.isAvailable ? 'Ocultar' : 'Mostrar'}
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    handleEditProduct(product)
-                                    setActiveMenu(null)
-                                  }}
-                                  className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                                >
-                                  <i className="bi bi-pencil text-blue-600"></i>
-                                  Editar
-                                </button>
-                                <button
-                                  onClick={async () => {
-                                    const productUrl = `${window.location.origin}/${business?.username}/${product.slug || product.id}`
-                                    try {
-                                      if (navigator.clipboard && window.isSecureContext) {
-                                        await navigator.clipboard.writeText(productUrl)
-                                      } else {
-                                        const textArea = document.createElement('textarea')
-                                        textArea.value = productUrl
-                                        textArea.style.position = 'fixed'
-                                        textArea.style.opacity = '0'
-                                        document.body.appendChild(textArea)
-                                        textArea.focus()
-                                        textArea.select()
-                                        document.execCommand('copy')
-                                        document.body.removeChild(textArea)
-                                      }
-                                      setActiveMenu(null)
-                                    } catch (err) {
-                                      console.error('Error al copiar enlace:', err)
-                                    }
-                                  }}
-                                  className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                                >
-                                  <i className="bi bi-link-45deg text-purple-600"></i>
-                                  Copiar link
-                                </button>
-                                <div className="border-t border-gray-50 my-1"></div>
-                                <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                  Mover
-                                  <div className="flex gap-1">
-                                    <button
-                                      onClick={() => moveProduct(product, 'up')}
-                                      disabled={pIndex === 0}
-                                      className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
-                                    >
-                                      <i className="bi bi-chevron-up"></i>
-                                    </button>
-                                    <button
-                                      onClick={() => moveProduct(product, 'down')}
-                                      disabled={pIndex === categoryProducts.length - 1}
-                                      className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
-                                    >
-                                      <i className="bi bi-chevron-down"></i>
-                                    </button>
-                                  </div>
-                                </div>
-                                <div className="border-t border-gray-50 my-1"></div>
-                                <button
-                                  onClick={() => {
-                                    handleDeleteProduct(product.id)
-                                    setActiveMenu(null)
-                                  }}
-                                  className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-red-50 flex items-center gap-3 transition-colors text-red-600"
-                                >
-                                  <i className="bi bi-trash"></i>
-                                  Eliminar
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+            return (
+              <div key={category} className="mb-10 last:mb-0">
+                <div className="flex items-center gap-3 mb-6">
+                  <h3 className="text-lg font-bold text-gray-800 tracking-wide uppercase">
+                    {category}
+                  </h3>
+                  <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px] font-bold">
+                    {categoryProducts.length} items
+                  </span>
+                  <div className="flex-1 h-px bg-gradient-to-r from-gray-100 to-transparent ml-2"></div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => moveCategory(catIndex, 'up')}
+                      disabled={catIndex === 0}
+                      className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-0"
+                      title="Subir categoría"
+                    >
+                      <i className="bi bi-chevron-up"></i>
+                    </button>
+                    <button
+                      onClick={() => moveCategory(catIndex, 'down')}
+                      disabled={catIndex === categories.length - 1}
+                      className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-0"
+                      title="Bajar categoría"
+                    >
+                      <i className="bi bi-chevron-down"></i>
+                    </button>
                   </div>
-                )
-              })}
+                </div>
 
-              {/* Sección de productos sin categoría o categoría no listada */}
-              {(() => {
-                const uncategorizedProducts = products
-                  .filter(p => !categories.includes(p.category))
-                  .sort((a, b) => (a.order || 0) - (b.order || 0))
-
-                if (uncategorizedProducts.length === 0) return null
-
-                return (
-                  <div className="mb-10">
-                    <div className="flex items-center gap-3 mb-6">
-                      <h3 className="text-lg font-bold text-gray-800 tracking-wide uppercase">
-                        Otros / Sin categoría
-                      </h3>
-                      <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px] font-bold">
-                        {uncategorizedProducts.length} items
-                      </span>
-                      <div className="flex-1 h-px bg-gradient-to-r from-gray-100 to-transparent ml-2"></div>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-                      {uncategorizedProducts.map((product, pIndex) => (
-                        <div
-                          key={product.id}
-                          className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 ${product.isAvailable
-                            ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
-                            : 'border-gray-200 bg-gray-50/50'
-                            }`}
-                        >
-                          <div className={`flex items-center flex-1 min-w-0 ${!product.isAvailable ? 'opacity-50' : ''}`}>
-                            {/* Imagen cuadrada con diseño redondeado */}
-                            <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
-                              {product.image ? (
-                                <img
-                                  src={product.image}
-                                  alt={product.name}
-                                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                                />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
-                                  <i className="bi bi-box-seam text-2xl"></i>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Info Content */}
-                            <div className="flex-1 min-w-0 ml-4 pr-10">
-                              <div className="flex flex-col h-full justify-between">
-                                <div>
-                                  <div className="flex flex-wrap items-center gap-2 mb-1">
-                                    <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
-                                      {product.name}
-                                    </h4>
-                                    {!product.isAvailable && (
-                                      <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
-                                        Oculto
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
-                                    {product.description}
-                                  </p>
-                                </div>
-
-                                <div className="mt-2 flex items-center gap-3">
-                                  <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
-                                    ${product.price.toFixed(2)}
-                                  </span>
-                                  {product.variants && product.variants.length > 0 && (
-                                    <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
-                                      <i className="bi bi-stack text-gray-400 text-[10px]"></i>
-                                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
-                                        {product.variants.length} variantes
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Botones de acción - Desplegable */}
-                          <div className="absolute top-3 right-3 product-action-menu z-20">
-                            <button
-                              onClick={() => setActiveMenu(activeMenu === product.id ? null : product.id)}
-                              className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-white shadow-sm border border-gray-100 transition-all active:scale-95 bg-white"
-                            >
-                              <i className="bi bi-three-dots-vertical text-lg"></i>
-                            </button>
-
-                            {activeMenu === product.id && (
-                              <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
-                                <button
-                                  onClick={() => {
-                                    handleToggleAvailability(product.id, product.isAvailable)
-                                    setActiveMenu(null)
-                                  }}
-                                  className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                                >
-                                  <i className={`bi ${product.isAvailable ? 'bi-eye-slash text-orange-600' : 'bi-eye text-emerald-600'}`}></i>
-                                  {product.isAvailable ? 'Ocultar' : 'Mostrar'}
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    handleEditProduct(product)
-                                    setActiveMenu(null)
-                                  }}
-                                  className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                                >
-                                  <i className="bi bi-pencil text-blue-600"></i>
-                                  Editar
-                                </button>
-                                <button
-                                  onClick={async () => {
-                                    const productUrl = `${window.location.origin}/${business?.username}/${product.slug || product.id}`
-                                    try {
-                                      if (navigator.clipboard && window.isSecureContext) {
-                                        await navigator.clipboard.writeText(productUrl)
-                                      } else {
-                                        const textArea = document.createElement('textarea')
-                                        textArea.value = productUrl
-                                        textArea.style.position = 'fixed'
-                                        textArea.style.opacity = '0'
-                                        document.body.appendChild(textArea)
-                                        textArea.focus()
-                                        textArea.select()
-                                        document.execCommand('copy')
-                                        document.body.removeChild(textArea)
-                                      }
-                                      setActiveMenu(null)
-                                    } catch (err) {
-                                      console.error('Error al copiar enlace:', err)
-                                    }
-                                  }}
-                                  className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                                >
-                                  <i className="bi bi-link-45deg text-purple-600"></i>
-                                  Copiar link
-                                </button>
-                                <div className="border-t border-gray-50 my-1"></div>
-                                <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                  Mover
-                                  <div className="flex gap-1">
-                                    <button
-                                      onClick={() => moveProduct(product, 'up')}
-                                      disabled={pIndex === 0}
-                                      className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
-                                    >
-                                      <i className="bi bi-chevron-up"></i>
-                                    </button>
-                                    <button
-                                      onClick={() => moveProduct(product, 'down')}
-                                      disabled={pIndex === uncategorizedProducts.length - 1}
-                                      className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
-                                    >
-                                      <i className="bi bi-chevron-down"></i>
-                                    </button>
-                                  </div>
-                                </div>
-                                <div className="border-t border-gray-50 my-1"></div>
-                                <button
-                                  onClick={() => {
-                                    handleDeleteProduct(product.id)
-                                    setActiveMenu(null)
-                                  }}
-                                  className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-red-50 flex items-center gap-3 transition-colors text-red-600"
-                                >
-                                  <i className="bi bi-trash"></i>
-                                  Eliminar
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })()}
-            </>
-          ) : (
-            /* Si no hay categorías definidas, mostrar todos los productos en una lista */
-            <div className="space-y-4">
-              {products
-                .sort((a, b) => (a.order || 0) - (b.order || 0))
-                .map((product, pIndex) => (
-                  <div
-                    key={product.id}
-                    className={`group border rounded-[2.5rem] p-5 hover:shadow-2xl hover:shadow-slate-200/50 transition-all duration-500 hover:-translate-y-1 ${product.isAvailable
-                      ? 'bg-white border-slate-100 shadow-sm'
-                      : 'bg-slate-50 border-slate-200'
-                      }`}
-                  >
-                    <div className="flex flex-row items-center justify-between gap-5">
-                      <div className={`flex items-center gap-5 min-w-0 flex-1 ${!product.isAvailable ? 'opacity-50' : ''}`}>
-                        {/* Imagen */}
-                        <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-[2rem] flex items-center justify-center overflow-hidden shadow-inner border border-slate-50 ${product.isAvailable ? 'bg-slate-50' : 'bg-slate-200'
-                          }`}>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+                  {categoryProducts.map((product, pIndex) => (
+                    <div
+                      key={product.id}
+                      className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 ${product.isAvailable
+                        ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
+                        : 'border-gray-200 bg-gray-50/50'
+                        }`}
+                    >
+                      <div className={`flex items-center flex-1 min-w-0 ${!product.isAvailable ? 'opacity-50' : ''}`}>
+                        {/* Imagen cuadrada con diseño redondeado */}
+                        <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
                           {product.image ? (
-                            <img src={product.image} alt={product.name} className={`w-full h-full object-cover transition-transform group-hover:scale-110 duration-700 ${!product.isAvailable ? 'opacity-50 grayscale' : ''
-                              }`} />
+                            <img
+                              src={product.image}
+                              alt={product.name}
+                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                            />
                           ) : (
-                            <i className={`bi bi-box-seam text-3xl ${product.isAvailable ? 'text-slate-300' : 'text-slate-400'
-                              }`}></i>
+                            <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
+                              <i className="bi bi-box-seam text-2xl"></i>
+                            </div>
                           )}
                         </div>
 
-                        {/* Información */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2 mb-1">
-                            <h3 className={`font-black text-lg sm:text-xl tracking-tighter truncate ${product.isAvailable ? 'text-slate-900' : 'text-slate-500'
-                              }`}>{product.name}</h3>
-                            {!product.isAvailable && (
-                              <span className="text-[10px] font-black bg-red-50 text-red-600 border border-red-100 px-2.5 py-1 rounded-full uppercase tracking-widest">
-                                Agotado
-                              </span>
-                            )}
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-100 rounded text-slate-400 uppercase tracking-widest">
-                              {product.category}
-                            </span>
-                          </div>
-                          <p className={`text-sm mt-0.5 line-clamp-1 font-medium leading-relaxed ${product.isAvailable ? 'text-slate-500' : 'text-slate-400'
-                            }`}>{product.description}</p>
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-4">
-                            <span className={`text-lg sm:text-xl font-black tracking-tight ${product.isAvailable ? 'text-slate-900' : 'text-slate-500'
-                              }`}>${product.price.toFixed(2)}</span>
-                            {product.variants && product.variants.length > 0 && (
-                              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-2xl border border-slate-100">
-                                <i className="bi bi-stack text-slate-400 text-xs"></i>
-                                <span className="text-[11px] font-black text-slate-600 uppercase tracking-tighter">
-                                  {product.variants.length} variantes
-                                </span>
+                        {/* Info Content */}
+                        <div className="flex-1 min-w-0 ml-4 pr-10">
+                          <div className="flex flex-col h-full justify-between">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
+                                  {product.name}
+                                </h4>
+                                {!product.isAvailable && (
+                                  <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
+                                    Oculto
+                                  </span>
+                                )}
                               </div>
-                            )}
+                              <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
+                                {product.description}
+                              </p>
+                            </div>
+
+                            <div className="mt-2 flex items-center gap-3">
+                              <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
+                                ${product.price.toFixed(2)}
+                              </span>
+                              {product.variants && product.variants.length > 0 && (
+                                <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
+                                  <i className="bi bi-stack text-gray-400 text-[10px]"></i>
+                                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
+                                    {product.variants.length} variantes
+                                  </span>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
 
                       {/* Botones de acción - Desplegable */}
-                      <div className="relative product-action-menu z-20">
+                      <div className="absolute top-3 right-3 product-action-menu z-20">
                         <button
                           onClick={() => setActiveMenu(activeMenu === product.id ? null : product.id)}
-                          className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full bg-white shadow-sm border border-gray-100 transition-all active:scale-90"
+                          className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-white shadow-sm border border-gray-100 transition-all active:scale-95 bg-white"
                         >
-                          <i className="bi bi-three-dots-vertical text-xl"></i>
+                          <i className="bi bi-three-dots-vertical text-lg"></i>
                         </button>
 
                         {activeMenu === product.id && (
@@ -1037,6 +698,33 @@ export default function ProductList({
                               <i className="bi bi-pencil text-blue-600"></i>
                               Editar
                             </button>
+                            <button
+                              onClick={async () => {
+                                const productUrl = `${window.location.origin}/${business?.username}/${product.slug || product.id}`
+                                try {
+                                  if (navigator.clipboard && window.isSecureContext) {
+                                    await navigator.clipboard.writeText(productUrl)
+                                  } else {
+                                    const textArea = document.createElement('textarea')
+                                    textArea.value = productUrl
+                                    textArea.style.position = 'fixed'
+                                    textArea.style.opacity = '0'
+                                    document.body.appendChild(textArea)
+                                    textArea.focus()
+                                    textArea.select()
+                                    document.execCommand('copy')
+                                    document.body.removeChild(textArea)
+                                  }
+                                  setActiveMenu(null)
+                                } catch (err) {
+                                  console.error('Error al copiar enlace:', err)
+                                }
+                              }}
+                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                            >
+                              <i className="bi bi-link-45deg text-purple-600"></i>
+                              Copiar link
+                            </button>
                             <div className="border-t border-gray-50 my-1"></div>
                             <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
                               Mover
@@ -1050,7 +738,7 @@ export default function ProductList({
                                 </button>
                                 <button
                                   onClick={() => moveProduct(product, 'down')}
-                                  disabled={pIndex === products.length - 1}
+                                  disabled={pIndex === categoryProducts.length - 1}
                                   className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
                                 >
                                   <i className="bi bi-chevron-down"></i>
@@ -1072,13 +760,194 @@ export default function ProductList({
                         )}
                       </div>
                     </div>
-                  </div>
-                ))}
-            </div>
-          )}
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Sección de productos sin categoría o categoría no listada */}
+          {(() => {
+            const uncategorizedProducts = products
+              .filter(p => !categories.includes(p.category))
+              .sort((a, b) => (a.order || 0) - (b.order || 0))
+
+            if (uncategorizedProducts.length === 0) return null
+
+            return (
+              <div className="mb-10">
+                <div className="flex items-center gap-3 mb-6">
+                  <h3 className="text-lg font-bold text-gray-800 tracking-wide uppercase">
+                    Otros / Sin categoría
+                  </h3>
+                  <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px] font-bold">
+                    {uncategorizedProducts.length} items
+                  </span>
+                  <div className="flex-1 h-px bg-gradient-to-r from-gray-100 to-transparent ml-2"></div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+                  {uncategorizedProducts.map((product, pIndex) => (
+                    <div
+                      key={product.id}
+                      className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 ${product.isAvailable
+                        ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
+                        : 'border-gray-200 bg-gray-50/50'
+                        }`}
+                    >
+                      <div className={`flex items-center flex-1 min-w-0 ${!product.isAvailable ? 'opacity-50' : ''}`}>
+                        {/* Imagen cuadrada con diseño redondeado */}
+                        <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
+                          {product.image ? (
+                            <img
+                              src={product.image}
+                              alt={product.name}
+                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
+                              <i className="bi bi-box-seam text-2xl"></i>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Info Content */}
+                        <div className="flex-1 min-w-0 ml-4 pr-10">
+                          <div className="flex flex-col h-full justify-between">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
+                                  {product.name}
+                                </h4>
+                                {!product.isAvailable && (
+                                  <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
+                                    Oculto
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
+                                {product.description}
+                              </p>
+                            </div>
+
+                            <div className="mt-2 flex items-center gap-3">
+                              <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
+                                ${product.price.toFixed(2)}
+                              </span>
+                              {product.variants && product.variants.length > 0 && (
+                                <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
+                                  <i className="bi bi-stack text-gray-400 text-[10px]"></i>
+                                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
+                                    {product.variants.length} variantes
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Botones de acción - Desplegable */}
+                      <div className="absolute top-3 right-3 product-action-menu z-20">
+                        <button
+                          onClick={() => setActiveMenu(activeMenu === product.id ? null : product.id)}
+                          className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-white shadow-sm border border-gray-100 transition-all active:scale-95 bg-white"
+                        >
+                          <i className="bi bi-three-dots-vertical text-lg"></i>
+                        </button>
+
+                        {activeMenu === product.id && (
+                          <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
+                            <button
+                              onClick={() => {
+                                handleToggleAvailability(product.id, product.isAvailable)
+                                setActiveMenu(null)
+                              }}
+                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                            >
+                              <i className={`bi ${product.isAvailable ? 'bi-eye-slash text-orange-600' : 'bi-eye text-emerald-600'}`}></i>
+                              {product.isAvailable ? 'Ocultar' : 'Mostrar'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                handleEditProduct(product)
+                                setActiveMenu(null)
+                              }}
+                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                            >
+                              <i className="bi bi-pencil text-blue-600"></i>
+                              Editar
+                            </button>
+                            <button
+                              onClick={async () => {
+                                const productUrl = `${window.location.origin}/${business?.username}/${product.slug || product.id}`
+                                try {
+                                  if (navigator.clipboard && window.isSecureContext) {
+                                    await navigator.clipboard.writeText(productUrl)
+                                  } else {
+                                    const textArea = document.createElement('textarea')
+                                    textArea.value = productUrl
+                                    textArea.style.position = 'fixed'
+                                    textArea.style.opacity = '0'
+                                    document.body.appendChild(textArea)
+                                    textArea.focus()
+                                    textArea.select()
+                                    document.execCommand('copy')
+                                    document.body.removeChild(textArea)
+                                  }
+                                  setActiveMenu(null)
+                                } catch (err) {
+                                  console.error('Error al copiar enlace:', err)
+                                }
+                              }}
+                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                            >
+                              <i className="bi bi-link-45deg text-purple-600"></i>
+                              Copiar link
+                            </button>
+                            <div className="border-t border-gray-50 my-1"></div>
+                            <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                              Mover
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={() => moveProduct(product, 'up')}
+                                  disabled={pIndex === 0}
+                                  className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
+                                >
+                                  <i className="bi bi-chevron-up"></i>
+                                </button>
+                                <button
+                                  onClick={() => moveProduct(product, 'down')}
+                                  disabled={pIndex === uncategorizedProducts.length - 1}
+                                  className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
+                                >
+                                  <i className="bi bi-chevron-down"></i>
+                                </button>
+                              </div>
+                            </div>
+                            <div className="border-t border-gray-50 my-1"></div>
+                            <button
+                              onClick={() => {
+                                handleDeleteProduct(product.id)
+                                setActiveMenu(null)
+                              }}
+                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-red-50 flex items-center gap-3 transition-colors text-red-600"
+                            >
+                              <i className="bi bi-trash"></i>
+                              Eliminar
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
         </div>
-      )
-      }
+      )}
+
 
       {/* Modal del formulario - Versión Visual */}
       {showProductForm && (
