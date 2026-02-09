@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
-import { getQRCodesByBusiness, createQRCode, updateQRCode, deleteQRCode } from '@/lib/database'
+import { getQRCodesByBusiness, createQRCode, updateQRCode, deleteQRCode, uploadImage } from '@/lib/database'
 import { QRCode } from '@/types'
 import QRStatistics from '@/components/QRStatistics'
 
@@ -22,8 +22,6 @@ function generateLocalShortId(length: number = 6): string {
 }
 
 export default function QRCodesContent({ businessId: initialBusinessId }: QRCodesContentProps) {
-  console.log('Rendering QRCodesContent, businessId:', initialBusinessId)
-
   const router = useRouter()
   const searchParams = useSearchParams()
   const [loading, setLoading] = useState(true)
@@ -40,6 +38,9 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
   const [newCodePoints, setNewCodePoints] = useState(10)
   const [newCodeIsActive, setNewCodeIsActive] = useState(true)
   const [newCodeColor, setNewCodeColor] = useState('#f3f4f6')
+  const [newCodeImage, setNewCodeImage] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
   const [nameError, setNameError] = useState('')
   const [modalTitle, setModalTitle] = useState('Generar Nuevo Código QR')
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
@@ -47,34 +48,26 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
   const lastLoadedId = useRef<string | null>(null)
 
   const loadQRCodes = useCallback(async (bizId: string) => {
-    console.log('loadQRCodes starting for bizId:', bizId)
     if (!bizId) {
-      console.warn('No bizId provided to loadQRCodes')
       setLoading(false)
       return
     }
 
     try {
       setLoading(true)
-      console.log('Fetching codes from database...')
       const codes = await getQRCodesByBusiness(bizId)
-      console.log('Found codes:', codes.length)
       setQrCodes(codes)
       lastLoadedId.current = bizId
-
-      // Forzar setLoading(false) aquí para ver si carga el texto al menos
       setLoading(false)
 
       if (typeof window === 'undefined') return
 
-      console.log('Importing qr-code-styling...')
       const QRCodeStyling = (await import('qr-code-styling')).default
       const images: { [key: string]: string } = {}
       const baseUrl = window.location.origin
 
       for (const code of codes) {
         try {
-          console.log('Generating QR for:', code.id)
           const scanUrl = `${baseUrl}/scan/${code.id}`
           const qrCode = new QRCodeStyling({
             width: 300,
@@ -106,13 +99,11 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
       console.error('Error in loadQRCodes:', error)
     } finally {
       setLoading(false)
-      console.log('loadQRCodes finished')
     }
   }, [])
 
   useEffect(() => {
     if (initialBusinessId) {
-      console.log('useEffect: initialBusinessId present, loading...')
       setBusinessId(initialBusinessId)
       loadQRCodes(initialBusinessId)
       return
@@ -120,15 +111,12 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        console.log('useEffect: auth user present')
         if (!businessId) {
           const defaultBusinessId = '0FeNtdYThoTRMPJ6qaS7'
-          console.log('useEffect: no businessId, using default:', defaultBusinessId)
           setBusinessId(defaultBusinessId)
           await loadQRCodes(defaultBusinessId)
         }
       } else {
-        console.log('useEffect: no auth user, redirecting to login')
         router.push('/login')
       }
     })
@@ -142,6 +130,16 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
       setActiveTab(tab)
     }
   }, [searchParams])
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      setNewCodeImage(file)
+      const reader = new FileReader()
+      reader.onloadend = () => setImagePreview(reader.result as string)
+      reader.readAsDataURL(file)
+    }
+  }
 
   const handleDeleteQR = useCallback(async (codeId: string, codeName: string) => {
     if (!confirm(`¿Estás seguro de que quieres eliminar "${codeName}"?`)) return
@@ -161,6 +159,8 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
       setNewCodePoints(code.points)
       setNewCodeIsActive(code.isActive)
       setNewCodeColor(code.color || '#f3f4f6')
+      setImagePreview(code.image || null)
+      setNewCodeImage(null)
       setModalTitle('Editar Código QR')
     } else {
       setEditingCodeId(null)
@@ -169,6 +169,8 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
       setNewCodePoints(10)
       setNewCodeIsActive(true)
       setNewCodeColor('#f3f4f6')
+      setImagePreview(null)
+      setNewCodeImage(null)
       setModalTitle('Generar Nuevo Código QR')
     }
     setNameError('')
@@ -180,14 +182,22 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
     if (!businessId) return
 
     setGenerating(true)
+    setIsUploading(true)
     try {
+      let imageUrl = imagePreview || ''
+      if (newCodeImage) {
+        const filePath = `qrcodes/${Date.now()}_${newCodeImage.name}`
+        imageUrl = await uploadImage(newCodeImage, filePath)
+      }
+
       const codeData: any = {
         name: newCodeName.trim(),
         prize: newCodePrize.trim(),
         points: newCodePoints,
         isActive: newCodeIsActive,
         color: newCodeColor,
-        businessId: businessId
+        businessId: businessId,
+        image: imageUrl
       }
 
       if (editingCodeId) {
@@ -205,6 +215,7 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
       alert(`Error al guardar: ${e.message || 'Error desconocido'}`)
     } finally {
       setGenerating(false)
+      setIsUploading(false)
     }
   }
 
@@ -273,7 +284,11 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
                 </div>
                 <div className="flex justify-center mb-3">
                   <div className="w-16 h-16 rounded-full border-4 border-white shadow-sm overflow-hidden bg-white flex items-center justify-center">
-                    <i className="bi bi-qr-code text-gray-200 text-xl"></i>
+                    {qr.image ? (
+                      <img src={qr.image} className="w-full h-full object-cover" alt={qr.name} />
+                    ) : (
+                      <i className="bi bi-qr-code text-gray-200 text-xl"></i>
+                    )}
                   </div>
                 </div>
                 <h3 className="text-center font-bold text-sm truncate px-1">{qr.name}</h3>
@@ -335,10 +350,30 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
                   </button>
                 </div>
               </div>
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Imagen de Campaña</label>
+                <div className="flex items-center gap-4">
+                  <div className="w-20 h-20 rounded-2xl bg-gray-50 flex items-center justify-center overflow-hidden border-2 border-dashed border-gray-200">
+                    {imagePreview ? <img src={imagePreview} className="w-full h-full object-cover" alt="Preview" /> : <i className="bi bi-image text-gray-300 text-2xl"></i>}
+                  </div>
+                  <div className="flex-1">
+                    <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" id="qr-image-upload" />
+                    <label htmlFor="qr-image-upload" className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-colors inline-block">
+                      <i className="bi bi-cloud-upload me-2"></i>
+                      {imagePreview ? 'Cambiar Imagen' : 'Subir Imagen'}
+                    </label>
+                    {imagePreview && (
+                      <button onClick={() => { setImagePreview(null); setNewCodeImage(null); }} className="block mt-2 text-red-500 text-[10px] font-bold uppercase tracking-wider">
+                        Eliminar imagen
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
               <div className="flex gap-3 pt-6">
                 <button onClick={() => setShowModal(false)} className="flex-1 py-4 font-bold text-gray-400">Cancelar</button>
-                <button onClick={handleSaveCode} disabled={generating || !newCodeName.trim()} className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-red-100 disabled:bg-gray-200">
-                  {generating ? 'Guardando...' : 'Guardar'}
+                <button onClick={handleSaveCode} disabled={generating || isUploading || !newCodeName.trim()} className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-red-100 disabled:bg-gray-200">
+                  {generating || isUploading ? (editingCodeId ? 'Actualizando...' : 'Guardando...') : 'Guardar'}
                 </button>
               </div>
             </div>
