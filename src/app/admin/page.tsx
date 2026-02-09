@@ -9,6 +9,7 @@ import {
   getAllReferralLinksGlobal,
   getAllClientsGlobal
 } from '@/lib/database'
+import { isStoreOpen } from '@/lib/store-utils'
 import { Order, Business } from '@/types'
 import {
   BarChart,
@@ -33,10 +34,12 @@ export default function AdminDashboard() {
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'general' | 'customers' | 'recommenders'>('general')
+  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders'>('home')
   const [customers, setCustomers] = useState<any[]>([])
   const [recommenders, setRecommenders] = useState<any[]>([])
   const [chartData, setChartData] = useState<any[]>([])
+
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
 
   // Estados para rango de fechas del gráfico
   const [dateRange, setDateRange] = useState({
@@ -116,6 +119,16 @@ export default function AdminDashboard() {
     }
 
     processChartData()
+
+    // Actualizar estado de apertura cada minuto
+    const interval = setInterval(() => {
+      setBusinesses(prev => prev.map(b => ({
+        ...b,
+        isOpen: isStoreOpen(b)
+      })))
+    }, 60000)
+
+    return () => clearInterval(interval)
   }, [orders, dateRange])
 
   const loadData = async () => {
@@ -124,8 +137,13 @@ export default function AdminDashboard() {
 
       // Cargar todos los pedidos y negocios con manejo de errores mejorado
       const allBusinesses = await getAllBusinesses()
-      // Filtrar negocios válidos
-      const validBusinesses = allBusinesses.filter(business => business && business.id && business.name)
+      // Filtrar negocios válidos y calcular estado real
+      const validBusinesses = allBusinesses
+        .filter(business => business && business.id && business.name)
+        .map(b => ({
+          ...b,
+          isOpen: isStoreOpen(b) // Calcular estado real basado en horario/manual
+        }))
       setBusinesses(validBusinesses)
 
       // Cargar visitas desde Firestore para cada business (paralelo)
@@ -388,6 +406,13 @@ export default function AdminDashboard() {
         {/* Tabs - Scroll horizontal en móvil */}
         <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl border border-gray-200 overflow-x-auto -mx-4 px-4 md:mx-0 md:px-1 scrollbar-hide">
           <button
+            onClick={() => setActiveTab('home')}
+            className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'home' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <i className="bi bi-house md:hidden me-1.5"></i>
+            Inicio
+          </button>
+          <button
             onClick={() => setActiveTab('general')}
             className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'general' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
@@ -411,7 +436,87 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {activeTab === 'general' ? (
+      {activeTab === 'home' ? (
+        <div className="space-y-4">
+          <div className="flex items-center justify-end">
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {businesses.map((business) => {
+              // Calcular contadores de órdenes para este negocio filtrado por fecha
+              const businessOrders = orders.filter(o => {
+                try {
+                  return o.businessId === business.id &&
+                    o.createdAt &&
+                    new Date(o.createdAt).toISOString().startsWith(selectedDate);
+                } catch (e) {
+                  return false;
+                }
+              });
+              const activeOrders = businessOrders.filter(o => ['pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(o.status)).length;
+              const deliveredOrders = businessOrders.filter(o => o.status === 'delivered').length;
+
+              return (
+                <a
+                  key={business.id}
+                  href={`/business/${business.username || business.id}/dashboard`}
+                  className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 flex items-center gap-4 hover:shadow-md transition-all group cursor-pointer"
+                >
+                  <div className="w-16 h-16 rounded-full border border-gray-100 bg-gray-50 overflow-hidden flex-shrink-0">
+                    {business.image ? (
+                      <img src={business.image} alt={business.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <i className="bi bi-shop text-gray-400 text-xl"></i>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <h3 className="text-base font-bold text-gray-900 group-hover:text-blue-600 transition-colors line-clamp-1">
+                      {business.name}
+                    </h3>
+
+                    <div className={`mt-1 inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full w-fit ${business.isOpen
+                      ? 'bg-green-50 text-green-700 border border-green-200'
+                      : 'bg-gray-50 text-gray-500 border border-gray-200'
+                      }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${business.isOpen ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                      {business.isOpen ? 'Abierto' : 'Cerrado'}
+                    </div>
+
+                    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Activas</span>
+                        <span className="text-sm font-bold text-gray-900">{activeOrders}</span>
+                      </div>
+                      <div className="w-px h-6 bg-gray-100"></div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Entregadas</span>
+                        <span className="text-sm font-bold text-gray-900">{deliveredOrders}</span>
+                      </div>
+                    </div>
+                  </div>
+                </a>
+              );
+            })}
+            {businesses.length === 0 && !loading && (
+              <div className="col-span-full py-12 text-center">
+                <div className="inline-block p-4 rounded-full bg-gray-50 mb-4">
+                  <i className="bi bi-shop text-4xl text-gray-300"></i>
+                </div>
+                <h3 className="text-lg font-medium text-gray-900">No hay tiendas registradas</h3>
+                <p className="text-gray-500">Comienza creando tu primera tienda.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : activeTab === 'general' ? (
         <>
           {/* Stats Grid - 2x2 en móvil */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
