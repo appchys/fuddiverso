@@ -904,6 +904,7 @@ export async function getOrdersByBusiness(businessId: string): Promise<Order[]> 
       createdAt: parseCreatedAt(doc.data().createdAt)
     })) as Order[]
 
+
     // Ordenar en JavaScript como alternativa temporal
     return orders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
   } catch (error) {
@@ -911,6 +912,7 @@ export async function getOrdersByBusiness(businessId: string): Promise<Order[]> 
     throw error
   }
 }
+
 
 // Obtiene solo los pedidos recientes (de hoy en adelante) para un negocio específico.
 // Esto se usa para el dashboard en la pestaña de "Hoy" para evitar cargar

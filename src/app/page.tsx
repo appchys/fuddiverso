@@ -593,7 +593,7 @@ function HomePageContent() {
             </div>
             <div className="relative z-10 flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
               <Link
-                href="/business/register"
+                href="/business/dashboard"
                 className="bg-white text-red-600 px-8 py-3 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-red-50 transition-all shadow-lg active:scale-95 text-center"
               >
                 Vende aquí

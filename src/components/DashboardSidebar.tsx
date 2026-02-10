@@ -5,8 +5,9 @@ import React from 'react'
 interface DashboardSidebarProps {
     sidebarOpen: boolean
     setSidebarOpen: (open: boolean) => void
-    activeTab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes'
-    setActiveTab: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes') => void
+    activeTab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats'
+    setActiveTab: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats') => void
+
     profileSubTab: 'general' | 'products' | 'fidelizacion' | 'notifications'
     setProfileSubTab: (tab: 'general' | 'products' | 'fidelizacion' | 'notifications') => void
     reportsSubTab: 'general' | 'deliveries' | 'costs'
@@ -66,6 +67,20 @@ export default function DashboardSidebar({
                 </div>
 
                 <nav className="space-y-2">
+                    <button
+                        onClick={() => {
+                            setActiveTab('stats')
+                            setSidebarOpen(false)
+                        }}
+                        className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'stats'
+                            ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                            : 'text-gray-700 hover:bg-gray-50'
+                            }`}
+                    >
+                        <i className="bi bi-bar-chart-line me-3 text-lg"></i>
+                        <span className="font-medium">Estadísticas</span>
+                    </button>
+
                     <button
                         onClick={() => {
                             setActiveTab('orders')

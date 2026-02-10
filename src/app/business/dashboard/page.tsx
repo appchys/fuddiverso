@@ -19,7 +19,9 @@ import { sendWhatsAppToDelivery, sendWhatsAppToCustomer } from '@/components/Wha
 import BusinessProfileDashboard from '@/components/BusinessProfileDashboard'
 import QueueStatusIndicator from '@/components/QueueStatusIndicator'
 import DashboardSidebar from '@/components/DashboardSidebar'
+import StatisticsView from '@/components/StatisticsView'
 import { useOfflineQueue } from '@/hooks/useOfflineQueue'
+
 import {
   getBusiness,
   getProductsByBusiness,
@@ -97,7 +99,8 @@ export default function BusinessDashboard() {
   const [historicalOrders, setHistoricalOrders] = useState<Order[]>([])
   const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes'>('orders')
+  const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats'>('orders')
+
   const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications'>('general')
   const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
   const [reportsSubTab, setReportsSubTab] = useState<'general' | 'deliveries' | 'costs'>('general')
@@ -528,7 +531,8 @@ export default function BusinessDashboard() {
     const tab = query.get('tab');
     const subtab = query.get('subtab');
 
-    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes'].includes(tab)) {
+    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes', 'stats'].includes(tab)) {
+
       setActiveTab(tab as any);
       if (tab === 'profile') {
         setIsTiendaMenuOpen(true);
@@ -638,12 +642,22 @@ export default function BusinessDashboard() {
     return () => clearInterval(interval);
   }, [selectedBusinessId, previousOrdersCount, permission, showNotification])
 
+
   // Efecto para cargar automáticamente el historial cuando el usuario entra a la pestaña
+  // Efecto para cargar automáticamente el historial cuando el usuario entra a la pestaña de historial o estadísticas
   useEffect(() => {
     const loadHistoryIfNeeded = async () => {
-      if (ordersSubTab === 'history' && !historyLoaded && selectedBusinessId) {
+      // Cargar historial si estamos en la pestaña de historial (ordersSubTab === 'history')
+      // O si estamos en la pestaña de estadísticas (activeTab === 'stats') para tener datos completos
+      const shouldLoadHistory = ((activeTab === 'orders' && ordersSubTab === 'history') || activeTab === 'stats');
+
+      if (shouldLoadHistory && !historyLoaded && selectedBusinessId) {
         try {
           const historyData = await getHistoricalOrdersByBusiness(selectedBusinessId)
+          // Si estamos en stats, asegurarnos de combinar con las órdenes recientes si no se hace en otro lado
+          // Nota: getHistoricalOrdersByBusiness devuelve órdenes ANTERIORES a hoy.
+          // setHistoricalOrders guardará estas.
+          // StatisticsView recibe [...orders, ...historicalOrders] así que tendrá ambas.
           setHistoricalOrders(historyData)
           setHistoryLoaded(true)
         } catch (error) {
@@ -653,7 +667,7 @@ export default function BusinessDashboard() {
     }
 
     loadHistoryIfNeeded()
-  }, [ordersSubTab, historyLoaded, selectedBusinessId])
+  }, [ordersSubTab, activeTab, historyLoaded, selectedBusinessId])
 
   // Efecto para calcular automáticamente el total del pedido manual
   useEffect(() => {
@@ -3036,7 +3050,14 @@ export default function BusinessDashboard() {
 
           <div className="mx-auto px-4 sm:px-6 py-4 sm:py-8">
 
+
+            {/* Stats Tab */}
+            {activeTab === 'stats' && (
+              <StatisticsView orders={[...orders, ...historicalOrders]} />
+            )}
+
             {/* Orders Tab */}
+
             {activeTab === 'orders' && (
               <div className="space-y-6">
                 {/* Sub-pestañas para pedidos */}
