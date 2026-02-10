@@ -54,7 +54,7 @@ export default function DashboardSidebar({
 
     return (
         <div className={`
-      w-64 bg-white shadow-sm border-r border-gray-200 fixed h-full overflow-y-auto z-50 transition-transform duration-300 ease-in-out flex flex-col
+      w-72 bg-white shadow-sm border-r border-gray-200 fixed h-full overflow-y-auto z-50 transition-transform duration-300 ease-in-out flex flex-col
       ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
     `}>
             <div className="p-4 flex-1">
@@ -65,7 +65,7 @@ export default function DashboardSidebar({
                         onClick={() => setSidebarOpen(false)}
                         className="p-2 rounded-lg text-gray-600 hover:bg-gray-100"
                     >
-                        <i className="bi bi-x-lg"></i>
+                        <span className="material-symbols-rounded">close</span>
                     </button>
                 </div>
 
@@ -82,34 +82,49 @@ export default function DashboardSidebar({
                             : 'text-gray-700 hover:bg-gray-50'
                             }`}
                     >
-                        <i className="bi bi-clipboard-check me-3 text-lg"></i>
+                        <span className="material-symbols-rounded me-3 text-lg">receipt_long</span>
                         <span className="font-medium">Pedidos</span>
                         <span className="ml-auto bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs">
                             {ordersCount}
                         </span>
                     </button>
 
+                    <button
+                        onClick={() => {
+                            setActiveTab('profile')
+                            setProfileSubTab('products')
+                            setSidebarOpen(false)
+                        }}
+                        className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'profile' && profileSubTab === 'products'
+                            ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                            : 'text-gray-700 hover:bg-gray-50'
+                            }`}
+                    >
+                        <span className="material-symbols-rounded me-3 text-lg">lunch_dining</span>
+                        <span className="font-medium">Productos</span>
+                    </button>
+
                     <div>
+
                         <button
                             onClick={() => setIsTiendaMenuOpen(!isTiendaMenuOpen)}
-                            className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'profile'
+                            className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'profile' && profileSubTab !== 'products'
                                 ? 'bg-red-50 text-red-600'
                                 : 'text-gray-700 hover:bg-gray-50'
                                 }`}
                         >
-                            <i className="bi bi-shop me-3 text-lg"></i>
+                            <span className="material-symbols-rounded me-3 text-lg">storefront</span>
                             <span className="font-medium">Tienda</span>
-                            <i className={`bi bi-chevron-down ml-auto transition-transform ${isTiendaMenuOpen ? 'rotate-180' : ''}`}></i>
+                            <span className={`material-symbols-rounded ml-auto transition-transform ${isTiendaMenuOpen ? 'rotate-180' : ''}`}>expand_more</span>
                         </button>
 
                         {(isTiendaMenuOpen || activeTab === 'profile') && (
                             <div className="ml-9 mt-1 space-y-1">
                                 {[
-                                    { id: 'general', label: 'Generales', icon: 'bi-info-circle' },
-                                    { id: 'products', label: 'Productos', icon: 'bi-box-seam' },
-                                    { id: 'fidelizacion', label: 'Fidelización', icon: 'bi-gift' },
-                                    { id: 'notifications', label: 'Notificaciones', icon: 'bi-bell' },
-                                    { id: 'admins', label: 'Administradores', icon: 'bi-people' }
+                                    { id: 'general', label: 'Generales', icon: 'info' },
+                                    { id: 'fidelizacion', label: 'Fidelización', icon: 'loyalty' },
+                                    { id: 'notifications', label: 'Notificaciones', icon: 'notifications' },
+                                    { id: 'admins', label: 'Administradores', icon: 'group' }
                                 ].map((sub) => (
                                     <button
                                         key={sub.id}
@@ -127,7 +142,7 @@ export default function DashboardSidebar({
                                             : 'text-gray-600 hover:bg-gray-50'
                                             }`}
                                     >
-                                        <i className={`bi ${sub.icon} me-2`}></i>
+                                        <span className="material-symbols-rounded me-2 text-lg">{sub.icon}</span>
                                         {sub.label}
                                     </button>
                                 ))}
@@ -145,7 +160,7 @@ export default function DashboardSidebar({
                             : 'text-gray-700 hover:bg-gray-50'
                             }`}
                     >
-                        <i className="bi bi-bar-chart-line me-3 text-lg"></i>
+                        <span className="material-symbols-rounded me-3 text-lg">bar_chart</span>
                         <span className="font-medium">Estadísticas</span>
                     </button>
 
@@ -160,17 +175,17 @@ export default function DashboardSidebar({
                                     : 'text-gray-700 hover:bg-gray-50'
                                     }`}
                             >
-                                <i className="bi bi-graph-up me-3 text-lg"></i>
+                                <span className="material-symbols-rounded me-3 text-lg">monitoring</span>
                                 <span className="font-medium">Reportes</span>
-                                <i className={`bi bi-chevron-down ml-auto transition-transform ${isReportsMenuOpen ? 'rotate-180' : ''}`}></i>
+                                <span className={`material-symbols-rounded ml-auto transition-transform ${isReportsMenuOpen ? 'rotate-180' : ''}`}>expand_more</span>
                             </button>
 
                             {(isReportsMenuOpen || activeTab === 'reports') && (
                                 <div className="ml-9 mt-1 space-y-1">
                                     {[
-                                        { id: 'general', label: 'General', icon: 'bi-graph-up' },
-                                        { id: 'deliveries', label: 'Por delivery', icon: 'bi-truck' },
-                                        { id: 'costs', label: 'Costos e ingredientes', icon: 'bi-basket' }
+                                        { id: 'general', label: 'General', icon: 'monitoring' },
+                                        { id: 'deliveries', label: 'Por delivery', icon: 'local_shipping' },
+                                        { id: 'costs', label: 'Costos e ingredientes', icon: 'shopping_basket' }
                                     ].map((sub) => (
                                         <button
                                             key={sub.id}
@@ -184,7 +199,7 @@ export default function DashboardSidebar({
                                                 : 'text-gray-600 hover:bg-gray-50'
                                                 }`}
                                         >
-                                            <i className={`bi ${sub.icon} me-2`}></i>
+                                            <span className="material-symbols-rounded me-2 text-lg">{sub.icon}</span>
                                             {sub.label}
                                         </button>
                                     ))}
@@ -203,7 +218,7 @@ export default function DashboardSidebar({
                             : 'text-gray-700 hover:bg-gray-50'
                             }`}
                     >
-                        <i className="bi bi-box-seam me-3 text-lg"></i>
+                        <span className="material-symbols-rounded me-3 text-lg">inventory_2</span>
                         <span className="font-medium">Inventario / Stock</span>
                     </button>
 
@@ -215,7 +230,7 @@ export default function DashboardSidebar({
                             onClick={requestPermission}
                             className="w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors bg-blue-50 text-blue-600 hover:bg-blue-100 border-l-4 border-blue-500"
                         >
-                            <i className="bi bi-bell me-3 text-lg"></i>
+                            <span className="material-symbols-rounded me-3 text-lg">notifications</span>
                             <span className="font-medium">Activar Notificaciones</span>
                         </button>
                     )}

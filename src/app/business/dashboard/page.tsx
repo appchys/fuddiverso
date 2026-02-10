@@ -2767,7 +2767,7 @@ export default function BusinessDashboard() {
           user={user}
           onLogout={logout}
         />
-        <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
+        <div className="flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full">
           {/* Header - ahora dentro del contenedor scrollable */}
           <header className="bg-white shadow-sm border-b sticky top-0 z-10">
             <div className="px-4 sm:px-6">
