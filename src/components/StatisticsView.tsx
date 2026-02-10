@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Order } from '@/types';
 import {
     BarChart,
@@ -14,13 +14,92 @@ interface StatisticsViewProps {
     orders: Order[];
 }
 
-export default function StatisticsView({ orders }: StatisticsViewProps) {
-    const stats = useMemo(() => {
-        // Filtrar órdenes válidas (no canceladas)
-        const validOrders = orders.filter(
-            (order) => order.status !== 'cancelled'
-        );
+type DateFilter = 'today' | 'yesterday' | '7days' | '30days' | 'custom';
 
+// Helper para obtener fecha efectiva (programada > creación)
+const getEffectiveDate = (order: Order): Date => {
+    try {
+        if (order.timing?.scheduledDate) {
+            if (order.timing.scheduledDate instanceof Date) {
+                return order.timing.scheduledDate;
+            } else if ((order.timing.scheduledDate as any)?.toDate) {
+                return (order.timing.scheduledDate as any).toDate();
+            } else if ((order.timing.scheduledDate as any)?.seconds) {
+                return new Date((order.timing.scheduledDate as any).seconds * 1000);
+            }
+        }
+
+        if (order.createdAt instanceof Date) {
+            return order.createdAt;
+        } else if ((order.createdAt as any)?.toDate) {
+            return (order.createdAt as any).toDate();
+        } else if ((order.createdAt as any)?.seconds) {
+            return new Date((order.createdAt as any).seconds * 1000);
+        }
+
+        return new Date(order.createdAt as any);
+    } catch (e) {
+        return new Date();
+    }
+};
+
+export default function StatisticsView({ orders }: StatisticsViewProps) {
+    const [dateFilter, setDateFilter] = useState<DateFilter>('today');
+    const [startDate, setStartDate] = useState<string>('');
+    const [endDate, setEndDate] = useState<string>('');
+
+    const filteredOrders = useMemo(() => {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        return orders.filter(order => {
+            if (order.status === 'cancelled') return false;
+
+            const orderDate = getEffectiveDate(order);
+
+            if (isNaN(orderDate.getTime())) return false;
+
+            // Normalizar fecha de la orden (sin hora) para comparaciones de días completos
+            const orderDateOnly = new Date(orderDate.getFullYear(), orderDate.getMonth(), orderDate.getDate());
+
+            switch (dateFilter) {
+                case 'today':
+                    return orderDateOnly.getTime() === today.getTime();
+
+                case 'yesterday':
+                    const yesterday = new Date(today);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    return orderDateOnly.getTime() === yesterday.getTime();
+
+                case '7days':
+                    const sevenDaysAgo = new Date(today);
+                    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6); // Incluye hoy
+                    return orderDateOnly >= sevenDaysAgo && orderDateOnly <= today;
+
+                case '30days':
+                    const thirtyDaysAgo = new Date(today);
+                    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29); // Incluye hoy
+                    return orderDateOnly >= thirtyDaysAgo && orderDateOnly <= today;
+
+                case 'custom':
+                    if (!startDate || !endDate) return true; // Mostrar todo si no hay rango completo
+
+                    const startParts = startDate.split('-').map(Number);
+                    const endParts = endDate.split('-').map(Number);
+
+                    // Crear fechas locales explícitamente year, monthIndex (0-11), day
+                    const start = new Date(startParts[0], startParts[1] - 1, startParts[2]);
+                    const end = new Date(endParts[0], endParts[1] - 1, endParts[2]);
+
+                    return orderDateOnly >= start && orderDateOnly <= end;
+
+                default:
+                    return true;
+            }
+        });
+    }, [orders, dateFilter, startDate, endDate]);
+
+    const stats = useMemo(() => {
         // Debug counters
         let debugTotalItems = 0;
         let debugSkippedPrice0 = 0;
@@ -29,18 +108,19 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
         let debugSampleInvalidItems: any[] = [];
 
         // 1. Monto total de venta
-        const totalSales = validOrders.reduce((sum, order) => sum + order.total, 0);
+        const totalSales = filteredOrders.reduce((sum, order) => sum + order.total, 0);
 
         // 2. Cantidad de órdenes
-        const totalOrdersCount = validOrders.length;
+        const totalOrdersCount = filteredOrders.length;
 
         // 3. Producto más vendido (Top 5)
         const productSales: Record<string, { name: string; quantity: number }> = {};
 
         // 4. Datos para el gráfico (ventas por fecha)
-        const salesByDate: Record<string, number> = {};
+        // Usamos un Map para acumular por día único (YYYY-MM-DD) y luego ordenar
+        const salesMap = new Map<string, { label: string; timestamp: number; amount: number }>();
 
-        validOrders.forEach((order) => {
+        filteredOrders.forEach((order) => {
             // Procesar productos
             order.items?.forEach((item) => {
                 debugTotalItems++;
@@ -80,19 +160,25 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
 
             // Procesar ventas por fecha
             try {
-                // Obtener fecha segura
-                let orderDate: Date;
-                if (order.createdAt instanceof Date) {
-                    orderDate = order.createdAt;
-                } else if ((order.createdAt as any)?.toDate) {
-                    orderDate = (order.createdAt as any).toDate();
-                } else {
-                    orderDate = new Date(order.createdAt as any);
-                }
+                // Obtener fecha efectiva (programada o creación)
+                const orderDate = getEffectiveDate(order);
 
                 if (!isNaN(orderDate.getTime())) {
-                    const dateKey = orderDate.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit' });
-                    salesByDate[dateKey] = (salesByDate[dateKey] || 0) + order.total;
+                    // Clave única por día (YYYY-MM-DD) para evitar colisiones anuales
+                    const year = orderDate.getFullYear();
+                    const month = String(orderDate.getMonth() + 1).padStart(2, '0');
+                    const day = String(orderDate.getDate()).padStart(2, '0');
+                    const dateKey = `${year}-${month}-${day}`;
+
+                    // Etiqueta visual amigable (DD/MM)
+                    const label = `${day}/${month}`;
+
+                    // Timestamp de inicio del día para ordenar
+                    const dayStartTimestamp = new Date(year, orderDate.getMonth(), orderDate.getDate()).getTime();
+
+                    const current = salesMap.get(dateKey) || { label, timestamp: dayStartTimestamp, amount: 0 };
+                    current.amount += order.total;
+                    salesMap.set(dateKey, current);
                 }
             } catch (e) {
                 console.warn('Error processing order date:', e);
@@ -104,14 +190,13 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
             .sort((a, b) => b.quantity - a.quantity)
             .slice(0, 5);
 
-        // Convertir salesByDate a array para rechart y ordenar por fecha (aproximado por string DD/MM)
-        // Nota: para un ordenamiento estricto necesitaríamos guardar el timestamp, pero para visualización simple esto suele bastar
-        // si son fechas cercanas. Mejor hacemos un top 7 o últimos 7 días.
-
-        const chartData = Object.entries(salesByDate).map(([date, amount]) => ({
-            date,
-            amount: parseFloat(amount.toFixed(2))
-        }));
+        // Convertir salesMap a array y ordenar cronológicamente
+        const chartData = Array.from(salesMap.values())
+            .sort((a, b) => a.timestamp - b.timestamp)
+            .map(item => ({
+                date: item.label,
+                amount: parseFloat(item.amount.toFixed(2))
+            }));
 
         // Ordenar un poco mejor si es posible, o dejar como vienen (cronológico si la DB las trae así)
         // Asumiremos que el orden de iteración coincide aprox, o podríamos ordenar por fecha real si guardamos timestamp.
@@ -124,7 +209,7 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
             chartData,
             debug: {
                 totalOrders: orders.length,
-                validOrders: validOrders.length,
+                filteredOrders: filteredOrders.length,
                 totalItems: debugTotalItems,
                 skippedPrice0: debugSkippedPrice0,
                 skippedNoProduct: debugSkippedNoProduct,
@@ -132,13 +217,86 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
                 sampleInvalidItems: debugSampleInvalidItems
             }
         };
-    }, [orders]);
+    }, [orders, filteredOrders]);
 
     return (
         <div className="space-y-6 animate-fade-in">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <h2 className="text-2xl font-bold text-gray-800">Estadísticas</h2>
+
+                {/* Filtros de Fecha */}
+                <div className="flex flex-wrap items-center gap-2 bg-gray-100 p-1.5 rounded-xl">
+                    <button
+                        onClick={() => setDateFilter('today')}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${dateFilter === 'today'
+                            ? 'bg-white text-gray-900 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
+                            }`}
+                    >
+                        Hoy
+                    </button>
+                    <button
+                        onClick={() => setDateFilter('yesterday')}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${dateFilter === 'yesterday'
+                            ? 'bg-white text-gray-900 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
+                            }`}
+                    >
+                        Ayer
+                    </button>
+                    <button
+                        onClick={() => setDateFilter('7days')}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${dateFilter === '7days'
+                            ? 'bg-white text-gray-900 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
+                            }`}
+                    >
+                        7 Días
+                    </button>
+                    <button
+                        onClick={() => setDateFilter('30days')}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${dateFilter === '30days'
+                            ? 'bg-white text-gray-900 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
+                            }`}
+                    >
+                        30 Días
+                    </button>
+                    <button
+                        onClick={() => setDateFilter('custom')}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${dateFilter === 'custom'
+                            ? 'bg-white text-gray-900 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
+                            }`}
+                    >
+                        Personalizado
+                    </button>
+                </div>
             </div>
+
+            {/* Selector de Rango Personalizado */}
+            {dateFilter === 'custom' && (
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-wrap items-center gap-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-gray-500 uppercase">Desde</label>
+                        <input
+                            type="date"
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                            className="bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                        />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-gray-500 uppercase">Hasta</label>
+                        <input
+                            type="date"
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                            className="bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                        />
+                    </div>
+                </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Card: Monto Total */}
@@ -153,7 +311,7 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
                         ${stats.totalSales.toFixed(2)}
                     </div>
                     <p className="text-sm text-gray-400 mt-1">
-                        Ingresos brutos acumulados
+                        Ingresos del periodo seleccionado
                     </p>
                 </div>
 
@@ -169,7 +327,7 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
                         {stats.totalOrdersCount}
                     </div>
                     <p className="text-sm text-gray-400 mt-1">
-                        Pedidos realizados (excluye cancelados)
+                        Pedidos realizados en el periodo
                     </p>
                 </div>
 
@@ -262,7 +420,7 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
                 <p className="font-semibold mb-2">Debug Info (Solo Desarrollo):</p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                     <p>Total Ordenes Recibidas: {stats.debug.totalOrders}</p>
-                    <p>Ordenes Válidas: {stats.debug.validOrders}</p>
+                    <p>Ordenes Filtradas: {stats.debug.filteredOrders}</p>
                     <p>Items Totales: {stats.debug.totalItems}</p>
                     <p>Items Procesados: {stats.debug.processedItems}</p>
                     <p>Omitidos (Precio 0): {stats.debug.skippedPrice0}</p>

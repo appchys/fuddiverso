@@ -696,6 +696,11 @@ export default function BusinessDashboard() {
   const handleBusinessChange = (businessId: string) => {
     const selectedBusiness = businesses.find(b => b.id === businessId);
     if (selectedBusiness) {
+      // Resetear historial y órdenes previas para evitar mezcla de datos mientras carga
+      setHistoricalOrders([]);
+      setHistoryLoaded(false); // Forzar recarga del historial
+      setOrders([]); // Limpiar órdenes para dar feedback visual de carga/cambio
+
       setSelectedBusinessId(businessId);
       setBusiness(selectedBusiness);
 
@@ -3053,7 +3058,7 @@ export default function BusinessDashboard() {
 
             {/* Stats Tab */}
             {activeTab === 'stats' && (
-              <StatisticsView orders={[...orders, ...historicalOrders]} />
+              <StatisticsView key={selectedBusinessId} orders={[...orders, ...historicalOrders]} />
             )}
 
             {/* Orders Tab */}
