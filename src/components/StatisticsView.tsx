@@ -43,6 +43,20 @@ const getEffectiveDate = (order: Order): Date => {
     }
 };
 
+const getOrderSubtotal = (order: Order) => {
+    // Si existe subtotal explicito, usarlo
+    if (typeof order.subtotal === 'number') return order.subtotal;
+
+    // Si no, intentar calcular restando envío
+    const deliveryCost = order.delivery?.deliveryCost || 0;
+    const calculated = order.total - deliveryCost;
+
+    // Si falla (ej: datos antiguos), recurrir a sumar items si es posible, o devolver total
+    if (isNaN(calculated)) return order.total || 0;
+
+    return Math.max(0, calculated);
+};
+
 export default function StatisticsView({ orders }: StatisticsViewProps) {
     const [dateFilter, setDateFilter] = useState<DateFilter>('today');
     const [startDate, setStartDate] = useState<string>('');
@@ -107,8 +121,8 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
         let debugProcessed = 0;
         let debugSampleInvalidItems: any[] = [];
 
-        // 1. Monto total de venta
-        const totalSales = filteredOrders.reduce((sum, order) => sum + order.total, 0);
+        // 1. Monto total de venta (Subtotal)
+        const totalSales = filteredOrders.reduce((sum, order) => sum + getOrderSubtotal(order), 0);
 
         // 2. Cantidad de órdenes
         const totalOrdersCount = filteredOrders.length;
@@ -119,6 +133,12 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
         // 4. Datos para el gráfico (ventas por fecha)
         // Usamos un Map para acumular por día único (YYYY-MM-DD) y luego ordenar
         const salesMap = new Map<string, { label: string; timestamp: number; amount: number }>();
+
+        // 5. Datos para horas pico
+        const ordersByHour = new Array(24).fill(0).map((_, i) => ({
+            hour: `${String(i).padStart(2, '0')}:00`,
+            count: 0
+        }));
 
         filteredOrders.forEach((order) => {
             // Procesar productos
@@ -177,8 +197,17 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
                     const dayStartTimestamp = new Date(year, orderDate.getMonth(), orderDate.getDate()).getTime();
 
                     const current = salesMap.get(dateKey) || { label, timestamp: dayStartTimestamp, amount: 0 };
-                    current.amount += order.total;
+
+                    // Usar subtotal en lugar de total
+                    current.amount += getOrderSubtotal(order);
+
                     salesMap.set(dateKey, current);
+
+                    // Agregar a horas pico
+                    const hour = orderDate.getHours();
+                    if (ordersByHour[hour]) {
+                        ordersByHour[hour].count++;
+                    }
                 }
             } catch (e) {
                 console.warn('Error processing order date:', e);
@@ -207,6 +236,7 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
             totalOrdersCount,
             topProducts,
             chartData,
+            ordersByHour,
             debug: {
                 totalOrders: orders.length,
                 filteredOrders: filteredOrders.length,
@@ -371,70 +401,92 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
                 </div>
             </div>
 
-            {/* Gráfico de Ventas */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            {/* Gráfico de Ventas - Solo mostrar si NO es hoy ni ayer */}
+            {!['today', 'yesterday'].includes(dateFilter) && (
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <div className="mb-6">
+                        <h3 className="text-lg font-bold text-gray-800">Ventas por Fecha</h3>
+                    </div>
+                    <div className="h-[300px] w-full">
+                        {stats.chartData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={stats.chartData}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                    <XAxis
+                                        dataKey="date"
+                                        tick={{ fontSize: 12, fill: '#6B7280' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                    />
+                                    <YAxis
+                                        tick={{ fontSize: 12, fill: '#6B7280' }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tickFormatter={(value) => `$${value}`}
+                                    />
+                                    <Tooltip
+                                        cursor={{ fill: '#F3F4F6' }}
+                                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                                        formatter={(value?: number) => [`$${(value || 0).toFixed(2)}`, 'Ventas']}
+
+                                    />
+                                    <Bar
+                                        dataKey="amount"
+                                        fill="#EF4444"
+                                        radius={[4, 4, 0, 0]}
+                                        maxBarSize={50}
+                                    />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="h-full flex items-center justify-center text-gray-400">
+                                No hay datos suficientes para mostrar el gráfico
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Gráfico de Horas Pico */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mt-6">
                 <div className="mb-6">
-                    <h3 className="text-lg font-bold text-gray-800">Ventas por Fecha</h3>
+                    <h3 className="text-lg font-bold text-gray-800">Horas Con Más Pedidos</h3>
+                    <p className="text-sm text-gray-400">Distribución de pedidos por hora (según hora programada)</p>
                 </div>
                 <div className="h-[300px] w-full">
-                    {stats.chartData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={stats.chartData}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                <XAxis
-                                    dataKey="date"
-                                    tick={{ fontSize: 12, fill: '#6B7280' }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                />
-                                <YAxis
-                                    tick={{ fontSize: 12, fill: '#6B7280' }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                    tickFormatter={(value) => `$${value}`}
-                                />
-                                <Tooltip
-                                    cursor={{ fill: '#F3F4F6' }}
-                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
-                                    formatter={(value?: number) => [`$${(value || 0).toFixed(2)}`, 'Ventas']}
-
-                                />
-                                <Bar
-                                    dataKey="amount"
-                                    fill="#EF4444"
-                                    radius={[4, 4, 0, 0]}
-                                    maxBarSize={50}
-                                />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    ) : (
-                        <div className="h-full flex items-center justify-center text-gray-400">
-                            No hay datos suficientes para mostrar el gráfico
-                        </div>
-                    )}
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={stats.ordersByHour}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis
+                                dataKey="hour"
+                                tick={{ fontSize: 12, fill: '#6B7280' }}
+                                axisLine={false}
+                                tickLine={false}
+                                interval={3}
+                            />
+                            <YAxis
+                                tick={{ fontSize: 12, fill: '#6B7280' }}
+                                axisLine={false}
+                                tickLine={false}
+                                allowDecimals={false}
+                            />
+                            <Tooltip
+                                cursor={{ fill: '#F3F4F6' }}
+                                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                            />
+                            <Bar
+                                dataKey="count"
+                                name="Pedidos"
+                                fill="#3B82F6"
+                                radius={[4, 4, 0, 0]}
+                                maxBarSize={50}
+                            />
+                        </BarChart>
+                    </ResponsiveContainer>
                 </div>
             </div>
 
-            {/* Debug Info */}
-            <div className="mt-8 p-4 bg-gray-50 rounded-lg text-xs font-mono text-gray-500 border border-gray-200">
-                <p className="font-semibold mb-2">Debug Info (Solo Desarrollo):</p>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                    <p>Total Ordenes Recibidas: {stats.debug.totalOrders}</p>
-                    <p>Ordenes Filtradas: {stats.debug.filteredOrders}</p>
-                    <p>Items Totales: {stats.debug.totalItems}</p>
-                    <p>Items Procesados: {stats.debug.processedItems}</p>
-                    <p>Omitidos (Precio 0): {stats.debug.skippedPrice0}</p>
-                    <p>Omitidos (Error): {stats.debug.skippedNoProduct}</p>
-                </div>
-                {stats.debug.sampleInvalidItems.length > 0 && (
-                    <div className="mt-4">
-                        <p className="font-semibold mb-2">Muestra de Items Inválidos:</p>
-                        <pre className="whitespace-pre-wrap break-all text-[10px] bg-white p-2 rounded border">
-                            {JSON.stringify(stats.debug.sampleInvalidItems, null, 2)}
-                        </pre>
-                    </div>
-                )}
-            </div>
+
         </div>
     );
 }

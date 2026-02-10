@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { useRouter } from 'next/navigation'
 
 interface DashboardSidebarProps {
     sidebarOpen: boolean
@@ -8,8 +9,8 @@ interface DashboardSidebarProps {
     activeTab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats'
     setActiveTab: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats') => void
 
-    profileSubTab: 'general' | 'products' | 'fidelizacion' | 'notifications'
-    setProfileSubTab: (tab: 'general' | 'products' | 'fidelizacion' | 'notifications') => void
+    profileSubTab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'
+    setProfileSubTab: (tab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins') => void
     reportsSubTab: 'general' | 'deliveries' | 'costs'
     setReportsSubTab: (tab: 'general' | 'deliveries' | 'costs') => void
     isTiendaMenuOpen: boolean
@@ -49,6 +50,8 @@ export default function DashboardSidebar({
     user,
     onLogout
 }: DashboardSidebarProps) {
+    const router = useRouter()
+
     return (
         <div className={`
       w-64 bg-white shadow-sm border-r border-gray-200 fixed h-full overflow-y-auto z-50 transition-transform duration-300 ease-in-out flex flex-col
@@ -117,11 +120,16 @@ export default function DashboardSidebar({
                                     { id: 'general', label: 'Generales', icon: 'bi-info-circle' },
                                     { id: 'products', label: 'Productos', icon: 'bi-box-seam' },
                                     { id: 'fidelizacion', label: 'Fidelización', icon: 'bi-gift' },
-                                    { id: 'notifications', label: 'Notificaciones', icon: 'bi-bell' }
+                                    { id: 'notifications', label: 'Notificaciones', icon: 'bi-bell' },
+                                    { id: 'admins', label: 'Administradores', icon: 'bi-people' }
                                 ].map((sub) => (
                                     <button
                                         key={sub.id}
                                         onClick={() => {
+                                            if (sub.id === 'general') {
+                                                router.push('/business/profile/edit')
+                                                return
+                                            }
                                             setActiveTab('profile')
                                             setProfileSubTab(sub.id as any)
                                             setSidebarOpen(false)
@@ -139,19 +147,7 @@ export default function DashboardSidebar({
                         )}
                     </div>
 
-                    <button
-                        onClick={() => {
-                            setActiveTab('admins')
-                            setSidebarOpen(false)
-                        }}
-                        className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'admins'
-                            ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                            : 'text-gray-700 hover:bg-gray-50'
-                            }`}
-                    >
-                        <i className="bi bi-people me-3 text-lg"></i>
-                        <span className="font-medium">Administradores</span>
-                    </button>
+
 
                     <div>
                         <button

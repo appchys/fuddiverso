@@ -28,8 +28,13 @@ interface BusinessProfileDashboardProps {
   onToggleDayOpen: (day: string) => void
   onProductsChange: (products: Product[]) => void
   onCategoriesChange: (categories: string[]) => void
-  initialTab?: 'general' | 'products' | 'fidelizacion' | 'notifications'
+  initialTab?: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'
   onDirectUpdate?: (field: keyof Business, value: any) => Promise<void>
+  // Props para gestión de administradores (opcionales)
+  onAddAdmin?: () => void
+  onRemoveAdmin?: (email: string) => void
+  onTransferOwnership?: (admin: any) => void
+  userRole?: 'owner' | 'admin' | 'manager' | null
 }
 
 export default function BusinessProfileDashboard({
@@ -53,11 +58,15 @@ export default function BusinessProfileDashboard({
   onProductsChange,
   onCategoriesChange,
   initialTab = 'general',
-  onDirectUpdate
+  onDirectUpdate,
+  onAddAdmin,
+  onRemoveAdmin,
+  onTransferOwnership,
+  userRole
 }: BusinessProfileDashboardProps) {
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
-  const [activeTab, setActiveTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications'>(initialTab)
+  const [activeTab, setActiveTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>(initialTab)
 
   // Hook para ubicación
   const { location, loading: locating, error: locationError, getCurrentLocation } = useCurrentLocation()
@@ -203,494 +212,7 @@ export default function BusinessProfileDashboard({
   return (
     <div className="space-y-6 pt-4">
 
-      {/* Contenido de la pestaña Generales */}
-      {activeTab === 'general' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          {/* Portada */}
-          <div className="relative w-full h-40 sm:h-56 bg-gray-200">
-            {displayBusiness.coverImage ? (
-              <>
-                <div
-                  className={`absolute inset-0 animate-pulse bg-gray-200 ${coverLoaded ? 'hidden' : 'block'}`}
-                ></div>
-                <img
-                  src={displayBusiness.coverImage}
-                  alt={`Portada de ${displayBusiness.name}`}
-                  className="w-full h-full object-cover"
-                  onLoad={() => setCoverLoaded(true)}
-                  onError={() => setCoverLoaded(true)}
-                />
-              </>
-            ) : (
-              <div className="w-full h-full bg-gradient-to-br from-orange-100 to-orange-200" />
-            )}
 
-            {/* Botón para editar portada - solo en modo edición */}
-            {isEditingProfile && (
-              <label className="absolute right-4 top-4 z-10 p-2 bg-white/90 hover:bg-white rounded-full shadow cursor-pointer text-gray-700 transition-colors">
-                <i className="bi bi-camera"></i>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={onCoverImageUpload}
-                  disabled={uploadingCover}
-                  className="hidden"
-                />
-              </label>
-            )}
-
-            {/* Logo */}
-            <div className="absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 z-10">
-              <div className="relative">
-                {displayBusiness.image && (
-                  <>
-                    <div
-                      className={`absolute inset-0 rounded-full animate-pulse bg-gray-200 ${logoLoaded ? 'hidden' : 'block'
-                        }`}
-                    ></div>
-                    <img
-                      src={displayBusiness.image}
-                      alt={displayBusiness.name}
-                      className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-4 border-white shadow-lg object-cover"
-                      onLoad={() => setLogoLoaded(true)}
-                      onError={() => setLogoLoaded(true)}
-                    />
-                  </>
-                )}
-
-                {/* Botón para editar logo - solo en modo edición */}
-                {isEditingProfile && (
-                  <label className="absolute bottom-0 right-0 z-20 p-2 bg-red-500 hover:bg-red-600 rounded-full shadow cursor-pointer text-white transition-colors">
-                    <i className="bi bi-camera text-sm"></i>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={onProfileImageUpload}
-                      disabled={uploadingProfile}
-                      className="hidden"
-                    />
-                  </label>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Contenido del perfil */}
-          <div className="px-4 sm:px-6 pt-16 sm:pt-20 pb-6 text-center">
-            {isEditingProfile ? (
-              // Modo edición
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Nombre del Negocio</label>
-                  <input
-                    type="text"
-                    value={editedBusiness?.name || ''}
-                    onChange={(e) => onBusinessFieldChange('name', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Descripción</label>
-                  <textarea
-                    value={editedBusiness?.description || ''}
-                    onChange={(e) => onBusinessFieldChange('description', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                    rows={3}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-                  <input
-                    type="email"
-                    value={editedBusiness?.email || ''}
-                    onChange={(e) => onBusinessFieldChange('email', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Teléfono</label>
-                  <input
-                    type="tel"
-                    value={editedBusiness?.phone || ''}
-                    onChange={(e) => onBusinessFieldChange('phone', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Dirección</label>
-                  <input
-                    type="text"
-                    value={editedBusiness?.address || ''}
-                    onChange={(e) => onBusinessFieldChange('address', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                </div>
-
-                {/* Sección de Entrega (Retiro en tienda) */}
-                <div className="mt-8 pt-6 border-t border-gray-200">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="text-left">
-                      <h3 className="text-lg font-semibold text-gray-900">Entrega</h3>
-                      <p className="text-sm text-gray-500">Configura las opciones para que tus clientes retiren sus pedidos.</p>
-                    </div>
-                    <div
-                      className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${displayBusiness.pickupSettings?.enabled ? 'bg-red-500' : 'bg-gray-200'}`}
-                      onClick={() => {
-                        const currentSettings = displayBusiness.pickupSettings || { enabled: false, references: '', latlong: '', storePhotoUrl: '' };
-                        onBusinessFieldChange('pickupSettings', { ...currentSettings, enabled: !currentSettings.enabled });
-                      }}
-                    >
-                      <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${displayBusiness.pickupSettings?.enabled ? 'translate-x-6' : ''}`}></div>
-                    </div>
-                  </div>
-
-                  <div className={`space-y-6 transition-opacity duration-200 ${displayBusiness.pickupSettings?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                    <div className="text-left">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Referencias para el retiro</label>
-                      <textarea
-                        value={displayBusiness.pickupSettings?.references || ''}
-                        onChange={(e) => {
-                          const currentSettings = displayBusiness.pickupSettings || { enabled: false, references: '', latlong: '', storePhotoUrl: '' };
-                          onBusinessFieldChange('pickupSettings', { ...currentSettings, references: e.target.value });
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                        rows={2}
-                        placeholder="Ej: Frente al parque central, local de color rojo"
-                      />
-                    </div>
-
-                    <div className="text-left">
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="block text-sm font-medium text-gray-700">Mapa de Ubicación</label>
-                        <button
-                          type="button"
-                          onClick={handleCaptureCurrentLocation}
-                          disabled={locating}
-                          className="text-xs font-bold text-red-600 hover:text-red-700 flex items-center gap-1"
-                        >
-                          <i className="bi bi-geo-alt-fill"></i>
-                          {locating ? 'Obteniendo...' : 'Usar mi ubicación actual'}
-                        </button>
-                      </div>
-                      <div className="rounded-xl overflow-hidden border border-gray-300">
-                        {(() => {
-                          const latlong = displayBusiness.pickupSettings?.latlong || '0, 0'
-                          const [lat, lng] = latlong.split(',').map(c => parseFloat(c.trim()) || 0)
-                          return (
-                            <GoogleMap
-                              latitude={lat}
-                              longitude={lng}
-                              height="300px"
-                              draggable={true}
-                              marker={true}
-                              onLocationChange={handlePickupLocationChange}
-                            />
-                          )
-                        })()}
-                      </div>
-                      <p className="text-[10px] text-gray-500 mt-2">
-                        Puedes mover el marcador en el mapa para ajustar la ubicación exacta de tu negocio.
-                      </p>
-                    </div>
-
-                    <div className="text-left">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Foto del Negocio</label>
-                      <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-red-400 transition-colors group relative overflow-hidden">
-                        {displayBusiness.pickupSettings?.storePhotoUrl ? (
-                          <div className="relative w-full aspect-video rounded-lg overflow-hidden">
-                            <img
-                              src={displayBusiness.pickupSettings.storePhotoUrl}
-                              alt="Foto del negocio para retiro"
-                              className="w-full h-full object-cover"
-                            />
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                              <label className="cursor-pointer bg-white text-gray-900 px-4 py-2 rounded-full text-sm font-bold shadow-lg transform translate-y-2 group-hover:translate-y-0 transition-transform">
-                                Cambiar Foto
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  onChange={handleStorePhotoUpload}
-                                  className="hidden"
-                                />
-                              </label>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-1 text-center">
-                            <i className="bi bi-camera text-4xl text-gray-400 mb-2"></i>
-                            <div className="flex text-sm text-gray-600 justify-center">
-                              <label className="relative cursor-pointer bg-white rounded-md font-medium text-red-600 hover:text-red-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-red-500">
-                                <span>Sube una foto</span>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  onChange={handleStorePhotoUpload}
-                                  className="hidden"
-                                />
-                              </label>
-                              <p className="pl-1">para tus clientes</p>
-                            </div>
-                            <p className="text-xs text-gray-500">PNG, JPG hasta 5MB</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Foto del Local</label>
-                  <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-red-400 transition-colors group relative overflow-hidden">
-                    {displayBusiness.locationImage ? (
-                      <div className="relative w-full aspect-video rounded-lg overflow-hidden">
-                        <img
-                          src={displayBusiness.locationImage}
-                          alt="Foto del local"
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <label className="cursor-pointer bg-white text-gray-900 px-4 py-2 rounded-full text-sm font-bold shadow-lg transform translate-y-2 group-hover:translate-y-0 transition-transform">
-                            {uploadingLocation ? 'Subiendo...' : 'Cambiar Foto'}
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={onLocationImageUpload}
-                              disabled={uploadingLocation}
-                              className="hidden"
-                            />
-                          </label>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-1 text-center">
-                        <i className="bi bi-shop text-4xl text-gray-400 mb-2"></i>
-                        <div className="flex text-sm text-gray-600">
-                          <label className="relative cursor-pointer bg-white rounded-md font-medium text-red-600 hover:text-red-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-red-500">
-                            <span>{uploadingLocation ? 'Subiendo...' : 'Sube una foto'}</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={onLocationImageUpload}
-                              disabled={uploadingLocation}
-                              className="hidden"
-                            />
-                          </label>
-                          <p className="pl-1">o arrastra y suelta</p>
-                        </div>
-                        <p className="text-xs text-gray-500">PNG, JPG, GIF hasta 10MB</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Horario de atención */}
-                <div className="mt-6 pt-6 border-t border-gray-200">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Horario de Atención</h3>
-                  <div className="space-y-3">
-                    {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => {
-                      const daySchedule = editedBusiness?.schedule?.[day] || { open: '09:00', close: '18:00', isOpen: true }
-                      const dayNames: Record<string, string> = {
-                        monday: 'Lunes',
-                        tuesday: 'Martes',
-                        wednesday: 'Miércoles',
-                        thursday: 'Jueves',
-                        friday: 'Viernes',
-                        saturday: 'Sábado',
-                        sunday: 'Domingo'
-                      }
-
-                      return (
-                        <div key={day} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                          <input
-                            type="checkbox"
-                            checked={daySchedule.isOpen || false}
-                            onChange={() => onToggleDayOpen(day)}
-                            className="w-5 h-5 text-red-500 rounded focus:ring-red-500"
-                          />
-                          <span className="text-sm font-medium text-gray-700 w-24">{dayNames[day]}</span>
-                          {daySchedule.isOpen && (
-                            <>
-                              <input
-                                type="time"
-                                value={daySchedule.open || '09:00'}
-                                onChange={(e) => onScheduleFieldChange(day, 'open', e.target.value)}
-                                className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                              />
-                              <span className="text-gray-500">-</span>
-                              <input
-                                type="time"
-                                value={daySchedule.close || '18:00'}
-                                onChange={(e) => onScheduleFieldChange(day, 'close', e.target.value)}
-                                className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                              />
-                            </>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                {/* Tiempo de Entrega */}
-                <div className="mt-6 pt-6 border-t border-gray-200">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center text-red-600">
-                      <i className="bi bi-clock-history"></i>
-                    </div>
-                    <div className="text-left">
-                      <h3 className="text-lg font-semibold text-gray-900">Tiempo de Entrega</h3>
-                      <p className="text-sm text-gray-500">Estimado promedio en minutos</p>
-                    </div>
-                  </div>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={editedBusiness?.deliveryTime || 30}
-                      onChange={(e) => onBusinessFieldChange('deliveryTime', parseInt(e.target.value) || 0)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 pl-10"
-                      min="1"
-                    />
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                      <i className="bi bi-clock"></i>
-                    </span>
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">
-                      minutos
-                    </span>
-                  </div>
-                </div>
-
-                {/* Botones de acción */}
-                <div className="flex gap-3 mt-6 pt-6 border-t border-gray-200">
-                  <button
-                    onClick={onCancelEdit}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors font-medium"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={onSaveProfile}
-                    className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium"
-                  >
-                    Guardar Cambios
-                  </button>
-                </div>
-              </div>
-            ) : (
-              // Modo visualización
-              <div className="space-y-4">
-                <div>
-                  <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{displayBusiness.name}</h1>
-                </div>
-
-                {displayBusiness.description && (
-                  <p className="text-gray-600 text-sm sm:text-base max-w-2xl mx-auto">
-                    {displayBusiness.description}
-                  </p>
-                )}
-
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-                  {displayBusiness.phone && (
-                    <a
-                      href={`tel:${displayBusiness.phone}`}
-                      className="inline-flex items-center px-4 py-2 bg-green-100 text-green-800 rounded-lg text-sm font-medium hover:bg-green-200 transition-colors"
-                    >
-                      <i className="bi bi-telephone mr-2"></i>
-                      {displayBusiness.phone}
-                    </a>
-                  )}
-                  {displayBusiness.email && (
-                    <a
-                      href={`mailto:${displayBusiness.email}`}
-                      className="inline-flex items-center px-4 py-2 bg-blue-100 text-blue-800 rounded-lg text-sm font-medium hover:bg-blue-200 transition-colors"
-                    >
-                      <i className="bi bi-envelope mr-2"></i>
-                      Email
-                    </a>
-                  )}
-                </div>
-
-                {displayBusiness.address && (
-                  <div className="text-xs sm:text-sm text-gray-500 inline-flex items-center justify-center">
-                    <i className="bi bi-geo-alt mr-1"></i>
-                    {displayBusiness.address}
-                  </div>
-                )}
-
-                {displayBusiness.locationImage && (
-                  <div className="mt-4 max-w-lg mx-auto rounded-xl overflow-hidden shadow-md border border-gray-100">
-                    <img
-                      src={displayBusiness.locationImage}
-                      alt="Foto del local"
-                      className="w-full aspect-video object-cover"
-                    />
-                  </div>
-                )}
-
-                {/* Horario de atención */}
-                <div className="mt-6 pt-6 border-t border-gray-200 max-w-md mx-auto">
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Horario de Atención</h3>
-                  <div className="space-y-2 text-sm">
-                    {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => {
-                      const daySchedule = displayBusiness.schedule?.[day]
-                      const dayNames: Record<string, string> = {
-                        monday: 'Lunes',
-                        tuesday: 'Martes',
-                        wednesday: 'Miércoles',
-                        thursday: 'Jueves',
-                        friday: 'Viernes',
-                        saturday: 'Sábado',
-                        sunday: 'Domingo'
-                      }
-
-                      return (
-                        <div key={day} className="flex justify-between text-gray-600">
-                          <span className="font-medium">{dayNames[day]}</span>
-                          <span>
-                            {daySchedule?.isOpen ? `${daySchedule.open} - ${daySchedule.close}` : 'Cerrado'}
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                {/* Tiempo de Entrega */}
-                <div className="mt-4 pt-4 border-t border-gray-200 flex justify-between items-center text-sm">
-                  <span className="text-gray-600 flex items-center gap-2">
-                    <i className="bi bi-truck text-red-500"></i>
-                    Tiempo de Entrega:
-                  </span>
-                  <span className="font-bold text-gray-900 bg-red-50 px-3 py-1 rounded-full border border-red-100">
-                    {displayBusiness.deliveryTime || 30} min
-                  </span>
-                </div>
-
-                {/* Botones de editar */}
-                <div className="mt-6 pt-6 border-t border-gray-200 space-y-3">
-                  <Link
-                    href="/business/profile/edit"
-                    className="w-full px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-colors font-bold flex items-center justify-center gap-2 shadow-lg shadow-red-100"
-                  >
-                    <i className="bi bi-pencil-square"></i>
-                    Editar Perfil Completo
-                  </Link>
-                  <button
-                    onClick={onEditProfile}
-                    className="w-full px-4 py-2 border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-xl transition-colors text-sm font-medium flex items-center justify-center gap-2"
-                  >
-                    <i className="bi bi-sliders"></i>
-                    Edición Rápida
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Contenido de la pestaña Productos */}
       {activeTab === 'products' && (
@@ -703,6 +225,141 @@ export default function BusinessProfileDashboard({
             onCategoriesChange={onCategoriesChange}
             onDirectUpdate={onDirectUpdate}
           />
+        </div>
+      )}
+
+      {/* Contenido de la pestaña Administradores */}
+      {activeTab === 'admins' && (
+        <div>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6">
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 sm:mb-0">
+              <i className="bi bi-people me-2"></i>Administradores
+            </h2>
+            {onAddAdmin && (
+              <button
+                onClick={onAddAdmin}
+                className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base"
+              >
+                <i className="bi bi-person-plus me-2"></i>
+                Agregar Administrador
+              </button>
+            )}
+          </div>
+
+          {/* Lista de administradores */}
+          <div className="bg-white rounded-lg shadow-md overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900">
+                Propietario y Administradores
+              </h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Gestiona quién puede administrar tu tienda
+              </p>
+            </div>
+
+            <div className="divide-y divide-gray-200">
+              {/* Propietario */}
+              <div className="px-4 sm:px-6 py-4">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+                  <div className="flex items-center mb-3 sm:mb-0">
+                    <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <i className="bi bi-crown text-red-600"></i>
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm font-medium text-gray-900">{displayBusiness.email}</p>
+                      <p className="text-sm text-gray-500">Propietario</p>
+                    </div>
+                  </div>
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                    Todos los permisos
+                  </span>
+                </div>
+              </div>
+
+              {/* Administradores */}
+              {displayBusiness.administrators && displayBusiness.administrators.length > 0 ? (
+                displayBusiness.administrators.map((admin, index) => (
+                  <div key={index} className="px-4 sm:px-6 py-4">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+                      <div className="flex items-center mb-3 sm:mb-0">
+                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                          <i className="bi bi-person text-blue-600"></i>
+                        </div>
+                        <div className="ml-3">
+                          <p className="text-sm font-medium text-gray-900">{admin.email}</p>
+                          <p className="text-sm text-gray-500 capitalize">{admin.role}</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          {admin.role === 'admin' ? 'Administrador' : 'Gerente'}
+                        </span>
+                        {onRemoveAdmin && (
+                          <button
+                            onClick={() => onRemoveAdmin(admin.email)}
+                            className="text-red-600 hover:text-red-700 text-sm"
+                          >
+                            <i className="bi bi-trash me-1"></i>
+                            Remover
+                          </button>
+                        )}
+                        {userRole === 'owner' && onTransferOwnership && (
+                          <button
+                            onClick={() => onTransferOwnership(admin)}
+                            className="text-orange-600 hover:text-orange-700 text-sm flex items-center"
+                            title="Convertir en dueño del negocio"
+                          >
+                            <i className="bi bi-crown me-1"></i>
+                            Transferir Propiedad
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Permisos */}
+                    <div className="mt-3 sm:ml-13">
+                      <p className="text-xs text-gray-500 mb-2">Permisos:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {admin.permissions.manageProducts && (
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                            Productos
+                          </span>
+                        )}
+                        {admin.permissions.manageOrders && (
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                            Pedidos
+                          </span>
+                        )}
+                        {admin.permissions.viewReports && (
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                            Reportes
+                          </span>
+                        )}
+                        {admin.permissions.editBusiness && (
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                            Editar Tienda
+                          </span>
+                        )}
+                        {admin.permissions.manageAdmins && (
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                            Administradores
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="px-4 sm:px-6 py-8 text-center">
+                  <i className="bi bi-people text-gray-400 text-4xl mb-4"></i>
+                  <p className="text-gray-500">No hay administradores adicionales</p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Agrega administradores para que te ayuden a gestionar tu tienda
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
       {/* Contenido de la pestaña Fidelización */}
