@@ -7,6 +7,7 @@ import { getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibrary
 import ProductList from './ProductList'
 import NotificationSettings from './NotificationSettings'
 import { GoogleMap, useCurrentLocation } from './GoogleMap'
+import QRCodesContent from '@/app/business/qr-codes/qr-codes-content'
 
 interface BusinessProfileDashboardProps {
   business: Business
@@ -67,6 +68,7 @@ export default function BusinessProfileDashboard({
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
   const [activeTab, setActiveTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>(initialTab)
+  const [fidelizacionSubTab, setFidelizacionSubTab] = useState<'automatic' | 'qr'>('automatic')
 
   // Hook para ubicación
   const { location, loading: locating, error: locationError, getCurrentLocation } = useCurrentLocation()
@@ -364,215 +366,247 @@ export default function BusinessProfileDashboard({
       )}
       {/* Contenido de la pestaña Fidelización */}
       {activeTab === 'fidelizacion' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="max-w-2xl mx-auto">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Premio Automático</h3>
-                <p className="text-sm text-gray-500">Configura un regalo que se agregará automáticamente al carrito de tus clientes.</p>
-              </div>
-              <div
-                className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${displayBusiness.rewardSettings?.enabled ? 'bg-red-500' : 'bg-gray-200'}`}
-                onClick={() => {
-                  const currentSettings = displayBusiness.rewardSettings || { enabled: false, name: '', description: '' };
-                  onBusinessFieldChange('rewardSettings', { ...currentSettings, enabled: !currentSettings.enabled });
-                }}
-              >
-                <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${displayBusiness.rewardSettings?.enabled ? 'translate-x-6' : ''}`}></div>
-              </div>
-            </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          {/* Sub-tabs header */}
+          <div className="flex border-b border-gray-200">
+            <button
+              onClick={() => setFidelizacionSubTab('automatic')}
+              className={`flex-1 py-4 text-sm font-medium text-center transition-colors border-b-2 ${fidelizacionSubTab === 'automatic'
+                  ? 'border-red-500 text-red-600 bg-red-50/50'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                }`}
+            >
+              <i className="bi bi-gift me-2"></i>
+              Premio Automático
+            </button>
+            <button
+              onClick={() => setFidelizacionSubTab('qr')}
+              className={`flex-1 py-4 text-sm font-medium text-center transition-colors border-b-2 ${fidelizacionSubTab === 'qr'
+                  ? 'border-red-500 text-red-600 bg-red-50/50'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                }`}
+            >
+              <i className="bi bi-qr-code me-2"></i>
+              Códigos QR
+            </button>
+          </div>
 
-            <div className={`space-y-4 transition-opacity duration-200 ${displayBusiness.rewardSettings?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Nombre del Premio</label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">🎁</span>
-                  <input
-                    type="text"
-                    placeholder="Ej: 5 wantancitos gratis"
-                    value={displayBusiness.rewardSettings?.name || ''}
-                    onChange={(e) => {
+          <div className="p-6">
+            {/* Contenido Premio Automático */}
+            {fidelizacionSubTab === 'automatic' && (
+              <div className="max-w-2xl mx-auto">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Premio Automático</h3>
+                    <p className="text-sm text-gray-500">Configura un regalo que se agregará automáticamente al carrito de tus clientes.</p>
+                  </div>
+                  <div
+                    className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${displayBusiness.rewardSettings?.enabled ? 'bg-red-500' : 'bg-gray-200'}`}
+                    onClick={() => {
                       const currentSettings = displayBusiness.rewardSettings || { enabled: false, name: '', description: '' };
-                      onBusinessFieldChange('rewardSettings', { ...currentSettings, name: e.target.value });
+                      onBusinessFieldChange('rewardSettings', { ...currentSettings, enabled: !currentSettings.enabled });
                     }}
-                    className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Descripción (opcional)</label>
-                <textarea
-                  placeholder="Ej: ¡Felicidades! Has reclamado tu premio especial gratis"
-                  value={displayBusiness.rewardSettings?.description || ''}
-                  onChange={(e) => {
-                    const currentSettings = displayBusiness.rewardSettings || { enabled: false, name: '', description: '' };
-                    onBusinessFieldChange('rewardSettings', { ...currentSettings, description: e.target.value });
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                  rows={3}
-                />
-              </div>
-
-              {/* Sección de Ingredientes y Costos del Premio */}
-              <div className="mt-8 pt-6 border-t border-gray-100">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">Ingredientes y Costos</h4>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">Costo total del premio:</span>
-                    <span className="text-sm font-bold text-red-600">
-                      ${calculateTotalRewardIngredientCost().toFixed(2)}
-                    </span>
+                  >
+                    <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${displayBusiness.rewardSettings?.enabled ? 'translate-x-6' : ''}`}></div>
                   </div>
                 </div>
 
-                {/* Formulario para agregar ingrediente - Estilo unificado con ProductList */}
-                <div className="bg-gray-50/50 p-4 rounded-2xl border border-dashed border-gray-200 mb-6">
-                  <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <i className="bi bi-plus-circle text-red-500"></i>
-                    Agregar Insumo de la Base
-                  </h5>
-                  <div className="space-y-4">
-                    <div className="relative reward-ingredient-input-container">
-                      <div className="relative">
-                        <i className="bi bi-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 text-xs"></i>
-                        <input
-                          type="text"
-                          name="name"
-                          placeholder="Buscar o crear insumo..."
-                          value={currentRewardIngredient.name}
-                          onChange={handleRewardIngredientChange}
-                          onFocus={() => setShowRewardIngredientSuggestions(true)}
-                          autoComplete="off"
-                          className="w-full pl-10 pr-4 py-3 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-red-500 font-bold transition-all shadow-sm"
-                        />
-                      </div>
-                      {showRewardIngredientSuggestions && (
-                        <div className="absolute z-20 w-full mt-1 bg-white border border-gray-100 rounded-xl shadow-xl overflow-hidden overflow-y-auto max-h-48">
-                          {getFilteredRewardIngredients().length > 0 ? (
-                            getFilteredRewardIngredients().map((ing) => (
-                              <button
-                                key={ing.id}
-                                type="button"
-                                onClick={() => selectRewardIngredientFromLibrary(ing)}
-                                className="w-full px-4 py-2.5 text-left text-xs hover:bg-red-50 border-b border-gray-50 last:border-b-0 transition-all flex justify-between items-center"
-                              >
-                                <span className="font-bold text-gray-700">{ing.name}</span>
-                                <span className="text-red-500 font-black">${ing.unitCost.toFixed(2)}</span>
-                              </button>
-                            ))
-                          ) : currentRewardIngredient.name.trim() !== '' && (
-                            <button
-                              type="button"
-                              onClick={() => setShowRewardIngredientSuggestions(false)}
-                              className="w-full text-left px-4 py-3 bg-red-50 hover:bg-red-100 text-xs font-black text-red-700 transition-all flex items-center gap-2"
-                            >
-                              <i className="bi bi-plus-lg bg-white p-1 rounded-lg shadow-sm"></i>
-                              Crear "{currentRewardIngredient.name}"
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                        <input
-                          type="number"
-                          name="unitCost"
-                          step="0.01"
-                          placeholder="Costo u."
-                          value={currentRewardIngredient.unitCost}
-                          onChange={handleRewardIngredientChange}
-                          className="w-full pl-7 pr-3 py-2.5 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-red-500 font-black transition-all"
-                        />
-                      </div>
+                <div className={`space-y-4 transition-opacity duration-200 ${displayBusiness.rewardSettings?.enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Nombre del Premio</label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">🎁</span>
                       <input
-                        type="number"
-                        name="quantity"
-                        step="0.1"
-                        placeholder="Cantidad"
-                        value={currentRewardIngredient.quantity}
-                        onChange={handleRewardIngredientChange}
-                        className="w-full px-3 py-2.5 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-red-500 font-black transition-all"
+                        type="text"
+                        placeholder="Ej: 5 wantancitos gratis"
+                        value={displayBusiness.rewardSettings?.name || ''}
+                        onChange={(e) => {
+                          const currentSettings = displayBusiness.rewardSettings || { enabled: false, name: '', description: '' };
+                          onBusinessFieldChange('rewardSettings', { ...currentSettings, name: e.target.value });
+                        }}
+                        className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                       />
                     </div>
-                    <button
-                      type="button"
-                      onClick={addRewardIngredient}
-                      disabled={!currentRewardIngredient.name.trim()}
-                      className="w-full bg-red-600 text-white px-4 py-3 text-xs rounded-xl hover:bg-red-700 transition-all font-black uppercase tracking-wider"
-                    >
-                      Agregar al Premio
-                    </button>
                   </div>
-                </div>
 
-                {/* Lista de ingredientes agregados */}
-                <div className="space-y-2">
-                  {(displayBusiness.rewardSettings?.ingredients || []).length === 0 ? (
-                    <div className="text-center py-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                      <p className="text-xs text-gray-500">No hay ingredientes definidos para este premio.</p>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Descripción (opcional)</label>
+                    <textarea
+                      placeholder="Ej: ¡Felicidades! Has reclamado tu premio especial gratis"
+                      value={displayBusiness.rewardSettings?.description || ''}
+                      onChange={(e) => {
+                        const currentSettings = displayBusiness.rewardSettings || { enabled: false, name: '', description: '' };
+                        onBusinessFieldChange('rewardSettings', { ...currentSettings, description: e.target.value });
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                      rows={3}
+                    />
+                  </div>
+
+                  {/* Sección de Ingredientes y Costos del Premio */}
+                  <div className="mt-8 pt-6 border-t border-gray-100">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">Ingredientes y Costos</h4>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Costo total del premio:</span>
+                        <span className="text-sm font-bold text-red-600">
+                          ${calculateTotalRewardIngredientCost().toFixed(2)}
+                        </span>
+                      </div>
                     </div>
-                  ) : (
-                    (displayBusiness.rewardSettings?.ingredients || []).map((ing, idx) => (
-                      <div key={ing.id || idx} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-100 group">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-medium text-gray-900">{ing.name}</span>
-                          <span className="text-xs text-gray-500">
-                            {ing.quantity} x ${ing.unitCost.toFixed(2)} = ${(ing.quantity * ing.unitCost).toFixed(2)}
-                          </span>
+
+                    {/* Formulario para agregar ingrediente - Estilo unificado con ProductList */}
+                    <div className="bg-gray-50/50 p-4 rounded-2xl border border-dashed border-gray-200 mb-6">
+                      <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <i className="bi bi-plus-circle text-red-500"></i>
+                        Agregar Insumo de la Base
+                      </h5>
+                      <div className="space-y-4">
+                        <div className="relative reward-ingredient-input-container">
+                          <div className="relative">
+                            <i className="bi bi-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 text-xs"></i>
+                            <input
+                              type="text"
+                              name="name"
+                              placeholder="Buscar o crear insumo..."
+                              value={currentRewardIngredient.name}
+                              onChange={handleRewardIngredientChange}
+                              onFocus={() => setShowRewardIngredientSuggestions(true)}
+                              autoComplete="off"
+                              className="w-full pl-10 pr-4 py-3 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-red-500 font-bold transition-all shadow-sm"
+                            />
+                          </div>
+                          {showRewardIngredientSuggestions && (
+                            <div className="absolute z-20 w-full mt-1 bg-white border border-gray-100 rounded-xl shadow-xl overflow-hidden overflow-y-auto max-h-48">
+                              {getFilteredRewardIngredients().length > 0 ? (
+                                getFilteredRewardIngredients().map((ing) => (
+                                  <button
+                                    key={ing.id}
+                                    type="button"
+                                    onClick={() => selectRewardIngredientFromLibrary(ing)}
+                                    className="w-full px-4 py-2.5 text-left text-xs hover:bg-red-50 border-b border-gray-50 last:border-b-0 transition-all flex justify-between items-center"
+                                  >
+                                    <span className="font-bold text-gray-700">{ing.name}</span>
+                                    <span className="text-red-500 font-black">${ing.unitCost.toFixed(2)}</span>
+                                  </button>
+                                ))
+                              ) : currentRewardIngredient.name.trim() !== '' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowRewardIngredientSuggestions(false)}
+                                  className="w-full text-left px-4 py-3 bg-red-50 hover:bg-red-100 text-xs font-black text-red-700 transition-all flex items-center gap-2"
+                                >
+                                  <i className="bi bi-plus-lg bg-white p-1 rounded-lg shadow-sm"></i>
+                                  Crear "{currentRewardIngredient.name}"
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                            <input
+                              type="number"
+                              name="unitCost"
+                              step="0.01"
+                              placeholder="Costo u."
+                              value={currentRewardIngredient.unitCost}
+                              onChange={handleRewardIngredientChange}
+                              className="w-full pl-7 pr-3 py-2.5 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-red-500 font-black transition-all"
+                            />
+                          </div>
+                          <input
+                            type="number"
+                            name="quantity"
+                            step="0.1"
+                            placeholder="Cantidad"
+                            value={currentRewardIngredient.quantity}
+                            onChange={handleRewardIngredientChange}
+                            className="w-full px-3 py-2.5 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-red-500 font-black transition-all"
+                          />
                         </div>
                         <button
                           type="button"
-                          onClick={() => removeRewardIngredient(ing.id || (ing as any).id)}
-                          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                          onClick={addRewardIngredient}
+                          disabled={!currentRewardIngredient.name.trim()}
+                          className="w-full bg-red-600 text-white px-4 py-3 text-xs rounded-xl hover:bg-red-700 transition-all font-black uppercase tracking-wider"
                         >
-                          <i className="bi bi-trash text-sm"></i>
+                          Agregar al Premio
                         </button>
                       </div>
-                    ))
-                  )}
-                </div>
-              </div>
+                    </div>
 
-              <div className="p-4 bg-orange-50 rounded-lg border border-orange-100">
-                <div className="flex gap-3">
-                  <i className="bi bi-info-circle text-orange-500 text-lg"></i>
-                  <p className="text-sm text-orange-800">
-                    Este premio aparecerá en el carrito del cliente con un precio de <strong>$0.00</strong>. Asegúrate de tener stock suficiente para cumplir con estos regalos.
-                  </p>
-                </div>
-              </div>
-            </div>
+                    {/* Lista de ingredientes agregados */}
+                    <div className="space-y-2">
+                      {(displayBusiness.rewardSettings?.ingredients || []).length === 0 ? (
+                        <div className="text-center py-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                          <p className="text-xs text-gray-500">No hay ingredientes definidos para este premio.</p>
+                        </div>
+                      ) : (
+                        (displayBusiness.rewardSettings?.ingredients || []).map((ing, idx) => (
+                          <div key={ing.id || idx} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-100 group">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-gray-900">{ing.name}</span>
+                              <span className="text-xs text-gray-500">
+                                {ing.quantity} x ${ing.unitCost.toFixed(2)} = ${(ing.quantity * ing.unitCost).toFixed(2)}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeRewardIngredient(ing.id || (ing as any).id)}
+                              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                            >
+                              <i className="bi bi-trash text-sm"></i>
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
 
-            {isEditingProfile && (
-              <div className="flex gap-3 mt-8 pt-6 border-t border-gray-200">
-                <button
-                  onClick={onCancelEdit}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors font-medium"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={onSaveProfile}
-                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium"
-                >
-                  Guardar Cambios
-                </button>
+                  <div className="p-4 bg-orange-50 rounded-lg border border-orange-100">
+                    <div className="flex gap-3">
+                      <i className="bi bi-info-circle text-orange-500 text-lg"></i>
+                      <p className="text-sm text-orange-800">
+                        Este premio aparecerá en el carrito del cliente con un precio de <strong>$0.00</strong>. Asegúrate de tener stock suficiente para cumplir con estos regalos.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {isEditingProfile ? (
+                  <div className="flex gap-3 mt-8 pt-6 border-t border-gray-200">
+                    <button
+                      onClick={onCancelEdit}
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors font-medium"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={onSaveProfile}
+                      className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium"
+                    >
+                      Guardar Cambios
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-8 pt-6 border-t border-gray-200 text-center">
+                    <button
+                      onClick={onEditProfile}
+                      className="inline-flex items-center px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium gap-2"
+                    >
+                      <i className="bi bi-pencil"></i>
+                      Editar Configuración
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
-            {!isEditingProfile && (
-              <div className="mt-8 pt-6 border-t border-gray-200 text-center">
-                <button
-                  onClick={onEditProfile}
-                  className="inline-flex items-center px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium gap-2"
-                >
-                  <i className="bi bi-pencil"></i>
-                  Editar Configuración
-                </button>
-              </div>
+            {/* Contenido Códigos QR */}
+            {fidelizacionSubTab === 'qr' && (
+              <QRCodesContent businessId={business.id} />
             )}
           </div>
         </div>

@@ -60,10 +60,7 @@ const OrderHistory = dynamic(() => import('@/components/OrderHistory'), {
   ssr: false
 })
 
-const QRCodesContent = dynamic(() => import('@/app/business/qr-codes/qr-codes-content'), {
-  loading: () => <div className="text-center py-8 text-gray-400">Cargando herramientas de fidelización...</div>,
-  ssr: false
-})
+
 
 export default function BusinessDashboard() {
   const router = useRouter()
@@ -3343,10 +3340,7 @@ export default function BusinessDashboard() {
             <IngredientStockManagement business={business} />
           )}
 
-          {/* QR Codes Tab */}
-          {activeTab === 'qrcodes' && (
-            <QRCodesContent businessId={businessId} />
-          )}
+
 
         </div>
       </div>
