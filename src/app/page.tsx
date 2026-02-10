@@ -8,6 +8,7 @@ import { Business, Product } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
 import ProductDetailSidebar from '@/components/ProductDetailSidebar'
+import CartSidebar from '@/components/CartSidebar' // Added import for CartSidebar
 
 export default function HomePage() {
   return (
@@ -45,6 +46,100 @@ function HomePageContent() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedProductBusiness, setSelectedProductBusiness] = useState<Business | null>(null)
   const [isProductSidebarOpen, setIsProductSidebarOpen] = useState(false)
+
+  // Cart State
+  const [cart, setCart] = useState<any[]>([])
+  const [isCartOpen, setIsCartOpen] = useState(false)
+
+  // Load Cart Logic
+  useEffect(() => {
+    if (selectedProductBusiness?.id) {
+      const loadCart = () => {
+        const savedCarts = localStorage.getItem('carts')
+        if (savedCarts) {
+          const allCarts = JSON.parse(savedCarts)
+          const businessCart = allCarts[selectedProductBusiness.id] || []
+          setCart(businessCart)
+        } else {
+          setCart([])
+        }
+      }
+
+      loadCart()
+      const handleStorageChange = () => loadCart()
+      window.addEventListener('storage', handleStorageChange)
+      // Custom event for same-window updates
+      window.addEventListener('cart-updated', handleStorageChange)
+
+      return () => {
+        window.removeEventListener('storage', handleStorageChange)
+        window.removeEventListener('cart-updated', handleStorageChange)
+      }
+    }
+  }, [selectedProductBusiness?.id, isCartOpen])
+
+  const updateCartInStorage = (businessId: string, businessCart: any[]) => {
+    const savedCarts = localStorage.getItem('carts')
+    const allCarts = savedCarts ? JSON.parse(savedCarts) : {}
+
+    if (businessCart.length === 0) {
+      delete allCarts[businessId]
+    } else {
+      allCarts[businessId] = businessCart
+    }
+
+    localStorage.setItem('carts', JSON.stringify(allCarts))
+    window.dispatchEvent(new Event('storage'))
+    window.dispatchEvent(new Event('cart-updated'))
+  }
+
+  const updateQuantity = (productId: string, quantity: number, variantName?: string | null) => {
+    if (!selectedProductBusiness?.id) return
+
+    if (quantity <= 0) {
+      removeFromCart(productId, variantName)
+      return
+    }
+
+    const newCart = cart.map(item =>
+      (item.id === productId && item.variantName === variantName)
+        ? { ...item, quantity }
+        : item
+    )
+
+    setCart(newCart)
+    updateCartInStorage(selectedProductBusiness.id, newCart)
+  }
+
+  const removeFromCart = (productId: string, variantName?: string | null) => {
+    if (!selectedProductBusiness?.id) return
+
+    // Note: unredeem logic normally here, but for now we implement basic removal
+    // (CartSidebar handles unredeem logic for QR prizes internally via useEffects usually, or we can copy it if needed)
+
+    const newCart = cart.filter(item => !(item.id === productId && item.variantName === variantName))
+    setCart(newCart)
+    updateCartInStorage(selectedProductBusiness.id, newCart)
+  }
+
+  const addItemToCart = (item: any) => {
+    if (!selectedProductBusiness?.id) return
+
+    const existingItemIndex = cart.findIndex((cartItem) =>
+      cartItem.id === item.id && cartItem.variantName === item.variantName
+    )
+
+    let newCart
+    if (existingItemIndex > -1) {
+      newCart = [...cart]
+      newCart[existingItemIndex].quantity += 1
+    } else {
+      newCart = [...cart, { ...item, quantity: 1 }]
+    }
+
+    setCart(newCart)
+    updateCartInStorage(selectedProductBusiness.id, newCart)
+  }
 
   // Cargar productos de proveedores de forma paralela y eficiente
   useEffect(() => {
@@ -602,17 +697,29 @@ function HomePageContent() {
           <div className="flex justify-center gap-4 text-gray-500">
             <a href="https://instagram.com/fuddi.shop" target="_blank" rel="noopener noreferrer"><i className="bi bi-instagram text-lg hover:text-white"></i></a>
             <a href="https://wa.me/593984612236" target="_blank" rel="noopener noreferrer"><i className="bi bi-whatsapp text-lg hover:text-white"></i></a>
-            <ProductDetailSidebar
-              isOpen={isProductSidebarOpen}
-              onClose={() => setIsProductSidebarOpen(false)}
-              product={selectedProduct}
-              business={selectedProductBusiness}
-              onProductSelect={setSelectedProduct}
-            />
           </div>
           <p className="text-xs text-gray-500 pt-4 border-t border-gray-800">© 2025 Fuddi. Todos los derechos reservados.</p>
         </div>
       </footer>
+
+      <ProductDetailSidebar
+        isOpen={isProductSidebarOpen}
+        onClose={() => setIsProductSidebarOpen(false)}
+        product={selectedProduct}
+        business={selectedProductBusiness}
+        onProductSelect={setSelectedProduct}
+        onOpenCart={() => setIsCartOpen(true)}
+      />
+
+      <CartSidebar
+        isOpen={isCartOpen}
+        onClose={() => setIsCartOpen(false)}
+        cart={cart}
+        business={selectedProductBusiness}
+        removeFromCart={removeFromCart}
+        updateQuantity={updateQuantity}
+        addItemToCart={addItemToCart}
+      />
     </div>
   )
 }

@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Product, Business } from '@/types'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import { unredeemQRCodePrize, getProductsByBusiness } from '@/lib/database'
@@ -12,9 +13,11 @@ interface ProductDetailSidebarProps {
     product: Product | null
     business: Business | null
     onProductSelect: (product: Product) => void
+    onOpenCart?: () => void
 }
 
-export default function ProductDetailSidebar({ isOpen, onClose, product, business, onProductSelect }: ProductDetailSidebarProps) {
+export default function ProductDetailSidebar({ isOpen, onClose, product, business, onProductSelect, onOpenCart }: ProductDetailSidebarProps) {
+    const router = useRouter()
     const [selectedVariant, setSelectedVariant] = useState<string | null>(null)
     const [quantity, setQuantity] = useState(1)
     const [cart, setCart] = useState<any[]>([])
@@ -25,6 +28,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
     })
     const [copySuccess, setCopySuccess] = useState(false)
     const [otherProducts, setOtherProducts] = useState<Product[]>([])
+    const sidebarContentRef = useRef<HTMLDivElement>(null)
 
     // Reset state when product changes
     useEffect(() => {
@@ -35,6 +39,11 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                 setSelectedVariant(null)
             }
             setQuantity(1)
+
+            // Scroll to top
+            if (sidebarContentRef.current) {
+                sidebarContentRef.current.scrollTo({ top: 0, behavior: 'smooth' })
+            }
         }
     }, [product])
 
@@ -191,7 +200,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
             <div
                 className={`fixed right-0 top-0 h-full w-full sm:w-[500px] bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-[130] ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
             >
-                <div className="h-full overflow-y-auto scrollbar-hide bg-white">
+                <div ref={sidebarContentRef} className="h-full overflow-y-auto scrollbar-hide bg-white">
                     <div className="min-h-full flex flex-col p-6 relative">
 
                         {/* Close Button */}
@@ -380,42 +389,104 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                 <h4 className="text-sm font-black text-gray-900 mb-4 uppercase tracking-tight">
                                     Otros productos de {business.name}
                                 </h4>
-                                <div className="grid grid-cols-2 gap-3">
-                                    {otherProducts.map((otherProduct) => (
-                                        <div
-                                            key={otherProduct.id}
-                                            onClick={() => onProductSelect(otherProduct)}
-                                            className="group cursor-pointer bg-gray-50 rounded-xl p-2 border border-blue-50 hover:border-blue-200 transition-all hover:bg-white hover:shadow-sm"
-                                        >
-                                            <div className="aspect-square rounded-lg overflow-hidden bg-white mb-2 relative">
-                                                {otherProduct.image ? (
-                                                    <img
-                                                        src={otherProduct.image}
-                                                        alt={otherProduct.name}
-                                                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                                                    />
-                                                ) : (
-                                                    <div className="w-full h-full flex items-center justify-center text-gray-200">
-                                                        <i className="bi bi-image text-2xl"></i>
-                                                    </div>
-                                                )}
-                                                {otherProduct.price > 0 && (
-                                                    <div className="absolute top-1 right-1 bg-white/90 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm">
-                                                        ${otherProduct.price}
-                                                    </div>
-                                                )}
+                                <div className="relative">
+                                    <div
+                                        className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-4"
+                                        style={{
+                                            scrollbarWidth: 'none',
+                                            msOverflowStyle: 'none',
+                                            WebkitOverflowScrolling: 'touch'
+                                        }}
+                                    >
+                                        {otherProducts.map((otherProduct) => (
+                                            <div
+                                                key={otherProduct.id}
+                                                onClick={() => onProductSelect(otherProduct)}
+                                                className="group cursor-pointer bg-gray-50 rounded-xl p-2 border border-blue-50 hover:border-blue-200 transition-all hover:bg-white hover:shadow-sm flex-shrink-0 snap-start w-[140px]"
+                                            >
+                                                <div className="aspect-square rounded-lg overflow-hidden bg-white mb-2 relative">
+                                                    {otherProduct.image ? (
+                                                        <img
+                                                            src={otherProduct.image}
+                                                            alt={otherProduct.name}
+                                                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                                        />
+                                                    ) : (
+                                                        <div className="w-full h-full flex items-center justify-center text-gray-200">
+                                                            <i className="bi bi-image text-2xl"></i>
+                                                        </div>
+                                                    )}
+                                                    {otherProduct.price > 0 && (
+                                                        <div className="absolute top-1 right-1 bg-white/90 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm">
+                                                            ${otherProduct.price}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <h5 className="text-xs font-bold text-gray-900 line-clamp-2 leading-tight group-hover:text-blue-600 transition-colors h-[2.5em]">
+                                                    {otherProduct.name}
+                                                </h5>
                                             </div>
-                                            <h5 className="text-xs font-bold text-gray-900 line-clamp-2 leading-tight group-hover:text-blue-600 transition-colors">
-                                                {otherProduct.name}
-                                            </h5>
+                                        ))}
+                                    </div>
+                                    {otherProducts.length > 2 && (
+                                        <div className="absolute right-0 top-0 bottom-4 w-12 pointer-events-none bg-gradient-to-l from-white via-white/50 to-transparent flex items-center justify-end pr-1">
+                                            <div className="animate-pulse bg-white/80 p-1 rounded-full shadow-sm backdrop-blur-sm">
+                                                <i className="bi bi-chevron-right text-gray-400 text-xs"></i>
+                                            </div>
                                         </div>
-                                    ))}
+                                    )}
                                 </div>
                             </div>
                         )}
 
+                        {/* Spacer for floating cart button */}
+                        <div className="h-24"></div>
+
                     </div>
                 </div>
+
+                {/* Floating Cart Button inside Sidebar */}
+                {(() => {
+                    const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+                    const cartItemsCount = cart.reduce((sum, item) => sum + (item.esPremio ? 0 : item.quantity), 0)
+
+                    if (cartItemsCount > 0) {
+                        return (
+                            <div className="absolute bottom-6 right-6 z-50">
+                                <button
+                                    onClick={() => {
+                                        if (onOpenCart) {
+                                            onOpenCart()
+                                        } else {
+                                            router.push(`/${business.username || `restaurant/${business.id}`}`)
+                                        }
+                                    }}
+                                    className="relative bg-gray-900 text-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] hover:bg-black transition-all duration-300 transform hover:scale-105 active:scale-95 group overflow-hidden"
+                                >
+                                    {/* Glossy Effect */}
+                                    <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+
+                                    <div className="flex items-center px-6 py-4 space-x-3">
+                                        <div className="relative">
+                                            <i className="bi bi-cart3 text-2xl"></i>
+                                            <span className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full w-6 h-6 text-[10px] font-black flex items-center justify-center border-2 border-gray-900 shadow-lg animate-bounce">
+                                                {cartItemsCount}
+                                            </span>
+                                        </div>
+                                        <div className="text-left">
+                                            <div className="text-xs text-gray-400 font-bold uppercase tracking-widest leading-none mb-1 text-[8px]">Total</div>
+                                            <div className="text-lg font-black leading-none">${cartTotal.toFixed(2)}</div>
+                                        </div>
+                                        <div className="pl-2 border-l border-white/10 group-hover:translate-x-1 transition-transform">
+                                            <i className="bi bi-chevron-right text-gray-400"></i>
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+                        )
+                    }
+                    return null
+                })()}
             </div>
 
             {notification.show && (
