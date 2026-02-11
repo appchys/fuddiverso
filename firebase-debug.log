@@ -1,0 +1,22 @@
+[debug] [2026-02-11T13:56:42.432Z] ----------------------------------------------------------------------
+[debug] [2026-02-11T13:56:42.434Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\Lenovo\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only functions
+[debug] [2026-02-11T13:56:42.434Z] CLI Version:   14.26.0
+[debug] [2026-02-11T13:56:42.435Z] Platform:      win32
+[debug] [2026-02-11T13:56:42.435Z] Node Version:  v22.14.0
+[debug] [2026-02-11T13:56:42.435Z] Time:          Wed Feb 11 2026 08:56:42 GMT-0500 (hora estándar de Colombia)
+[debug] [2026-02-11T13:56:42.435Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-02-11T13:56:42.594Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-02-11T13:56:42.595Z] > authorizing via signed-in user (appchys.ec@gmail.com)
+[debug] [2026-02-11T13:56:42.595Z] [iam] checking project multitienda-69778 for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]
+[debug] [2026-02-11T13:56:42.596Z] Checked if tokens are valid: true, expires at: 1770819640362
+[debug] [2026-02-11T13:56:42.596Z] Checked if tokens are valid: true, expires at: 1770819640362
+[debug] [2026-02-11T13:56:42.597Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/multitienda-69778:testIamPermissions [none]
+[debug] [2026-02-11T13:56:42.597Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/multitienda-69778:testIamPermissions x-goog-quota-user=projects/multitienda-69778
+[debug] [2026-02-11T13:56:42.597Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/multitienda-69778:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]}
+[debug] [2026-02-11T13:56:43.333Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/multitienda-69778:testIamPermissions 200
+[debug] [2026-02-11T13:56:43.333Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/multitienda-69778:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]}
+[debug] [2026-02-11T13:56:43.333Z] Checked if tokens are valid: true, expires at: 1770819640362
+[debug] [2026-02-11T13:56:43.334Z] Checked if tokens are valid: true, expires at: 1770819640362
+[debug] [2026-02-11T13:56:43.334Z] >>> [apiv2][query] POST https://iam.googleapis.com/v1/projects/multitienda-69778/serviceAccounts/multitienda-69778@appspot.gserviceaccount.com:testIamPermissions [none]
+[debug] [2026-02-11T13:56:43.334Z] >>> [apiv2][body] POST https://iam.googleapis.com/v1/projects/multitienda-69778/serviceAccounts/multitienda-69778@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}

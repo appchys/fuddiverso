@@ -8,14 +8,14 @@ import { Delivery } from '@/types'
 const normalizePhone = (phone: string): string => {
   // Remover todos los caracteres no numéricos excepto el +
   let normalized = phone.replace(/[^\d+]/g, '');
-  
+
   // Si empieza con +593, convertir a formato local
   if (normalized.startsWith('+593')) {
     normalized = '0' + normalized.substring(4); // +593 97 -> 097
   } else if (normalized.startsWith('593')) {
     normalized = '0' + normalized.substring(3); // 593 97 -> 097
   }
-  
+
   return normalized;
 };
 
@@ -109,7 +109,7 @@ export default function DeliveriesAdmin() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!validateForm()) return
 
     try {
@@ -192,7 +192,7 @@ export default function DeliveriesAdmin() {
 
   const handleUpdateDelivery = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!validateForm() || !editingDelivery) return
 
     try {
@@ -226,7 +226,7 @@ export default function DeliveriesAdmin() {
       }
 
       await updateDelivery(editingDelivery.id!, updateData)
-      
+
       // Recargar la lista
       await loadDeliveries()
 
@@ -318,6 +318,9 @@ export default function DeliveriesAdmin() {
                   Fecha Registro
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Telegram
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Acciones
                 </th>
               </tr>
@@ -352,11 +355,10 @@ export default function DeliveriesAdmin() {
                     <div className="text-sm text-gray-500">{delivery.email}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                      delivery.estado === 'activo'
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${delivery.estado === 'activo'
                         ? 'bg-green-100 text-green-800'
                         : 'bg-red-100 text-red-800'
-                    }`}>
+                      }`}>
                       {delivery.estado === 'activo' ? (
                         <>
                           <i className="bi bi-check-circle me-1"></i>
@@ -373,6 +375,25 @@ export default function DeliveriesAdmin() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {new Date(delivery.fechaRegistro).toLocaleDateString('es-ES')}
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {delivery.telegramChatId ? (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        <i className="bi bi-telegram me-1"></i>
+                        Vinculado
+                      </span>
+                    ) : (
+                      <a
+                        href={`https://t.me/fuddi_delivery_bot?start=${delivery.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 hover:bg-blue-100 hover:text-blue-900 transition-colors"
+                        title="Haz clic para vincular Telegram"
+                      >
+                        <i className="bi bi-telegram me-1"></i>
+                        Vincular
+                      </a>
+                    )}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex space-x-2">
                       <button
@@ -382,15 +403,14 @@ export default function DeliveriesAdmin() {
                       >
                         <i className="bi bi-pencil"></i>
                       </button>
-                      
+
                       <button
                         onClick={() => delivery.id && handleToggleDeliveryStatus(delivery.id)}
                         disabled={!delivery.id}
-                        className={`${
-                          delivery.estado === 'activo'
+                        className={`${delivery.estado === 'activo'
                             ? 'text-red-600 hover:text-red-900'
                             : 'text-green-600 hover:text-green-900'
-                        } disabled:opacity-50`}
+                          } disabled:opacity-50`}
                         title={delivery.estado === 'activo' ? 'Desactivar' : 'Activar'}
                       >
                         {delivery.estado === 'activo' ? (
@@ -411,7 +431,7 @@ export default function DeliveriesAdmin() {
                   </td>
                 </tr>
               ))}
-              
+
               {deliveries.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center">
@@ -504,9 +524,8 @@ export default function DeliveriesAdmin() {
                     type="text"
                     value={formData.nombres}
                     onChange={(e) => setFormData({ ...formData, nombres: e.target.value })}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
-                      errors.nombres ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${errors.nombres ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="Juan Pérez Rodríguez"
                   />
                   {errors.nombres && (
@@ -526,9 +545,8 @@ export default function DeliveriesAdmin() {
                       const normalizedValue = normalizePhone(e.target.value);
                       setFormData({ ...formData, celular: normalizedValue });
                     }}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
-                      errors.celular ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${errors.celular ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="0987654321 o +593 97 869 7867"
                   />
                   {errors.celular && (
@@ -548,9 +566,8 @@ export default function DeliveriesAdmin() {
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
-                      errors.email ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${errors.email ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="juan@example.com"
                   />
                   {errors.email && (
@@ -695,9 +712,8 @@ export default function DeliveriesAdmin() {
                     type="text"
                     value={formData.nombres}
                     onChange={(e) => setFormData({ ...formData, nombres: e.target.value })}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
-                      errors.nombres ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${errors.nombres ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="Juan Pérez Rodríguez"
                   />
                   {errors.nombres && (
@@ -714,9 +730,8 @@ export default function DeliveriesAdmin() {
                     type="tel"
                     value={formData.celular}
                     onChange={(e) => setFormData({ ...formData, celular: normalizePhone(e.target.value) })}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
-                      errors.celular ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${errors.celular ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="0987654321"
                   />
                   {errors.celular && (
@@ -733,9 +748,8 @@ export default function DeliveriesAdmin() {
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
-                      errors.email ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${errors.email ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="juan@example.com"
                   />
                   {errors.email && (

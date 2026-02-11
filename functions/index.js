@@ -9,6 +9,9 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onRequest } = require("firebase-functions/v2/https");
 const admin = require('firebase-admin');
 const nodemailer = require('nodemailer');
+const axios = require('axios');
+
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8275094091:AAGDO1PSfE1bQn5u0zLWoC4yb6Or093lc6k';
 
 admin.initializeApp();
 
@@ -1541,6 +1544,38 @@ async function notifyDeliveryOnOrderCreationLogic(orderData, orderId) {
     await transporter.sendMail(mailOptions);
     console.log(`✅ Email de nueva orden enviado a: ${deliveryEmail}`);
 
+    // --- NOTIFICACIÓN TELEGRAM ---
+    try {
+      const deliveryDoc = await admin.firestore().collection('deliveries').doc(assignedDeliveryId).get();
+      const deliveryData = deliveryDoc.data();
+
+      if (deliveryData && deliveryData.telegramChatId) {
+        const telegramText = `<b>🛵 ¡NUEVO PEDIDO ASIGNADO!</b>\n\n` +
+          `<b>📍 Dirección:</b> ${deliveryInfo}\n` +
+          `<b>👤 Cliente:</b> ${customerName}\n` +
+          `<b>💰 Total a cobrar:</b> $${total.toFixed(2)}\n` +
+          `<b>💳 Pago:</b> ${paymentMethodText}\n\n` +
+          `¿Aceptarás este pedido?`;
+
+        const confirmToken = Buffer.from(`${orderId}|confirm`).toString('base64');
+        const discardToken = Buffer.from(`${orderId}|discard`).toString('base64');
+
+        const replyMarkup = {
+          inline_keyboard: [
+            [
+              { text: "✅ Aceptar", callback_data: `order_confirm|${confirmToken}` },
+              { text: "❌ Descartar", callback_data: `order_discard|${discardToken}` }
+            ]
+          ]
+        };
+
+        await sendTelegramMessage(deliveryData.telegramChatId, telegramText, replyMarkup);
+        console.log(`✅ Notificación de Telegram enviada a: ${deliveryData.telegramChatId}`);
+      }
+    } catch (tgError) {
+      console.error(`❌ Error enviando notificación de Telegram:`, tgError);
+    }
+
   } catch (error) {
     console.error(`❌ Error notificando al delivery:`, error);
   }
@@ -1909,6 +1944,39 @@ async function notifyDeliveryAssignmentLogic(beforeData, afterData, orderId) {
     await transporter.sendMail(mailOptions);
     console.log(`✅ Email de asignación enviado exitosamente a: ${deliveryEmail} para orden ${orderId}`);
 
+    // --- NOTIFICACIÓN TELEGRAM ---
+    try {
+      const deliveryDoc = await admin.firestore().collection('deliveries').doc(afterDeliveryId).get();
+      const deliveryData = deliveryDoc.data();
+
+      if (deliveryData && deliveryData.telegramChatId) {
+        const telegramText = `<b>🛵 ¡NUEVO PEDIDO ASIGNADO!</b>\n\n` +
+          `<b>📍 Dirección:</b> ${deliveryInfo}\n` +
+          `<b>👤 Cliente:</b> ${customerName}\n` +
+          `<b>💰 Total a cobrar:</b> $${total.toFixed(2)}\n` +
+          `<b>💳 Pago:</b> ${paymentMethodText}\n\n` +
+          `¿Aceptarás este pedido?`;
+
+        // Botones de acción
+        const confirmToken = Buffer.from(`${orderId}|confirm`).toString('base64');
+        const discardToken = Buffer.from(`${orderId}|discard`).toString('base64');
+
+        const replyMarkup = {
+          inline_keyboard: [
+            [
+              { text: "✅ Aceptar", callback_data: `order_confirm|${confirmToken}` },
+              { text: "❌ Descartar", callback_data: `order_discard|${discardToken}` }
+            ]
+          ]
+        };
+
+        await sendTelegramMessage(deliveryData.telegramChatId, telegramText, replyMarkup);
+        console.log(`✅ Notificación de Telegram enviada a: ${deliveryData.telegramChatId}`);
+      }
+    } catch (tgError) {
+      console.error(`❌ Error enviando notificación de Telegram:`, tgError);
+    }
+
   } catch (error) {
     console.error(`❌ Error notificando al delivery para orden ${orderId}:`, error);
   }
@@ -1954,26 +2022,53 @@ exports.handleDeliveryOrderAction = onRequest(async (request, response) => {
     }
 
     // Decodificar token
+    const result = await processOrderAction(token, action);
+
+    if (result.error) {
+      return response.status(400).json({ error: result.error });
+    }
+
+    // Redirección directa al dashboard con parámetros para mostrar notificación
+    const redirectUrl = `https://fuddi.shop/delivery/dashboard?action=${action}&orderId=${result.orderId.substring(0, 8).toUpperCase()}`;
+    response.redirect(redirectUrl);
+
+  } catch (error) {
+    console.error('❌ Error en handleDeliveryOrderAction:', error);
+    response.status(500).json({ error: 'Error procesando la acción' });
+  }
+});
+
+/**
+ * Función auxiliar para procesar la acción de la orden (reutilizada por Email y Telegram)
+ */
+async function processOrderAction(token, action) {
+  try {
+    // Decodificar token
     let orderId, actionType;
     try {
       const decoded = Buffer.from(token, 'base64').toString('utf-8');
       [orderId, actionType] = decoded.split('|');
     } catch (e) {
-      return response.status(400).json({ error: 'Token inválido' });
+      return { error: 'Token inválido' };
     }
 
     // Validar que el action sea válido
     if (!['confirm', 'discard'].includes(action) || actionType !== action) {
-      return response.status(400).json({ error: 'Acción inválida' });
+      return { error: 'Acción inválida' };
     }
 
     // Obtener la orden
     const orderDoc = await admin.firestore().collection('orders').doc(orderId).get();
     if (!orderDoc.exists) {
-      return response.status(404).json({ error: 'Orden no encontrada' });
+      return { error: 'Orden no encontrada' };
     }
 
     const order = orderDoc.data();
+
+    if (order.status !== 'pending' && order.status !== 'confirmed') {
+      // Si ya fue procesada, no hacer nada
+      return { orderId };
+    }
 
     // Actualizar estado según la acción
     let newStatus;
@@ -1991,12 +2086,100 @@ exports.handleDeliveryOrderAction = onRequest(async (request, response) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
-    // Redirección directa al dashboard con parámetros para mostrar notificación
-    const redirectUrl = `https://fuddi.shop/delivery/dashboard?action=${action}&orderId=${orderId.substring(0, 8).toUpperCase()}`;
-    response.redirect(redirectUrl);
-
+    return { orderId };
   } catch (error) {
-    console.error('❌ Error en handleDeliveryOrderAction:', error);
-    response.status(500).json({ error: 'Error procesando la acción' });
+    console.error('Error en processOrderAction:', error);
+    return { error: 'Error interno' };
+  }
+}
+
+/**
+ * Función para enviar mensajes de Telegram
+ */
+async function sendTelegramMessage(chatId, text, replyMarkup = null) {
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+    const data = {
+      chat_id: chatId,
+      text: text,
+      parse_mode: 'HTML'
+    };
+    if (replyMarkup) {
+      data.reply_markup = replyMarkup;
+    }
+    await axios.post(url, data);
+  } catch (error) {
+    console.error('Error sending Telegram message:', error.response?.data || error.message);
+  }
+}
+
+/**
+ * HTTP Function: Webhook para Telegram
+ */
+exports.telegramWebhook = onRequest(async (req, res) => {
+  try {
+    const update = req.body;
+    console.log('📬 Telegram Update:', JSON.stringify(update));
+
+    if (update.message && update.message.text) {
+      const text = update.message.text;
+      const chatId = update.message.chat.id;
+
+      if (text.startsWith('/start')) {
+        const deliveryId = text.split(' ')[1];
+        if (deliveryId) {
+          try {
+            await admin.firestore().collection('deliveries').doc(deliveryId).update({
+              telegramChatId: chatId.toString()
+            });
+            await sendTelegramMessage(chatId, "✅ <b>¡Vinculación Exitosa!</b>\n\nDesde ahora recibirás las notificaciones de nuevos pedidos aquí.");
+          } catch (error) {
+            console.error('Error vincualndo delivery:', error);
+            await sendTelegramMessage(chatId, "❌ Hubo un error al vincular tu cuenta. Por favor verifica el enlace.");
+          }
+        } else {
+          await sendTelegramMessage(chatId, "¡Hola! Para vincular tu cuenta, usa el botón 'Vincular Telegram' en tu panel de administración.");
+        }
+      }
+    } else if (update.callback_query) {
+      const callbackQuery = update.callback_query;
+      const data = callbackQuery.data;
+      const chatId = callbackQuery.message.chat.id;
+      const messageId = callbackQuery.message.message_id;
+
+      const [actionType, token] = data.split('|');
+      const action = actionType.replace('order_', '');
+
+      const result = await processOrderAction(token, action);
+
+      if (result.error) {
+        await sendTelegramMessage(chatId, `❌ Error: ${result.error}`);
+      } else {
+        const statusText = action === 'confirm' ? '✅ <b>Aceptado</b>' : '❌ <b>Descartado</b>';
+
+        // Editar el mensaje original para quitar botones y mostrar estado
+        const editUrl = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/editMessageText`;
+        const originalText = callbackQuery.message.text;
+
+        await axios.post(editUrl, {
+          chat_id: chatId,
+          message_id: messageId,
+          text: `${originalText}\n\n${statusText}`,
+          parse_mode: 'HTML'
+        });
+      }
+
+      // Responder al callback para quitar el relojito
+      const answerUrl = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/answerCallbackQuery`;
+      await axios.post(answerUrl, {
+        callback_query_id: callbackQuery.id,
+        text: action === 'confirm' ? "Pedido Aceptado" : "Pedido Descartado"
+      });
+    }
+
+    res.status(200).send('OK');
+  } catch (error) {
+    console.error('❌ Error en telegramWebhook:', error);
+    res.status(200).send('OK'); // Siempre responder 200 a Telegram para evitar reintentos infinitos
   }
 });

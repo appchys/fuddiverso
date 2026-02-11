@@ -249,6 +249,7 @@ export interface Delivery {
   estado: 'activo' | 'inactivo'
   fechaRegistro: string
   uid?: string // UID de Firebase Auth para autenticación
+  telegramChatId?: string // ID de chat de Telegram para notificaciones
 }
 
 export interface QRCode {
