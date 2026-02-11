@@ -4,6 +4,8 @@ service cloud.firestore {
     // Permitir lectura pública de negocios y productos
     match /businesses/{businessId} {
       allow read: if true;
+      // TEMPORALMENTE: Permitir escritura para usuarios autenticados (MIGRACIÓN)
+      // TODO: Revertir después de migración
       allow write: if request.auth != null;
       
       // Subcolección de notificaciones
@@ -242,6 +244,12 @@ service cloud.firestore {
       
       // No permitir actualización ni eliminación (registro inmutable)
       allow update, delete: if false;
+    }
+    // Colección de Liquidaciones (Settlements)
+    // Acceso restringido a usuarios autenticados (admin)
+    match /settlements/{document} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
     }
   }
 }

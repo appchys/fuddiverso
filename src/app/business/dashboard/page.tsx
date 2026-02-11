@@ -20,6 +20,7 @@ import BusinessProfileDashboard from '@/components/BusinessProfileDashboard'
 import QueueStatusIndicator from '@/components/QueueStatusIndicator'
 import DashboardSidebar from '@/components/DashboardSidebar'
 import StatisticsView from '@/components/StatisticsView'
+import WalletView from '@/components/WalletView'
 import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 
 import {
@@ -96,7 +97,7 @@ export default function BusinessDashboard() {
   const [historicalOrders, setHistoricalOrders] = useState<Order[]>([])
   const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats'>('orders')
+  const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet'>('orders')
 
   const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>('general')
   const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
@@ -528,7 +529,7 @@ export default function BusinessDashboard() {
     const tab = query.get('tab');
     const subtab = query.get('subtab');
 
-    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes', 'stats'].includes(tab)) {
+    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes', 'stats', 'wallet'].includes(tab)) {
 
       setActiveTab(tab as any);
       if (tab === 'profile') {
@@ -3338,6 +3339,15 @@ export default function BusinessDashboard() {
           {/* Inventory Tab */}
           {activeTab === 'inventory' && (
             <IngredientStockManagement business={business} />
+          )}
+
+          {/* Wallet Tab */}
+          {activeTab === 'wallet' && (
+            <WalletView
+              business={business!}
+              orders={orders}
+              historicalOrders={historicalOrders}
+            />
           )}
 
 

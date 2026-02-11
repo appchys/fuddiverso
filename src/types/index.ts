@@ -220,6 +220,24 @@ export interface Order {
     cancelledAt?: Date | Timestamp
   }
   waSentToDelivery?: boolean
+  paymentCollector?: 'fuddi' | 'store' // Quién cobró el dinero
+  settlementStatus?: 'pending' | 'settled' // Estado de liquidación
+  settlementId?: string // ID de la liquidación si ya fue procesada
+}
+
+export interface Settlement {
+  id: string
+  businessId: string
+  startDate: Date
+  endDate: Date
+  totalOrders: number
+  totalSales: number // Suma de total de órdenes
+  totalCommission: number // Suma de comisiones retenidas
+  totalDelivery: number // Suma de costos de envío (si aplica)
+  netAmount: number // (Ventas cobradas por Fuddi) - (Comisiones) + (Delivery)
+  status: 'pending' | 'completed'
+  createdAt: Date
+  createdBy: string
 }
 
 export interface Delivery {

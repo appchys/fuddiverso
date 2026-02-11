@@ -6,8 +6,8 @@ import { useRouter } from 'next/navigation'
 interface DashboardSidebarProps {
     sidebarOpen: boolean
     setSidebarOpen: (open: boolean) => void
-    activeTab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats'
-    setActiveTab: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats') => void
+    activeTab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet'
+    setActiveTab: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet') => void
 
     profileSubTab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'
     setProfileSubTab: (tab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins') => void
@@ -162,6 +162,20 @@ export default function DashboardSidebar({
                     >
                         <span className="material-symbols-rounded me-3 text-lg">bar_chart</span>
                         <span className="font-medium">Estadísticas</span>
+                    </button>
+
+                    <button
+                        onClick={() => {
+                            setActiveTab('wallet')
+                            setSidebarOpen(false)
+                        }}
+                        className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'wallet'
+                            ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                            : 'text-gray-700 hover:bg-gray-50'
+                            }`}
+                    >
+                        <span className="material-symbols-rounded me-3 text-lg">account_balance_wallet</span>
+                        <span className="font-medium">Billetera</span>
                     </button>
 
 

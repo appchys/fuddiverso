@@ -1,16 +1,20 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import {
   getAllOrders,
   getAllBusinesses,
   getVisitsForBusiness,
   getAllUserCreditsGlobal,
   getAllReferralLinksGlobal,
-  getAllClientsGlobal
+  getAllClientsGlobal,
+  updateOrderSettlementStatus,
+  createSettlement,
+  getAllSettlements,
+  getAllDeliveries
 } from '@/lib/database'
 import { isStoreOpen } from '@/lib/store-utils'
-import { Order, Business } from '@/types'
+import { Order, Business, Settlement, Delivery } from '@/types'
 import {
   BarChart,
   Bar,
@@ -34,9 +38,18 @@ export default function AdminDashboard() {
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders'>('home')
+  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'settlements'>('home')
+  // Estado para liquidaciones
+  const [selectedSettlementBusiness, setSelectedSettlementBusiness] = useState<string | null>(null)
+  const [processingSettlement, setProcessingSettlement] = useState(false)
+  const [selectedOrderForProof, setSelectedOrderForProof] = useState<Order | null>(null)
+  const [settlementsView, setSettlementsView] = useState<'pending' | 'history'>('pending')
+  const [settlementsHistory, setSettlementsHistory] = useState<Settlement[]>([])
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+
   const [customers, setCustomers] = useState<any[]>([])
   const [recommenders, setRecommenders] = useState<any[]>([])
+  const [deliveries, setDeliveries] = useState<Delivery[]>([])
   const [chartData, setChartData] = useState<any[]>([])
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
@@ -237,11 +250,15 @@ export default function AdminDashboard() {
       setCustomers(Array.from(customerMap.values()).sort((a, b) => b.spent - a.spent))
 
       // Cargar Datos de Recomendadores y Clientes (Paralelo)
-      const [allCredits, allLinks, allGlobalClients] = await Promise.all([
+      const [allCredits, allLinks, allGlobalClients, allSettlements, allDeliveries] = await Promise.all([
         getAllUserCreditsGlobal(),
         getAllReferralLinksGlobal(),
-        getAllClientsGlobal()
+        getAllClientsGlobal(),
+        getAllSettlements(),
+        getAllDeliveries()
       ])
+      setSettlementsHistory(allSettlements)
+      setDeliveries(allDeliveries)
 
       const processedCustomers = Array.from(customerMap.values())
 
@@ -397,6 +414,571 @@ export default function AdminDashboard() {
     );
   };
 
+
+
+  const renderSettlementsTab = () => {
+    // 1. Filtrar órdenes pendientes de liquidación y entregadas
+    const pendingOrders = orders.filter(o =>
+      o.status === 'delivered' &&
+      (!o.settlementStatus || o.settlementStatus === 'pending')
+    )
+
+    // 2. Agrupar por negocio
+    const settlementsByBusiness = businesses.reduce((acc, business) => {
+      const businessOrders = pendingOrders.filter(o => o.businessId === business.id)
+
+      if (businessOrders.length === 0) return acc
+
+      let totalSales = 0
+      let totalSubtotal = 0
+      let totalCommission = 0
+      let totalDelivery = 0
+      let collectedByFuddi = 0
+      let collectedByStore = 0
+      let collectedByFuddiSubtotal = 0
+      let collectedByStoreSubtotal = 0
+
+      businessOrders.forEach(order => {
+        // Subtotal de productos: Priorizar el campo subtotal de la orden, si no existe calcularlo
+        const subtotal = order.subtotal || order.items?.reduce((sum, item: any) => {
+          const itemPrice = item.price || item.product?.price || 0
+          const itemTotal = item.subtotal || (itemPrice * item.quantity)
+          return sum + itemTotal
+        }, 0) || (order.total - (order.delivery?.deliveryCost || 0))
+
+        // Delivery cost: Campo directo o diferencia
+        const deliveryCost = order.delivery?.deliveryCost || (order.total - subtotal) || 0
+        const commission = subtotal * 0.04
+
+        console.log(`[Settlement Debug] Order: ${order.id}`, {
+          orderTotal: order.total,
+          subtotal,
+          deliveryCost,
+          commission,
+          collector: order.paymentCollector
+        });
+
+        totalSales += (order.total || 0)
+        totalSubtotal += subtotal
+        totalCommission += commission
+        totalDelivery += deliveryCost
+
+        // Determinamos quién cobró
+        const currentOrderTotal = order.total || 0
+        if (order.paymentCollector === 'store') {
+          collectedByStore += currentOrderTotal
+          collectedByStoreSubtotal += subtotal
+        } else {
+          collectedByFuddi += currentOrderTotal
+          collectedByFuddiSubtotal += subtotal
+        }
+      })
+
+      // Net Amount: Según petición del usuario
+      // Se calcula como: Subtotal de Ventas (Productos) - Subtotal recaudado por tienda - Comisiones de Fuddi
+      const netAmount = totalSubtotal - collectedByStoreSubtotal - totalCommission
+
+      console.log(`[Settlement Debug] Totals for ${business.name}:`, {
+        totalSales,
+        totalSubtotal,
+        totalDelivery,
+        totalCommission,
+        collectedByStore,
+        collectedByFuddi,
+        netAmount
+      });
+
+      acc.push({
+        business,
+        orders: businessOrders,
+        financials: {
+          totalSales,
+          totalSubtotal,
+          totalCommission,
+          collectedByFuddi,
+          collectedByStore,
+          collectedByFuddiSubtotal,
+          collectedByStoreSubtotal,
+          netAmount,
+          count: businessOrders.length
+        }
+      })
+      return acc
+    }, [] as any[])
+
+    const handleToggleCollector = async (order: Order) => {
+      const newCollector = order.paymentCollector === 'store' ? 'fuddi' : 'store'
+
+      // Optimistic update local state
+      setOrders(prevOrders => prevOrders.map(o =>
+        o.id === order.id ? { ...o, paymentCollector: newCollector } : o
+      ))
+
+      if (selectedOrderForProof && selectedOrderForProof.id === order.id) {
+        setSelectedOrderForProof(prev => prev ? { ...prev, paymentCollector: newCollector } : null)
+      }
+
+      // Update DB in background
+      try {
+        await updateOrderSettlementStatus(order.id, { paymentCollector: newCollector })
+      } catch (error) {
+        console.error('Error updating payment collector:', error)
+        // Revert on error
+        setOrders(prevOrders => prevOrders.map(o =>
+          o.id === order.id ? { ...o, paymentCollector: order.paymentCollector } : o
+        ))
+        alert('Error al actualizar. Por favor intenta de nuevo.')
+      }
+    }
+
+    const handleCreateSettlement = async (businessId: string, ordersToSettle: Order[], financials: any) => {
+      if (!confirm(`¿Confirmas generar el corte por $${financials.netAmount.toFixed(2)}?`)) return
+
+      setProcessingSettlement(true)
+      try {
+        const settlementData: any = {
+          businessId,
+          startDate: new Date(Math.min(...ordersToSettle.map(o => new Date(o.createdAt).getTime()))), // Fecha más antigua
+          endDate: new Date(),
+          totalOrders: financials.count,
+          totalSales: financials.totalSubtotal, // Guardamos el subtotal como venta principal para consistencia
+          totalCommission: financials.totalCommission,
+          totalDelivery: financials.totalDelivery,
+          netAmount: financials.netAmount,
+          status: 'completed',
+          createdBy: 'admin' // TODO: Get current admin ID
+        }
+
+        await createSettlement(settlementData, ordersToSettle.map(o => o.id))
+        alert('Corte generado exitosamente')
+        setSelectedSettlementBusiness(null)
+        loadData()
+      } catch (e) {
+        console.error(e)
+        alert('Error al generar corte')
+      } finally {
+        setProcessingSettlement(false)
+      }
+    }
+
+    if (selectedSettlementBusiness) {
+      const selectedData = settlementsByBusiness.find(s => s.business.id === selectedSettlementBusiness)
+      if (!selectedData) return <div className="p-4">Negocio no encontrado o sin pendientes. <button onClick={() => setSelectedSettlementBusiness(null)} className="text-blue-600 underline">Volver</button></div>
+
+      return (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <button onClick={() => setSelectedSettlementBusiness(null)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <i className="bi bi-arrow-left text-xl text-gray-600"></i>
+              </button>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">{selectedData.business.name}</h3>
+                <p className="text-sm text-gray-500">Liquidación Pendiente</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Resumen Financiero del Corte */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs font-semibold text-gray-500 uppercase">Ventas Totales</p>
+                <div className="group relative">
+                  <i className="bi bi-info-circle text-gray-400 cursor-help"></i>
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-gray-800 text-white text-[10px] p-2 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                    Monto total de productos vendidos (Subtotal sin envío).
+                  </div>
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-gray-900">${selectedData.financials.totalSubtotal.toFixed(2)}</p>
+              <div className="mt-1 space-y-0.5">
+                <p className="text-[10px] text-gray-500 flex justify-between" title="Ventas netas cobradas (Sin envío)">
+                  <span>Tienda (Rec):</span>
+                  <span className="font-medium text-gray-700">${selectedData.financials.collectedByStoreSubtotal.toFixed(2)}</span>
+                </p>
+                <p className="text-[10px] text-gray-500 flex justify-between" title="Ventas netas cobradas (Sin envío)">
+                  <span>Fuddi (Rec):</span>
+                  <span className="font-medium text-gray-700">${selectedData.financials.collectedByFuddiSubtotal.toFixed(2)}</span>
+                </p>
+                <p className="text-[10px] text-gray-900 flex justify-between pt-1 border-t border-gray-100 mt-1" title="Subtotal de productos ya recaudado por la tienda">
+                  <span className="font-semibold">Cobrado por tienda:</span>
+                  <span className="font-bold">-${selectedData.financials.collectedByStoreSubtotal.toFixed(2)}</span>
+                </p>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-2 border-t pt-1">{selectedData.financials.count} órdenes</p>
+            </div>
+            <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+              <p className="text-xs font-semibold text-red-700 uppercase">Comisiones Fuddi (4%)</p>
+              <p className="text-2xl font-bold text-red-700">-${selectedData.financials.totalCommission.toFixed(2)}</p>
+            </div>
+            <div className={`p-4 rounded-xl border ${selectedData.financials.netAmount >= 0 ? 'bg-green-50 border-green-100' : 'bg-orange-50 border-orange-100'}`}>
+              <p className={`text-xs font-semibold uppercase ${selectedData.financials.netAmount >= 0 ? 'text-green-700' : 'text-orange-700'}`}>
+                {selectedData.financials.netAmount >= 0 ? 'Transferir a Tienda' : 'Cobrar a Tienda'}
+              </p>
+              <p className={`text-2xl font-bold ${selectedData.financials.netAmount >= 0 ? 'text-green-700' : 'text-orange-700'}`}>
+                ${Math.abs(selectedData.financials.netAmount).toFixed(2)}
+              </p>
+              {selectedData.financials.netAmount < 0 && <p className="text-xs text-orange-600 mt-1">La tienda recaudó más de lo que le corresponde</p>}
+            </div>
+          </div>
+
+          <div className="flex justify-end mb-4">
+            <button
+              onClick={() => handleCreateSettlement(selectedData.business.id, selectedData.orders, selectedData.financials)}
+              disabled={processingSettlement}
+              className="bg-green-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2"
+            >
+              {processingSettlement ? <i className="bi bi-arrow-clockwise animate-spin"></i> : <i className="bi bi-check-circle"></i>}
+              Generar Corte y Marcar Pagado
+            </button>
+          </div>
+
+          {/* Tabla de Órdenes */}
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <tbody className="bg-white divide-y divide-gray-200">
+                {(() => {
+                  const groups = selectedData.orders.reduce((acc: any, order: Order) => {
+                    const assignedId = order.delivery?.type === 'pickup' ? 'pickup' : (order.delivery?.assignedDelivery || 'unassigned')
+                    if (!acc[assignedId]) acc[assignedId] = []
+                    acc[assignedId].push(order)
+                    return acc
+                  }, {} as Record<string, Order[]>)
+
+                  return Object.entries(groups)
+                    .sort(([idA], [idB]) => {
+                      if (idA === 'pickup') return 1
+                      if (idB === 'pickup') return -1
+                      return 0
+                    })
+                    .map(([groupId, groupOrders]: [string, any]) => {
+                      const delivery = deliveries.find(d => d.id === groupId || d.uid === groupId)
+                      const groupTitle = groupId === 'pickup' ? 'Retiros en Tienda' : (delivery ? `Delivery: ${delivery.nombres}` : 'Delivery: Sin asignar')
+                      const groupIcon = groupId === 'pickup' ? 'bi-person-fill' : 'bi-scooter'
+                      const isCollapsed = collapsedGroups[groupId] !== false
+
+                      return (
+                        <Fragment key={groupId}>
+                          {/* Header de Grupo */}
+                          {(() => {
+                            const groupTotal = groupOrders.reduce((sum: number, o: Order) => sum + (o.total || 0), 0)
+                            const groupSubtotal = groupOrders.reduce((sum: number, o: Order) => {
+                              const s = o.subtotal || o.items?.reduce((isum, item: any) => {
+                                const itemPrice = item.price || item.product?.price || 0
+                                return isum + (item.subtotal || (itemPrice * item.quantity))
+                              }, 0) || (o.total - (o.delivery?.deliveryCost || 0))
+                              return sum + s
+                            }, 0)
+                            const groupDelivery = groupTotal - groupSubtotal
+
+                            return (
+                              <tr
+                                className="bg-gray-50/50 cursor-pointer hover:bg-gray-100 transition-colors"
+                                onClick={() => setCollapsedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }))}
+                              >
+                                <td colSpan={6} className="px-6 py-2">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                      <i className={`bi ${groupIcon}`}></i>
+                                      {groupTitle}
+
+                                      <div className="flex items-center gap-1.5 ml-4">
+                                        <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-[10px] font-bold" title="Total Recaudado">
+                                          ${groupTotal.toFixed(2)}
+                                        </span>
+                                        <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1" title="Monto Delivery">
+                                          <i className="bi bi-scooter"></i> ${groupDelivery.toFixed(2)}
+                                        </span>
+                                        <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1" title="Ventas Netas (Sin delivery)">
+                                          <i className="bi bi-cash-coin"></i> ${groupSubtotal.toFixed(2)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <i className={`bi bi-chevron-${isCollapsed ? 'down' : 'up'} text-gray-400`}></i>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })()}
+                          {!isCollapsed && groupOrders.map((order: Order) => {
+                            const subtotal = order.subtotal || order.items?.reduce((sum: number, item: any) => {
+                              const itemPrice = item.price || item.product?.price || 0
+                              const itemTotal = item.subtotal || (itemPrice * item.quantity)
+                              return sum + itemTotal
+                            }, 0) || (order.total - (order.delivery?.deliveryCost || 0))
+                            const commission = subtotal * 0.04
+                            const isStoreCollector = order.paymentCollector === 'store'
+
+                            return (
+                              <tr key={order.id} className="hover:bg-gray-50">
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  <div className="flex items-center gap-2">
+                                    <div
+                                      className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}
+                                      title={order.createdByAdmin ? 'Pedido Manual (Tienda)' : 'Pedido Automático (Cliente)'}
+                                    >
+                                      <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[10px]`}></i>
+                                    </div>
+                                    {new Date(order.createdAt).toLocaleDateString()}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                                  ${order.total.toFixed(2)}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  <div className="text-gray-900 font-medium">{order.customer.name}</div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  {order.payment.method === 'cash' ? 'Efectivo' : (
+                                    <button
+                                      onClick={() => setSelectedOrderForProof(order)}
+                                      className="text-blue-600 hover:text-blue-800 underline flex items-center gap-1 group"
+                                    >
+                                      Transferencia
+                                      {order.payment.receiptImageUrl && <i className="bi bi-image group-hover:scale-110 transition-transform"></i>}
+                                    </button>
+                                  )}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-center">
+                                  <button
+                                    onClick={() => handleToggleCollector(order)}
+                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${isStoreCollector
+                                      ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                                      : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                      }`}
+                                  >
+                                    {isStoreCollector ? '🏢 Tienda' : '🦅 Fuddi'}
+                                  </button>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-red-600 font-medium">
+                                  -${commission.toFixed(2)}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </Fragment>
+                      )
+                    })
+                })()}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Modal de Comprobante */}
+          {selectedOrderForProof && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectedOrderForProof(null)}>
+              <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
+                  <h3 className="font-bold text-lg">Comprobante de Pago</h3>
+                  <button onClick={() => setSelectedOrderForProof(null)} className="p-2 hover:bg-gray-100 rounded-full">
+                    <i className="bi bi-x-lg"></i>
+                  </button>
+                </div>
+                <div className="p-6 space-y-6">
+                  <div className="bg-gray-100 rounded-lg p-2 flex justify-center min-h-[200px] items-center">
+                    {selectedOrderForProof.payment.receiptImageUrl ? (
+                      <img
+                        src={selectedOrderForProof.payment.receiptImageUrl}
+                        alt="Comprobante"
+                        className="max-w-full max-h-[60vh] object-contain rounded-lg"
+                      />
+                    ) : (
+                      <div className="text-gray-400 text-center">
+                        <i className="bi bi-image-alt text-4xl mb-2 block"></i>
+                        No hay imagen disponible
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-gray-900 text-center">¿Quién cobró este pedido?</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <button
+                        onClick={async () => {
+                          await handleToggleCollector(selectedOrderForProof)
+                          setSelectedOrderForProof(null)
+                        }}
+                        className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${selectedOrderForProof.paymentCollector !== 'store'
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 hover:border-blue-200'
+                          }`}
+                      >
+                        <span className="text-2xl">🦅</span>
+                        <span className="font-bold">Fuddi</span>
+                        {selectedOrderForProof.paymentCollector !== 'store' && <i className="bi bi-check-circle-fill text-blue-500"></i>}
+                      </button>
+
+                      <button
+                        onClick={async () => {
+                          await handleToggleCollector(selectedOrderForProof)
+                          setSelectedOrderForProof(null)
+                        }}
+                        className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${selectedOrderForProof.paymentCollector === 'store'
+                          ? 'border-purple-500 bg-purple-50 text-purple-700'
+                          : 'border-gray-200 hover:border-purple-200'
+                          }`}
+                      >
+                        <span className="text-2xl">🏢</span>
+                        <span className="font-bold">Tienda</span>
+                        {selectedOrderForProof.paymentCollector === 'store' && <i className="bi bi-check-circle-fill text-purple-500"></i>}
+                      </button>
+                    </div>
+                    <div className="text-center pt-2">
+                      <p className="text-sm text-gray-500">
+                        Monto del Pedido: <span className="font-bold text-gray-900">${selectedOrderForProof.total.toFixed(2)}</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // Vista Principal con Toggle
+    return (
+      <div className="space-y-6">
+        {/* Toggle View */}
+        <div className="flex justify-center">
+          <div className="bg-gray-100 p-1 rounded-lg inline-flex">
+            <button
+              onClick={() => setSettlementsView('pending')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${settlementsView === 'pending' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'
+                }`}
+            >
+              Pendientes
+            </button>
+            <button
+              onClick={() => setSettlementsView('history')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${settlementsView === 'history' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'
+                }`}
+            >
+              Historial de Cortes
+            </button>
+          </div>
+        </div>
+
+        {settlementsView === 'pending' ? (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Resumen de Pendientes por Tienda</h3>
+
+            {settlementsByBusiness.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <i className="bi bi-check-circle text-4xl mb-3 block text-green-500"></i>
+                No hay órdenes pendientes de liquidación.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {settlementsByBusiness.map((item: any) => (
+                  <div key={item.business.id} className="bg-white border boundary-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-all">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-full bg-gray-100 overflow-hidden">
+                        {item.business.image ? (
+                          <img src={item.business.image} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center"><i className="bi bi-shop text-gray-400"></i></div>
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-gray-900 line-clamp-1">{item.business.name}</h4>
+                        <p className="text-xs text-gray-500">{item.financials.count} órdenes pendientes</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2 mb-4">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Ventas (Subtotal)</span>
+                        <span className="font-semibold">${item.financials.totalSubtotal.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Comisiones</span>
+                        <span className="text-red-500 font-semibold">-${item.financials.totalCommission.toFixed(2)}</span>
+                      </div>
+                      <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
+                        <span className="text-xs font-bold text-gray-500 uppercase">A Transferir</span>
+                        <span className={`text-lg font-bold ${item.financials.netAmount >= 0 ? 'text-green-600' : 'text-orange-600'}`}>
+                          ${item.financials.netAmount.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setSelectedSettlementBusiness(item.business.id)}
+                      className="w-full py-2 bg-gray-50 text-gray-700 font-semibold rounded-lg hover:bg-gray-100 transition-colors text-sm"
+                    >
+                      Ver Detalles
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+        ) : (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-6 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-gray-900">Historial de Cortes Realizados</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Corte</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tienda</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Periodo</th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Órdenes</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ventas</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Comisión</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Neto Transf.</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {settlementsHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                        No hay historial de cortes.
+                      </td>
+                    </tr>
+                  ) : (
+                    settlementsHistory.map((settlement) => {
+                      const business = businesses.find(b => b.id === settlement.businessId)
+                      return (
+                        <tr key={settlement.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {settlement.createdAt ? new Date(settlement.createdAt).toLocaleDateString() : '-'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">{business?.name || 'Desconocido'}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {new Date(settlement.startDate).toLocaleDateString()} - {new Date(settlement.endDate).toLocaleDateString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-900">
+                            {settlement.totalOrders}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-900">
+                            ${settlement.totalSales.toFixed(2)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-red-600">
+                            -${settlement.totalCommission.toFixed(2)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-gray-900">
+                            ${settlement.netAmount.toFixed(2)}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  };
+
   return (
     <div className="space-y-4 md:space-y-8">
       {/* Header - Compacto en móvil */}
@@ -432,6 +1014,13 @@ export default function AdminDashboard() {
           >
             <i className="bi bi-share md:hidden me-1.5"></i>
             Recomendadores
+          </button>
+          <button
+            onClick={() => setActiveTab('settlements')}
+            className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'settlements' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <i className="bi bi-cash-coin md:hidden me-1.5"></i>
+            Liquidaciones
           </button>
         </div>
       </div>
@@ -842,6 +1431,8 @@ export default function AdminDashboard() {
         </>
       ) : activeTab === 'customers' ? (
         renderCustomersTab()
+      ) : activeTab === 'settlements' ? (
+        renderSettlementsTab()
       ) : (
         renderRecommendersTab()
       )}
