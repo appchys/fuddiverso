@@ -235,7 +235,7 @@ export default function ManualOrderSidebar({
       }
 
       const selectedProducts = (eo.items || []).map((it: any) => ({
-        name: it.variant || it.name || it.product?.name || 'Producto',
+        name: it.name || it.product?.name || it.variant || 'Producto',
         price: it.price || it.product?.price || 0,
         productId: it.productId || it.product?.id || it.id || '',
         quantity: it.quantity || 1,
@@ -1013,7 +1013,7 @@ export default function ManualOrderSidebar({
     const variantName = variant ? variant.name : undefined
 
     const newItem: OrderItem = {
-      name: variant ? variant.name : product.name,
+      name: product.name,
       price: price,
       productId: product.id,
       quantity: 1,
@@ -1497,7 +1497,10 @@ export default function ManualOrderSidebar({
                 {manualOrderData.selectedProducts.map((item, index) => (
                   <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
                     <div className="flex-1">
-                      <p className="text-sm font-medium">{item.name}</p>
+                      <p className="text-sm font-medium">
+                        {item.name}
+                        {item.variant && <span className="text-xs text-blue-600 ml-2">({item.variant})</span>}
+                      </p>
                       <p className="text-xs text-gray-500">${item.price} c/u</p>
                     </div>
                     <div className="flex items-center space-x-2">

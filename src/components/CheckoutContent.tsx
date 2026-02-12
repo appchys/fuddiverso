@@ -1367,10 +1367,10 @@ export function CheckoutContent({
         businessId: businessId,
         items: cartItems.map((item: any) => ({
           productId: item.id.split('-')[0],
-          name: item.variantName || item.productName || item.name,
+          name: item.productName || item.name,
           price: item.price,
           quantity: item.quantity,
-          variant: item.variantName || item.name,
+          variant: item.variantName || '',
           image: item.image
         })),
         customer: {
@@ -1425,8 +1425,8 @@ export function CheckoutContent({
           businessId,
           cartItems.map((item: any) => ({
             productId: item.id.split('-')[0],
-            variant: item.variantName || item.name,
-            name: item.variantName || item.productName || item.name,
+            variant: item.variantName || '',
+            name: item.productName || item.name,
             quantity: item.quantity
           })),
           orderDateStr,
