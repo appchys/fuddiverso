@@ -65,6 +65,7 @@ export interface Business {
     emailOrderManual: boolean // Notificaciones de pedidos manuales
     emailCheckoutProgress: boolean // Notificaciones cuando un cliente inicia checkout
   }
+  telegramChatId?: string // ID de chat de Telegram para notificaciones a la tienda
 }
 
 export interface BusinessAdministrator {

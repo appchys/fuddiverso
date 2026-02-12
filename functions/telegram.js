@@ -49,45 +49,41 @@ function formatTelegramMessage(orderData, businessName, isAccepted = false) {
     if (Array.isArray(orderData.items) && orderData.items.length > 0) {
         itemsText += `\n<b>Detalles del pedido</b>\n`;
 
-        // Agrupar por nombre de producto SOLO si existe productName (indicativo de variante)
-        // Si no tiene productName, se considera un item independiente y no se agrupa bajo un título
+        // Agrupar por nombre de producto
         const groupedItems = {};
-        const standaloneItems = []; // Items que no tienen variante o productName definido explícitamente
 
         orderData.items.forEach(item => {
-            // Un item tiene variante típicamente si tiene 'productName' (nombre del padre) Y 'name' (nombre de la variante)
-            const parentName = item.productName;
+            const productName = item.name || 'Producto';
 
-            if (parentName) {
-                // Es una variante
-                if (!groupedItems[parentName]) {
-                    groupedItems[parentName] = [];
-                }
-                groupedItems[parentName].push(item);
-            } else {
-                // Es un producto simple (sin variantes) O la estructura no tiene productName
-                standaloneItems.push(item);
+            if (!groupedItems[productName]) {
+                groupedItems[productName] = [];
             }
+            groupedItems[productName].push(item);
         });
 
-        // 1. Renderizar items agrupados (Con variantes)
-        Object.keys(groupedItems).forEach(parentName => {
-            itemsText += `${parentName}\n`;
-            groupedItems[parentName].forEach(item => {
-                const quantity = item.quantity || 1;
-                // Si es variante, 'name' o 'variantName' suele ser el nombre de la variante (ej: "12 wantancitos")
-                const detail = item.variantName || item.name || 'Variante';
-                itemsText += `( ${quantity} ) ${detail}\n`;
-            });
-            itemsText += `\n`;
-        });
+        // Renderizar items agrupados
+        Object.keys(groupedItems).forEach(productName => {
+            const items = groupedItems[productName];
 
-        // 2. Renderizar items independientes (Sin variantes)
-        standaloneItems.forEach(item => {
-            const quantity = item.quantity || 1;
-            const name = item.name || 'Producto';
-            // Para productos simples, no ponemos título de grupo, se muestra directo
-            itemsText += `( ${quantity} ) ${name}\n`;
+            // Si el producto tiene variantes (campo variant no vacío)
+            const hasVariants = items.some(item => item.variant && item.variant.trim() !== '');
+
+            if (hasVariants) {
+                // Mostrar nombre del producto como título
+                itemsText += `${productName}\n`;
+                // Mostrar cada variante con su cantidad
+                items.forEach(item => {
+                    const quantity = item.quantity || 1;
+                    const variantName = item.variant || productName;
+                    itemsText += `( ${quantity} ) ${variantName}\n`;
+                });
+            } else {
+                // Producto sin variantes: mostrar directamente con cantidad
+                items.forEach(item => {
+                    const quantity = item.quantity || 1;
+                    itemsText += `( ${quantity} ) ${productName}\n`;
+                });
+            }
         });
     }
 
@@ -195,15 +191,34 @@ async function handleTelegramWebhook(req, res) {
             const chatId = update.message.chat.id;
 
             if (text.startsWith('/start')) {
-                const deliveryId = text.split(' ')[1];
-                if (deliveryId) {
+                const entityId = text.split(' ')[1];
+                if (entityId) {
                     try {
-                        await admin.firestore().collection('deliveries').doc(deliveryId).update({
-                            telegramChatId: chatId.toString()
-                        });
-                        await sendTelegramMessage(chatId, "✅ <b>¡Vinculación Exitosa!</b>\n\nDesde ahora recibirás las notificaciones de nuevos pedidos aquí.");
+                        // Intentar vincular como delivery primero
+                        const deliveryDoc = await admin.firestore().collection('deliveries').doc(entityId).get();
+
+                        if (deliveryDoc.exists) {
+                            // Es un delivery
+                            await admin.firestore().collection('deliveries').doc(entityId).update({
+                                telegramChatId: chatId.toString()
+                            });
+                            await sendTelegramMessage(chatId, "✅ <b>¡Vinculación Exitosa!</b>\n\nDesde ahora recibirás las notificaciones de nuevos pedidos aquí.");
+                        } else {
+                            // Intentar vincular como tienda
+                            const businessDoc = await admin.firestore().collection('businesses').doc(entityId).get();
+
+                            if (businessDoc.exists) {
+                                await admin.firestore().collection('businesses').doc(entityId).update({
+                                    telegramChatId: chatId.toString()
+                                });
+                                const businessName = businessDoc.data().name || 'Tu tienda';
+                                await sendTelegramMessage(chatId, `✅ <b>¡Vinculación Exitosa!</b>\n\n<b>${businessName}</b> ahora recibirá notificaciones de nuevos pedidos aquí.`);
+                            } else {
+                                await sendTelegramMessage(chatId, "❌ No se encontró el delivery o tienda. Por favor verifica el enlace.");
+                            }
+                        }
                     } catch (error) {
-                        console.error('Error vincualndo delivery:', error);
+                        console.error('Error vinculando entidad:', error);
                         await sendTelegramMessage(chatId, "❌ Hubo un error al vincular tu cuenta. Por favor verifica el enlace.");
                     }
                 } else {
@@ -397,11 +412,31 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
     }
 }
 
+/**
+ * Enviar notificación de Telegram a la tienda cuando se crea una orden
+ */
+async function sendBusinessTelegramNotification(businessData, orderData, orderId) {
+    if (businessData && businessData.telegramChatId) {
+        const businessName = businessData.name || 'Tienda';
+        const { text: telegramText, mapsLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+
+        const linkPreviewOptions = mapsLink ? {
+            url: mapsLink,
+            prefer_large_media: true,
+            show_above_text: true
+        } : null;
+
+        await sendTelegramMessage(businessData.telegramChatId, telegramText, null, linkPreviewOptions);
+        console.log(`✅ Notificación de Telegram enviada a la tienda: ${businessData.telegramChatId}`);
+    }
+}
+
 
 module.exports = {
     TELEGRAM_TOKEN,
     formatTelegramMessage,
     sendTelegramMessage,
     handleTelegramWebhook,
-    sendDeliveryTelegramNotification
+    sendDeliveryTelegramNotification,
+    sendBusinessTelegramNotification
 };

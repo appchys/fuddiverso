@@ -188,6 +188,39 @@ async function notifyDeliveryOnOrderCreationLogic(orderData, orderId) {
   await notifyDeliveryCommon(orderData, orderId, assignedDeliveryId, orderData.businessId);
 }
 
+/**
+ * Notificar a la tienda por Telegram cuando se crea una orden desde checkout
+ */
+async function notifyBusinessTelegramOnOrderCreation(orderData, orderId) {
+  // Solo notificar si la orden NO fue creada por un admin (es decir, fue creada por un cliente)
+  if (orderData.createdByAdmin) {
+    console.log(`ℹ️ Orden ${orderId} creada por admin, omitiendo notificación de Telegram a la tienda.`);
+    return;
+  }
+
+  if (!orderData.businessId) {
+    console.warn(`⚠️ Orden ${orderId} no tiene businessId, no se puede notificar a la tienda.`);
+    return;
+  }
+
+  try {
+    // Obtener datos del negocio
+    const businessDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
+    if (!businessDoc.exists) {
+      console.warn(`⚠️ Negocio ${orderData.businessId} no encontrado`);
+      return;
+    }
+
+    const businessData = businessDoc.data();
+
+    // Enviar notificación de Telegram a la tienda
+    await telegramServices.sendBusinessTelegramNotification(businessData, orderData, orderId);
+  } catch (error) {
+    console.error(`❌ Error enviando notificación de Telegram a la tienda para orden ${orderId}:`, error);
+  }
+}
+
+
 async function notifyDeliveryAssignmentLogic(beforeData, afterData, orderId) {
   const beforeDeliveryId = beforeData.delivery?.assignedDelivery;
   const afterDeliveryId = afterData.delivery?.assignedDelivery;
@@ -213,7 +246,8 @@ exports.onOrderCreated = onDocumentCreated("orders/{orderId}", async (event) => 
   await Promise.allSettled([
     sendOrderEmailLogic(order, orderId),
     createOrderNotificationLogic(order, orderId),
-    notifyDeliveryOnOrderCreationLogic(order, orderId)
+    notifyDeliveryOnOrderCreationLogic(order, orderId),
+    notifyBusinessTelegramOnOrderCreation(order, orderId)
   ]);
 });
 
