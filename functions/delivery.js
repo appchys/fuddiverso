@@ -15,7 +15,8 @@ async function processOrderAction(token, action) {
         }
 
         // Validar que el action sea válido
-        if (!['confirm', 'discard', 'on_way', 'delivered'].includes(action) || actionType !== action) {
+        const validActions = ['confirm', 'discard', 'on_way', 'delivered', 'biz_confirm', 'biz_discard'];
+        if (!validActions.includes(action) || actionType !== action) {
             return { error: 'Acción inválida' };
         }
 
@@ -27,7 +28,7 @@ async function processOrderAction(token, action) {
 
         const order = orderDoc.data();
 
-        // No permitir cambios si ya está entregada o cancelada (excepto si la acción es informativa)
+        // No permitir cambios si ya está entregada o cancelada
         if (order.status === 'delivered' || order.status === 'cancelled') {
             return { orderId };
         }
@@ -37,13 +38,15 @@ async function processOrderAction(token, action) {
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         };
 
-        if (action === 'confirm') {
+        if (action === 'confirm' || action === 'biz_confirm') {
             updateData.status = 'preparing';
-            updateData['delivery.acceptanceStatus'] = 'accepted';
-            console.log(`✅ Orden ${orderId} confirmada por delivery`);
+            if (action === 'confirm') {
+                updateData['delivery.acceptanceStatus'] = 'accepted';
+            }
+            console.log(`✅ Orden ${orderId} confirmada por ${action === 'confirm' ? 'delivery' : 'negocio'}`);
         } else if (action === 'on_way') {
             updateData.status = 'on_way';
-            updateData['statusHistory.onWayAt'] = admin.firestore.FieldValue.serverTimestamp();
+            updateData['statusHistory.on_wayAt'] = admin.firestore.FieldValue.serverTimestamp();
             console.log(`🛵 Orden ${orderId} en camino`);
         } else if (action === 'delivered') {
             updateData.status = 'delivered';
@@ -52,14 +55,15 @@ async function processOrderAction(token, action) {
             console.log(`✅ Orden ${orderId} marcada como entregada`);
         } else if (action === 'discard') {
             const currentDeliveryId = order.delivery?.assignedDelivery;
-
             updateData['delivery.assignedDelivery'] = null;
-
             if (currentDeliveryId) {
                 updateData['delivery.rejectedBy'] = admin.firestore.FieldValue.arrayUnion(currentDeliveryId);
             }
-
             console.log(`❌ Orden ${orderId} descartada por delivery ${currentDeliveryId || 'desconocido'}. Pedido liberado.`);
+        } else if (action === 'biz_discard') {
+            updateData.status = 'cancelled';
+            updateData['statusHistory.cancelledAt'] = admin.firestore.FieldValue.serverTimestamp();
+            console.log(`❌ Orden ${orderId} cancelada por negocio`);
         }
 
         // Actualizar la orden

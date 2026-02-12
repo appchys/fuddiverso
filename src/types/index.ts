@@ -65,7 +65,8 @@ export interface Business {
     emailOrderManual: boolean // Notificaciones de pedidos manuales
     emailCheckoutProgress: boolean // Notificaciones cuando un cliente inicia checkout
   }
-  telegramChatId?: string // ID de chat de Telegram para notificaciones a la tienda
+  telegramChatIds?: string[] // IDs de chat de Telegram para notificaciones a la tienda
+  telegramChatId?: string // ID antiguo (para migración)
 }
 
 export interface BusinessAdministrator {
@@ -224,6 +225,7 @@ export interface Order {
   paymentCollector?: 'fuddi' | 'store' // Quién cobró el dinero
   settlementStatus?: 'pending' | 'settled' // Estado de liquidación
   settlementId?: string // ID de la liquidación si ya fue procesada
+  telegramBusinessMessages?: { chatId: string, messageId: number }[] // Rastreo de mensajes enviados a la tienda
 }
 
 export interface Settlement {

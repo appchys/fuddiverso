@@ -18,18 +18,22 @@ export default function NotificationSettings({
         emailCheckoutProgress: false
     })
 
-    const [telegramChatId, setTelegramChatId] = useState(business.telegramChatId || '')
+    const [telegramChatIds, setTelegramChatIds] = useState<string[]>(business.telegramChatIds || [])
     const [linkCopied, setLinkCopied] = useState(false)
 
-    // Sincronizar estado local si cambian las props (ej: al cargar o si otra persona actualiza)
+    // Sincronizar estado local si cambian las props
     useEffect(() => {
         if (business.notificationSettings) {
             setLocalSettings(business.notificationSettings)
         }
-        if (business.telegramChatId) {
-            setTelegramChatId(business.telegramChatId)
+
+        // Unificar IDs nuevos y antiguos para la visualización
+        let ids = business.telegramChatIds || []
+        if (business.telegramChatId && !ids.includes(business.telegramChatId)) {
+            ids = [...ids, business.telegramChatId]
         }
-    }, [business.notificationSettings, business.telegramChatId])
+        setTelegramChatIds(ids)
+    }, [business.notificationSettings, business.telegramChatIds, business.telegramChatId])
 
     const handleToggle = (key: keyof typeof localSettings) => {
         const newSettings = {
@@ -45,8 +49,10 @@ export default function NotificationSettings({
     }
 
     const handleUnlinkTelegram = () => {
-        if (confirm('¿Estás seguro de que quieres desvincular tu cuenta de Telegram?')) {
-            setTelegramChatId('')
+        if (confirm('¿Estás seguro de que quieres desvincular TODAS las cuentas de Telegram de esta tienda?')) {
+            setTelegramChatIds([])
+            // Limpiamos ambos campos para resetear completamente
+            onBusinessFieldChange('telegramChatIds', [])
             onBusinessFieldChange('telegramChatId', '')
         }
     }
@@ -79,7 +85,7 @@ export default function NotificationSettings({
                         Notificaciones por Telegram
                     </h4>
 
-                    {telegramChatId ? (
+                    {telegramChatIds.length > 0 ? (
                         // Telegram vinculado
                         <div className="p-4 bg-green-50 rounded-lg border border-green-200">
                             <div className="flex items-start justify-between">
@@ -90,18 +96,33 @@ export default function NotificationSettings({
                                     <div>
                                         <h5 className="font-medium text-green-900">Telegram Vinculado</h5>
                                         <p className="text-sm text-green-700 mt-1">
-                                            Recibirás notificaciones de nuevos pedidos directamente en Telegram.
+                                            {telegramChatIds.length} {telegramChatIds.length === 1 ? 'cuenta recibe' : 'cuentas reciben'} notificaciones de nuevos pedidos.
                                         </p>
-                                        <p className="text-xs text-green-600 mt-2 font-mono">
-                                            Chat ID: {telegramChatId}
-                                        </p>
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            <a
+                                                href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=${business.id}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="px-3 py-1 text-xs font-medium bg-white text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50 transition-colors flex items-center gap-1"
+                                            >
+                                                <i className="bi bi-plus-lg"></i>
+                                                Vincular otra
+                                            </a>
+                                            <button
+                                                onClick={handleCopyLink}
+                                                className="px-3 py-1 text-xs font-medium bg-white text-gray-600 border border-gray-200 rounded-full hover:bg-gray-50 transition-colors flex items-center gap-1"
+                                            >
+                                                <i className={`bi ${linkCopied ? 'bi-check' : 'bi-clipboard'}`}></i>
+                                                {linkCopied ? 'Copiado' : 'Copiar link'}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                                 <button
                                     onClick={handleUnlinkTelegram}
                                     className="px-3 py-1.5 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
                                 >
-                                    Desvincular
+                                    Limpiar todos
                                 </button>
                             </div>
                         </div>
@@ -139,6 +160,11 @@ export default function NotificationSettings({
                                     {linkCopied ? 'Copiado' : 'Copiar Link'}
                                 </button>
                             </div>
+
+                            <p className="text-xs text-blue-700 mt-3 flex items-start gap-2">
+                                <i className="bi bi-info-circle flex-shrink-0 mt-0.5"></i>
+                                <span>Después de hacer clic en "Vincular", presiona el botón <strong>"Start"</strong> o <strong>"Iniciar"</strong> en Telegram para completar la vinculación.</span>
+                            </p>
                         </div>
                     )}
                 </div>

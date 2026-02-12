@@ -172,9 +172,11 @@ async function sendTelegramMessage(chatId, text, replyMarkup = null, linkPreview
         if (linkPreviewOptions) {
             data.link_preview_options = linkPreviewOptions;
         }
-        await axios.post(url, data);
+        const response = await axios.post(url, data);
+        return response.data;
     } catch (error) {
         console.error('Error sending Telegram message:', error.response?.data || error.message);
+        return null;
     }
 }
 
@@ -209,10 +211,10 @@ async function handleTelegramWebhook(req, res) {
 
                             if (businessDoc.exists) {
                                 await admin.firestore().collection('businesses').doc(entityId).update({
-                                    telegramChatId: chatId.toString()
+                                    telegramChatIds: admin.firestore.FieldValue.arrayUnion(chatId.toString())
                                 });
                                 const businessName = businessDoc.data().name || 'Tu tienda';
-                                await sendTelegramMessage(chatId, `✅ <b>¡Vinculación Exitosa!</b>\n\n<b>${businessName}</b> ahora recibirá notificaciones de nuevos pedidos aquí.`);
+                                await sendTelegramMessage(chatId, `✅ <b>¡Vinculación Exitosa!</b>\n\n<b>${businessName}</b> ahora enviará notificaciones de nuevos pedidos a este chat.\n\n(Puedes vincular múltiples cuentas usando el mismo link)`);
                             } else {
                                 await sendTelegramMessage(chatId, "❌ No se encontró el delivery o tienda. Por favor verifica el enlace.");
                             }
@@ -232,7 +234,7 @@ async function handleTelegramWebhook(req, res) {
             const messageId = callbackQuery.message.message_id;
 
             const [actionType, token] = data.split('|');
-            const action = actionType.replace('order_', '');
+            let action = actionType.startsWith('biz_') ? actionType : actionType.replace('order_', '');
 
             const result = await processOrderAction(token, action);
 
@@ -240,12 +242,12 @@ async function handleTelegramWebhook(req, res) {
                 await sendTelegramMessage(chatId, `❌ Error: ${result.error}`);
             } else {
                 const orderId = result.orderId;
-                let statusText = '';
-                if (action === 'confirm') statusText = '✅ <b>Aceptado</b>';
-                else if (action === 'on_way') statusText = '🛵 <b>En camino</b>';
-                else if (action === 'delivered') statusText = '🏁 <b>Entregado</b>';
-                else if (action === 'discard') statusText = '❌ <b>Descartado</b>';
-                let newText = "";
+                let statusLabel = '';
+                if (action === 'confirm' || action === 'biz_confirm') statusLabel = '✅ <b>Aceptado</b>';
+                else if (action === 'on_way') statusLabel = '🛵 <b>En camino</b>';
+                else if (action === 'delivered') statusLabel = '🏁 <b>Entregado</b>';
+                else if (action === 'discard') statusLabel = '❌ <b>Descartado</b>';
+                else if (action === 'biz_discard') statusLabel = '❌ <b>Cancelado por Tienda</b>';
 
                 try {
                     // Obtener datos frescos para reconstruir el mensaje
@@ -293,9 +295,33 @@ async function handleTelegramWebhook(req, res) {
                             parse_mode: 'HTML',
                             link_preview_options: { is_disabled: true }
                         });
+                    } else if (action === 'biz_confirm' || action === 'biz_discard') {
+                        // ACCIÓN SINCRONIZADA PARA LA TIENDA
+                        const businessName = orderData.businessName || 'Tienda';
+                        const { text: telegramText } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+
+                        const handlerName = callbackQuery.from.first_name || 'Alguien';
+                        const finalStatusText = action === 'biz_confirm'
+                            ? `\n\n✅ <b>Pedido Aceptado por ${handlerName}</b>`
+                            : `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
+
+                        const syncText = telegramText + finalStatusText;
+                        const businessMessages = orderData.telegramBusinessMessages || [];
+
+                        // Actualizar TODOS los mensajes enviados a los administradores
+                        const editUrl = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/editMessageText`;
+                        const updatePromises = businessMessages.map(msg =>
+                            axios.post(editUrl, {
+                                chat_id: msg.chatId,
+                                message_id: msg.messageId,
+                                text: syncText,
+                                parse_mode: 'HTML'
+                            }).catch(err => console.error(`Error actualizando mensaje sincronizado en ${msg.chatId}:`, err.response?.data || err.message))
+                        );
+                        await Promise.allSettled(updatePromises);
                     } else if (action !== 'discard') {
                         const { text: formattedText, mapsLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
-                        newText = formattedText + `\n\n${statusText}`;
+                        newText = formattedText + `\n\n${statusLabel}`;
 
                         // Preparar botones dinámicos según el estado
                         const replyMarkup = { inline_keyboard: [] };
@@ -416,18 +442,68 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
  * Enviar notificación de Telegram a la tienda cuando se crea una orden
  */
 async function sendBusinessTelegramNotification(businessData, orderData, orderId) {
-    if (businessData && businessData.telegramChatId) {
-        const businessName = businessData.name || 'Tienda';
-        const { text: telegramText, mapsLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+    if (!businessData) return;
 
-        const linkPreviewOptions = mapsLink ? {
-            url: mapsLink,
-            prefer_large_media: true,
-            show_above_text: true
-        } : null;
+    // Obtener IDs de chat (nuevos y antiguos para migración)
+    let chatIds = businessData.telegramChatIds || [];
 
-        await sendTelegramMessage(businessData.telegramChatId, telegramText, null, linkPreviewOptions);
-        console.log(`✅ Notificación de Telegram enviada a la tienda: ${businessData.telegramChatId}`);
+    // Si existe el ID antiguo y no está en la lista nueva, incluirlo
+    if (businessData.telegramChatId && !chatIds.includes(businessData.telegramChatId)) {
+        chatIds = [...chatIds, businessData.telegramChatId];
+    }
+
+    if (chatIds.length === 0) return;
+
+    const businessName = businessData.name || 'Tienda';
+    const { text: telegramText, mapsLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+
+    const linkPreviewOptions = mapsLink ? {
+        url: mapsLink,
+        prefer_large_media: true,
+        show_above_text: true
+    } : null;
+
+    // Botones de acción para la tienda
+    const confirmToken = Buffer.from(`${orderId}|biz_confirm`).toString('base64');
+    const discardToken = Buffer.from(`${orderId}|biz_discard`).toString('base64');
+
+    const replyMarkup = {
+        inline_keyboard: [
+            [
+                { text: "✅ Aceptar Pedido", callback_data: `biz_confirm|${confirmToken}` },
+                { text: "❌ Descartar", callback_data: `biz_discard|${discardToken}` }
+            ]
+        ]
+    };
+
+    const sentMessages = [];
+
+    // Enviar a todos los IDs registrados y capturar Message IDs
+    for (const chatId of chatIds) {
+        try {
+            const result = await sendTelegramMessage(chatId, telegramText, replyMarkup, linkPreviewOptions);
+            if (result && result.result) {
+                sentMessages.push({
+                    chatId: chatId.toString(),
+                    messageId: result.result.message_id
+                });
+                console.log(`✅ Notificación enviada a chat ${chatId} (ID: ${result.result.message_id})`);
+            }
+        } catch (err) {
+            console.error(`❌ Error enviando a chat ${chatId}:`, err);
+        }
+    }
+
+    // Guardar los IDs de los mensajes en el pedido para actualización sincronizada
+    if (sentMessages.length > 0) {
+        try {
+            await admin.firestore().collection('orders').doc(orderId).update({
+                telegramBusinessMessages: sentMessages
+            });
+            console.log(`📝 Mensajes de negocio vinculados al pedido ${orderId}`);
+        } catch (err) {
+            console.error(`❌ Error guardando mensajes de negocio en Firestore:`, err);
+        }
     }
 }
 
