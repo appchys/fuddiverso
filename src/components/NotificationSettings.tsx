@@ -19,6 +19,7 @@ export default function NotificationSettings({
     })
 
     const [telegramChatId, setTelegramChatId] = useState(business.telegramChatId || '')
+    const [linkCopied, setLinkCopied] = useState(false)
 
     // Sincronizar estado local si cambian las props (ej: al cargar o si otra persona actualiza)
     useEffect(() => {
@@ -47,6 +48,17 @@ export default function NotificationSettings({
         if (confirm('¿Estás seguro de que quieres desvincular tu cuenta de Telegram?')) {
             setTelegramChatId('')
             onBusinessFieldChange('telegramChatId', '')
+        }
+    }
+
+    const handleCopyLink = async () => {
+        const link = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${business.id}`
+        try {
+            await navigator.clipboard.writeText(link)
+            setLinkCopied(true)
+            setTimeout(() => setLinkCopied(false), 2000)
+        } catch (err) {
+            console.error('Error copiando link:', err)
         }
     }
 
@@ -108,15 +120,25 @@ export default function NotificationSettings({
                                 </div>
                             </div>
 
-                            <a
-                                href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=${business.id}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-                            >
-                                <i className="bi bi-telegram text-xl"></i>
-                                Vincular Telegram
-                            </a>
+                            <div className="grid grid-cols-2 gap-3">
+                                <a
+                                    href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=${business.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <i className="bi bi-telegram text-xl"></i>
+                                    Vincular
+                                </a>
+
+                                <button
+                                    onClick={handleCopyLink}
+                                    className="px-4 py-2.5 bg-white hover:bg-gray-50 text-blue-600 font-medium rounded-lg transition-colors flex items-center justify-center gap-2 border-2 border-blue-600"
+                                >
+                                    <i className={`bi ${linkCopied ? 'bi-check-lg' : 'bi-clipboard'} text-lg`}></i>
+                                    {linkCopied ? 'Copiado' : 'Copiar Link'}
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>
