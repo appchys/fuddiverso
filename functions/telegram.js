@@ -301,9 +301,19 @@ async function handleTelegramWebhook(req, res) {
                         const { text: telegramText } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
 
                         const handlerName = callbackQuery.from.first_name || 'Alguien';
-                        const finalStatusText = action === 'biz_confirm'
-                            ? `\n\n✅ <b>Pedido Aceptado por ${handlerName}</b>`
-                            : `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
+                        let finalStatusText = '';
+
+                        if (action === 'biz_confirm') {
+                            const deliveryName = result.assignedDeliveryName;
+                            finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
+                            if (deliveryName) {
+                                finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b>`;
+                            } else {
+                                finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
+                            }
+                        } else {
+                            finalStatusText = `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
+                        }
 
                         const syncText = telegramText + finalStatusText;
                         const businessMessages = orderData.telegramBusinessMessages || [];
