@@ -51,7 +51,7 @@ export default function NotificationSettings({
         }
     }
 
-    const TELEGRAM_BOT_USERNAME = 'FuddiversoBot' // Reemplaza con el username de tu bot
+    const TELEGRAM_BOT_USERNAME = 'pedidosfuddibot'
 
     return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">

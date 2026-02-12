@@ -2,7 +2,7 @@ const axios = require('axios');
 const admin = require('firebase-admin');
 const { processOrderAction } = require('./delivery');
 
-const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8275094091:AAGDO1PSfE1bQn5u0zLWoC4yb6Or093lc6k';
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8415155805:AAHU6nXGA1ZK8HVFHtTOJbcfa57Dsmbd7pg';
 
 /**
  * Función para formatear el mensaje de Telegram
