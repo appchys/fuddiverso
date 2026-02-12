@@ -19,7 +19,6 @@ export default function NotificationSettings({
     })
 
     const [telegramChatId, setTelegramChatId] = useState(business.telegramChatId || '')
-    const [showTelegramInstructions, setShowTelegramInstructions] = useState(false)
 
     // Sincronizar estado local si cambian las props (ej: al cargar o si otra persona actualiza)
     useEffect(() => {
@@ -109,43 +108,15 @@ export default function NotificationSettings({
                                 </div>
                             </div>
 
-                            <button
-                                onClick={() => setShowTelegramInstructions(!showTelegramInstructions)}
+                            <a
+                                href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=${business.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
                             >
-                                <i className="bi bi-link-45deg text-xl"></i>
+                                <i className="bi bi-telegram text-xl"></i>
                                 Vincular Telegram
-                            </button>
-
-                            {showTelegramInstructions && (
-                                <div className="mt-4 p-4 bg-white rounded-lg border border-blue-200">
-                                    <h6 className="font-semibold text-gray-900 mb-3">Instrucciones:</h6>
-                                    <ol className="space-y-2 text-sm text-gray-700">
-                                        <li className="flex items-start gap-2">
-                                            <span className="flex-shrink-0 w-5 h-5 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs font-bold">1</span>
-                                            <span>Abre Telegram y busca el bot <strong className="font-mono">@{TELEGRAM_BOT_USERNAME}</strong></span>
-                                        </li>
-                                        <li className="flex items-start gap-2">
-                                            <span className="flex-shrink-0 w-5 h-5 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs font-bold">2</span>
-                                            <span>Envía el comando <code className="px-2 py-0.5 bg-gray-100 rounded font-mono text-xs">/start {business.id}</code></span>
-                                        </li>
-                                        <li className="flex items-start gap-2">
-                                            <span className="flex-shrink-0 w-5 h-5 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs font-bold">3</span>
-                                            <span>El bot confirmará la vinculación y esta página se actualizará automáticamente</span>
-                                        </li>
-                                    </ol>
-
-                                    <a
-                                        href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=${business.id}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="mt-4 w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-                                    >
-                                        <i className="bi bi-telegram text-lg"></i>
-                                        Abrir en Telegram
-                                    </a>
-                                </div>
-                            )}
+                            </a>
                         </div>
                     )}
                 </div>
