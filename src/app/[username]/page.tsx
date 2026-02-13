@@ -282,7 +282,7 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
 }
 
 // Modal para seleccionar variantes
-function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, businessUsername, getCartItemQuantity, updateQuantity }: {
+function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, businessUsername, getCartItemQuantity, updateQuantity, onOpenCart, cartItemsCount }: {
   product: any;
   isOpen: boolean;
   onClose: () => void;
@@ -291,6 +291,8 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
   businessUsername?: string;
   getCartItemQuantity: (id: string, variantName?: string | null) => number;
   updateQuantity: (id: string, quantity: number, variantName?: string | null) => void;
+  onOpenCart?: () => void;
+  cartItemsCount?: number;
 }) {
   const [selectedVariant, setSelectedVariant] = useState<any>(null)
   const [modalImgLoaded, setModalImgLoaded] = useState(false)
@@ -513,13 +515,25 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
           </div>
 
           {/* Footer - Estilo Premium Bottom */}
-          <div className="p-6 bg-white border-t border-gray-100 flex-shrink-0">
+          <div className="p-6 bg-white border-t border-gray-100 flex-shrink-0 flex gap-3">
             <button
               onClick={onClose}
-              className="w-full py-4 bg-gray-100 text-gray-900 font-bold rounded-2xl hover:bg-gray-200 transition-all active:scale-[0.98]"
+              className="flex-1 py-4 bg-gray-100 text-gray-900 font-bold rounded-2xl hover:bg-gray-200 transition-all active:scale-[0.98]"
             >
               Cerrar
             </button>
+            {(cartItemsCount || 0) > 0 && onOpenCart && (
+              <button
+                onClick={() => {
+                  onClose()
+                  onOpenCart()
+                }}
+                className="flex-1 py-4 bg-gray-900 text-white font-bold rounded-2xl hover:bg-black transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-gray-200"
+              >
+                <i className="bi bi-cart3"></i>
+                Ver Carrito
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1633,6 +1647,8 @@ function RestaurantContent() {
         businessUsername={business?.username}
         getCartItemQuantity={getCartItemQuantity}
         updateQuantity={updateQuantity}
+        onOpenCart={() => setIsCartOpen(true)}
+        cartItemsCount={cartItemsCount}
       />
 
       {/* Notificación temporal - Premium Toast */}
