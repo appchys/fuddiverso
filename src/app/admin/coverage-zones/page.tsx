@@ -1,14 +1,14 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { GoogleMap, useJsApiLoader, Polygon, Marker } from '@react-google-maps/api'
-import { getCoverageZones, createCoverageZone, updateCoverageZone, deleteCoverageZone, getAllDeliveries, getActiveOrdersWithLocations } from '@/lib/database'
-import { CoverageZone, Delivery, Order } from '@/types'
+import { getCoverageZones, createCoverageZone, updateCoverageZone, deleteCoverageZone, getAllDeliveries, getActiveOrdersWithLocations, getBusiness, updateOrder } from '@/lib/database'
+import { CoverageZone, Delivery, Order, Business } from '@/types'
 
 // Define libraries as a constant outside the component to prevent reloading
 const GOOGLE_MAPS_LIBRARIES: ("drawing" | "geometry" | "places" | "visualization")[] = ["drawing", "geometry"]
 
-const center = {
+const defaultCenter = {
   lat: -2.1709979,
   lng: -79.9224426 // Guayaquil, Ecuador
 }
@@ -27,6 +27,9 @@ export default function CoverageZonesPage() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
   const [activeOrders, setActiveOrders] = useState<Order[]>([])
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
+  const [mapCenter, setMapCenter] = useState(defaultCenter)
+  const [businesses, setBusinesses] = useState<Map<string, Business>>(new Map())
+  const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'upcoming'>('today')
   const [currentPolygon, setCurrentPolygon] = useState<{ lat: number; lng: number }[]>([])
   const [markers, setMarkers] = useState<{ lat: number; lng: number }[]>([])
   const [isDrawingMode, setIsDrawingMode] = useState(false)
@@ -87,7 +90,24 @@ export default function CoverageZonesPage() {
     try {
       const orders = await getActiveOrdersWithLocations()
       setActiveOrders(orders)
-      console.log(`[CoverageZones] Loaded ${orders.length} active orders`)
+
+      // Cargar información de negocios para los pedidos
+      const businessIds = Array.from(new Set(orders.map(o => o.businessId)))
+      const businessMap = new Map<string, Business>()
+
+      await Promise.all(
+        businessIds.map(async (id) => {
+          try {
+            const business = await getBusiness(id)
+            if (business) businessMap.set(id, business)
+          } catch (e) {
+            console.error(`Error loading business ${id}:`, e)
+          }
+        })
+      )
+
+      setBusinesses(businessMap)
+      console.log(`[CoverageZones] Loaded ${orders.length} active orders and ${businessMap.size} businesses`)
     } catch (error) {
       console.error('Error loading active orders:', error)
     }
@@ -120,6 +140,203 @@ export default function CoverageZonesPage() {
     const delivery = deliveries.find(d => d.id === order.delivery.assignedDelivery)
     return delivery?.nombres || 'Delivery'
   }
+
+  // Helper: Obtener nombre del negocio
+  const getBusinessName = (order: Order): string => {
+    const business = businesses.get(order.businessId)
+    return business?.name || 'Tienda'
+  }
+
+  // Manejar cambio de delivery
+  const handleDeliveryChange = async (orderId: string, newDeliveryId: string) => {
+    try {
+      await updateOrder(orderId, {
+        delivery: {
+          ...activeOrders.find(o => o.id === orderId)?.delivery,
+          assignedDelivery: newDeliveryId
+        }
+      } as any)
+
+      // Actualizar el estado local
+      setActiveOrders(prev => prev.map(order =>
+        order.id === orderId
+          ? { ...order, delivery: { ...order.delivery, assignedDelivery: newDeliveryId } }
+          : order
+      ))
+
+      // Actualizar selectedOrder si es el que se modificó
+      if (selectedOrder?.id === orderId) {
+        setSelectedOrder(prev => prev ? {
+          ...prev,
+          delivery: { ...prev.delivery, assignedDelivery: newDeliveryId }
+        } : null)
+      }
+
+      showNotification('Delivery asignado correctamente', 'success')
+    } catch (error) {
+      console.error('Error updating delivery:', error)
+      showNotification('Error al asignar delivery', 'error')
+    }
+  }
+
+  // Manejar cambio de estado
+  const handleStatusChange = async (orderId: string, newStatus: 'delivered' | 'cancelled') => {
+    try {
+      await updateOrder(orderId, {
+        status: newStatus,
+        deliveredAt: newStatus === 'delivered' ? new Date() : undefined
+      } as any)
+
+      // Remover del estado local ya que no es más un pedido activo
+      setActiveOrders(prev => prev.filter(order => order.id !== orderId))
+      setSelectedOrder(null)
+
+      showNotification(
+        newStatus === 'delivered' ? 'Pedido marcado como entregado' : 'Pedido cancelado',
+        'success'
+      )
+    } catch (error) {
+      console.error('Error updating status:', error)
+      showNotification('Error al actualizar estado', 'error')
+    }
+  }
+
+  // Helper: Formatear fecha del pedido (prioriza timing)
+  const formatOrderDate = (order: Order): string => {
+    const timing = order.timing
+    const scheduledDate = timing?.scheduledDate
+
+    if (scheduledDate) {
+      let scheduledDateStr = ''
+
+      if (typeof scheduledDate === 'string') {
+        scheduledDateStr = scheduledDate
+      } else if (scheduledDate instanceof Date) {
+        scheduledDateStr = scheduledDate.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      } else if (scheduledDate && typeof scheduledDate === 'object') {
+        if ('toDate' in (scheduledDate as any)) {
+          scheduledDateStr = (scheduledDate as any).toDate().toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        } else if ('seconds' in (scheduledDate as any)) {
+          const d = new Date((scheduledDate as any).seconds * 1000)
+          scheduledDateStr = d.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        }
+      }
+
+      if (scheduledDateStr) {
+        const todayStr = new Date().toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        const timeStr = timing.scheduledTime || ''
+
+        if (scheduledDateStr === todayStr) {
+          return `Hoy ${timeStr}`.trim()
+        }
+        return `${scheduledDateStr} ${timeStr}`.trim()
+      }
+    }
+
+    // Si es inmediato, mostrar la fecha de creación
+    const date = order.createdAt
+    if (!date) return 'Sin fecha'
+
+    const dateObj = date instanceof Date ? date : new Date(date)
+    const today = new Date()
+    const isToday = dateObj.toDateString() === today.toDateString()
+
+    if (isToday) {
+      return `Hoy ${dateObj.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })}`
+    }
+
+    return dateObj.toLocaleDateString('es-EC', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
+  // Filtrar pedidos según la fecha seleccionada
+  const filteredOrders = useMemo(() => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    return activeOrders.filter(order => {
+      let orderDate: Date | null = null;
+      const timing = order.timing;
+      const scheduledDate = timing?.scheduledDate;
+
+      if (scheduledDate) {
+        if (scheduledDate instanceof Date) {
+          orderDate = scheduledDate;
+        } else if (scheduledDate && typeof scheduledDate === 'object') {
+          if ('toDate' in (scheduledDate as any)) {
+            orderDate = (scheduledDate as any).toDate();
+          } else if ('seconds' in (scheduledDate as any)) {
+            orderDate = new Date((scheduledDate as any).seconds * 1000);
+          }
+        } else if (typeof scheduledDate === 'string') {
+          const dateStr = scheduledDate as string;
+          const parts = dateStr.split('/');
+          if (parts.length === 3) {
+            orderDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+          }
+        }
+      }
+
+      if (!orderDate) {
+        orderDate = order.createdAt instanceof Date ? order.createdAt : new Date(order.createdAt);
+      }
+
+      if (!orderDate) return false;
+
+      const d = new Date(orderDate.getFullYear(), orderDate.getMonth(), orderDate.getDate());
+
+      if (dateFilter === 'today') {
+        return d.getTime() === today.getTime();
+      } else if (dateFilter === 'yesterday') {
+        return d.getTime() === yesterday.getTime();
+      } else if (dateFilter === 'upcoming') {
+        return d.getTime() >= tomorrow.getTime();
+      }
+      return true;
+    });
+  }, [activeOrders, dateFilter]);
+
+  // Auto-centrar mapa en pedidos filtrados
+  useEffect(() => {
+    if (!map || filteredOrders.length === 0) return;
+
+    const bounds = new window.google.maps.LatLngBounds();
+    let hasValidCoordinates = false;
+
+    filteredOrders.forEach(order => {
+      if (order.delivery.latlong && !order.delivery.latlong.startsWith('pluscode:')) {
+        const [lat, lng] = order.delivery.latlong.split(',').map(Number);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          bounds.extend({ lat, lng });
+          hasValidCoordinates = true;
+        }
+      }
+    });
+
+    if (hasValidCoordinates) {
+      map.fitBounds(bounds);
+
+      // Ajustar zoom si solo hay un pedido
+      if (filteredOrders.length === 1) {
+        const listener = window.google.maps.event.addListenerOnce(map, 'bounds_changed', () => {
+          const currentZoom = map.getZoom();
+          if (currentZoom && currentZoom > 15) {
+            map.setZoom(15);
+          }
+        });
+      }
+    }
+  }, [map, filteredOrders]);
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
     setNotification({ show: true, message, type })
@@ -383,13 +600,44 @@ export default function CoverageZonesPage() {
             <p className="text-xs text-gray-400">{zones.length} zona{zones.length !== 1 ? 's' : ''} configurada{zones.length !== 1 ? 's' : ''}</p>
           </div>
         </div>
-        <button
-          onClick={startCreating}
-          className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 flex items-center gap-2 transition-colors"
-        >
-          <i className="bi bi-plus-circle"></i>
-          Nueva Zona
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex bg-gray-700 p-1 rounded-lg mr-2">
+            <button
+              onClick={() => setDateFilter('yesterday')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${dateFilter === 'yesterday'
+                ? 'bg-gray-600 text-white shadow-sm'
+                : 'text-gray-400 hover:text-gray-200'
+                }`}
+            >
+              Ayer
+            </button>
+            <button
+              onClick={() => setDateFilter('today')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${dateFilter === 'today'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-gray-400 hover:text-gray-200'
+                }`}
+            >
+              Hoy
+            </button>
+            <button
+              onClick={() => setDateFilter('upcoming')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${dateFilter === 'upcoming'
+                ? 'bg-gray-600 text-white shadow-sm'
+                : 'text-gray-400 hover:text-gray-200'
+                }`}
+            >
+              Próximos
+            </button>
+          </div>
+          <button
+            onClick={startCreating}
+            className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 flex items-center gap-2 transition-colors"
+          >
+            <i className="bi bi-plus-circle"></i>
+            Nueva Zona
+          </button>
+        </div>
       </header>
 
       {/* Main content */}
@@ -544,7 +792,7 @@ export default function CoverageZonesPage() {
           {isLoaded ? (
             <GoogleMap
               mapContainerStyle={{ width: '100%', height: '100%' }}
-              center={center}
+              center={mapCenter}
               zoom={12}
               onLoad={onLoad}
               onUnmount={onUnmount}
@@ -617,7 +865,7 @@ export default function CoverageZonesPage() {
               )}
 
               {/* Marcadores de pedidos activos */}
-              {activeOrders.map((order) => {
+              {filteredOrders.map((order) => {
                 if (!order.delivery.latlong) return null;
                 const [lat, lng] = order.delivery.latlong.split(',').map(Number);
                 if (isNaN(lat) || isNaN(lng)) return null;
@@ -666,11 +914,28 @@ export default function CoverageZonesPage() {
                           <span className="text-2xl">{getStatusEmoji(selectedOrder.status)}</span>
                           <div>
                             <h3 className="font-semibold text-white text-sm">
-                              Pedido #{selectedOrder.id.slice(-6)}
+                              {getBusinessName(selectedOrder)}
                             </h3>
-                            <p className="text-xs text-gray-400 capitalize">
-                              {selectedOrder.status.replace('_', ' ')}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={selectedOrder.status}
+                                onChange={(e) => {
+                                  const newStatus = e.target.value as 'delivered' | 'cancelled'
+                                  if (newStatus === 'delivered' || newStatus === 'cancelled') {
+                                    if (confirm(`¿Marcar pedido como ${newStatus === 'delivered' ? 'entregado' : 'cancelado'}?`)) {
+                                      handleStatusChange(selectedOrder.id, newStatus)
+                                    }
+                                  }
+                                }}
+                                className="text-xs text-gray-300 bg-gray-700 rounded px-2 py-0.5 border border-gray-600 focus:border-blue-400 focus:outline-none capitalize"
+                              >
+                                <option value={selectedOrder.status} disabled>
+                                  {selectedOrder.status.replace('_', ' ')}
+                                </option>
+                                <option value="delivered">✔️ Entregado</option>
+                                <option value="cancelled">❌ Cancelado</option>
+                              </select>
+                            </div>
                           </div>
                         </div>
                         <button
@@ -683,15 +948,34 @@ export default function CoverageZonesPage() {
 
                       <div className="space-y-2 text-sm">
                         <div className="flex items-center gap-2 text-gray-300">
+                          <i className="bi bi-calendar text-orange-400"></i>
+                          <span className="font-medium">Fecha:</span>
+                          <span>{formatOrderDate(selectedOrder)}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-gray-300">
                           <i className="bi bi-clock text-blue-400"></i>
                           <span className="font-medium">Hora:</span>
                           <span>{formatDeliveryTime(selectedOrder)}</span>
                         </div>
 
-                        <div className="flex items-center gap-2 text-gray-300">
-                          <i className="bi bi-scooter text-green-400"></i>
-                          <span className="font-medium">Delivery:</span>
-                          <span>{getDeliveryName(selectedOrder)}</span>
+                        <div className="flex items-start gap-2 text-gray-300">
+                          <i className="bi bi-scooter text-green-400 mt-1"></i>
+                          <div className="flex-1">
+                            <span className="font-medium block mb-1">Delivery:</span>
+                            <select
+                              value={selectedOrder.delivery.assignedDelivery || ''}
+                              onChange={(e) => handleDeliveryChange(selectedOrder.id, e.target.value)}
+                              className="w-full bg-gray-700 text-white text-xs rounded px-2 py-1.5 border border-gray-600 focus:border-green-400 focus:outline-none"
+                            >
+                              <option value="">Sin asignar</option>
+                              {deliveries.map(d => (
+                                <option key={d.id} value={d.id}>
+                                  {d.nombres}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-2 text-gray-300">

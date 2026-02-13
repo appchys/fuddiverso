@@ -18,7 +18,7 @@ export default function OrderManagement() {
     business: 'all',
     search: ''
   })
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'amount'>('newest')
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'amount' | 'timing'>('timing')
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null)
   const [updatingDelivery, setUpdatingDelivery] = useState<string | null>(null)
 
@@ -29,6 +29,7 @@ export default function OrderManagement() {
   const [expandedMaps, setExpandedMaps] = useState<Record<string, boolean>>({})
   const [isPickupExpanded, setIsPickupExpanded] = useState(false)
   const [showSearchBar, setShowSearchBar] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
 
   const toggleMap = (orderId: string) => {
     setExpandedMaps(prev => ({
@@ -444,15 +445,43 @@ export default function OrderManagement() {
     return true
   }).sort((a, b) => {
     switch (sortBy) {
+      case 'timing':
+        try {
+          const getTimingValue = (order: Order) => {
+            if (order.timing?.scheduledDate) {
+              const date = order.timing.scheduledDate instanceof Date
+                ? new Date(order.timing.scheduledDate)
+                : new Date((order.timing.scheduledDate as any).seconds * 1000)
+
+              if (order.timing.scheduledTime) {
+                const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number)
+                date.setHours(hours, minutes, 0, 0)
+              }
+              return date.getTime()
+            }
+            // Fallback to createdAt for immediate or orders without scheduledDate
+            const fallbackDate = order.createdAt instanceof Date
+              ? order.createdAt
+              : new Date((order.createdAt as any).seconds * 1000)
+            return fallbackDate.getTime()
+          }
+          return getTimingValue(a) - getTimingValue(b)
+        } catch (e) {
+          return 0
+        }
       case 'newest':
         try {
-          return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+          const dateB = b.createdAt instanceof Date ? b.createdAt : new Date((b.createdAt as any).seconds * 1000)
+          const dateA = a.createdAt instanceof Date ? a.createdAt : new Date((a.createdAt as any).seconds * 1000)
+          return dateB.getTime() - dateA.getTime()
         } catch (e) {
           return 0
         }
       case 'oldest':
         try {
-          return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+          const dateA = a.createdAt instanceof Date ? a.createdAt : new Date((a.createdAt as any).seconds * 1000)
+          const dateB = b.createdAt instanceof Date ? b.createdAt : new Date((b.createdAt as any).seconds * 1000)
+          return dateA.getTime() - dateB.getTime()
         } catch (e) {
           return 0
         }
@@ -464,11 +493,11 @@ export default function OrderManagement() {
   })
 
   const pendingOrdersCount = orders.filter(order => order.status === 'pending').length
-  const activeDeliveryOrders = orders.filter(order => 
+  const activeDeliveryOrders = orders.filter(order =>
     order.delivery?.type === 'delivery' &&
     !['delivered', 'cancelled'].includes(order.status)
   )
-  const unassignedDeliveryCount = activeDeliveryOrders.filter(order => 
+  const unassignedDeliveryCount = activeDeliveryOrders.filter(order =>
     !order.delivery?.assignedDelivery
   ).length
   const allDeliveryAssigned = unassignedDeliveryCount === 0 && activeDeliveryOrders.length > 0
@@ -492,13 +521,12 @@ export default function OrderManagement() {
             <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 border border-amber-200">
               {pendingOrdersCount} pendientes
             </span>
-            <span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
-              allDeliveryAssigned 
-                ? 'bg-green-100 text-green-700 border-green-200' 
-                : unassignedDeliveryCount > 0 
-                  ? 'bg-orange-100 text-orange-700 border-orange-200'
-                  : 'bg-gray-100 text-gray-700 border-gray-200'
-            }`}>
+            <span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${allDeliveryAssigned
+              ? 'bg-green-100 text-green-700 border-green-200'
+              : unassignedDeliveryCount > 0
+                ? 'bg-orange-100 text-orange-700 border-orange-200'
+                : 'bg-gray-100 text-gray-700 border-gray-200'
+              }`}>
               {unassignedDeliveryCount} sin delivery
             </span>
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{orders.length} pedidos totales</span>
@@ -516,6 +544,16 @@ export default function OrderManagement() {
             <i className={`bi ${showSearchBar ? 'bi-search-heart-fill' : 'bi-search'}`}></i>
           </button>
           <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`shrink-0 inline-flex items-center justify-center w-10 h-10 border rounded-xl shadow-sm text-sm font-medium transition-all ${showFilters
+              ? 'bg-blue-50 text-blue-600 border-blue-200 ring-2 ring-blue-500/20'
+              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            title="Filtros"
+          >
+            <i className={`bi ${showFilters ? 'bi-funnel-fill' : 'bi-funnel'}`}></i>
+          </button>
+          <button
             onClick={loadData}
             className="shrink-0 inline-flex items-center justify-center w-10 h-10 md:w-auto md:h-auto md:px-4 md:py-2 border border-gray-300 rounded-xl md:rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 active:bg-gray-100"
           >
@@ -526,78 +564,81 @@ export default function OrderManagement() {
       </div>
 
       {/* Filtros Premium */}
-      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-        {/* Barra de búsqueda */}
-        {showSearchBar && (
-          <div className="p-4 border-b border-gray-50 bg-gray-50/30 animate-in slide-in-from-top duration-200">
-            <div className="relative group">
-              <input
-                type="text"
-                autoFocus
-                placeholder="Buscar por cliente, teléfono o #pedido..."
-                value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                className="w-full pl-11 pr-4 py-3 text-sm font-medium border-2 border-transparent bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm transition-all group-hover:border-gray-200"
-              />
-              <i className="bi bi-search absolute left-4 top-3.5 text-gray-400 group-focus-within:text-blue-500 transition-colors"></i>
+      {(showSearchBar || showFilters) && (
+        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
+          {/* Barra de búsqueda */}
+          {showSearchBar && (
+            <div className="p-4 border-b border-gray-50 bg-gray-50/30 animate-in slide-in-from-top duration-200">
+              <div className="relative group">
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Buscar por cliente, teléfono o #pedido..."
+                  value={filters.search}
+                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                  className="w-full pl-11 pr-4 py-3 text-sm font-medium border-2 border-transparent bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm transition-all group-hover:border-gray-200"
+                />
+                <i className="bi bi-search absolute left-4 top-3.5 text-gray-400 group-focus-within:text-blue-500 transition-colors"></i>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Filtros Rápidos */}
-        <div className="flex gap-2 p-4 overflow-x-auto scrollbar-hide bg-white">
-          <div className="shrink-0 flex items-center gap-2">
-            <div className="relative">
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                className="pl-9 pr-8 py-2 text-xs font-bold border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-100 transition-all hover:bg-white appearance-none cursor-pointer"
-              >
-                <option value="all">Todas las activas</option>
-                <option value="pending">⏳ Pendientes</option>
-                <option value="confirmed">✅ Confirmadas</option>
-                <option value="preparing">🔥 Preparando</option>
-                <option value="ready">🛍️ Listas</option>
-                <option value="delivered">🏠 Entregadas</option>
-                <option value="cancelled">❌ Canceladas</option>
-              </select>
-              <i className="bi bi-funnel absolute left-3 top-2 text-gray-400"></i>
-              <i className="bi bi-chevron-down absolute right-3 top-2 text-gray-400 pointer-events-none"></i>
-            </div>
+          {/* Filtros Rápidos */}
+          <div className="flex gap-2 p-4 overflow-x-auto scrollbar-hide bg-white">
+            <div className="shrink-0 flex items-center gap-2">
+              <div className="relative">
+                <select
+                  value={filters.status}
+                  onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                  className="pl-9 pr-8 py-2 text-xs font-bold border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-100 transition-all hover:bg-white appearance-none cursor-pointer"
+                >
+                  <option value="all">Todas las activas</option>
+                  <option value="pending">⏳ Pendientes</option>
+                  <option value="confirmed">✅ Confirmadas</option>
+                  <option value="preparing">🔥 Preparando</option>
+                  <option value="ready">🛍️ Listas</option>
+                  <option value="delivered">🏠 Entregadas</option>
+                  <option value="cancelled">❌ Canceladas</option>
+                </select>
+                <i className="bi bi-funnel absolute left-3 top-2 text-gray-400"></i>
+                <i className="bi bi-chevron-down absolute right-3 top-2 text-gray-400 pointer-events-none"></i>
+              </div>
 
-            <div className="relative">
-              <select
-                value={filters.business}
-                onChange={(e) => setFilters({ ...filters, business: e.target.value })}
-                className="pl-9 pr-8 py-2 text-xs font-bold border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-100 transition-all hover:bg-white appearance-none cursor-pointer"
-              >
-                <option value="all">Todas las tiendas</option>
-                {businesses.map(business => (
-                  <option key={business.id} value={business.id}>
-                    🏪 {business.name}
-                  </option>
-                ))}
-              </select>
-              <i className="bi bi-shop absolute left-3 top-2 text-gray-400"></i>
-              <i className="bi bi-chevron-down absolute right-3 top-2 text-gray-400 pointer-events-none"></i>
-            </div>
+              <div className="relative">
+                <select
+                  value={filters.business}
+                  onChange={(e) => setFilters({ ...filters, business: e.target.value })}
+                  className="pl-9 pr-8 py-2 text-xs font-bold border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-100 transition-all hover:bg-white appearance-none cursor-pointer"
+                >
+                  <option value="all">Todas las tiendas</option>
+                  {businesses.map(business => (
+                    <option key={business.id} value={business.id}>
+                      🏪 {business.name}
+                    </option>
+                  ))}
+                </select>
+                <i className="bi bi-shop absolute left-3 top-2 text-gray-400"></i>
+                <i className="bi bi-chevron-down absolute right-3 top-2 text-gray-400 pointer-events-none"></i>
+              </div>
 
-            <div className="relative">
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="pl-9 pr-8 py-2 text-xs font-bold border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-100 transition-all hover:bg-white appearance-none cursor-pointer"
-              >
-                <option value="newest">Más recientes</option>
-                <option value="oldest">Más antiguos</option>
-                <option value="amount">Monto mayor</option>
-              </select>
-              <i className="bi bi-sort-down absolute left-3 top-2 text-gray-400"></i>
-              <i className="bi bi-chevron-down absolute right-3 top-2 text-gray-400 pointer-events-none"></i>
+              <div className="relative">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="pl-9 pr-8 py-2 text-xs font-bold border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 bg-gray-100 transition-all hover:bg-white appearance-none cursor-pointer"
+                >
+                  <option value="timing">Hora de entrega</option>
+                  <option value="newest">Más recientes</option>
+                  <option value="oldest">Más antiguos</option>
+                  <option value="amount">Monto mayor</option>
+                </select>
+                <i className="bi bi-sort-down absolute left-3 top-2 text-gray-400"></i>
+                <i className="bi bi-chevron-down absolute right-3 top-2 text-gray-400 pointer-events-none"></i>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
 
       {/* Vista Móvil - Cards Rediseñadas */}
@@ -657,6 +698,80 @@ export default function OrderManagement() {
                   >
                     <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : 'bi-cash-stack'} text-xs`}></i>
                   </button>
+
+                  <div className="relative shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setStatusMenuOrderId(statusMenuOrderId === order.id ? null : order.id!)
+                      }}
+                      className={`w-8 h-8 flex items-center justify-center rounded-lg border shadow-sm transition-all active:scale-90 ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}
+                    >
+                      <i className={`bi ${statusStyle.icon} text-xs`}></i>
+                    </button>
+
+                    {/* Dropdown de Estados Minimal */}
+                    {statusMenuOrderId === order.id && !['delivered', 'cancelled'].includes(order.status) && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-40"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setStatusMenuOrderId(null)
+                          }}
+                        />
+                        <div
+                          className="absolute left-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            onClick={() => {
+                              handleStatusUpdate(order.id!, 'delivered')
+                              setStatusMenuOrderId(null)
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 transition-colors"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                              <i className="bi bi-check2-circle text-lg"></i>
+                            </div>
+                            <span>MARCAR ENTREGADO</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleStatusUpdate(order.id!, 'cancelled')
+                              setStatusMenuOrderId(null)
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors mt-1"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
+                              <i className="bi bi-x-lg"></i>
+                            </div>
+                            <span>CANCELAR PEDIDO</span>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {order.delivery?.type === 'delivery' && (
+                    <button
+                      className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 cursor-default ${!order.delivery?.assignedDelivery
+                        ? 'bg-white text-gray-400 border-gray-100'
+                        : order.delivery?.acceptanceStatus === 'accepted'
+                          ? 'bg-green-50 text-green-600 border-green-200'
+                          : 'bg-orange-50 text-orange-600 border-orange-200'
+                        }`}
+                      title={
+                        !order.delivery?.assignedDelivery
+                          ? 'Delivery sin asignar'
+                          : order.delivery?.acceptanceStatus === 'accepted'
+                            ? 'Delivery confirmado'
+                            : 'Delivery asignado (pendiente)'
+                      }
+                    >
+                      <i className="bi bi-scooter text-xs"></i>
+                    </button>
+                  )}
                 </div>
                 <div className="text-right">
                   {remaining ? (
@@ -704,59 +819,6 @@ export default function OrderManagement() {
                     </p>
                   </div>
 
-                  <div className="relative shrink-0">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setStatusMenuOrderId(statusMenuOrderId === order.id ? null : order.id!)
-                      }}
-                      className={`w-10 h-10 flex items-center justify-center text-lg rounded-xl border transition-all active:scale-90 ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}
-                    >
-                      <i className={`bi ${statusStyle.icon}`}></i>
-                    </button>
-
-                    {/* Dropdown de Estados Minimal */}
-                    {statusMenuOrderId === order.id && !['delivered', 'cancelled'].includes(order.status) && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-40"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setStatusMenuOrderId(null)
-                          }}
-                        />
-                        <div
-                          className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={() => {
-                              handleStatusUpdate(order.id!, 'delivered')
-                              setStatusMenuOrderId(null)
-                            }}
-                            className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 transition-colors"
-                          >
-                            <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
-                              <i className="bi bi-check2-circle text-lg"></i>
-                            </div>
-                            <span>MARCAR ENTREGADO</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              handleStatusUpdate(order.id!, 'cancelled')
-                              setStatusMenuOrderId(null)
-                            }}
-                            className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors mt-1"
-                          >
-                            <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-                              <i className="bi bi-x-lg"></i>
-                            </div>
-                            <span>CANCELAR PEDIDO</span>
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
                 </div>
 
 
@@ -915,6 +977,60 @@ export default function OrderManagement() {
                           >
                             <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : 'bi-cash-stack'} text-xs`}></i>
                           </button>
+
+                          <div className="relative shrink-0">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setStatusMenuOrderId(statusMenuOrderId === order.id ? null : order.id!)
+                              }}
+                              className={`w-8 h-8 flex items-center justify-center rounded-lg border shadow-sm transition-all active:scale-90 ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}
+                            >
+                              <i className={`bi ${statusStyle.icon} text-xs`}></i>
+                            </button>
+
+                            {/* Dropdown de Estados Minimal */}
+                            {statusMenuOrderId === order.id && !['delivered', 'cancelled'].includes(order.status) && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setStatusMenuOrderId(null)
+                                  }}
+                                />
+                                <div
+                                  className="absolute left-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <button
+                                    onClick={() => {
+                                      handleStatusUpdate(order.id!, 'delivered')
+                                      setStatusMenuOrderId(null)
+                                    }}
+                                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 transition-colors"
+                                  >
+                                    <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                                      <i className="bi bi-check2-circle text-lg"></i>
+                                    </div>
+                                    <span>MARCAR ENTREGADO</span>
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      handleStatusUpdate(order.id!, 'cancelled')
+                                      setStatusMenuOrderId(null)
+                                    }}
+                                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors mt-1"
+                                  >
+                                    <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
+                                      <i className="bi bi-x-lg"></i>
+                                    </div>
+                                    <span>CANCELAR PEDIDO</span>
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
                         </div>
                         <div className="text-right">
                           {remaining ? (
@@ -962,59 +1078,6 @@ export default function OrderManagement() {
                             </p>
                           </div>
 
-                          <div className="relative shrink-0">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setStatusMenuOrderId(statusMenuOrderId === order.id ? null : order.id!)
-                              }}
-                              className={`w-10 h-10 flex items-center justify-center text-lg rounded-xl border transition-all active:scale-90 ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}
-                            >
-                              <i className={`bi ${statusStyle.icon}`}></i>
-                            </button>
-
-                            {/* Dropdown de Estados Minimal */}
-                            {statusMenuOrderId === order.id && !['delivered', 'cancelled'].includes(order.status) && (
-                              <>
-                                <div
-                                  className="fixed inset-0 z-40"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setStatusMenuOrderId(null)
-                                  }}
-                                />
-                                <div
-                                  className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <button
-                                    onClick={() => {
-                                      handleStatusUpdate(order.id!, 'delivered')
-                                      setStatusMenuOrderId(null)
-                                    }}
-                                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 transition-colors"
-                                  >
-                                    <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
-                                      <i className="bi bi-check2-circle text-lg"></i>
-                                    </div>
-                                    <span>MARCAR ENTREGADO</span>
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      handleStatusUpdate(order.id!, 'cancelled')
-                                      setStatusMenuOrderId(null)
-                                    }}
-                                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors mt-1"
-                                  >
-                                    <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-                                      <i className="bi bi-x-lg"></i>
-                                    </div>
-                                    <span>CANCELAR PEDIDO</span>
-                                  </button>
-                                </div>
-                              </>
-                            )}
-                          </div>
                         </div>
 
                         {/* Pickups don't show map, but can show references if any */}
@@ -1178,6 +1241,25 @@ export default function OrderManagement() {
                             <i className="bi bi-whatsapp text-lg"></i>
                           </button>
                         )}
+                        {order.delivery?.type === 'delivery' && (
+                          <div
+                            className={`${!order.delivery?.assignedDelivery
+                              ? 'text-gray-400'
+                              : order.delivery?.acceptanceStatus === 'accepted'
+                                ? 'text-green-600'
+                                : 'text-orange-600'
+                              } p-1 rounded-md transition-all flex items-center justify-center`}
+                            title={
+                              !order.delivery?.assignedDelivery
+                                ? 'Delivery sin asignar'
+                                : order.delivery?.acceptanceStatus === 'accepted'
+                                  ? 'Delivery confirmado'
+                                  : 'Delivery asignado (pendiente)'
+                            }
+                          >
+                            <i className="bi bi-scooter text-lg"></i>
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -1261,281 +1343,287 @@ export default function OrderManagement() {
             </tbody>
           </table>
         </div>
-      </div>
+      </div >
 
-      {filteredOrders.length === 0 && (
-        <div className="text-center py-12">
-          <i className="bi bi-inbox text-4xl text-gray-400 mb-4"></i>
-          <p className="text-gray-500">No se encontraron pedidos</p>
-        </div>
-      )}
+      {
+        filteredOrders.length === 0 && (
+          <div className="text-center py-12">
+            <i className="bi bi-inbox text-4xl text-gray-400 mb-4"></i>
+            <p className="text-gray-500">No se encontraron pedidos</p>
+          </div>
+        )
+      }
 
       {/* Modal de Edición de Método de Pago */}
-      {showEditPaymentModal && paymentEditingOrder && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto"
-          onClick={() => setShowEditPaymentModal(false)}
-        >
+      {
+        showEditPaymentModal && paymentEditingOrder && (
           <div
-            className="bg-white rounded-xl max-w-md w-full shadow-2xl my-8 max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto"
+            onClick={() => setShowEditPaymentModal(false)}
           >
-            <div className="p-6">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-900">
-                  <i className="bi bi-credit-card me-2 text-blue-600"></i>
-                  Gestionar Pago
-                </h2>
-                <button
-                  onClick={() => setShowEditPaymentModal(false)}
-                  className="text-gray-400 hover:text-gray-600 text-2xl transition-colors"
-                >
-                  <i className="bi bi-x-lg text-lg"></i>
-                </button>
-              </div>
-
-              {/* Información del pedido */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-xl flex justify-between items-start border border-gray-100">
-                <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</p>
-                  <p className="text-base font-bold text-gray-900">
-                    {paymentEditingOrder?.customer?.name || 'Cliente sin nombre'}
-                  </p>
-                  <p className="text-sm text-gray-600 mt-2">
-                    Total: <span className="font-bold text-blue-600">
-                      ${(paymentEditingOrder?.total || 0).toFixed(2)}
-                    </span>
-                  </p>
-                </div>
-
-                {/* Mostrar comprobante si existe */}
-                {paymentEditingOrder?.payment?.receiptImageUrl && (
-                  <div className="ml-4">
-                    <button
-                      type="button"
-                      onClick={() => setShowReceiptPreviewModal(true)}
-                      className="block relative group"
-                      title="Ver comprobante completo"
-                    >
-                      <img
-                        src={paymentEditingOrder?.payment?.receiptImageUrl}
-                        alt="Comprobante"
-                        className="w-20 h-20 object-cover rounded-lg border border-gray-200 shadow-sm transition-transform group-hover:scale-105"
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded-lg">
-                        <i className="bi bi-zoom-in text-white opacity-0 group-hover:opacity-100 drop-shadow-md"></i>
-                      </div>
-                    </button>
-                    <p className="text-[10px] text-gray-500 mt-1 text-center font-medium">Click para ampliar</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Selección de método de pago */}
-              <div className="space-y-4 mb-6">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-3">
-                    Método de Pago
-                  </label>
-                  <div className="grid grid-cols-1 gap-2">
-                    {[
-                      { id: 'cash', label: 'Efectivo', icon: 'bi-cash', color: 'text-green-600', bg: 'hover:bg-green-50' },
-                      { id: 'transfer', label: 'Transferencia', icon: 'bi-credit-card', color: 'text-blue-600', bg: 'hover:bg-blue-50' },
-                      { id: 'mixed', label: 'Mixto', icon: 'bi-cash-coin', color: 'text-purple-600', bg: 'hover:bg-purple-50' }
-                    ].map((m) => (
-                      <label
-                        key={m.id}
-                        className={`flex items-center p-3 border rounded-xl cursor-pointer transition-all ${editPaymentData.method === m.id
-                          ? 'border-blue-500 bg-blue-50/50 ring-1 ring-blue-500'
-                          : 'border-gray-200 hover:bg-gray-50'
-                          }`}
-                      >
-                        <input
-                          type="radio"
-                          name="paymentMethod"
-                          value={m.id}
-                          checked={editPaymentData.method === m.id}
-                          onChange={(e) => setEditPaymentData({
-                            ...editPaymentData,
-                            method: e.target.value as any,
-                            cashAmount: 0,
-                            transferAmount: 0,
-                            paymentStatus: m.id === 'transfer' ? 'paid' : 'pending'
-                          })}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="ml-3 font-medium text-gray-700 flex items-center">
-                          <i className={`bi ${m.icon} me-2 ${m.color}`}></i>
-                          {m.label}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Selector de estado de pago */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Estado Actual
-                  </label>
-                  <select
-                    value={editPaymentData.paymentStatus}
-                    onChange={(e) => setEditPaymentData({
-                      ...editPaymentData,
-                      paymentStatus: e.target.value as any
-                    })}
-                    className="w-full px-4 py-2 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm font-medium"
+            <div
+              className="bg-white rounded-xl max-w-md w-full shadow-2xl my-8 max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold text-gray-900">
+                    <i className="bi bi-credit-card me-2 text-blue-600"></i>
+                    Gestionar Pago
+                  </h2>
+                  <button
+                    onClick={() => setShowEditPaymentModal(false)}
+                    className="text-gray-400 hover:text-gray-600 text-2xl transition-colors"
                   >
-                    <option value="pending">⏳ Pendiente</option>
-                    <option value="validating">🕵️ Validando</option>
-                    <option value="paid">✅ Pagado</option>
-                    <option value="rejected">❌ Rechazado</option>
-                  </select>
+                    <i className="bi bi-x-lg text-lg"></i>
+                  </button>
                 </div>
 
-                {/* Montos para pago mixto */}
-                {editPaymentData.method === 'mixed' && (
-                  <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
-                    <h4 className="text-xs font-bold text-blue-800 uppercase tracking-widest mb-3">
-                      Distribución Mixta
-                    </h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1 ml-1">EFECTIVO</label>
-                        <div className="relative">
-                          <span className="absolute left-3 top-2 text-gray-400 text-xs">$</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={editPaymentData.cashAmount}
-                            onChange={(e) => {
-                              const cash = parseFloat(e.target.value) || 0
-                              const transfer = (paymentEditingOrder?.total || 0) - cash
-                              setEditPaymentData({
-                                ...editPaymentData,
-                                cashAmount: cash,
-                                transferAmount: Math.max(0, transfer)
-                              })
-                            }}
-                            className="w-full pl-6 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 appearance-none"
-                          />
+                {/* Información del pedido */}
+                <div className="mb-6 p-4 bg-gray-50 rounded-xl flex justify-between items-start border border-gray-100">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</p>
+                    <p className="text-base font-bold text-gray-900">
+                      {paymentEditingOrder?.customer?.name || 'Cliente sin nombre'}
+                    </p>
+                    <p className="text-sm text-gray-600 mt-2">
+                      Total: <span className="font-bold text-blue-600">
+                        ${(paymentEditingOrder?.total || 0).toFixed(2)}
+                      </span>
+                    </p>
+                  </div>
+
+                  {/* Mostrar comprobante si existe */}
+                  {paymentEditingOrder?.payment?.receiptImageUrl && (
+                    <div className="ml-4">
+                      <button
+                        type="button"
+                        onClick={() => setShowReceiptPreviewModal(true)}
+                        className="block relative group"
+                        title="Ver comprobante completo"
+                      >
+                        <img
+                          src={paymentEditingOrder?.payment?.receiptImageUrl}
+                          alt="Comprobante"
+                          className="w-20 h-20 object-cover rounded-lg border border-gray-200 shadow-sm transition-transform group-hover:scale-105"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded-lg">
+                          <i className="bi bi-zoom-in text-white opacity-0 group-hover:opacity-100 drop-shadow-md"></i>
                         </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1 ml-1">TRANSF.</label>
-                        <div className="relative">
-                          <span className="absolute left-3 top-2 text-gray-400 text-xs">$</span>
+                      </button>
+                      <p className="text-[10px] text-gray-500 mt-1 text-center font-medium">Click para ampliar</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Selección de método de pago */}
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-3">
+                      Método de Pago
+                    </label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {[
+                        { id: 'cash', label: 'Efectivo', icon: 'bi-cash', color: 'text-green-600', bg: 'hover:bg-green-50' },
+                        { id: 'transfer', label: 'Transferencia', icon: 'bi-credit-card', color: 'text-blue-600', bg: 'hover:bg-blue-50' },
+                        { id: 'mixed', label: 'Mixto', icon: 'bi-cash-coin', color: 'text-purple-600', bg: 'hover:bg-purple-50' }
+                      ].map((m) => (
+                        <label
+                          key={m.id}
+                          className={`flex items-center p-3 border rounded-xl cursor-pointer transition-all ${editPaymentData.method === m.id
+                            ? 'border-blue-500 bg-blue-50/50 ring-1 ring-blue-500'
+                            : 'border-gray-200 hover:bg-gray-50'
+                            }`}
+                        >
                           <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={editPaymentData.transferAmount}
-                            onChange={(e) => {
-                              const transfer = parseFloat(e.target.value) || 0
-                              const cash = (paymentEditingOrder?.total || 0) - transfer
-                              setEditPaymentData({
-                                ...editPaymentData,
-                                transferAmount: transfer,
-                                cashAmount: Math.max(0, cash)
-                              })
-                            }}
-                            className="w-full pl-6 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 appearance-none"
+                            type="radio"
+                            name="paymentMethod"
+                            value={m.id}
+                            checked={editPaymentData.method === m.id}
+                            onChange={(e) => setEditPaymentData({
+                              ...editPaymentData,
+                              method: e.target.value as any,
+                              cashAmount: 0,
+                              transferAmount: 0,
+                              paymentStatus: m.id === 'transfer' ? 'paid' : 'pending'
+                            })}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500"
                           />
+                          <span className="ml-3 font-medium text-gray-700 flex items-center">
+                            <i className={`bi ${m.icon} me-2 ${m.color}`}></i>
+                            {m.label}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Selector de estado de pago */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Estado Actual
+                    </label>
+                    <select
+                      value={editPaymentData.paymentStatus}
+                      onChange={(e) => setEditPaymentData({
+                        ...editPaymentData,
+                        paymentStatus: e.target.value as any
+                      })}
+                      className="w-full px-4 py-2 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm font-medium"
+                    >
+                      <option value="pending">⏳ Pendiente</option>
+                      <option value="validating">🕵️ Validando</option>
+                      <option value="paid">✅ Pagado</option>
+                      <option value="rejected">❌ Rechazado</option>
+                    </select>
+                  </div>
+
+                  {/* Montos para pago mixto */}
+                  {editPaymentData.method === 'mixed' && (
+                    <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                      <h4 className="text-xs font-bold text-blue-800 uppercase tracking-widest mb-3">
+                        Distribución Mixta
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-gray-500 mb-1 ml-1">EFECTIVO</label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-2 text-gray-400 text-xs">$</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={editPaymentData.cashAmount}
+                              onChange={(e) => {
+                                const cash = parseFloat(e.target.value) || 0
+                                const transfer = (paymentEditingOrder?.total || 0) - cash
+                                setEditPaymentData({
+                                  ...editPaymentData,
+                                  cashAmount: cash,
+                                  transferAmount: Math.max(0, transfer)
+                                })
+                              }}
+                              className="w-full pl-6 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 appearance-none"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-500 mb-1 ml-1">TRANSF.</label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-2 text-gray-400 text-xs">$</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={editPaymentData.transferAmount}
+                              onChange={(e) => {
+                                const transfer = parseFloat(e.target.value) || 0
+                                const cash = (paymentEditingOrder?.total || 0) - transfer
+                                setEditPaymentData({
+                                  ...editPaymentData,
+                                  transferAmount: transfer,
+                                  cashAmount: Math.max(0, cash)
+                                })
+                              }}
+                              className="w-full pl-6 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 appearance-none"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
 
-              {/* Botones de acción */}
-              <div className="flex flex-col space-y-2">
-                <button
-                  onClick={handleSavePaymentEdit}
-                  disabled={editPaymentData.method === 'mixed' &&
-                    Math.abs(((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)) - (paymentEditingOrder?.total || 0)) > 0.01
-                  }
-                  className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:bg-gray-400 transition-all shadow-lg shadow-blue-200"
-                >
-                  Guardar Cambios
-                </button>
-                <button
-                  onClick={() => setShowEditPaymentModal(false)}
-                  className="w-full bg-gray-50 text-gray-600 font-semibold py-3 px-4 rounded-xl hover:bg-gray-100 transition-all"
-                >
-                  Cancelar
-                </button>
+                {/* Botones de acción */}
+                <div className="flex flex-col space-y-2">
+                  <button
+                    onClick={handleSavePaymentEdit}
+                    disabled={editPaymentData.method === 'mixed' &&
+                      Math.abs(((editPaymentData.cashAmount || 0) + (editPaymentData.transferAmount || 0)) - (paymentEditingOrder?.total || 0)) > 0.01
+                    }
+                    className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:bg-gray-400 transition-all shadow-lg shadow-blue-200"
+                  >
+                    Guardar Cambios
+                  </button>
+                  <button
+                    onClick={() => setShowEditPaymentModal(false)}
+                    className="w-full bg-gray-50 text-gray-600 font-semibold py-3 px-4 rounded-xl hover:bg-gray-100 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal de Previsualización de Comprobante */}
-      {showReceiptPreviewModal && paymentEditingOrder?.payment?.receiptImageUrl && (
-        <div
-          className="fixed inset-0 bg-black/95 flex items-center justify-center z-[70] p-4 backdrop-blur-sm"
-          onClick={() => setShowReceiptPreviewModal(false)}
-        >
+      {
+        showReceiptPreviewModal && paymentEditingOrder?.payment?.receiptImageUrl && (
           <div
-            className="relative max-w-4xl w-full h-[90vh] flex flex-col bg-white rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 bg-black/95 flex items-center justify-center z-[70] p-4 backdrop-blur-sm"
+            onClick={() => setShowReceiptPreviewModal(false)}
           >
-            {/* Header */}
-            <div className="p-4 border-b flex items-center justify-between bg-gray-50/80">
-              <div>
-                <h3 className="font-bold text-gray-900 flex items-center">
-                  <i className="bi bi-file-earmark-image me-2 text-blue-600"></i>
-                  Comprobante de Pago
-                </h3>
-                <p className="text-xs text-gray-500 font-medium">
-                  {paymentEditingOrder?.customer?.name} • <span className="text-blue-600">${(paymentEditingOrder?.total || 0).toFixed(2)}</span>
+            <div
+              className="relative max-w-4xl w-full h-[90vh] flex flex-col bg-white rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="p-4 border-b flex items-center justify-between bg-gray-50/80">
+                <div>
+                  <h3 className="font-bold text-gray-900 flex items-center">
+                    <i className="bi bi-file-earmark-image me-2 text-blue-600"></i>
+                    Comprobante de Pago
+                  </h3>
+                  <p className="text-xs text-gray-500 font-medium">
+                    {paymentEditingOrder?.customer?.name} • <span className="text-blue-600">${(paymentEditingOrder?.total || 0).toFixed(2)}</span>
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => paymentEditingOrder && handleRejectPayment(paymentEditingOrder.id)}
+                    className="px-4 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors font-bold text-sm flex items-center gap-2 border border-red-100"
+                  >
+                    <i className="bi bi-x-circle-fill"></i>
+                    Rechazar
+                  </button>
+                  <button
+                    onClick={() => paymentEditingOrder && handleValidatePayment(paymentEditingOrder.id)}
+                    className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all font-bold text-sm flex items-center gap-2 shadow-lg shadow-green-200"
+                  >
+                    <i className="bi bi-patch-check-fill"></i>
+                    Validar Pago
+                  </button>
+                  <button
+                    onClick={() => setShowReceiptPreviewModal(false)}
+                    className="p-2 text-gray-400 hover:text-gray-600 transition-colors ml-2"
+                  >
+                    <i className="bi bi-x-lg text-xl"></i>
+                  </button>
+                </div>
+              </div>
+
+              {/* Imagen */}
+              <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-gray-100/50">
+                <img
+                  src={paymentEditingOrder?.payment?.receiptImageUrl}
+                  alt="Comprobante completo"
+                  className="max-w-full max-h-full object-contain rounded-lg shadow-inner"
+                />
+              </div>
+
+              {/* Footer */}
+              <div className="p-3 bg-gray-50/50 text-center border-t border-gray-100">
+                <p className="text-[11px] text-gray-400 font-medium italic">
+                  Al validar, el pago se marcará como confirmado y se guardarán los cambios automáticamente.
                 </p>
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => paymentEditingOrder && handleRejectPayment(paymentEditingOrder.id)}
-                  className="px-4 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors font-bold text-sm flex items-center gap-2 border border-red-100"
-                >
-                  <i className="bi bi-x-circle-fill"></i>
-                  Rechazar
-                </button>
-                <button
-                  onClick={() => paymentEditingOrder && handleValidatePayment(paymentEditingOrder.id)}
-                  className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all font-bold text-sm flex items-center gap-2 shadow-lg shadow-green-200"
-                >
-                  <i className="bi bi-patch-check-fill"></i>
-                  Validar Pago
-                </button>
-                <button
-                  onClick={() => setShowReceiptPreviewModal(false)}
-                  className="p-2 text-gray-400 hover:text-gray-600 transition-colors ml-2"
-                >
-                  <i className="bi bi-x-lg text-xl"></i>
-                </button>
-              </div>
-            </div>
-
-            {/* Imagen */}
-            <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-gray-100/50">
-              <img
-                src={paymentEditingOrder?.payment?.receiptImageUrl}
-                alt="Comprobante completo"
-                className="max-w-full max-h-full object-contain rounded-lg shadow-inner"
-              />
-            </div>
-
-            {/* Footer */}
-            <div className="p-3 bg-gray-50/50 text-center border-t border-gray-100">
-              <p className="text-[11px] text-gray-400 font-medium italic">
-                Al validar, el pago se marcará como confirmado y se guardarán los cambios automáticamente.
-              </p>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Sidebar de Detalle de Orden */}
       <OrderSidebar
@@ -1543,6 +1631,6 @@ export default function OrderManagement() {
         onClose={() => setIsOrderSidebarOpen(false)}
         orderId={selectedOrderId || null}
       />
-    </div>
+    </div >
   )
 }
