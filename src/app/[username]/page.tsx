@@ -1165,7 +1165,7 @@ function RestaurantContent() {
   }
 
   const whatsappNumber = business.phone ? (business.phone.startsWith('0') ? '593' + business.phone.substring(1) : business.phone).replace(/\D/g, '') : ''
-  const whatsappMessage = encodeURIComponent('Hola, encontré tu tienda en https://fuddi.shop , me gustaría conocer tu menú')
+  const whatsappMessage = encodeURIComponent(`Hola ${business.name}, encontré tu tienda en https://fuddi.shop , me gustaría conocer tu menú`)
   const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`
 
   const isOwner = user && business && (business.ownerId === user.uid || business.administrators?.some(a => a.uid === user.uid))

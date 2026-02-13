@@ -2099,10 +2099,16 @@ export async function getCoverageZones(businessId?: string): Promise<CoverageZon
         polygon: data.polygon || [],
         deliveryFee: data.deliveryFee || 0,
         isActive: data.isActive !== false,
+        // Compatibilidad con sistema anterior (single delivery)
         assignedDeliveryId: data.assignedDeliveryId || undefined,
+        // Nuevo sistema Round Robin
+        assignedDeliveryIds: data.assignedDeliveryIds || (data.assignedDeliveryId ? [data.assignedDeliveryId] : []),
+        deliveryAssignmentStrategy: data.deliveryAssignmentStrategy || (data.assignedDeliveryIds?.length > 1 ? 'round-robin' : 'single'),
+        lastAssignedIndex: data.lastAssignedIndex || 0,
         createdAt: convertToDate(data.createdAt),
         updatedAt: convertToDate(data.updatedAt)
       });
+
     });
 
     return zones;
@@ -2197,9 +2203,148 @@ export async function getDeliveryFeeForLocation(location: { lat: number; lng: nu
     return 0; // O lanzar error si prefieres que no haya entrega fuera de zonas
   } catch (error) {
     console.error('Error getting delivery fee for location:', error);
-    throw error;
+    return 0;
   }
 }
+
+/**
+ * Obtiene el delivery asignado para una ubicación usando Round Robin
+ * @param location Coordenadas de la ubicación
+ * @param businessId ID del negocio (opcional)
+ * @returns ID del delivery asignado o null si no hay delivery para esa zona
+ */
+export async function getDeliveryForLocation(
+  location: { lat: number; lng: number },
+  businessId?: string
+): Promise<string | null> {
+  try {
+    const zones = await getCoverageZones(businessId);
+
+    // Buscar la zona que contiene esta ubicación
+    let matchingZone: CoverageZone | null = null;
+
+    for (const zone of zones) {
+      if (zone.isActive && isPointInPolygon(location, zone.polygon)) {
+        matchingZone = zone;
+        break;
+      }
+    }
+
+    // Si no se encuentra en zonas del negocio, buscar en zonas globales
+    if (!matchingZone && businessId) {
+      const globalZones = await getCoverageZones();
+      for (const zone of globalZones) {
+        if (!zone.businessId && zone.isActive && isPointInPolygon(location, zone.polygon)) {
+          matchingZone = zone;
+          break;
+        }
+      }
+    }
+
+    if (!matchingZone) {
+      console.log('[getDeliveryForLocation] No matching zone found for location:', location);
+      return null;
+    }
+
+    // Obtener deliveries asignados (nuevo sistema o legacy)
+    const assignedDeliveryIds = matchingZone.assignedDeliveryIds ||
+      (matchingZone.assignedDeliveryId ? [matchingZone.assignedDeliveryId] : []);
+
+    if (assignedDeliveryIds.length === 0) {
+      console.log('[getDeliveryForLocation] Zone has no assigned deliveries:', matchingZone.name);
+      return null;
+    }
+
+    // Si solo hay un delivery, retornarlo directamente
+    if (assignedDeliveryIds.length === 1) {
+      return assignedDeliveryIds[0];
+    }
+
+    // Round Robin: obtener el siguiente delivery en la rotación
+    const currentIndex = matchingZone.lastAssignedIndex || 0;
+    const nextIndex = (currentIndex + 1) % assignedDeliveryIds.length;
+    const selectedDeliveryId = assignedDeliveryIds[nextIndex];
+
+    // Actualizar el índice para la próxima asignación
+    await updateCoverageZone(matchingZone.id, {
+      lastAssignedIndex: nextIndex
+    });
+
+    console.log('[getDeliveryForLocation] Round Robin assignment:', {
+      zone: matchingZone.name,
+      totalDeliveries: assignedDeliveryIds.length,
+      previousIndex: currentIndex,
+      nextIndex,
+      selectedDeliveryId
+    });
+
+    return selectedDeliveryId;
+  } catch (error) {
+    console.error('Error getting delivery for location:', error);
+    return null;
+  }
+}
+
+/**
+ * Obtiene todas las órdenes activas con ubicaciones válidas para mostrar en el mapa
+ * @returns Array de órdenes con coordenadas válidas
+ */
+export async function getActiveOrdersWithLocations(): Promise<Order[]> {
+  try {
+    const ordersRef = collection(db, 'orders');
+
+    // Obtener órdenes que no estén entregadas ni canceladas
+    const q = query(
+      ordersRef,
+      where('status', 'in', ['pending', 'confirmed', 'preparing', 'ready', 'on_way']),
+      orderBy('createdAt', 'desc')
+    );
+
+    const querySnapshot = await getDocs(q);
+    const orders: Order[] = [];
+
+    for (const docSnapshot of querySnapshot.docs) {
+      const data = docSnapshot.data();
+
+      // Solo incluir órdenes con delivery y coordenadas válidas
+      if (data.delivery?.type === 'delivery' && data.delivery?.latlong) {
+        // Verificar que no sea un Plus Code
+        if (!data.delivery.latlong.startsWith('pluscode:')) {
+          const order: Order = {
+            id: docSnapshot.id,
+            businessId: data.businessId || '',
+            customer: data.customer || { name: '', phone: '' },
+            items: data.items || [],
+            delivery: data.delivery,
+            timing: data.timing || { type: 'immediate' },
+            payment: data.payment || { method: 'cash' },
+            total: data.total || 0,
+            subtotal: data.subtotal || 0,
+            status: data.status || 'pending',
+            createdAt: data.createdAt?.toDate?.() || new Date(),
+            updatedAt: data.updatedAt?.toDate?.() || new Date(),
+            deliveredAt: data.deliveredAt?.toDate?.(),
+            createdByAdmin: data.createdByAdmin,
+            statusHistory: data.statusHistory,
+            waSentToDelivery: data.waSentToDelivery,
+            paymentCollector: data.paymentCollector,
+            settlementStatus: data.settlementStatus,
+            settlementId: data.settlementId
+          };
+
+          orders.push(order);
+        }
+      }
+    }
+
+    console.log(`[getActiveOrdersWithLocations] Found ${orders.length} active orders with valid locations`);
+    return orders;
+  } catch (error) {
+    console.error('Error getting active orders with locations:', error);
+    return [];
+  }
+}
+
 
 // =============================================================================
 // DELIVERIES FUNCTIONS

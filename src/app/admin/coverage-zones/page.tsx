@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { GoogleMap, useJsApiLoader, Polygon, Marker } from '@react-google-maps/api'
-import { getCoverageZones, createCoverageZone, updateCoverageZone, deleteCoverageZone, getAllDeliveries } from '@/lib/database'
-import { CoverageZone, Delivery } from '@/types'
+import { getCoverageZones, createCoverageZone, updateCoverageZone, deleteCoverageZone, getAllDeliveries, getActiveOrdersWithLocations } from '@/lib/database'
+import { CoverageZone, Delivery, Order } from '@/types'
 
 // Define libraries as a constant outside the component to prevent reloading
 const GOOGLE_MAPS_LIBRARIES: ("drawing" | "geometry" | "places" | "visualization")[] = ["drawing", "geometry"]
@@ -21,9 +21,12 @@ export default function CoverageZonesPage() {
     name: '',
     deliveryFee: 0,
     isActive: true,
-    assignedDeliveryId: ''
+    assignedDeliveryId: '', // Legacy - mantener para compatibilidad
+    assignedDeliveryIds: [] as string[] // Nuevo: múltiples deliveries
   })
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
+  const [activeOrders, setActiveOrders] = useState<Order[]>([])
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [currentPolygon, setCurrentPolygon] = useState<{ lat: number; lng: number }[]>([])
   const [markers, setMarkers] = useState<{ lat: number; lng: number }[]>([])
   const [isDrawingMode, setIsDrawingMode] = useState(false)
@@ -48,6 +51,14 @@ export default function CoverageZonesPage() {
   useEffect(() => {
     loadZones()
     loadDeliveries()
+    loadActiveOrders()
+
+    // Recargar órdenes cada 30 segundos
+    const interval = setInterval(() => {
+      loadActiveOrders()
+    }, 30000)
+
+    return () => clearInterval(interval)
   }, [])
 
   const loadZones = async () => {
@@ -70,6 +81,44 @@ export default function CoverageZonesPage() {
     } catch (error) {
       console.error('Error loading deliveries:', error)
     }
+  }
+
+  const loadActiveOrders = async () => {
+    try {
+      const orders = await getActiveOrdersWithLocations()
+      setActiveOrders(orders)
+      console.log(`[CoverageZones] Loaded ${orders.length} active orders`)
+    } catch (error) {
+      console.error('Error loading active orders:', error)
+    }
+  }
+
+  // Helper: Obtener emoji según estado del pedido
+  const getStatusEmoji = (status: string): string => {
+    const emojiMap: Record<string, string> = {
+      'pending': '⏳',
+      'confirmed': '✅',
+      'preparing': '👨‍🍳',
+      'ready': '📦',
+      'on_way': '🛵',
+      'delivered': '✔️'
+    }
+    return emojiMap[status] || '📍'
+  }
+
+  // Helper: Formatear hora de entrega
+  const formatDeliveryTime = (order: Order): string => {
+    if (order.timing.type === 'scheduled' && order.timing.scheduledTime) {
+      return order.timing.scheduledTime
+    }
+    return 'Inmediato'
+  }
+
+  // Helper: Obtener nombre del delivery
+  const getDeliveryName = (order: Order): string => {
+    if (!order.delivery.assignedDelivery) return 'Sin asignar'
+    const delivery = deliveries.find(d => d.id === order.delivery.assignedDelivery)
+    return delivery?.nombres || 'Delivery'
   }
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -130,13 +179,19 @@ export default function CoverageZonesPage() {
     }
 
     try {
+      // Determinar estrategia basada en cantidad de deliveries
+      const strategy = formData.assignedDeliveryIds.length > 1 ? 'round-robin' : 'single';
+
       if (selectedZone) {
         // Actualizar zona existente
         await updateCoverageZone(selectedZone.id, {
           name: formData.name,
           deliveryFee: formData.deliveryFee,
           isActive: formData.isActive,
-          assignedDeliveryId: formData.assignedDeliveryId || undefined,
+          assignedDeliveryId: formData.assignedDeliveryIds[0] || undefined, // Legacy
+          assignedDeliveryIds: formData.assignedDeliveryIds,
+          deliveryAssignmentStrategy: strategy,
+          lastAssignedIndex: 0, // Resetear al actualizar
           polygon: currentPolygon
         })
         showNotification('Zona actualizada correctamente', 'success')
@@ -146,7 +201,10 @@ export default function CoverageZonesPage() {
           name: formData.name,
           deliveryFee: formData.deliveryFee,
           isActive: formData.isActive,
-          assignedDeliveryId: formData.assignedDeliveryId || undefined,
+          assignedDeliveryId: formData.assignedDeliveryIds[0] || undefined, // Legacy
+          assignedDeliveryIds: formData.assignedDeliveryIds,
+          deliveryAssignmentStrategy: strategy,
+          lastAssignedIndex: 0,
           polygon: currentPolygon
         })
         showNotification('Zona creada correctamente', 'success')
@@ -186,7 +244,8 @@ export default function CoverageZonesPage() {
       name: '',
       deliveryFee: 0,
       isActive: true,
-      assignedDeliveryId: ''
+      assignedDeliveryId: '',
+      assignedDeliveryIds: []
     })
     setCurrentPolygon([])
     setMarkers([])
@@ -204,7 +263,8 @@ export default function CoverageZonesPage() {
       name: zone.name,
       deliveryFee: zone.deliveryFee,
       isActive: zone.isActive,
-      assignedDeliveryId: zone.assignedDeliveryId || ''
+      assignedDeliveryId: zone.assignedDeliveryId || '',
+      assignedDeliveryIds: zone.assignedDeliveryIds || (zone.assignedDeliveryId ? [zone.assignedDeliveryId] : [])
     })
     setCurrentPolygon(zone.polygon)
     setMarkers(zone.polygon)
@@ -389,8 +449,46 @@ export default function CoverageZonesPage() {
                             <span>•</span>
                             <span>{zone.polygon.length} puntos</span>
                           </div>
-                          {/* Delivery asignado */}
-                          {zone.assignedDeliveryId ? (
+                          {/* Deliveries asignados */}
+                          {zone.assignedDeliveryIds && zone.assignedDeliveryIds.length > 0 ? (
+                            <div className="mt-2 space-y-1">
+                              {zone.assignedDeliveryIds.length > 1 && (
+                                <span className="inline-flex items-center text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full border border-blue-500/50 mb-1">
+                                  <i className="bi bi-arrow-repeat mr-1"></i>
+                                  Round Robin
+                                </span>
+                              )}
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {zone.assignedDeliveryIds.slice(0, 2).map((deliveryId) => {
+                                  const delivery = deliveries.find(d => d.id === deliveryId);
+                                  if (!delivery) return null;
+                                  return (
+                                    <div key={deliveryId} className="flex items-center gap-1 bg-gray-700/50 rounded px-1.5 py-0.5">
+                                      {delivery.fotoUrl ? (
+                                        <img
+                                          src={delivery.fotoUrl}
+                                          alt=""
+                                          className="w-4 h-4 rounded-full object-cover"
+                                        />
+                                      ) : (
+                                        <div className="w-4 h-4 rounded-full bg-gray-600 flex items-center justify-center">
+                                          <i className="bi bi-person text-gray-400 text-xs"></i>
+                                        </div>
+                                      )}
+                                      <span className="text-xs text-gray-400 truncate max-w-[80px]">
+                                        {delivery.nombres.split(' ')[0]}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                                {zone.assignedDeliveryIds.length > 2 && (
+                                  <span className="text-xs text-gray-500">
+                                    +{zone.assignedDeliveryIds.length - 2}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ) : zone.assignedDeliveryId ? (
                             <div className="mt-2 flex items-center gap-2">
                               {deliveries.find(d => d.id === zone.assignedDeliveryId)?.fotoUrl ? (
                                 <img
@@ -517,6 +615,101 @@ export default function CoverageZonesPage() {
                   }}
                 />
               )}
+
+              {/* Marcadores de pedidos activos */}
+              {activeOrders.map((order) => {
+                if (!order.delivery.latlong) return null;
+                const [lat, lng] = order.delivery.latlong.split(',').map(Number);
+                if (isNaN(lat) || isNaN(lng)) return null;
+
+                const statusEmoji = getStatusEmoji(order.status);
+                const isSelected = selectedOrder?.id === order.id;
+
+                return (
+                  <Marker
+                    key={`order-${order.id}`}
+                    position={{ lat, lng }}
+                    onClick={() => setSelectedOrder(order)}
+                    icon={{
+                      url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+                      <svg width="40" height="50" viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M20 0 C9 0 0 9 0 20 C0 28 8 38 20 50 C32 38 40 28 40 20 C40 9 31 0 20 0 Z" 
+                          fill="${isSelected ? '#ef4444' : '#3b82f6'}" stroke="#ffffff" stroke-width="2"/>
+                        <text x="20" y="26" text-anchor="middle" font-size="20">${statusEmoji}</text>
+                      </svg>
+                    `),
+                      scaledSize: new window.google.maps.Size(40, 50),
+                      anchor: new window.google.maps.Point(20, 50)
+                    }}
+                  />
+                );
+              })}
+
+              {/* InfoWindow para pedido seleccionado */}
+              {selectedOrder && selectedOrder.delivery.latlong && (() => {
+                const [lat, lng] = selectedOrder.delivery.latlong.split(',').map(Number);
+                if (isNaN(lat) || isNaN(lng)) return null;
+
+                return (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      transform: `translate(-50%, -100%)`,
+                      left: '50%',
+                      top: '50%',
+                      zIndex: 1000
+                    }}
+                  >
+                    <div className="bg-gray-800 rounded-lg shadow-2xl border border-gray-700 p-4 min-w-[280px] max-w-sm">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-2xl">{getStatusEmoji(selectedOrder.status)}</span>
+                          <div>
+                            <h3 className="font-semibold text-white text-sm">
+                              Pedido #{selectedOrder.id.slice(-6)}
+                            </h3>
+                            <p className="text-xs text-gray-400 capitalize">
+                              {selectedOrder.status.replace('_', ' ')}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setSelectedOrder(null)}
+                          className="text-gray-400 hover:text-white transition-colors"
+                        >
+                          <i className="bi bi-x-lg"></i>
+                        </button>
+                      </div>
+
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center gap-2 text-gray-300">
+                          <i className="bi bi-clock text-blue-400"></i>
+                          <span className="font-medium">Hora:</span>
+                          <span>{formatDeliveryTime(selectedOrder)}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-gray-300">
+                          <i className="bi bi-scooter text-green-400"></i>
+                          <span className="font-medium">Delivery:</span>
+                          <span>{getDeliveryName(selectedOrder)}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-gray-300">
+                          <i className="bi bi-person text-purple-400"></i>
+                          <span className="font-medium">Cliente:</span>
+                          <span className="truncate">{selectedOrder.customer.name}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-gray-300">
+                          <i className="bi bi-cash text-yellow-400"></i>
+                          <span className="font-medium">Total:</span>
+                          <span className="font-semibold">${selectedOrder.total.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </GoogleMap>
           ) : loadError ? (
             <div className="w-full h-full bg-gray-800 flex items-center justify-center">
@@ -678,40 +871,91 @@ export default function CoverageZonesPage() {
                 </button>
               </div>
 
-              {/* Delivery assignment */}
+              {/* Delivery assignment - Multiple selection */}
               <div className="border-t border-gray-700 pt-4">
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  <i className="bi bi-scooter mr-2"></i>
-                  Delivery asignado
-                </label>
-                <select
-                  value={formData.assignedDeliveryId}
-                  onChange={(e) => setFormData({ ...formData, assignedDeliveryId: e.target.value })}
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-                >
-                  <option value="">Sin asignar</option>
-                  {deliveries.map((delivery) => (
-                    <option key={delivery.id} value={delivery.id}>
-                      {delivery.nombres} - {delivery.celular}
-                    </option>
-                  ))}
-                </select>
-                {formData.assignedDeliveryId && (
-                  <div className="mt-2 flex items-center gap-2 p-2 bg-gray-700/50 rounded-lg">
-                    {deliveries.find(d => d.id === formData.assignedDeliveryId)?.fotoUrl ? (
-                      <img
-                        src={deliveries.find(d => d.id === formData.assignedDeliveryId)?.fotoUrl}
-                        alt="Delivery"
-                        className="w-8 h-8 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center">
-                        <i className="bi bi-person text-gray-400"></i>
-                      </div>
-                    )}
-                    <span className="text-sm text-gray-300">
-                      {deliveries.find(d => d.id === formData.assignedDeliveryId)?.nombres}
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-gray-300">
+                    <i className="bi bi-scooter mr-2"></i>
+                    Deliveries asignados
+                  </label>
+                  {formData.assignedDeliveryIds.length > 1 && (
+                    <span className="text-xs px-2 py-1 bg-blue-500/20 text-blue-400 rounded-full border border-blue-500/50">
+                      <i className="bi bi-arrow-repeat mr-1"></i>
+                      Round Robin
                     </span>
+                  )}
+                </div>
+
+                {deliveries.length === 0 ? (
+                  <div className="p-3 bg-gray-700/30 rounded-lg text-center text-sm text-gray-400">
+                    No hay deliveries activos disponibles
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {deliveries.map((delivery) => {
+                      const isSelected = formData.assignedDeliveryIds.includes(delivery.id);
+                      return (
+                        <label
+                          key={delivery.id}
+                          className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${isSelected
+                            ? 'bg-red-500/20 border border-red-500/50'
+                            : 'bg-gray-700/30 border border-gray-600 hover:bg-gray-700/50'
+                            }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFormData({
+                                  ...formData,
+                                  assignedDeliveryIds: [...formData.assignedDeliveryIds, delivery.id]
+                                });
+                              } else {
+                                setFormData({
+                                  ...formData,
+                                  assignedDeliveryIds: formData.assignedDeliveryIds.filter(id => id !== delivery.id)
+                                });
+                              }
+                            }}
+                            className="w-4 h-4 text-red-500 bg-gray-700 border-gray-600 rounded focus:ring-red-500 focus:ring-2"
+                          />
+                          {delivery.fotoUrl ? (
+                            <img
+                              src={delivery.fotoUrl}
+                              alt={delivery.nombres}
+                              className="w-8 h-8 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center">
+                              <i className="bi bi-person text-gray-400"></i>
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-white truncate">{delivery.nombres}</p>
+                            <p className="text-xs text-gray-400">{delivery.celular}</p>
+                          </div>
+                          {isSelected && (
+                            <i className="bi bi-check-circle-fill text-red-400"></i>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {formData.assignedDeliveryIds.length > 0 && (
+                  <div className="mt-3 p-3 bg-gray-700/30 rounded-lg">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-400">
+                        {formData.assignedDeliveryIds.length} delivery{formData.assignedDeliveryIds.length !== 1 ? 's' : ''} seleccionado{formData.assignedDeliveryIds.length !== 1 ? 's' : ''}
+                      </span>
+                      {formData.assignedDeliveryIds.length > 1 && (
+                        <span className="text-blue-400 text-xs">
+                          Los pedidos se asignarán por turnos
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

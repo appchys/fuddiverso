@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
-import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon } from '@/lib/database'
+import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation } from '@/lib/database'
 import { searchClients } from '@/lib/client-search'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 import { storage } from '@/lib/firebase'
@@ -159,12 +159,7 @@ export default function ManualOrderSidebar({
       try {
         const deliveries = await getDeliveriesByStatus('activo')
         setAvailableDeliveries(deliveries)
-
-        // Seleccionar automáticamente a Sergio Alvarado como delivery predeterminado
-        const defaultDelivery = deliveries.find(d => d.celular === '0978697867')
-        if (defaultDelivery) {
-          setManualOrderData(prev => ({ ...prev, selectedDelivery: defaultDelivery }))
-        }
+        // Delivery será asignado automáticamente basado en la ubicación y zona de cobertura
       } catch (error) {
         console.error('Error loading deliveries:', error)
       }
@@ -352,22 +347,19 @@ export default function ManualOrderSidebar({
         return
       }
 
-      // Buscar en zonas de cobertura
-      const zones = await getCoverageZones()
-      const matchingZone = zones.find(zone =>
-        zone.isActive &&
-        zone.assignedDeliveryId &&
-        isPointInPolygon({ lat, lng }, zone.polygon)
-      )
+      // Usar la nueva función con Round Robin
+      const deliveryId = await getDeliveryForLocation({ lat, lng })
 
-      if (matchingZone?.assignedDeliveryId) {
-        const delivery = availableDeliveries.find(d => d.id === matchingZone.assignedDeliveryId)
+      if (deliveryId) {
+        const delivery = availableDeliveries.find(d => d.id === deliveryId)
         if (delivery) {
-          console.log('[ManualOrder] Auto-asignando delivery de zona:', {
-            zoneName: matchingZone.name,
+          console.log('[ManualOrder] Auto-asignando delivery (Round Robin):', {
+            deliveryId,
             deliveryName: delivery.nombres
           })
           setManualOrderData(prev => ({ ...prev, selectedDelivery: delivery }))
+        } else {
+          console.log('[ManualOrder] Delivery ID encontrado pero no está en lista de disponibles:', deliveryId)
         }
       } else {
         console.log('[ManualOrder] Ubicación no está en ninguna zona con delivery asignado')

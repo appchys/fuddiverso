@@ -105,7 +105,11 @@ export interface CoverageZone {
   }[]
   deliveryFee: number
   isActive: boolean
-  assignedDeliveryId?: string // ID del delivery asignado a esta zona
+  // Soporte para múltiples deliveries con Round Robin
+  assignedDeliveryId?: string // DEPRECATED: Mantener para compatibilidad
+  assignedDeliveryIds?: string[] // Array de IDs de deliveries asignados a esta zona
+  deliveryAssignmentStrategy?: 'single' | 'round-robin' // Estrategia de asignación
+  lastAssignedIndex?: number // Índice del último delivery asignado (para Round Robin)
   createdAt: Date
   updatedAt: Date
 }
