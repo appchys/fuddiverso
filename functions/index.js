@@ -485,5 +485,6 @@ exports.sendDailyOrderSummary = onSchedule({
 });
 
 // Exports para Telegram y Hooks
-exports.telegramWebhook = onRequest(telegramServices.handleTelegramWebhook);
+exports.telegramWebhook = onRequest(telegramServices.handleStoreWebhook);
+exports.telegramDeliveryWebhook = onRequest(telegramServices.handleDeliveryWebhook);
 exports.handleDeliveryOrderAction = onRequest(deliveryServices.handleDeliveryOrderAction);

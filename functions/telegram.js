@@ -2,7 +2,8 @@ const axios = require('axios');
 const admin = require('firebase-admin');
 const { processOrderAction } = require('./delivery');
 
-const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8415155805:AAHU6nXGA1ZK8HVFHtTOJbcfa57Dsmbd7pg';
+const STORE_BOT_TOKEN = process.env.STORE_BOT_TOKEN || '8415155805:AAHU6nXGA1ZK8HVFHtTOJbcfa57Dsmbd7pg';
+const DELIVERY_BOT_TOKEN = process.env.DELIVERY_BOT_TOKEN || '8275094091:AAGDO1PSfE1bQn5u0zLWoC4yb6Or093lc6k';
 
 /**
  * Función para formatear el mensaje de Telegram
@@ -156,11 +157,11 @@ function formatTelegramMessage(orderData, businessName, isAccepted = false) {
 }
 
 /**
- * Función para enviar mensajes de Telegram
+ * Función genérica para enviar mensajes de Telegram
  */
-async function sendTelegramMessage(chatId, text, replyMarkup = null, linkPreviewOptions = null) {
+async function sendTelegramMessageGeneric(token, chatId, text, replyMarkup = null, linkPreviewOptions = null) {
     try {
-        const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+        const url = `https://api.telegram.org/bot${token}/sendMessage`;
         const data = {
             chat_id: chatId,
             text: text,
@@ -181,12 +182,26 @@ async function sendTelegramMessage(chatId, text, replyMarkup = null, linkPreview
 }
 
 /**
- * Función para manejar el webhook de Telegram
+ * Enviar mensaje usando el bot de Tienda
  */
-async function handleTelegramWebhook(req, res) {
+async function sendStoreTelegramMessage(chatId, text, replyMarkup = null, linkPreviewOptions = null) {
+    return sendTelegramMessageGeneric(STORE_BOT_TOKEN, chatId, text, replyMarkup, linkPreviewOptions);
+}
+
+/**
+ * Enviar mensaje usando el bot de Delivery
+ */
+async function sendDeliveryTelegramMessage(chatId, text, replyMarkup = null, linkPreviewOptions = null) {
+    return sendTelegramMessageGeneric(DELIVERY_BOT_TOKEN, chatId, text, replyMarkup, linkPreviewOptions);
+}
+
+/**
+ * Webhook para el bot de TIENDA
+ */
+async function handleStoreWebhook(req, res) {
     try {
         const update = req.body;
-        console.log('📬 Telegram Update:', JSON.stringify(update));
+        console.log('📬 Store Bot Update:', JSON.stringify(update));
 
         if (update.message && update.message.text) {
             const text = update.message.text;
@@ -196,35 +211,23 @@ async function handleTelegramWebhook(req, res) {
                 const entityId = text.split(' ')[1];
                 if (entityId) {
                     try {
-                        // Intentar vincular como delivery primero
-                        const deliveryDoc = await admin.firestore().collection('deliveries').doc(entityId).get();
+                        const businessDoc = await admin.firestore().collection('businesses').doc(entityId).get();
 
-                        if (deliveryDoc.exists) {
-                            // Es un delivery
-                            await admin.firestore().collection('deliveries').doc(entityId).update({
-                                telegramChatId: chatId.toString()
+                        if (businessDoc.exists) {
+                            await admin.firestore().collection('businesses').doc(entityId).update({
+                                telegramChatIds: admin.firestore.FieldValue.arrayUnion(chatId.toString())
                             });
-                            await sendTelegramMessage(chatId, "✅ <b>¡Vinculación Exitosa!</b>\n\nDesde ahora recibirás las notificaciones de nuevos pedidos aquí.");
+                            const businessName = businessDoc.data().name || 'Tu tienda';
+                            await sendStoreTelegramMessage(chatId, `✅ <b>¡Vinculación Exitosa!</b>\n\n<b>${businessName}</b> ahora enviará notificaciones de nuevos pedidos a este chat.\n\n(Puedes vincular múltiples cuentas usando el mismo link)`);
                         } else {
-                            // Intentar vincular como tienda
-                            const businessDoc = await admin.firestore().collection('businesses').doc(entityId).get();
-
-                            if (businessDoc.exists) {
-                                await admin.firestore().collection('businesses').doc(entityId).update({
-                                    telegramChatIds: admin.firestore.FieldValue.arrayUnion(chatId.toString())
-                                });
-                                const businessName = businessDoc.data().name || 'Tu tienda';
-                                await sendTelegramMessage(chatId, `✅ <b>¡Vinculación Exitosa!</b>\n\n<b>${businessName}</b> ahora enviará notificaciones de nuevos pedidos a este chat.\n\n(Puedes vincular múltiples cuentas usando el mismo link)`);
-                            } else {
-                                await sendTelegramMessage(chatId, "❌ No se encontró el delivery o tienda. Por favor verifica el enlace.");
-                            }
+                            await sendStoreTelegramMessage(chatId, "❌ No se encontró la tienda. Este bot es solo para tiendas. Si eres repartidor, usa el bot @fuddi_delivery_bot");
                         }
                     } catch (error) {
-                        console.error('Error vinculando entidad:', error);
-                        await sendTelegramMessage(chatId, "❌ Hubo un error al vincular tu cuenta. Por favor verifica el enlace.");
+                        console.error('Error vinculando tienda:', error);
+                        await sendStoreTelegramMessage(chatId, "❌ Hubo un error al vincular tu cuenta.");
                     }
                 } else {
-                    await sendTelegramMessage(chatId, "¡Hola! Para vincular tu cuenta, usa el botón 'Vincular Telegram' en tu panel de administración.");
+                    await sendStoreTelegramMessage(chatId, "¡Hola! Para vincular tu tienda, usa el botón 'Vincular Telegram' en tu panel de administración.");
                 }
             }
         } else if (update.callback_query) {
@@ -234,20 +237,138 @@ async function handleTelegramWebhook(req, res) {
             const messageId = callbackQuery.message.message_id;
 
             const [actionType, token] = data.split('|');
-            let action = actionType.startsWith('biz_') ? actionType : actionType.replace('order_', '');
+            // Store Bot solo maneja confirmaciones y descartes de negocio
+            if (actionType.startsWith('biz_')) {
+                const action = actionType; // biz_confirm, biz_discard
+                const result = await processOrderAction(token, action);
+
+                if (result.error) {
+                    await sendStoreTelegramMessage(chatId, `❌ Error: ${result.error}`);
+                } else {
+                    const orderId = result.orderId;
+
+                    try {
+                        const orderDoc = await admin.firestore().collection('orders').doc(orderId).get();
+                        const orderData = orderDoc.data();
+                        // ACCIÓN SINCRONIZADA PARA LA TIENDA
+                        const businessName = orderData.businessName || 'Tienda';
+                        const { text: telegramText } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+
+                        const handlerName = callbackQuery.from.first_name || 'Alguien';
+                        let finalStatusText = '';
+
+                        if (action === 'biz_confirm') {
+                            const deliveryName = result.assignedDeliveryName;
+                            finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
+                            if (deliveryName) {
+                                finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b>`;
+                            } else {
+                                finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
+                            }
+                        } else {
+                            finalStatusText = `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
+                        }
+
+                        const syncText = telegramText + finalStatusText;
+                        const businessMessages = orderData.telegramBusinessMessages || [];
+
+                        // Actualizar TODOS los mensajes enviados a los administradores
+                        const editUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/editMessageText`;
+                        const updatePromises = businessMessages.map(msg =>
+                            axios.post(editUrl, {
+                                chat_id: msg.chatId,
+                                message_id: msg.messageId,
+                                text: syncText,
+                                parse_mode: 'HTML'
+                            }).catch(err => console.error(`Error actualizando mensaje sincronizado en ${msg.chatId}:`, err.response?.data || err.message))
+                        );
+                        await Promise.allSettled(updatePromises);
+
+                    } catch (err) {
+                        console.error('Error updating business message:', err);
+                    }
+                }
+
+                // Responder al callback
+                const answerUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/answerCallbackQuery`;
+                let answerText = "Acción procesada";
+                if (action === 'biz_confirm') answerText = "Pedido Aceptado";
+                else if (action === 'biz_discard') answerText = "Pedido Rechazado";
+
+                await axios.post(answerUrl, {
+                    callback_query_id: callbackQuery.id,
+                    text: answerText
+                });
+            }
+        }
+
+        res.status(200).send('OK');
+    } catch (error) {
+        console.error('❌ Error en handleStoreWebhook:', error);
+        res.status(200).send('OK');
+    }
+}
+
+/**
+ * Webhook para el bot de DELIVERY
+ */
+async function handleDeliveryWebhook(req, res) {
+    try {
+        const update = req.body;
+        console.log('📬 Delivery Bot Update:', JSON.stringify(update));
+
+        if (update.message && update.message.text) {
+            const text = update.message.text;
+            const chatId = update.message.chat.id;
+
+            if (text.startsWith('/start')) {
+                const entityId = text.split(' ')[1];
+                if (entityId) {
+                    try {
+                        const deliveryDoc = await admin.firestore().collection('deliveries').doc(entityId).get();
+
+                        if (deliveryDoc.exists) {
+                            await admin.firestore().collection('deliveries').doc(entityId).update({
+                                telegramChatId: chatId.toString()
+                            });
+                            await sendDeliveryTelegramMessage(chatId, "✅ <b>¡Vinculación Exitosa!</b>\n\nDesde ahora recibirás las notificaciones de nuevos pedidos aquí.");
+                        } else {
+                            await sendDeliveryTelegramMessage(chatId, "❌ No se encontró tu perfil de delivery. Si eres una tienda, usa el bot antiguo.");
+                        }
+                    } catch (error) {
+                        console.error('Error vinculando delivery:', error);
+                        await sendDeliveryTelegramMessage(chatId, "❌ Hubo un error al vincular tu cuenta.");
+                    }
+                } else {
+                    await sendDeliveryTelegramMessage(chatId, "¡Hola! Para vincular tu cuenta, usa el botón 'Vincular Telegram' en tu app de delivery.");
+                }
+            }
+        } else if (update.callback_query) {
+            const callbackQuery = update.callback_query;
+            const data = callbackQuery.data;
+            const chatId = callbackQuery.message.chat.id;
+            const messageId = callbackQuery.message.message_id;
+
+            const [actionType, token] = data.split('|');
+
+            // Delivery Bot maneja acciones de orden (order_*)
+            // El prefijo order_ a veces no viene en la data antigua, pero asumimos que aquí llegarán las callbacks de este bot
+            let action = actionType.replace('order_', '');
+
+            // Seguridad: Asegurar que no sea una acción de negocio (aunque no debería llegar aquí)
+            if (action.startsWith('biz_')) return res.status(200).send('OK');
 
             const result = await processOrderAction(token, action);
 
             if (result.error) {
-                await sendTelegramMessage(chatId, `❌ Error: ${result.error}`);
+                await sendDeliveryTelegramMessage(chatId, `❌ Error: ${result.error}`);
             } else {
                 const orderId = result.orderId;
                 let statusLabel = '';
-                if (action === 'confirm' || action === 'biz_confirm') statusLabel = '✅ <b>Aceptado</b>';
+                if (action === 'confirm') statusLabel = '✅ <b>Aceptado</b>';
                 else if (action === 'on_way') statusLabel = '🛵 <b>En camino</b>';
                 else if (action === 'delivered') statusLabel = '🏁 <b>Entregado</b>';
                 else if (action === 'discard') statusLabel = '❌ <b>Descartado</b>';
-                else if (action === 'biz_discard') statusLabel = '❌ <b>Cancelado por Tienda</b>';
 
                 try {
                     // Obtener datos frescos para reconstruir el mensaje
@@ -261,6 +382,8 @@ async function handleTelegramWebhook(req, res) {
                             businessName = businessDoc.data().name || businessName;
                         }
                     }
+
+                    let newText = "";
 
                     if (action === 'delivered') {
                         const customerName = orderData.customer?.name || 'Cliente';
@@ -287,7 +410,7 @@ async function handleTelegramWebhook(req, res) {
                         }
                         newText += `\n\n🎉 <b>Entregado</b>`;
 
-                        const editUrl = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/editMessageText`;
+                        const editUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/editMessageText`;
                         await axios.post(editUrl, {
                             chat_id: chatId,
                             message_id: messageId,
@@ -295,40 +418,6 @@ async function handleTelegramWebhook(req, res) {
                             parse_mode: 'HTML',
                             link_preview_options: { is_disabled: true }
                         });
-                    } else if (action === 'biz_confirm' || action === 'biz_discard') {
-                        // ACCIÓN SINCRONIZADA PARA LA TIENDA
-                        const businessName = orderData.businessName || 'Tienda';
-                        const { text: telegramText } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
-
-                        const handlerName = callbackQuery.from.first_name || 'Alguien';
-                        let finalStatusText = '';
-
-                        if (action === 'biz_confirm') {
-                            const deliveryName = result.assignedDeliveryName;
-                            finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
-                            if (deliveryName) {
-                                finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b>`;
-                            } else {
-                                finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
-                            }
-                        } else {
-                            finalStatusText = `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
-                        }
-
-                        const syncText = telegramText + finalStatusText;
-                        const businessMessages = orderData.telegramBusinessMessages || [];
-
-                        // Actualizar TODOS los mensajes enviados a los administradores
-                        const editUrl = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/editMessageText`;
-                        const updatePromises = businessMessages.map(msg =>
-                            axios.post(editUrl, {
-                                chat_id: msg.chatId,
-                                message_id: msg.messageId,
-                                text: syncText,
-                                parse_mode: 'HTML'
-                            }).catch(err => console.error(`Error actualizando mensaje sincronizado en ${msg.chatId}:`, err.response?.data || err.message))
-                        );
-                        await Promise.allSettled(updatePromises);
                     } else if (action !== 'discard') {
                         const { text: formattedText, mapsLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
                         newText = formattedText + `\n\n${statusLabel}`;
@@ -350,8 +439,8 @@ async function handleTelegramWebhook(req, res) {
                             ]);
                         }
 
-                        // Editar el mensaje original para quitar botones y mostrar estado
-                        const editUrl = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/editMessageText`;
+                        // Editar el mensaje original
+                        const editUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/editMessageText`;
 
                         const editData = {
                             chat_id: chatId,
@@ -377,7 +466,7 @@ async function handleTelegramWebhook(req, res) {
                         const customerName = orderData.customer?.name || 'Cliente';
                         newText = `<b>${businessName}</b> · ${customerName}\n\nx Descartado`;
 
-                        const editUrl = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/editMessageText`;
+                        const editUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/editMessageText`;
                         await axios.post(editUrl, {
                             chat_id: chatId,
                             message_id: messageId,
@@ -387,20 +476,11 @@ async function handleTelegramWebhook(req, res) {
                     }
                 } catch (fetchError) {
                     console.error('Error fetching data for message update:', fetchError);
-                    newText = `${callbackQuery.message.text}\n\n${statusText}`;
-
-                    const editUrl = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/editMessageText`;
-                    await axios.post(editUrl, {
-                        chat_id: chatId,
-                        message_id: messageId,
-                        text: newText,
-                        parse_mode: 'HTML'
-                    });
                 }
             }
 
-            // Responder al callback para quitar el relojito
-            const answerUrl = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/answerCallbackQuery`;
+            // Responder al callback
+            const answerUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/answerCallbackQuery`;
             let answerText = "Acción procesada";
             if (action === 'confirm') answerText = "Pedido Aceptado";
             else if (action === 'on_way') answerText = "Pedido En Camino";
@@ -415,8 +495,8 @@ async function handleTelegramWebhook(req, res) {
 
         res.status(200).send('OK');
     } catch (error) {
-        console.error('❌ Error en telegramWebhook:', error);
-        res.status(200).send('OK'); // Siempre responder 200 a Telegram para evitar reintentos infinitos
+        console.error('❌ Error en handleDeliveryWebhook:', error);
+        res.status(200).send('OK');
     }
 }
 
@@ -443,8 +523,8 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
             show_above_text: true
         } : null;
 
-        await sendTelegramMessage(deliveryData.telegramChatId, telegramText, replyMarkup, linkPreviewOptions);
-        console.log(`✅ Notificación de Telegram enviada a: ${deliveryData.telegramChatId}`);
+        await sendDeliveryTelegramMessage(deliveryData.telegramChatId, telegramText, replyMarkup, linkPreviewOptions);
+        console.log(`✅ Notificación de Telegram (Delivery Bot) enviada a: ${deliveryData.telegramChatId}`);
     }
 }
 
@@ -491,13 +571,13 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     // Enviar a todos los IDs registrados y capturar Message IDs
     for (const chatId of chatIds) {
         try {
-            const result = await sendTelegramMessage(chatId, telegramText, replyMarkup, linkPreviewOptions);
+            const result = await sendStoreTelegramMessage(chatId, telegramText, replyMarkup, linkPreviewOptions);
             if (result && result.result) {
                 sentMessages.push({
                     chatId: chatId.toString(),
                     messageId: result.result.message_id
                 });
-                console.log(`✅ Notificación enviada a chat ${chatId} (ID: ${result.result.message_id})`);
+                console.log(`✅ Notificación (Store Bot) enviada a chat ${chatId} (ID: ${result.result.message_id})`);
             }
         } catch (err) {
             console.error(`❌ Error enviando a chat ${chatId}:`, err);
@@ -519,10 +599,11 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
 
 
 module.exports = {
-    TELEGRAM_TOKEN,
     formatTelegramMessage,
-    sendTelegramMessage,
-    handleTelegramWebhook,
+    sendStoreTelegramMessage,
+    sendDeliveryTelegramMessage,
+    handleStoreWebhook,
+    handleDeliveryWebhook,
     sendDeliveryTelegramNotification,
     sendBusinessTelegramNotification
 };
