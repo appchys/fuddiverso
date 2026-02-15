@@ -414,148 +414,171 @@ async function handleDeliveryWebhook(req, res) {
             const chatId = callbackQuery.message.chat.id;
             const messageId = callbackQuery.message.message_id;
 
-            const [actionType, token] = data.split('|');
+            console.log(`Processing callback: ${data} from ${chatId}`);
 
-            // Delivery Bot maneja acciones de orden (order_*)
-            // El prefijo order_ a veces no viene en la data antigua, pero asumimos que aquí llegarán las callbacks de este bot
-            let action = actionType.replace('order_', '');
-
-            // Seguridad: Asegurar que no sea una acción de negocio (aunque no debería llegar aquí)
-            if (action.startsWith('biz_')) return res.status(200).send('OK');
-
-            const result = await processOrderAction(token, action);
-
-            if (result.error) {
-                await sendDeliveryTelegramMessage(chatId, `❌ Error: ${result.error}`);
-            } else {
-                const orderId = result.orderId;
-                let statusLabel = '';
-                if (action === 'confirm') statusLabel = '✅ <b>Aceptado</b>';
-                else if (action === 'on_way') statusLabel = '🛵 <b>En camino</b>';
-                else if (action === 'delivered') statusLabel = '🏁 <b>Entregado</b>';
-                else if (action === 'discard') statusLabel = '❌ <b>Descartado</b>';
-
-                try {
-                    // Obtener datos frescos para reconstruir el mensaje
-                    const orderDoc = await admin.firestore().collection('orders').doc(orderId).get();
-                    const orderData = orderDoc.data();
-
-                    let businessName = 'Negocio';
-                    if (orderData.businessId) {
-                        const businessDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
-                        if (businessDoc.exists) {
-                            businessName = businessDoc.data().name || businessName;
-                        }
-                    }
-
-                    let newText = "";
-
-                    if (action === 'delivered') {
-                        const customerName = orderData.customer?.name || 'Cliente';
-                        const references = orderData.delivery?.references || 'Sin referencias';
-                        const total = orderData.total || orderData.payment?.total || 0;
-                        const subtotal = orderData.subtotal || orderData.payment?.subtotal || 0;
-                        const deliveryCost = orderData.delivery?.deliveryCost || orderData.delivery?.cost || Math.max(0, total - subtotal);
-                        const paymentMethod = orderData.payment?.method || 'cash';
-
-                        newText = `<b>${businessName}</b> · ${customerName}\n`;
-                        newText += `${references}\n\n`;
-                        newText += `Pedido: $${subtotal.toFixed(2)}\n`;
-                        newText += `Envío: $${deliveryCost.toFixed(2)}\n`;
-
-                        if (paymentMethod === 'cash') {
-                            newText += `💵 Efectivo: $${total.toFixed(2)}`;
-                        } else if (paymentMethod === 'mixed') {
-                            const cash = orderData.payment?.cashAmount || 0;
-                            const transfer = orderData.payment?.transferAmount || 0;
-                            newText += `💵 Efectivo: $${cash.toFixed(2)}\n`;
-                            newText += `🏦 Transferencia: $${transfer.toFixed(2)}`;
-                        } else {
-                            newText += `🏦 Transferencia`;
-                        }
-                        newText += `\n\n🎉 <b>Entregado</b>`;
-
-                        const editUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/editMessageText`;
-                        await axios.post(editUrl, {
-                            chat_id: chatId,
-                            message_id: messageId,
-                            text: newText,
-                            parse_mode: 'HTML',
-                            link_preview_options: { is_disabled: true }
-                        });
-                    } else if (action !== 'discard') {
-                        const { text: formattedText, mapsLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
-                        newText = formattedText + `\n\n${statusLabel}`;
-
-                        // Preparar botones dinámicos según el estado
-                        const replyMarkup = { inline_keyboard: [] };
-
-                        const onWayToken = Buffer.from(`${orderId}|on_way`).toString('base64');
-                        const deliveredToken = Buffer.from(`${orderId}|delivered`).toString('base64');
-
-                        if (action === 'confirm') {
-                            replyMarkup.inline_keyboard.push([
-                                { text: "🛵 En camino", callback_data: `order_on_way|${onWayToken}` },
-                                { text: "✅ Entregada", callback_data: `order_delivered|${deliveredToken}` }
-                            ]);
-                        } else if (action === 'on_way') {
-                            replyMarkup.inline_keyboard.push([
-                                { text: "✅ Entregada", callback_data: `order_delivered|${deliveredToken}` }
-                            ]);
-                        }
-
-                        // Editar el mensaje original
-                        const editUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/editMessageText`;
-
-                        const editData = {
-                            chat_id: chatId,
-                            message_id: messageId,
-                            text: newText,
-                            parse_mode: 'HTML',
-                            reply_markup: replyMarkup.inline_keyboard.length > 0 ? replyMarkup : undefined
-                        };
-
-                        if (mapsLink) {
-                            editData.link_preview_options = {
-                                url: mapsLink,
-                                prefer_large_media: true,
-                                show_above_text: true
-                            };
-                        } else {
-                            editData.link_preview_options = { is_disabled: true };
-                        }
-
-                        await axios.post(editUrl, editData);
-                    } else {
-                        // Caso de descarte
-                        const customerName = orderData.customer?.name || 'Cliente';
-                        newText = `<b>${businessName}</b> · ${customerName}\n\nx Descartado`;
-
-                        const editUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/editMessageText`;
-                        await axios.post(editUrl, {
-                            chat_id: chatId,
-                            message_id: messageId,
-                            text: newText,
-                            parse_mode: 'HTML'
-                        });
-                    }
-                } catch (fetchError) {
-                    console.error('Error fetching data for message update:', fetchError);
-                }
-            }
-
-            // Responder al callback
             const answerUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/answerCallbackQuery`;
             let answerText = "Acción procesada";
-            if (action === 'confirm') answerText = "Pedido Aceptado";
-            else if (action === 'on_way') answerText = "Pedido En Camino";
-            else if (action === 'delivered') answerText = "Pedido Entregado";
-            else if (action === 'discard') answerText = "Pedido Descartado";
 
-            await axios.post(answerUrl, {
-                callback_query_id: callbackQuery.id,
-                text: answerText
-            });
+            try {
+                const [actionType, token] = data.split('|');
+
+                // Delivery Bot maneja acciones de orden (order_*)
+                let action = actionType.replace('order_', '');
+
+                // Seguridad: Asegurar que no sea una acción de negocio
+                if (action.startsWith('biz_')) {
+                    await axios.post(answerUrl, {
+                        callback_query_id: callbackQuery.id,
+                        text: 'Acción no permitida'
+                    });
+                    return res.status(200).send('OK');
+                }
+
+                const result = await processOrderAction(token, action);
+
+                if (result.error) {
+                    console.error(`Error processing action ${action}: ${result.error}`);
+                    await sendDeliveryTelegramMessage(chatId, `❌ Error: ${result.error}`);
+                    answerText = `Error: ${result.error}`;
+                } else {
+                    const orderId = result.orderId;
+                    let statusLabel = '';
+                    if (action === 'confirm') {
+                        statusLabel = '✅ <b>Aceptado</b>';
+                        answerText = "Pedido Aceptado";
+                    }
+                    else if (action === 'on_way') {
+                        statusLabel = '🛵 <b>En camino</b>';
+                        answerText = "Pedido En Camino";
+                    }
+                    else if (action === 'delivered') {
+                        statusLabel = '🏁 <b>Entregado</b>';
+                        answerText = "Pedido Entregado";
+                    }
+                    else if (action === 'discard') {
+                        statusLabel = '❌ <b>Descartado</b>';
+                        answerText = "Pedido Descartado";
+                    }
+
+                    try {
+                        // Obtener datos frescos
+                        const orderDoc = await admin.firestore().collection('orders').doc(orderId).get();
+
+                        if (orderDoc.exists) {
+                            const orderData = orderDoc.data();
+                            console.log(`Updating message for order ${orderId}, action ${action}`);
+
+                            let businessName = 'Negocio';
+                            if (orderData.businessId) {
+                                const businessDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
+                                if (businessDoc.exists) {
+                                    businessName = businessDoc.data().name || businessName;
+                                }
+                            }
+
+                            let newText = "";
+                            let replyMarkup = undefined;
+                            let linkPreviewOptions = { is_disabled: true };
+
+                            if (action === 'delivered') {
+                                // ... Lógica existente para delivered ...
+                                const customerName = orderData.customer?.name || 'Cliente';
+                                const references = orderData.delivery?.references || 'Sin referencias';
+                                const total = orderData.total || orderData.payment?.total || 0;
+                                const subtotal = orderData.subtotal || orderData.payment?.subtotal || 0;
+                                const deliveryCost = orderData.delivery?.deliveryCost || orderData.delivery?.cost || Math.max(0, total - subtotal);
+                                const paymentMethod = orderData.payment?.method || 'cash';
+
+                                newText = `<b>${businessName}</b> · ${customerName}\n`;
+                                newText += `${references}\n\n`;
+                                newText += `Pedido: $${subtotal.toFixed(2)}\n`;
+                                newText += `Envío: $${deliveryCost.toFixed(2)}\n`;
+
+                                if (paymentMethod === 'cash') {
+                                    newText += `💵 Efectivo: $${total.toFixed(2)}`;
+                                } else if (paymentMethod === 'mixed') {
+                                    const cash = orderData.payment?.cashAmount || 0;
+                                    const transfer = orderData.payment?.transferAmount || 0;
+                                    newText += `💵 Efectivo: $${cash.toFixed(2)}\n`;
+                                    newText += `🏦 Transferencia: $${transfer.toFixed(2)}`;
+                                } else {
+                                    newText += `🏦 Transferencia`;
+                                }
+                                newText += `\n\n🎉 <b>Entregado</b>`;
+
+                            } else if (action !== 'discard') {
+                                const { text: formattedText, mapsLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+                                newText = formattedText + `\n\n${statusLabel}`;
+
+                                replyMarkup = { inline_keyboard: [] };
+                                const onWayToken = Buffer.from(`${orderId}|on_way`).toString('base64');
+                                const deliveredToken = Buffer.from(`${orderId}|delivered`).toString('base64');
+
+                                console.log('[Telegram Debug] Action:', action);
+
+                                if (action === 'confirm') {
+                                    replyMarkup.inline_keyboard.push([
+                                        { text: "🛵 En camino", callback_data: `order_on_way|${onWayToken}` },
+                                        { text: "✅ Entregada", callback_data: `order_delivered|${deliveredToken}` }
+                                    ]);
+                                } else if (action === 'on_way') {
+                                    replyMarkup.inline_keyboard.push([
+                                        { text: "✅ Entregada", callback_data: `order_delivered|${deliveredToken}` }
+                                    ]);
+                                }
+
+                                console.log('[Telegram Debug] Generated ReplyMarkup:', JSON.stringify(replyMarkup));
+
+
+                                if (mapsLink) {
+                                    linkPreviewOptions = {
+                                        url: mapsLink,
+                                        prefer_large_media: true,
+                                        show_above_text: true
+                                    };
+                                }
+                            } else {
+                                const customerName = orderData.customer?.name || 'Cliente';
+                                newText = `<b>${businessName}</b> · ${customerName}\n\nx Descartado`;
+                            }
+
+                            // Editar mensaje
+                            const editUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/editMessageText`;
+                            try {
+                                const payload = {
+                                    chat_id: chatId,
+                                    message_id: messageId,
+                                    text: newText,
+                                    parse_mode: 'HTML',
+                                    reply_markup: replyMarkup,
+                                    link_preview_options: linkPreviewOptions
+                                };
+                                console.log('[Telegram Debug] Sending Edit Payload:', JSON.stringify(payload));
+
+                                await axios.post(editUrl, payload);
+                            } catch (editError) {
+                                console.error('[Telegram Debug] Error editing message:', editError.response?.data || editError.message);
+                            }
+                        }
+                    } catch (fetchError) {
+                        console.error('Error fetching data/updating message:', fetchError);
+                    }
+                }
+
+            } catch (error) {
+                console.error('Error in callback processing:', error);
+                answerText = "Error procesando solicitud";
+            } finally {
+                // SIEMPRE responder al callback
+                try {
+                    await axios.post(answerUrl, {
+                        callback_query_id: callbackQuery.id,
+                        text: answerText
+                    });
+                } catch (e) {
+                    console.error('Error sending answerCallbackQuery:', e.message);
+                }
+            }
         }
 
         res.status(200).send('OK');
