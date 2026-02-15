@@ -254,6 +254,17 @@ exports.onOrderCreated = onDocumentCreated("orders/{orderId}", async (event) => 
   ]);
 });
 
+async function notifyStoreOnDeliveryAcceptanceLogic(beforeData, afterData, orderId) {
+  const beforeStatus = beforeData.delivery?.acceptanceStatus;
+  const afterStatus = afterData.delivery?.acceptanceStatus;
+
+  // Si pasa de no aceptado a aceptado, actualizar mensaje
+  if (beforeStatus !== 'accepted' && afterStatus === 'accepted') {
+    console.log(`✅ Delivery aceptó orden ${orderId}. Actualizando mensaje de tienda.`);
+    await telegramServices.updateBusinessTelegramMessage(afterData, orderId);
+  }
+}
+
 /**
  * Cloud Function: Único disparador para ACTUALIZACIÓN de órdenes
  */
@@ -266,7 +277,8 @@ exports.onOrderUpdated = onDocumentUpdated("orders/{orderId}", async (event) => 
 
   await Promise.allSettled([
     onOrderStatusChangeLogic(beforeData, afterData, orderId),
-    notifyDeliveryAssignmentLogic(beforeData, afterData, orderId)
+    notifyDeliveryAssignmentLogic(beforeData, afterData, orderId),
+    notifyStoreOnDeliveryAcceptanceLogic(beforeData, afterData, orderId)
   ]);
 });
 

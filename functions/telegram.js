@@ -258,10 +258,13 @@ async function handleStoreWebhook(req, res) {
                         let finalStatusText = '';
 
                         if (action === 'biz_confirm') {
+                            // Guardar quién confirmó
+                            await admin.firestore().collection('orders').doc(orderId).update({ confirmedBy: handlerName });
+
                             const deliveryName = result.assignedDeliveryName;
                             finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
                             if (deliveryName) {
-                                finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b>`;
+                                finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b> <i>.. Esperando confirmación</i>`;
                             } else if (orderData.delivery?.type === 'delivery') {
                                 finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
                             }
@@ -306,6 +309,68 @@ async function handleStoreWebhook(req, res) {
     } catch (error) {
         console.error('❌ Error en handleStoreWebhook:', error);
         res.status(200).send('OK');
+    }
+}
+
+/**
+ * Actualizar el mensaje de Telegram del negocio cuando cambia el estado (ej: delivery acepta)
+ */
+async function updateBusinessTelegramMessage(orderData, orderId) {
+    try {
+        const businessMessages = orderData.telegramBusinessMessages || [];
+        if (businessMessages.length === 0) return;
+
+        const businessName = orderData.businessName || 'Tienda';
+        const { text: telegramText } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+
+        const handlerName = orderData.confirmedBy || 'Tienda';
+        let finalStatusText = '';
+
+        // Reconstruir el estado
+        if (orderData.status !== 'cancelled') {
+            finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
+
+            if (orderData.delivery?.assignedDelivery) {
+                // Necesitamos el nombre del delivery
+                let deliveryName = 'Repartidor';
+                try {
+                    const deliveryDoc = await admin.firestore().collection('deliveries').doc(orderData.delivery.assignedDelivery).get();
+                    if (deliveryDoc.exists) {
+                        deliveryName = deliveryDoc.data().nombres;
+                    }
+                } catch (e) {
+                    console.error('Error fetching delivery name for update:', e);
+                }
+
+                finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b>`;
+
+                // Estado de aceptación del delivery
+                if (orderData.delivery.acceptanceStatus === 'accepted') {
+                    finalStatusText += ` ✅ Confirmado`;
+                } else {
+                    finalStatusText += ` <i>.. Esperando confirmación</i>`;
+                }
+            } else if (orderData.delivery?.type === 'delivery') {
+                finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
+            }
+        } else {
+            finalStatusText = `\n\n❌ <b>Pedido Cancelado</b>`;
+        }
+
+        const syncText = telegramText + finalStatusText;
+
+        const editUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/editMessageText`;
+        const updatePromises = businessMessages.map(msg =>
+            axios.post(editUrl, {
+                chat_id: msg.chatId,
+                message_id: msg.messageId,
+                text: syncText,
+                parse_mode: 'HTML'
+            }).catch(err => console.error(`Error actualizando mensaje sincronizado en ${msg.chatId}:`, err.response?.data || err.message))
+        );
+        await Promise.allSettled(updatePromises);
+    } catch (error) {
+        console.error('Error en updateBusinessTelegramMessage:', error);
     }
 }
 
@@ -605,5 +670,6 @@ module.exports = {
     handleStoreWebhook,
     handleDeliveryWebhook,
     sendDeliveryTelegramNotification,
-    sendBusinessTelegramNotification
+    sendBusinessTelegramNotification,
+    updateBusinessTelegramMessage
 };
