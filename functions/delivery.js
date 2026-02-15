@@ -47,13 +47,21 @@ async function processOrderAction(token, action) {
             }
 
             // Auto-asignación de delivery si es por negocio y es tipo delivery
-            if (action === 'biz_confirm' && order.delivery?.type === 'delivery' && !order.delivery?.assignedDelivery) {
-                const assignedDelivery = await autoAssignDelivery(order);
-                if (assignedDelivery) {
-                    updateData['delivery.assignedDelivery'] = assignedDelivery.id;
-                    updateData['delivery.assignedAt'] = admin.firestore.FieldValue.serverTimestamp();
-                    result.assignedDeliveryName = assignedDelivery.nombres;
-                    console.log(`🚚 Auto-asignado delivery ${assignedDelivery.nombres} a orden ${orderId}`);
+            if (action === 'biz_confirm' && order.delivery?.type === 'delivery') {
+                if (!order.delivery?.assignedDelivery) {
+                    const assignedDelivery = await autoAssignDelivery(order);
+                    if (assignedDelivery) {
+                        updateData['delivery.assignedDelivery'] = assignedDelivery.id;
+                        updateData['delivery.assignedAt'] = admin.firestore.FieldValue.serverTimestamp();
+                        result.assignedDeliveryName = assignedDelivery.nombres;
+                        console.log(`🚚 Auto-asignado delivery ${assignedDelivery.nombres} a orden ${orderId}`);
+                    }
+                } else {
+                    // Ya tiene repartidor asignado, obtener su nombre para el resultado
+                    const deliveryDoc = await admin.firestore().collection('deliveries').doc(order.delivery.assignedDelivery).get();
+                    if (deliveryDoc.exists) {
+                        result.assignedDeliveryName = deliveryDoc.data().nombres;
+                    }
                 }
             }
 

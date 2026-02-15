@@ -262,7 +262,7 @@ async function handleStoreWebhook(req, res) {
                             finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
                             if (deliveryName) {
                                 finalStatusText += `\n🛵 Repartidor asignado: <b>${deliveryName}</b>`;
-                            } else {
+                            } else if (orderData.delivery?.type === 'delivery') {
                                 finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
                             }
                         } else {
