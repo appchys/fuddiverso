@@ -23,6 +23,10 @@ export default function AdminLayout({
   ]
 
   useEffect(() => {
+    document.title = 'Panel de administración - Fuddi'
+  }, [])
+
+  useEffect(() => {
     // Verificar autenticación del administrador principal
     const checkAdminAuth = () => {
       const adminAuth = localStorage.getItem('adminAuth')

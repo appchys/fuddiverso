@@ -65,6 +65,10 @@ export default function AdminDashboard() {
   })
 
   useEffect(() => {
+    document.title = 'Panel de administración - Fuddi'
+  }, [])
+
+  useEffect(() => {
     loadData()
     loadVisitsFromStorage()
   }, [])

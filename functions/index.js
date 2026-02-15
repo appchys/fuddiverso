@@ -192,12 +192,6 @@ async function notifyDeliveryOnOrderCreationLogic(orderData, orderId) {
  * Notificar a la tienda por Telegram cuando se crea una orden desde checkout
  */
 async function notifyBusinessTelegramOnOrderCreation(orderData, orderId) {
-  // Solo notificar si la orden NO fue creada por un admin (es decir, fue creada por un cliente)
-  if (orderData.createdByAdmin) {
-    console.log(`ℹ️ Orden ${orderId} creada por admin, omitiendo notificación de Telegram a la tienda.`);
-    return;
-  }
-
   if (!orderData.businessId) {
     console.warn(`⚠️ Orden ${orderId} no tiene businessId, no se puede notificar a la tienda.`);
     return;
@@ -212,6 +206,15 @@ async function notifyBusinessTelegramOnOrderCreation(orderData, orderId) {
     }
 
     const businessData = businessDoc.data();
+
+    // Solo notificar si la orden NO fue creada por un admin (es decir, fue creada por un cliente)
+    // O si fue creada por admin pero la tienda tiene habilitada la configuración de notificaciones para pedidos manuales por Telegram
+    const notifyManual = businessData.notificationSettings?.telegramOrderManual === true;
+
+    if (orderData.createdByAdmin && !notifyManual) {
+      console.log(`ℹ️ Orden ${orderId} creada por admin y notificación manual desactivada, omitiendo.`);
+      return;
+    }
 
     // Enviar notificación de Telegram a la tienda
     await telegramServices.sendBusinessTelegramNotification(businessData, orderData, orderId);

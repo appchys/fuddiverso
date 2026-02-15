@@ -12,10 +12,12 @@ export default function NotificationSettings({
 }: NotificationSettingsProps) {
 
     // Inicializar estado local con los valores del negocio o defaults
-    const [localSettings, setLocalSettings] = useState(business.notificationSettings || {
+    const [localSettings, setLocalSettings] = useState({
         emailOrderClient: true,
         emailOrderManual: false,
-        emailCheckoutProgress: false
+        emailCheckoutProgress: false,
+        telegramOrderManual: false,
+        ...business.notificationSettings
     })
 
     const [telegramChatIds, setTelegramChatIds] = useState<string[]>(business.telegramChatIds || [])
@@ -24,7 +26,10 @@ export default function NotificationSettings({
     // Sincronizar estado local si cambian las props
     useEffect(() => {
         if (business.notificationSettings) {
-            setLocalSettings(business.notificationSettings)
+            setLocalSettings(prev => ({
+                ...prev,
+                ...business.notificationSettings
+            }))
         }
 
         // Unificar IDs nuevos y antiguos para la visualización
@@ -169,11 +174,11 @@ export default function NotificationSettings({
                     )}
                 </div>
 
-                {/* Notificaciones por Correo */}
+                {/* Preferencias de Notificación */}
                 <div>
                     <h4 className="text-md font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                        <i className="bi bi-envelope text-gray-600 text-xl"></i>
-                        Notificaciones por Correo
+                        <i className="bi bi-bell text-gray-600 text-xl"></i>
+                        Preferencias de Notificación
                     </h4>
 
                     <div className="space-y-4">
@@ -207,6 +212,25 @@ export default function NotificationSettings({
                                 onClick={() => handleToggle('emailOrderManual')}
                             >
                                 <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${localSettings.emailOrderManual ? 'translate-x-6' : ''}`}></div>
+                            </div>
+                        </div>
+
+                        {/* Telegram Pedidos Manuales */}
+                        <div className="flex items-center justify-between p-4 bg-blue-50/50 rounded-lg border border-blue-100">
+                            <div>
+                                <h4 className="font-medium text-blue-900 flex items-center gap-2">
+                                    <i className="bi bi-telegram"></i>
+                                    Pedidos Manuales (Telegram)
+                                </h4>
+                                <p className="text-sm text-blue-700">
+                                    Recibir notificación por Telegram cuando la tienda registra un pedido manualmente.
+                                </p>
+                            </div>
+                            <div
+                                className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${localSettings.telegramOrderManual ? 'bg-blue-500' : 'bg-gray-200'}`}
+                                onClick={() => handleToggle('telegramOrderManual' as any)}
+                            >
+                                <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${localSettings.telegramOrderManual ? 'translate-x-6' : ''}`}></div>
                             </div>
                         </div>
 
