@@ -282,7 +282,8 @@ async function handleStoreWebhook(req, res) {
                                 chat_id: msg.chatId,
                                 message_id: msg.messageId,
                                 text: syncText,
-                                parse_mode: 'HTML'
+                                parse_mode: 'HTML',
+                                link_preview_options: { is_disabled: true }
                             }).catch(err => console.error(`Error actualizando mensaje sincronizado en ${msg.chatId}:`, err.response?.data || err.message))
                         );
                         await Promise.allSettled(updatePromises);
@@ -365,7 +366,8 @@ async function updateBusinessTelegramMessage(orderData, orderId) {
                 chat_id: msg.chatId,
                 message_id: msg.messageId,
                 text: syncText,
-                parse_mode: 'HTML'
+                parse_mode: 'HTML',
+                link_preview_options: { is_disabled: true }
             }).catch(err => console.error(`Error actualizando mensaje sincronizado en ${msg.chatId}:`, err.response?.data || err.message))
         );
         await Promise.allSettled(updatePromises);
@@ -633,13 +635,9 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     if (chatIds.length === 0) return;
 
     const businessName = businessData.name || 'Tienda';
-    const { text: telegramText, mapsLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+    const { text: telegramText } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
 
-    const linkPreviewOptions = mapsLink ? {
-        url: mapsLink,
-        prefer_large_media: true,
-        show_above_text: true
-    } : null;
+    const linkPreviewOptions = { is_disabled: true };
 
     // Botones de acción para la tienda
     const confirmToken = Buffer.from(`${orderId}|biz_confirm`).toString('base64');
