@@ -28,6 +28,7 @@ function formatTelegramMessage(orderData, businessName, isAccepted = false) {
             mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
         }
     }
+    const locationImageLink = orderData.delivery?.image || '';
 
     // Información de pago
     const paymentMethod = orderData.payment?.method || 'No especificado';
@@ -98,6 +99,9 @@ function formatTelegramMessage(orderData, businessName, isAccepted = false) {
         if (mapsLink) {
             text += `🗺️ <a href="${mapsLink}">Ver en Google Maps</a>\n`;
         }
+        if (locationImageLink) {
+            text += `📸 <a href="${locationImageLink}">Ver foto de ubicación</a>\n`;
+        }
         text += `${deliveryInfo}\n`;
 
         if (itemsText) {
@@ -130,6 +134,9 @@ function formatTelegramMessage(orderData, businessName, isAccepted = false) {
         if (mapsLink) {
             text += `🗺️ <a href="${mapsLink}">Ver en Google Maps</a>\n`;
         }
+        if (locationImageLink) {
+            text += `📸 <a href="${locationImageLink}">Ver foto de ubicación</a>\n`;
+        }
         text += `${deliveryInfo}\n`;
 
         if (itemsText) {
@@ -153,7 +160,7 @@ function formatTelegramMessage(orderData, businessName, isAccepted = false) {
         }
     }
 
-    return { text, mapsLink };
+    return { text, mapsLink, locationImageLink };
 }
 
 /**
@@ -509,7 +516,7 @@ async function handleDeliveryWebhook(req, res) {
                                 newText += `\n\n🎉 <b>Entregado</b>`;
 
                             } else if (action !== 'discard') {
-                                const { text: formattedText, mapsLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+                                const { text: formattedText, mapsLink, locationImageLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
                                 newText = formattedText + `\n\n${statusLabel}`;
 
                                 replyMarkup = { inline_keyboard: [] };
@@ -531,8 +538,15 @@ async function handleDeliveryWebhook(req, res) {
 
                                 console.log('[Telegram Debug] Generated ReplyMarkup:', JSON.stringify(replyMarkup));
 
+                                linkPreviewOptions = { is_disabled: true };
 
-                                if (mapsLink) {
+                                if (locationImageLink) {
+                                    linkPreviewOptions = {
+                                        url: locationImageLink,
+                                        prefer_large_media: true,
+                                        show_above_text: true
+                                    };
+                                } else if (mapsLink) {
                                     linkPreviewOptions = {
                                         url: mapsLink,
                                         prefer_large_media: true,
@@ -592,7 +606,7 @@ async function handleDeliveryWebhook(req, res) {
 
 async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId, businessName) {
     if (deliveryData && deliveryData.telegramChatId) {
-        const { text: telegramText, mapsLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, false);
+        const { text: telegramText, mapsLink, locationImageLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, false);
 
         // Botones de acción
         const confirmToken = Buffer.from(`${orderId}|confirm`).toString('base64');
@@ -607,11 +621,20 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
             ]
         };
 
-        const linkPreviewOptions = mapsLink ? {
-            url: mapsLink,
-            prefer_large_media: true,
-            show_above_text: true
-        } : null;
+        let linkPreviewOptions = null;
+        if (locationImageLink) {
+            linkPreviewOptions = {
+                url: locationImageLink,
+                prefer_large_media: true,
+                show_above_text: true
+            };
+        } else if (mapsLink) {
+            linkPreviewOptions = {
+                url: mapsLink,
+                prefer_large_media: true,
+                show_above_text: true
+            };
+        }
 
         await sendDeliveryTelegramMessage(deliveryData.telegramChatId, telegramText, replyMarkup, linkPreviewOptions);
         console.log(`✅ Notificación de Telegram (Delivery Bot) enviada a: ${deliveryData.telegramChatId}`);
