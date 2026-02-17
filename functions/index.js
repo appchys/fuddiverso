@@ -34,6 +34,9 @@ async function onOrderStatusChangeLogic(beforeData, afterData, orderId) {
     return;
   }
   console.log(`📌 Orden ${orderId}: Estado cambió de "${beforeData.status}" a "${afterData.status}"`);
+
+  // Notificar al cliente por Telegram
+  await telegramServices.sendCustomerTelegramNotification(afterData, orderId);
 }
 
 /**
@@ -233,6 +236,9 @@ async function notifyDeliveryAssignmentLogic(beforeData, afterData, orderId) {
 
   console.log(`📦 Orden ${orderId} asignada al delivery: ${afterDeliveryId}`);
   await notifyDeliveryCommon(afterData, orderId, afterDeliveryId, afterData.businessId);
+
+  // Notificar al cliente por Telegram (Opcional: podrías querer notificar específicamente que ya hay repartidor)
+  await telegramServices.sendCustomerTelegramNotification(afterData, orderId);
 }
 
 /**
@@ -502,4 +508,5 @@ exports.sendDailyOrderSummary = onSchedule({
 // Exports para Telegram y Hooks
 exports.telegramWebhook = onRequest(telegramServices.handleStoreWebhook);
 exports.telegramDeliveryWebhook = onRequest(telegramServices.handleDeliveryWebhook);
+exports.telegramCustomerWebhook = onRequest(telegramServices.handleCustomerWebhook);
 exports.handleDeliveryOrderAction = onRequest(deliveryServices.handleDeliveryOrderAction);

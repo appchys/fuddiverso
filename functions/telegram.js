@@ -4,6 +4,7 @@ const { processOrderAction } = require('./delivery');
 
 const STORE_BOT_TOKEN = process.env.STORE_BOT_TOKEN || '8415155805:AAHU6nXGA1ZK8HVFHtTOJbcfa57Dsmbd7pg';
 const DELIVERY_BOT_TOKEN = process.env.DELIVERY_BOT_TOKEN || '8275094091:AAGDO1PSfE1bQn5u0zLWoC4yb6Or093lc6k';
+const CUSTOMER_BOT_TOKEN = process.env.CUSTOMER_BOT_TOKEN || '8506021400:AAFY2SnbM2ZoJwWYlqKPq5qzE_c5gmbJc8k';
 
 /**
  * Función para formatear el mensaje de Telegram
@@ -200,6 +201,13 @@ async function sendStoreTelegramMessage(chatId, text, replyMarkup = null, linkPr
  */
 async function sendDeliveryTelegramMessage(chatId, text, replyMarkup = null, linkPreviewOptions = null) {
     return sendTelegramMessageGeneric(DELIVERY_BOT_TOKEN, chatId, text, replyMarkup, linkPreviewOptions);
+}
+
+/**
+ * Enviar mensaje usando el bot de Cliente
+ */
+async function sendCustomerTelegramMessage(chatId, text, replyMarkup = null, linkPreviewOptions = null) {
+    return sendTelegramMessageGeneric(CUSTOMER_BOT_TOKEN, chatId, text, replyMarkup, linkPreviewOptions);
 }
 
 /**
@@ -604,6 +612,102 @@ async function handleDeliveryWebhook(req, res) {
     }
 }
 
+/**
+ * Webhook para el bot de CLIENTE
+ */
+async function handleCustomerWebhook(req, res) {
+    try {
+        const update = req.body;
+        console.log('📬 Customer Bot Update:', JSON.stringify(update));
+
+        if (update.message && update.message.text) {
+            const text = update.message.text;
+            const chatId = update.message.chat.id;
+
+            if (text.startsWith('/start')) {
+                const param = text.split(' ')[1]; // order_ORDERID
+                if (param && param.startsWith('order_')) {
+                    const orderId = param.replace('order_', '');
+                    try {
+                        console.log(`🔍 Intentando vincular orden ${orderId} con chat ${chatId}`);
+                        const orderDoc = await admin.firestore().collection('orders').doc(orderId).get();
+
+                        if (orderDoc.exists) {
+                            console.log(`✅ Orden encontrada: ${orderId}. Actualizando...`);
+                            // Guardar chatId en la orden (campo customer.telegramChatId)
+                            // Nota: Esto asume que la estructura de order.customer existe.
+                            // Si no, podríamos necesitar hacer merge.
+                            await admin.firestore().collection('orders').doc(orderId).set({
+                                customer: {
+                                    telegramChatId: chatId.toString()
+                                }
+                            }, { merge: true });
+
+                            const orderData = orderDoc.data();
+                            // const businessName = orderData.businessName || 'Fuddi';
+
+                            await sendCustomerTelegramMessage(chatId, "¡Hola! 👋 Soy tu asistente de Fuddi. Te avisaré por aquí las novedades de tu pedido!");
+                        } else {
+                            console.warn(`❌ Orden ${orderId} no encontrada en Firestore`);
+                            await sendCustomerTelegramMessage(chatId, "❌ No encontramos el pedido. Verifica el enlace o contacta a soporte.");
+                        }
+                    } catch (error) {
+                        console.error('Error vinculando cliente:', error);
+                        await sendCustomerTelegramMessage(chatId, "❌ Hubo un error al activar las notificaciones.");
+                    }
+                } else {
+                    await sendCustomerTelegramMessage(chatId, "¡Hola! Para recibir notificaciones de tu pedido, usa el botón 'Avísame por Telegram' en la página de seguimiento de tu orden.");
+                }
+            }
+        }
+
+        res.status(200).send('OK');
+    } catch (error) {
+        console.error('❌ Error en handleCustomerWebhook:', error);
+        res.status(200).send('OK');
+    }
+}
+
+async function sendCustomerTelegramNotification(orderData, orderId) {
+    const chatId = orderData.customer?.telegramChatId;
+    if (!chatId) return;
+
+    const businessName = orderData.businessName || 'Tu pedido';
+    const status = orderData.status;
+    let message = '';
+
+    // Emojis y mensajes según estado
+    if (status === 'confirmed') {
+        message = `✅ <b>¡Pedido Confirmado!</b>\n\nEl negocio <b>${businessName}</b> ha aceptado tu pedido y comenzará a prepararlo pronto.`;
+    } else if (status === 'preparing') {
+        message = `👨‍🍳 <b>¡Manos a la obra!</b>\n\nEstán preparando tu pedido en <b>${businessName}</b>.`;
+    } else if (status === 'ready') {
+        message = `🎉 <b>¡Tu pedido está listo!</b>\n\nPronto será entregado o ya puedes pasar a retirarlo.`;
+    } else if (status === 'on_way') {
+        if (orderData.delivery?.assignedDelivery) {
+            let deliveryName = 'Un repartidor';
+            // Intentar obtener nombre del repartidor si lo tenemos disponible o hacer fetch si es crítico
+            // Para simplicidad, usaremos un genérico o si ya viene en orderData (a veces se denormaliza)
+            message = `🚴 <b>¡Tu pedido va en camino!</b>\n\nEl repartidor ya tiene tu orden y se dirige a tu ubicación.`;
+        } else {
+            message = `🚴 <b>¡Tu pedido va en camino!</b>`;
+        }
+    } else if (status === 'delivered') {
+        message = `🎊 <b>¡Pedido Entregado!</b>\n\nGracias por comprar en <b>${businessName}</b>. ¡Buen provecho!`;
+    } else if (status === 'cancelled') {
+        message = `❌ <b>Pedido Cancelado</b>\n\nLo sentimos, tu pedido ha sido cancelado.`;
+    }
+
+    if (message) {
+        // Añadir enlace al seguimiento
+        // URL base: https://app.fuddiverso.com/o/ORDERID (Ajustar según dominio real)
+        // message += `\n\n<a href="https://app.fuddiverso.com/o/${orderId}">Ver detalles del pedido</a>`;
+
+        await sendCustomerTelegramMessage(chatId, message);
+        console.log(`✅ Notificación (Customer Bot) enviada a: ${chatId} para orden ${orderId}`);
+    }
+}
+
 async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId, businessName) {
     if (deliveryData && deliveryData.telegramChatId) {
         const { text: telegramText, mapsLink, locationImageLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, false);
@@ -713,7 +817,9 @@ module.exports = {
     sendDeliveryTelegramMessage,
     handleStoreWebhook,
     handleDeliveryWebhook,
+    handleCustomerWebhook,
     sendDeliveryTelegramNotification,
     sendBusinessTelegramNotification,
-    updateBusinessTelegramMessage
+    updateBusinessTelegramMessage,
+    sendCustomerTelegramNotification
 };

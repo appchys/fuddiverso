@@ -793,6 +793,7 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
               <h1 className="text-xl font-black text-white leading-tight">
                 {statusMessage.text}
               </h1>
+
             </div>
           </div>
 

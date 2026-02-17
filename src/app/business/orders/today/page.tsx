@@ -81,6 +81,7 @@ const autoAssignDeliveryForOrder = async (order: Order): Promise<string | undefi
 
 import PaymentManagementModals from '@/components/PaymentManagementModals'
 import ManualOrderSidebar from '@/components/ManualOrderSidebar'
+import { LiveCheckoutsPanel } from '@/components/LiveCheckoutsPanel'
 
 const getStatusText = (status: string) => {
     switch (status) {
@@ -444,6 +445,9 @@ export default function TodayOrdersPage() {
                     ))
                 )}
             </div>
+
+            {/* Live Checkouts Panel - Moved to bottom */}
+            {businessId && <div className="p-4"><LiveCheckoutsPanel businessId={businessId} /></div>}
 
             <PaymentManagementModals
                 isOpen={paymentModalOpen}
