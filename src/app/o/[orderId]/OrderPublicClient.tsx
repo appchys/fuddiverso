@@ -882,6 +882,24 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
                   }`}></i>
               </div>
             </div>
+
+            {/* Botón de Telegram dentro de la tarjeta de tiempo */}
+            {!order.customer?.telegramChatId && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <a
+                  href={`https://t.me/pedidosfuddi_bot?start=order_${orderId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full py-2.5 bg-[#229ED9] hover:bg-[#1e8ub] text-white rounded-xl text-sm font-bold transition-all shadow-sm active:scale-95"
+                >
+                  <i className="bi bi-telegram text-lg"></i>
+                  Avísame por Telegram
+                </a>
+                <p className="text-center text-[10px] text-gray-400 mt-2">
+                  Recibe notificaciones en tiempo real sobre tu pedido
+                </p>
+              </div>
+            )}
           </div>
         )}
 
