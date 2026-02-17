@@ -641,6 +641,8 @@ async function handleCustomerWebhook(req, res) {
                         if (orderDoc.exists) {
                             console.log(`✅ Orden encontrada: ${orderId}. Actualizando...`);
 
+                            const orderData = orderDoc.data();
+
                             let clientId = orderData.customer?.id || orderData.clientId;
 
                             // FALLBACK: Si no hay ID, buscar por teléfono
