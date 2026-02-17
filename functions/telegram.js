@@ -617,15 +617,21 @@ async function handleDeliveryWebhook(req, res) {
  */
 async function handleCustomerWebhook(req, res) {
     try {
+        console.log('🚀 [TELEGRAM CUSTOMER WEBHOOK TRIGGERED]');
+        console.log('📦 Headers:', JSON.stringify(req.headers));
+        console.log('� Body:', JSON.stringify(req.body));
+
         const update = req.body;
-        console.log('📬 Customer Bot Update:', JSON.stringify(update));
 
         if (update.message && update.message.text) {
             const text = update.message.text;
             const chatId = update.message.chat.id;
+            console.log(`💬 Message received: "${text}" from ${chatId}`);
 
             if (text.startsWith('/start')) {
                 const param = text.split(' ')[1]; // order_ORDERID
+                console.log(`⚙️ Start param: "${param}"`);
+
                 if (param && param.startsWith('order_')) {
                     const orderId = param.replace('order_', '');
                     try {
@@ -634,19 +640,54 @@ async function handleCustomerWebhook(req, res) {
 
                         if (orderDoc.exists) {
                             console.log(`✅ Orden encontrada: ${orderId}. Actualizando...`);
-                            // Guardar chatId en la orden (campo customer.telegramChatId)
-                            // Nota: Esto asume que la estructura de order.customer existe.
-                            // Si no, podríamos necesitar hacer merge.
-                            await admin.firestore().collection('orders').doc(orderId).set({
+
+                            let clientId = orderData.customer?.id || orderData.clientId;
+
+                            // FALLBACK: Si no hay ID, buscar por teléfono
+                            if (!clientId && orderData.customer?.phone) {
+                                console.log(`🔍 Buscando cliente por teléfono: ${orderData.customer.phone}`);
+                                try {
+                                    const clientsSnapshot = await admin.firestore().collection('clients')
+                                        .where('celular', '==', orderData.customer.phone)
+                                        .limit(1)
+                                        .get();
+
+                                    if (!clientsSnapshot.empty) {
+                                        clientId = clientsSnapshot.docs[0].id;
+                                        console.log(`✅ Cliente encontrado por teléfono: ${clientId}`);
+                                    }
+                                } catch (err) {
+                                    console.error('Error buscando cliente por teléfono:', err);
+                                }
+                            }
+
+                            // 1. Guardar en la ORDEN (para referencia rápida)
+                            const orderUpdate = {
                                 customer: {
+                                    ...orderData.customer,
                                     telegramChatId: chatId.toString()
                                 }
-                            }, { merge: true });
+                            };
 
-                            const orderData = orderDoc.data();
-                            // const businessName = orderData.businessName || 'Fuddi';
+                            // Si encontramos el ID recién ahora, lo guardamos también en la orden para futuro
+                            if (clientId && !orderData.customer?.id) {
+                                orderUpdate.customer.id = clientId;
+                            }
 
-                            await sendCustomerTelegramMessage(chatId, "¡Hola! 👋 Soy tu asistente de Fuddi. Te avisaré por aquí las novedades de tu pedido!");
+                            await admin.firestore().collection('orders').doc(orderId).update(orderUpdate);
+
+                            // 2. Guardar en el CLIENTE (para persistencia)
+                            if (clientId) {
+                                console.log(`👤 Vinculando cliente ${clientId} con Telegram ${chatId}`);
+                                await admin.firestore().collection('clients').doc(clientId).set({
+                                    telegramChatId: chatId.toString(),
+                                    lastTelegramLinkDate: admin.firestore.FieldValue.serverTimestamp()
+                                }, { merge: true });
+                            } else {
+                                console.warn(`⚠️ Orden ${orderId} no tiene clientId ni se encontró por teléfono. Solo se vinculó la orden.`);
+                            }
+
+                            await sendCustomerTelegramMessage(chatId, "¡Hola! 👋 Soy tu asistente de Fuddi. Te avisaré por aquí las novedades de este y tus próximos pedidos!");
                         } else {
                             console.warn(`❌ Orden ${orderId} no encontrada en Firestore`);
                             await sendCustomerTelegramMessage(chatId, "❌ No encontramos el pedido. Verifica el enlace o contacta a soporte.");
@@ -669,7 +710,24 @@ async function handleCustomerWebhook(req, res) {
 }
 
 async function sendCustomerTelegramNotification(orderData, orderId) {
-    const chatId = orderData.customer?.telegramChatId;
+    let chatId = orderData.customer?.telegramChatId;
+
+    // Si no está en la orden, buscar en el perfil del cliente
+    if (!chatId) {
+        const clientId = orderData.customer?.id || orderData.clientId;
+        if (clientId) {
+            try {
+                const clientDoc = await admin.firestore().collection('clients').doc(clientId).get();
+                if (clientDoc.exists && clientDoc.data().telegramChatId) {
+                    chatId = clientDoc.data().telegramChatId;
+                    console.log(`📱 ChatID recuperado del perfil de cliente ${clientId}: ${chatId}`);
+                }
+            } catch (error) {
+                console.error('Error fetching client telegram info:', error);
+            }
+        }
+    }
+
     if (!chatId) return;
 
     const businessName = orderData.businessName || 'Tu pedido';
