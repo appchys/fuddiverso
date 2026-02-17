@@ -134,7 +134,7 @@ export default function TodayOrdersPage() {
     const router = useRouter()
     const { businessId, isAuthenticated, authLoading } = useBusinessAuth()
 
-    const [activeTab, setActiveTab] = useState<'active' | 'completed'>('active')
+    // activeTab removed
     const [orders, setOrders] = useState<Order[]>([])
     const [loading, setLoading] = useState(true)
     const [availableDeliveries, setAvailableDeliveries] = useState<Delivery[]>([])
@@ -259,16 +259,7 @@ export default function TodayOrdersPage() {
         return () => unsubscribe()
     }, [businessId])
 
-    // Derived state for tabs
-    const activeOrders = orders.filter(o =>
-        !['delivered', 'cancelled', 'completed'].includes(o.status)
-    )
-
-    const completedOrders = orders.filter(o =>
-        ['delivered', 'cancelled', 'completed'].includes(o.status)
-    )
-
-    const displayedOrders = activeTab === 'active' ? activeOrders : completedOrders
+    // Derived state for tabs removed
 
     // Handlers
     const handleStatusChange = async (orderId: string, newStatus: Order['status']) => {
@@ -386,64 +377,57 @@ export default function TodayOrdersPage() {
                     </button>
                 </div>
 
-                {/* Tabs */}
-                <div className="flex bg-gray-100 p-1 rounded-xl">
-                    <button
-                        onClick={() => setActiveTab('active')}
-                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all ${activeTab === 'active'
-                            ? 'bg-white text-gray-900 shadow-sm'
-                            : 'text-gray-500 hover:text-gray-700'
-                            }`}
-                    >
-                        Activos ({activeOrders.length})
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('completed')}
-                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all ${activeTab === 'completed'
-                            ? 'bg-white text-gray-900 shadow-sm'
-                            : 'text-gray-500 hover:text-gray-700'
-                            }`}
-                    >
-                        Completados ({completedOrders.length})
-                    </button>
-                </div>
             </div>
 
-            {/* Orders List */}
-            <div className="p-4 space-y-4">
-                {displayedOrders.length === 0 ? (
-                    <div className="text-center py-12 text-gray-500">
-                        <i className="bi bi-inbox text-4xl mb-3 block"></i>
-                        <p>No hay pedidos {activeTab === 'active' ? 'activos' : 'completados'}</p>
-                    </div>
-                ) : (
-                    displayedOrders.map(order => (
-                        <OrderCard
-                            key={order.id}
-                            order={order}
-                            availableDeliveries={availableDeliveries}
-                            onStatusChange={handleStatusChange}
-                            onDeliveryAssign={handleDeliveryAssignment}
-                            onPaymentEdit={() => handlePaymentClick(order)}
-                            onWhatsAppDelivery={() => handleSendWhatsAppAndAdvance(order)}
-                            onPrint={() => handlePrint(order)}
-                            onDeliveryStatusClick={(order) => {
-                                setSelectedOrderForStatusModal(order)
-                                setDeliveryStatusModalOpen(true)
-                            }}
-                            onEdit={() => {
-                                setSelectedOrderForEdit(order)
-                                setEditSidebarOpen(true)
-                            }}
-                            onDelete={() => handleDeleteOrder(order.id)}
-                            onCustomerClick={() => {
-                                setSelectedOrderForCustomerContact(order)
-                                setCustomerContactModalOpen(true)
-                            }}
-                            businessPhone={business?.phone}
-                        />
-                    ))
-                )}
+            {/* Orders List by Status */}
+            <div className="p-4 space-y-6">
+                {['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'].map(status => {
+                    const statusOrders = orders.filter(o => o.status === status);
+                    if (statusOrders.length === 0 && ['cancelled', 'delivered'].includes(status)) return null; // Hide empty cancelled/delivered to save space? Or show all? User said "En ese orden y en grupos colapsables". I'll show all or maybe hide cancelled if empty.
+                    // Let's show all for consistency, maybe except cancelled if empty.
+                    if (statusOrders.length === 0 && status === 'cancelled') return null;
+
+                    return (
+                        <CollapsibleSection
+                            key={status}
+                            title={getStatusText(status)}
+                            count={statusOrders.length}
+                            status={status}
+                            defaultExpanded={!['delivered', 'cancelled'].includes(status)}
+                        >
+                            {statusOrders.length === 0 ? (
+                                <p className="text-sm text-gray-400 italic text-center py-2">No hay pedidos en este estado</p>
+                            ) : (
+                                statusOrders.map(order => (
+                                    <OrderCard
+                                        key={order.id}
+                                        order={order}
+                                        availableDeliveries={availableDeliveries}
+                                        onStatusChange={handleStatusChange}
+                                        onDeliveryAssign={handleDeliveryAssignment}
+                                        onPaymentEdit={() => handlePaymentClick(order)}
+                                        onWhatsAppDelivery={() => handleSendWhatsAppAndAdvance(order)}
+                                        onPrint={() => handlePrint(order)}
+                                        onDeliveryStatusClick={(order) => {
+                                            setSelectedOrderForStatusModal(order)
+                                            setDeliveryStatusModalOpen(true)
+                                        }}
+                                        onEdit={() => {
+                                            setSelectedOrderForEdit(order)
+                                            setEditSidebarOpen(true)
+                                        }}
+                                        onDelete={() => handleDeleteOrder(order.id)}
+                                        onCustomerClick={() => {
+                                            setSelectedOrderForCustomerContact(order)
+                                            setCustomerContactModalOpen(true)
+                                        }}
+                                        businessPhone={business?.phone}
+                                    />
+                                ))
+                            )}
+                        </CollapsibleSection>
+                    )
+                })}
             </div>
 
             {/* Live Checkouts Panel - Moved to bottom */}
@@ -643,6 +627,57 @@ const getActionEmoji = (status: string) => {
         case 'delivered': return '🎉'
         default: return '➡️'
     }
+}
+
+function CollapsibleSection({
+    title,
+    count,
+    status,
+    children,
+    defaultExpanded = true
+}: {
+    title: string,
+    count: number,
+    status: string,
+    children: React.ReactNode,
+    defaultExpanded?: boolean
+}) {
+    const [isExpanded, setIsExpanded] = useState(defaultExpanded)
+
+    const getDotColor = (s: string) => {
+        switch (s) {
+            case 'pending': return 'bg-yellow-500 shadow-yellow-200'
+            case 'confirmed': return 'bg-blue-500 shadow-blue-200'
+            case 'preparing': return 'bg-purple-500 shadow-purple-200'
+            case 'ready': return 'bg-green-500 shadow-green-200'
+            case 'on_way': return 'bg-indigo-500 shadow-indigo-200'
+            case 'delivered': return 'bg-gray-500 shadow-gray-200'
+            case 'cancelled': return 'bg-red-500 shadow-red-200'
+            default: return 'bg-gray-400'
+        }
+    }
+
+    return (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+            <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="w-full px-4 py-3 flex justify-between items-center bg-gray-50/50 hover:bg-gray-100 transition-colors"
+            >
+                <div className="flex items-center gap-3">
+                    <span className={`w-3 h-3 rounded-full shadow-sm ${getDotColor(status)}`}></span>
+                    <h3 className="font-bold text-gray-800 text-lg">{title}</h3>
+                    <span className="bg-white border border-gray-200 text-gray-600 text-xs font-bold px-2.5 py-0.5 rounded-full">{count}</span>
+                </div>
+                <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 transition-transform duration-200`}></i>
+            </button>
+
+            {isExpanded && (
+                <div className="p-4 space-y-3 bg-gray-50/30 border-t border-gray-100 animate-in slide-in-from-top-2 duration-200">
+                    {children}
+                </div>
+            )}
+        </div>
+    )
 }
 
 function OrderCard({

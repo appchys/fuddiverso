@@ -755,7 +755,24 @@ async function sendCustomerTelegramNotification(orderData, orderId) {
         return;
     }
 
-    const businessName = orderData.businessName || 'Tu pedido';
+    let businessName = orderData.businessName;
+
+    // Si no tenemos el nombre del negocio, intentar obtenerlo de Firestore
+    if (!businessName && orderData.businessId) {
+        try {
+            const businessDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
+            if (businessDoc.exists) {
+                businessName = businessDoc.data().name;
+            }
+        } catch (error) {
+            console.error('Error fetching business name for notification:', error);
+        }
+    }
+
+    if (!businessName) {
+        businessName = 'Tu pedido';
+    }
+
     const status = orderData.status;
     let message = '';
 
