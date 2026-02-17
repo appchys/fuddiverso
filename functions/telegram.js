@@ -714,9 +714,29 @@ async function handleCustomerWebhook(req, res) {
 async function sendCustomerTelegramNotification(orderData, orderId) {
     let chatId = orderData.customer?.telegramChatId;
 
-    // Si no está en la orden, buscar en el perfil del cliente
+    // Si no está en la orden, buscar en el perfil del cliente por ID o teléfono
     if (!chatId) {
-        const clientId = orderData.customer?.id || orderData.clientId;
+        let clientId = orderData.customer?.id || orderData.clientId;
+
+        // Si no hay clientId pero hay teléfono, buscar por teléfono
+        if (!clientId && orderData.customer?.phone) {
+            try {
+                console.log(`🔍 Buscando cliente por teléfono: ${orderData.customer.phone}`);
+                const clientsSnapshot = await admin.firestore().collection('clients')
+                    .where('celular', '==', orderData.customer.phone)
+                    .limit(1)
+                    .get();
+
+                if (!clientsSnapshot.empty) {
+                    clientId = clientsSnapshot.docs[0].id;
+                    console.log(`✅ Cliente encontrado por teléfono: ${clientId}`);
+                }
+            } catch (err) {
+                console.error('Error buscando cliente por teléfono:', err);
+            }
+        }
+
+        // Ahora intentar obtener el telegramChatId si tenemos clientId
         if (clientId) {
             try {
                 const clientDoc = await admin.firestore().collection('clients').doc(clientId).get();
@@ -730,7 +750,10 @@ async function sendCustomerTelegramNotification(orderData, orderId) {
         }
     }
 
-    if (!chatId) return;
+    if (!chatId) {
+        console.log(`⚠️ No se encontró chatId para orden ${orderId}, no se enviará notificación`);
+        return;
+    }
 
     const businessName = orderData.businessName || 'Tu pedido';
     const status = orderData.status;

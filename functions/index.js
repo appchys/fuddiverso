@@ -244,6 +244,80 @@ async function notifyDeliveryAssignmentLogic(beforeData, afterData, orderId) {
 /**
  * Cloud Function: Único disparador para CREACIÓN de órdenes
  */
+/**
+ * Cloud Function: Vincular automáticamente telegramChatId del cliente a la orden
+ */
+async function linkCustomerTelegramToOrderLogic(order, orderId) {
+  // Si la orden ya tiene telegramChatId, no hacer nada
+  if (order.customer?.telegramChatId) {
+    console.log(`✅ Orden ${orderId} ya tiene telegramChatId: ${order.customer.telegramChatId}`);
+    return;
+  }
+
+  let clientId = order.customer?.id || order.clientId;
+  const clientPhone = order.customer?.phone;
+
+  // Si no hay clientId pero hay teléfono, intentar buscar por teléfono
+  if (!clientId && clientPhone) {
+    console.log(`🔍 Buscando cliente por teléfono: ${clientPhone}`);
+    try {
+      const clientsSnapshot = await admin.firestore().collection('clients')
+        .where('celular', '==', clientPhone)
+        .limit(1)
+        .get();
+
+      if (!clientsSnapshot.empty) {
+        clientId = clientsSnapshot.docs[0].id;
+        console.log(`✅ Cliente encontrado por teléfono: ${clientId}`);
+      } else {
+        console.warn(`⚠️ No se encontró cliente con teléfono: ${clientPhone}`);
+      }
+    } catch (err) {
+      console.error(`❌ Error buscando cliente por teléfono en orden ${orderId}:`, err);
+    }
+  }
+
+  // Si aún no tenemos clientId, no podemos proceder
+  if (!clientId) {
+    console.warn(`⚠️ No se puede encontrar cliente para orden ${orderId} (sin ID ni teléfono)`);
+    return;
+  }
+
+  try {
+    // Buscar el cliente en Firestore
+    const clientDoc = await admin.firestore().collection('clients').doc(clientId).get();
+    
+    if (clientDoc.exists) {
+      const clientData = clientDoc.data();
+      const telegramChatId = clientData.telegramChatId;
+
+      if (telegramChatId) {
+        console.log(`🔗 Vinculando telegramChatId de cliente ${clientId} a orden ${orderId}`);
+        
+        // Actualizar la orden con el telegramChatId del cliente Y el clientId si no estaba
+        const updateData = {
+          customer: {
+            ...order.customer,
+            telegramChatId: telegramChatId,
+            // Guardar el cliente ID si no lo estaba
+            ...(order.customer?.id ? {} : { id: clientId })
+          }
+        };
+
+        await admin.firestore().collection('orders').doc(orderId).update(updateData);
+
+        console.log(`✅ TelegramChatId vinculado a orden ${orderId}: ${telegramChatId}`);
+      } else {
+        console.log(`ℹ️ Cliente ${clientId} encontrado pero sin telegramChatId`);
+      }
+    } else {
+      console.warn(`⚠️ Cliente ${clientId} no encontrado en Firestore`);
+    }
+  } catch (error) {
+    console.error(`❌ Error vinculando telegramChatId a orden ${orderId}:`, error);
+  }
+}
+
 exports.onOrderCreated = onDocumentCreated("orders/{orderId}", async (event) => {
   const snap = event.data;
   if (!snap) return;
@@ -253,6 +327,7 @@ exports.onOrderCreated = onDocumentCreated("orders/{orderId}", async (event) => 
   console.log(`🚀 [CONSOLIDADO] Procesando CREACIÓN de orden: ${orderId}`);
 
   await Promise.allSettled([
+    linkCustomerTelegramToOrderLogic(order, orderId),
     sendOrderEmailLogic(order, orderId),
     createOrderNotificationLogic(order, orderId),
     notifyDeliveryOnOrderCreationLogic(order, orderId),
