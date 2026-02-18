@@ -1,8 +1,9 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useCallback, useState } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import OrderSidebar from '@/components/OrderSidebar'
+import { getOrder, getBusiness } from '@/lib/database'
 
 type Props = {
   orderId: string
@@ -11,15 +12,33 @@ type Props = {
 export default function OrderSidebarPageClient({ orderId }: Props) {
   const router = useRouter()
   const [open, setOpen] = useState(true)
+  const [businessSlug, setBusinessSlug] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fetchBusinessSlug = async () => {
+      try {
+        const order = await getOrder(orderId)
+        if (order?.businessId) {
+          const business = await getBusiness(order.businessId)
+          if (business) {
+            setBusinessSlug(business.username || business.id)
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching business info for redirect:', error)
+      }
+    }
+    fetchBusinessSlug()
+  }, [orderId])
 
   const handleClose = useCallback(() => {
     setOpen(false)
-    if (typeof window !== 'undefined' && window.history.length > 1) {
-      router.back()
-      return
+    if (businessSlug) {
+      router.push(`/${businessSlug}`)
+    } else {
+      router.push('/')
     }
-    router.push('/')
-  }, [router])
+  }, [router, businessSlug])
 
   return (
     <main className="min-h-screen bg-gray-50">

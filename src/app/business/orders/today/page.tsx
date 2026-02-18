@@ -13,7 +13,9 @@ import {
     getCoverageZones,
     isPointInPolygon,
     getDeliveriesByStatus,
-    updateOrderStatus
+    updateOrderStatus,
+    updateBusiness,
+    getUserBusinessAccess
 } from '@/lib/database'
 import {
     sendWhatsAppToDelivery,
@@ -21,6 +23,13 @@ import {
     getNextStatus
 } from '@/components/WhatsAppUtils'
 import { printOrder } from '@/lib/print-utils'
+import { isStoreOpen } from '@/lib/store-utils'
+import QueueStatusIndicator from '@/components/QueueStatusIndicator'
+import NotificationsBell from '@/components/NotificationsBell'
+import { useOfflineQueue } from '@/hooks/useOfflineQueue'
+import { auth } from '@/lib/firebase'
+import { usePushNotifications } from '@/hooks/usePushNotifications'
+import DashboardSidebar from '@/components/DashboardSidebar'
 
 // ... existing imports ...
 
@@ -132,28 +141,67 @@ const getOrderDisplayTime = (order: Order) => {
 
 export default function TodayOrdersPage() {
     const router = useRouter()
-    const { businessId, isAuthenticated, authLoading } = useBusinessAuth()
+    const { businessId, isAuthenticated, authLoading, logout, user, setBusinessId } = useBusinessAuth()
 
-    // activeTab removed
+    // Dashboard Header State
+    const [sidebarOpen, setSidebarOpen] = useState(false)
+    const [businesses, setBusinesses] = useState<Business[]>([])
+    const [showBusinessDropdown, setShowBusinessDropdown] = useState(false)
+    const [showTimeDropdown, setShowTimeDropdown] = useState(false)
+    const [updatingStoreStatus, setUpdatingStoreStatus] = useState(false)
+    const [updatingDeliveryTime, setUpdatingDeliveryTime] = useState(false)
+    const { queueStatus, retryFailed } = useOfflineQueue()
+
+    // Notifications Hook
+    const pushNotifications = usePushNotifications()
+    const {
+        permission = 'default',
+        requestPermission = () => Promise.resolve('default'),
+        showNotification = (options: { title: string; body: string; icon?: string }) =>
+            console.log('Notificación simulada:', options),
+        isSupported = false,
+        isIOS = false,
+        needsUserAction = false
+    } = pushNotifications || {} as any
+
+    // Sidebar State
+    const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet'>('orders')
+    const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>('general')
+    const [reportsSubTab, setReportsSubTab] = useState<'general' | 'deliveries' | 'costs'>('general')
+    const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
+    const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false)
+
+    // Handle tab navigation
+    useEffect(() => {
+        if (activeTab !== 'orders') {
+            const queryParams = new URLSearchParams()
+            queryParams.set('tab', activeTab)
+
+            if (activeTab === 'profile') queryParams.set('profileSubTab', profileSubTab)
+            if (activeTab === 'reports') queryParams.set('reportsSubTab', reportsSubTab)
+
+            router.push(`/business/dashboard?${queryParams.toString()}`)
+        }
+    }, [activeTab, profileSubTab, reportsSubTab, router])
+
+    // activeTab removed (was 'orders') - now we use orders state directly
     const [orders, setOrders] = useState<Order[]>([])
     const [loading, setLoading] = useState(true)
     const [availableDeliveries, setAvailableDeliveries] = useState<Delivery[]>([])
     const [business, setBusiness] = useState<Business | null>(null)
     const [products, setProducts] = useState<Product[]>([])
 
-    // Payment Modal State
+    // ... existing modal states ...
     const [paymentModalOpen, setPaymentModalOpen] = useState(false)
     const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<Order | null>(null)
 
-    // Delivery Status Modal State
     const [deliveryStatusModalOpen, setDeliveryStatusModalOpen] = useState(false)
     const [selectedOrderForStatusModal, setSelectedOrderForStatusModal] = useState<Order | null>(null)
 
-    // Edit Sidebar State
-    const [editSidebarOpen, setEditSidebarOpen] = useState(false)
+    const [manualOrderSidebarOpen, setManualOrderSidebarOpen] = useState(false)
+    const [manualSidebarMode, setManualSidebarMode] = useState<'create' | 'edit'>('create')
     const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<Order | null>(null)
 
-    // Customer Contact Modal State
     const [customerContactModalOpen, setCustomerContactModalOpen] = useState(false)
     const [selectedOrderForCustomerContact, setSelectedOrderForCustomerContact] = useState<Order | null>(null)
 
@@ -216,8 +264,6 @@ export default function TodayOrdersPage() {
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
         const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
 
-        // Query mostly relies on client-side filtering for dates due to potential index issues
-        // but we filter by businessId directly
         const q = query(
             collection(db, 'orders'),
             where('businessId', '==', businessId),
@@ -259,9 +305,74 @@ export default function TodayOrdersPage() {
         return () => unsubscribe()
     }, [businessId])
 
-    // Derived state for tabs removed
+    // Load all user businesses for dropdown
+    useEffect(() => {
+        if (!user || !isAuthenticated) return;
+        const loadBusinesses = async () => {
+            try {
+                const businessAccess = await getUserBusinessAccess(user.email || '', user.uid);
+                if (businessAccess.hasAccess) {
+                    const all = [...businessAccess.ownedBusinesses, ...businessAccess.adminBusinesses];
+                    const unique = all.filter((b: Business, i: number, self: Business[]) =>
+                        i === self.findIndex((x: Business) => x.id === b.id) && !b.isHidden
+                    );
+                    setBusinesses(unique);
+                }
+            } catch (e) { console.error("Error loading businesses", e); }
+        };
+        loadBusinesses();
+    }, [user, isAuthenticated]);
 
-    // Handlers
+    // Dashboard Handlers
+    const handleLogout = () => {
+        logout()
+        router.push('/business/login')
+    }
+
+    const handleBusinessChange = (newBusinessId: string) => {
+        setBusinessId(newBusinessId);
+    }
+
+    const handleToggleStoreStatus = async () => {
+        if (!business?.id) return
+        setUpdatingStoreStatus(true)
+        try {
+            const currentStatus = business.manualStoreStatus
+            let newStatus: 'open' | 'closed' | null = null
+            if (currentStatus === null || currentStatus === undefined) newStatus = 'closed'
+            else if (currentStatus === 'closed') newStatus = 'open'
+            else newStatus = null
+
+            await updateBusiness(business.id, { manualStoreStatus: newStatus })
+            setBusiness(prev => prev ? { ...prev, manualStoreStatus: newStatus } : null)
+        } catch (e) {
+            console.log(e);
+            alert('Error updating store status');
+        } finally {
+            setUpdatingStoreStatus(false)
+        }
+    }
+
+    const handleUpdateDeliveryTime = async (minutes: number) => {
+        if (!business?.id) return
+        setUpdatingDeliveryTime(true)
+        try {
+            const currentTime = business.deliveryTime || 30
+            const newTime = minutes === 0 ? 30 : currentTime + minutes
+            await updateBusiness(business.id, { deliveryTime: newTime })
+            setBusiness(prev => prev ? { ...prev, deliveryTime: newTime } : null)
+        } catch (e) {
+            console.log(e);
+            alert('Error updating delivery time');
+        } finally {
+            setUpdatingDeliveryTime(false)
+        }
+    }
+
+    const handleNewOrder = () => {
+        // Notification bell callback
+    }
+
     const handleStatusChange = async (orderId: string, newStatus: Order['status']) => {
         try {
             const currentOrder = orders.find(o => o.id === orderId);
@@ -307,10 +418,6 @@ export default function TodayOrdersPage() {
     }
 
     const handleOrderUpdatedFromModal = (updatedOrder: Order) => {
-        // The snapshot listener will automatically update the list, 
-        // but we might want to update the local state for immediate feedback if needed.
-        // Since we rely on snapshot, we effectively just close the modal.
-        // However, if we need to update the selected order in the modal context:
         if (selectedOrderForPayment?.id === updatedOrder.id) {
             setSelectedOrderForPayment(updatedOrder)
         }
@@ -355,6 +462,8 @@ export default function TodayOrdersPage() {
         }
     }
 
+    // ... (rendering) ...
+
     if (loading) {
         return (
             <div className="min-h-screen bg-gray-50 p-4 flex items-center justify-center">
@@ -364,113 +473,334 @@ export default function TodayOrdersPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 pb-20">
-            {/* Header */}
-            <div className="bg-white px-4 py-3 shadow-sm sticky top-0 z-10">
-                <div className="flex justify-between items-center mb-4">
-                    <h1 className="text-xl font-bold text-gray-900">Pedidos de Hoy</h1>
+        <div className="min-h-screen bg-gray-50 flex flex-col">
+            <div className="flex flex-1 overflow-hidden">
+                {/* Sidebar Overlay for Mobile */}
+                {sidebarOpen && (
+                    <div
+                        className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+                        onClick={() => setSidebarOpen(false)}
+                    />
+                )}
+
+                {/* Dashboard Sidebar */}
+                <DashboardSidebar
+                    sidebarOpen={sidebarOpen}
+                    setSidebarOpen={setSidebarOpen}
+                    activeTab={activeTab}
+                    setActiveTab={setActiveTab}
+                    profileSubTab={profileSubTab}
+                    setProfileSubTab={setProfileSubTab}
+                    reportsSubTab={reportsSubTab}
+                    setReportsSubTab={setReportsSubTab}
+                    isTiendaMenuOpen={isTiendaMenuOpen}
+                    setIsTiendaMenuOpen={setIsTiendaMenuOpen}
+                    isReportsMenuOpen={isReportsMenuOpen}
+                    setIsReportsMenuOpen={setIsReportsMenuOpen}
+                    ordersCount={orders.length}
+                    isIOS={isIOS}
+                    needsUserAction={needsUserAction}
+                    requestPermission={requestPermission}
+                    user={user}
+                    onLogout={handleLogout}
+                />
+
+                <div className="flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full lg:ml-72">
+                    {/* Header */}
+                    <header className="bg-white shadow-sm border-b sticky top-0 z-10 w-full">
+                        <div className="px-4 sm:px-6">
+                            <div className="flex justify-between items-center py-3 sm:py-4">
+                                <div className="flex items-center space-x-3">
+                                    <button
+                                        onClick={() => setSidebarOpen(!sidebarOpen)}
+                                        className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+                                    >
+                                        <i className="bi bi-list text-2xl"></i>
+                                    </button>
+
+                                    <div className="text-xl sm:text-2xl font-bold text-red-600">
+                                        Fuddi
+                                    </div>
+                                    <span className="hidden sm:inline text-gray-600">Pedidos de Hoy</span>
+                                </div>
+
+                                <div className="flex items-center space-x-2 sm:space-x-4">
+                                    {/* Control Manual de Tienda */}
+                                    {business && (
+                                        <div className="flex items-center gap-2">
+                                            <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
+                                                <div className={`w-2 h-2 rounded-full ${isStoreOpen(business) ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+                                                <span className="text-sm font-medium text-gray-700">
+                                                    {isStoreOpen(business) ? 'Abierto' : 'Cerrado'}
+                                                </span>
+                                            </div>
+
+                                            <button
+                                                onClick={handleToggleStoreStatus}
+                                                disabled={updatingStoreStatus}
+                                                className="px-3 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 disabled:opacity-50"
+                                            >
+                                                <i className={`bi ${business.manualStoreStatus === 'open' ? 'bi-unlock-fill text-green-600' : business.manualStoreStatus === 'closed' ? 'bi-lock-fill text-red-600' : `bi-clock-fill ${isStoreOpen(business) ? 'text-green-600' : 'text-gray-400'}`}`} />
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Control del Tiempo de Entrega */}
+                                    {business && (
+                                        <div className="flex items-center gap-2">
+                                            <div className="relative group">
+                                                <button
+                                                    onClick={() => setShowTimeDropdown(!showTimeDropdown)}
+                                                    className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-lg border transition-colors ${(business.deliveryTime || 30) > 30 ? 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+                                                >
+                                                    <i className={`bi bi-clock-history hidden sm:inline ${(business.deliveryTime || 30) > 30 ? 'text-orange-600' : 'text-gray-600'}`}></i>
+                                                    <span className="text-sm font-bold">
+                                                        {business.deliveryTime || 30}<span className="sm:hidden">m</span><span className="hidden sm:inline"> min</span>
+                                                    </span>
+                                                </button>
+
+                                                {showTimeDropdown && (
+                                                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50">
+                                                        {[5, 10, 30].map((mins) => (
+                                                            <button
+                                                                key={mins}
+                                                                onClick={() => { handleUpdateDeliveryTime(mins); setShowTimeDropdown(false); }}
+                                                                disabled={updatingDeliveryTime}
+                                                                className="w-full px-4 py-2 text-left hover:bg-red-50 hover:text-red-600 text-sm font-bold flex items-center justify-between"
+                                                            >
+                                                                <span>+{mins} minutos</span>
+                                                            </button>
+                                                        ))}
+                                                        <div className="border-t border-gray-50 mt-1 pt-1">
+                                                            <button
+                                                                onClick={() => { handleUpdateDeliveryTime(0); setShowTimeDropdown(false); }}
+                                                                disabled={updatingDeliveryTime}
+                                                                className="w-full px-4 py-2 text-left hover:bg-gray-50 text-xs text-gray-500 font-medium"
+                                                            >
+                                                                Restablecer a 30 min
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Queue Status */}
+                                    <QueueStatusIndicator status={queueStatus} onRetry={retryFailed} className="hidden sm:flex" />
+
+                                    {/* Bell */}
+                                    {business?.id && (
+                                        <NotificationsBell businessId={business.id} onNewOrder={handleNewOrder} />
+                                    )}
+
+                                    {/* Business Selector */}
+                                    <div className="relative business-dropdown-container">
+                                        <button
+                                            onClick={() => setShowBusinessDropdown(!showBusinessDropdown)}
+                                            className="flex items-center space-x-2 sm:space-x-3 bg-gray-50 hover:bg-gray-100 px-2 sm:px-3 py-2 rounded-lg transition-colors"
+                                        >
+                                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
+                                                {business?.image ? (
+                                                    <img src={business.image} alt={business.name} className="w-full h-full object-cover" />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center"><i className="bi bi-shop text-gray-400"></i></div>
+                                                )}
+                                            </div>
+                                            <i className="bi bi-chevron-down text-gray-500 text-xs"></i>
+                                        </button>
+
+                                        {showBusinessDropdown && (
+                                            <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-20">
+                                                {businesses.map((biz) => (
+                                                    <button
+                                                        key={biz.id}
+                                                        onClick={() => { handleBusinessChange(biz.id); setShowBusinessDropdown(false); }}
+                                                        className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-gray-50 ${business?.id === biz.id ? 'bg-red-50' : ''}`}
+                                                    >
+                                                        <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
+                                                            {biz.image ? <img src={biz.image} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><i className="bi bi-shop"></i></div>}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="font-medium text-gray-900 truncate">{biz.name}</p>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                                            <a
+                                                                href={`/${biz.username}`}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                title="Visitar perfil"
+                                                            >
+                                                                <i className="bi bi-box-arrow-up-right text-lg"></i>
+                                                            </a>
+                                                            {business?.id === biz.id && <i className="bi bi-check-circle-fill text-red-500"></i>}
+                                                        </div>
+                                                    </button>
+                                                ))}
+                                                <hr className="my-2" />
+                                                <button onClick={handleLogout} className="w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-red-50 text-red-600">
+                                                    <i className="bi bi-box-arrow-right"></i>
+                                                    <span>Cerrar Sesión</span>
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Totals Summary */}
+                    <div className="bg-white border-b border-gray-100 px-6 py-4">
+                        <div className="flex justify-end items-center">
+                            <div className="text-right">
+                                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Ventas</p>
+                                <p className="text-2xl font-bold text-green-600">
+                                    ${orders.reduce((acc, order) => {
+                                        if (order.status === 'cancelled') return acc
+
+                                        // 1. Try to calculate from items (most accurate for "product only" value)
+                                        if (order.items && order.items.length > 0) {
+                                            const itemsTotal = order.items.reduce((sum, item) => {
+                                                // Check for item.subtotal first, then calculate manually
+                                                if (typeof item.subtotal === 'number') return sum + item.subtotal
+
+                                                // Manual calculation backup
+                                                const price = item.product?.price || 0
+                                                const quantity = item.quantity || 1
+                                                return sum + (price * quantity)
+                                            }, 0)
+
+                                            if (itemsTotal > 0) return acc + itemsTotal
+                                        }
+
+                                        // 2. Fallback to order.subtotal if available
+                                        if (typeof order.subtotal === 'number') return acc + order.subtotal
+
+                                        // 3. Last resort: use total (might include delivery, but better than 0)
+                                        return acc + (order.total || 0)
+                                    }, 0).toFixed(2)}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Orders List by Status */}
+                    <div className="p-4 space-y-6">
+                        {['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'].map(status => {
+                            const statusOrders = orders.filter(o => o.status === status);
+                            if (statusOrders.length === 0) return null;
+
+                            return (
+                                <CollapsibleSection
+                                    key={status}
+                                    title={getStatusText(status)}
+                                    count={statusOrders.length}
+                                    status={status}
+                                    defaultExpanded={!['delivered', 'cancelled'].includes(status)}
+                                >
+                                    {statusOrders.length === 0 ? (
+                                        <p className="text-sm text-gray-400 italic text-center py-2">No hay pedidos en este estado</p>
+                                    ) : (
+                                        statusOrders.map(order => (
+                                            <OrderCard
+                                                key={order.id}
+                                                order={order}
+                                                availableDeliveries={availableDeliveries}
+                                                onStatusChange={handleStatusChange}
+                                                onDeliveryAssign={handleDeliveryAssignment}
+                                                onPaymentEdit={() => handlePaymentClick(order)}
+                                                onWhatsAppDelivery={() => handleSendWhatsAppAndAdvance(order)}
+                                                onPrint={() => handlePrint(order)}
+                                                onDeliveryStatusClick={(order) => {
+                                                    setSelectedOrderForStatusModal(order)
+                                                    setDeliveryStatusModalOpen(true)
+                                                }}
+                                                onEdit={() => {
+                                                    setSelectedOrderForEdit(order)
+                                                    setManualSidebarMode('edit')
+                                                    setManualOrderSidebarOpen(true)
+                                                }}
+                                                onDelete={() => handleDeleteOrder(order.id)}
+                                                onCustomerClick={() => {
+                                                    setSelectedOrderForCustomerContact(order)
+                                                    setCustomerContactModalOpen(true)
+                                                }}
+                                                businessPhone={business?.phone}
+                                            />
+                                        ))
+                                    )}
+                                </CollapsibleSection>
+                            )
+                        })}
+                    </div>
+
+                    {/* Floating Action Button for Manual Order */}
                     <button
-                        onClick={() => router.back()}
-                        className="p-2 text-gray-500 hover:bg-gray-100 rounded-full"
+                        onClick={() => {
+                            setManualSidebarMode('create')
+                            setSelectedOrderForEdit(null)
+                            setManualOrderSidebarOpen(true)
+                        }}
+                        className="fixed bottom-6 right-6 w-14 h-14 bg-red-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-red-700 hover:scale-105 transition-all z-40"
+                        style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
                     >
-                        <i className="bi bi-x-lg"></i>
+                        <i className="bi bi-plus-lg text-2xl"></i>
                     </button>
+
+                    {/* Live Checkouts Panel - Moved to bottom */}
+                    {businessId && <div className="p-4"><LiveCheckoutsPanel businessId={businessId} /></div>}
+
+                    <PaymentManagementModals
+                        isOpen={paymentModalOpen}
+                        onClose={() => setPaymentModalOpen(false)}
+                        order={selectedOrderForPayment}
+                        onOrderUpdated={handleOrderUpdatedFromModal}
+                    />
+
+                    <DeliveryStatusModal
+                        isOpen={deliveryStatusModalOpen}
+                        onClose={() => setDeliveryStatusModalOpen(false)}
+                        order={selectedOrderForStatusModal}
+                        deliveryAgent={availableDeliveries.find(d => d.id === selectedOrderForStatusModal?.delivery?.assignedDelivery)}
+                        onWhatsApp={() => {
+                            if (selectedOrderForStatusModal) {
+                                handleSendWhatsAppAndAdvance(selectedOrderForStatusModal)
+                                setDeliveryStatusModalOpen(false)
+                            }
+                        }}
+                    />
+
+                    <ManualOrderSidebar
+                        isOpen={manualOrderSidebarOpen}
+                        onClose={() => {
+                            setManualOrderSidebarOpen(false)
+                            setSelectedOrderForEdit(null)
+                            setManualSidebarMode('create')
+                        }}
+                        business={business}
+                        products={products}
+                        onOrderCreated={() => {
+                            setManualOrderSidebarOpen(false)
+                        }}
+                        mode={manualSidebarMode}
+                        editOrder={selectedOrderForEdit}
+                        onOrderUpdated={() => {
+                            setManualOrderSidebarOpen(false)
+                            setSelectedOrderForEdit(null)
+                            setManualSidebarMode('create')
+                        }}
+                    />
+
+                    <CustomerContactModal
+                        isOpen={customerContactModalOpen}
+                        onClose={() => setCustomerContactModalOpen(false)}
+                        order={selectedOrderForCustomerContact}
+                    />
                 </div>
-
             </div>
-
-            {/* Orders List by Status */}
-            <div className="p-4 space-y-6">
-                {['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'].map(status => {
-                    const statusOrders = orders.filter(o => o.status === status);
-                    if (statusOrders.length === 0) return null;
-
-                    return (
-                        <CollapsibleSection
-                            key={status}
-                            title={getStatusText(status)}
-                            count={statusOrders.length}
-                            status={status}
-                            defaultExpanded={!['delivered', 'cancelled'].includes(status)}
-                        >
-                            {statusOrders.length === 0 ? (
-                                <p className="text-sm text-gray-400 italic text-center py-2">No hay pedidos en este estado</p>
-                            ) : (
-                                statusOrders.map(order => (
-                                    <OrderCard
-                                        key={order.id}
-                                        order={order}
-                                        availableDeliveries={availableDeliveries}
-                                        onStatusChange={handleStatusChange}
-                                        onDeliveryAssign={handleDeliveryAssignment}
-                                        onPaymentEdit={() => handlePaymentClick(order)}
-                                        onWhatsAppDelivery={() => handleSendWhatsAppAndAdvance(order)}
-                                        onPrint={() => handlePrint(order)}
-                                        onDeliveryStatusClick={(order) => {
-                                            setSelectedOrderForStatusModal(order)
-                                            setDeliveryStatusModalOpen(true)
-                                        }}
-                                        onEdit={() => {
-                                            setSelectedOrderForEdit(order)
-                                            setEditSidebarOpen(true)
-                                        }}
-                                        onDelete={() => handleDeleteOrder(order.id)}
-                                        onCustomerClick={() => {
-                                            setSelectedOrderForCustomerContact(order)
-                                            setCustomerContactModalOpen(true)
-                                        }}
-                                        businessPhone={business?.phone}
-                                    />
-                                ))
-                            )}
-                        </CollapsibleSection>
-                    )
-                })}
-            </div>
-
-            {/* Live Checkouts Panel - Moved to bottom */}
-            {businessId && <div className="p-4"><LiveCheckoutsPanel businessId={businessId} /></div>}
-
-            <PaymentManagementModals
-                isOpen={paymentModalOpen}
-                onClose={() => setPaymentModalOpen(false)}
-                order={selectedOrderForPayment}
-                onOrderUpdated={handleOrderUpdatedFromModal}
-            />
-
-            <DeliveryStatusModal
-                isOpen={deliveryStatusModalOpen}
-                onClose={() => setDeliveryStatusModalOpen(false)}
-                order={selectedOrderForStatusModal}
-                deliveryAgent={availableDeliveries.find(d => d.id === selectedOrderForStatusModal?.delivery?.assignedDelivery)}
-                onWhatsApp={() => {
-                    if (selectedOrderForStatusModal) {
-                        handleSendWhatsAppAndAdvance(selectedOrderForStatusModal)
-                        setDeliveryStatusModalOpen(false)
-                    }
-                }}
-            />
-
-            <ManualOrderSidebar
-                isOpen={editSidebarOpen}
-                onClose={() => setEditSidebarOpen(false)}
-                business={business}
-                products={products}
-                onOrderCreated={() => { }} // Not used in edit mode
-                mode="edit"
-                editOrder={selectedOrderForEdit}
-                onOrderUpdated={() => {
-                    setEditSidebarOpen(false)
-                    setSelectedOrderForEdit(null)
-                    // Real-time listener handles the update
-                }}
-            />
-
-            <CustomerContactModal
-                isOpen={customerContactModalOpen}
-                onClose={() => setCustomerContactModalOpen(false)}
-                order={selectedOrderForCustomerContact}
-            />
         </div>
     )
 }
