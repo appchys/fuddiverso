@@ -307,10 +307,23 @@ export default function TodayOrdersPage() {
     }, [])
 
     // Real-time orders listener
+    // Sound notification ref
+    const isFirstOrdersLoad = React.useRef(true)
+
+    const playNotificationSound = () => {
+        try {
+            const audio = new Audio('/notification-sound.mp3')
+            audio.play().catch(e => console.log("Autoplay blocked or error:", e))
+        } catch (e) {
+            console.error("Error playing sound:", e)
+        }
+    }
+
     useEffect(() => {
         if (!businessId) return
 
         setLoading(true)
+        isFirstOrdersLoad.current = true // Reset on business change
 
         // Calculate start and end of today
         const now = new Date()
@@ -324,6 +337,21 @@ export default function TodayOrdersPage() {
         )
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
+            // Manejo de sonido para nuevos pedidos
+            if (!isFirstOrdersLoad.current) {
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'added') {
+                        // Verificar si el pedido es de hoy antes de sonar
+                        const orderData = change.doc.data()
+                        const orderDate = toSafeDate(orderData.createdAt)
+                        if (orderDate >= startOfDay && orderDate < endOfDay) {
+                            playNotificationSound()
+                        }
+                    }
+                })
+            }
+            isFirstOrdersLoad.current = false
+
             const allOrders = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
