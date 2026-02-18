@@ -15,7 +15,8 @@ import {
     getDeliveriesByStatus,
     updateOrderStatus,
     updateBusiness,
-    getUserBusinessAccess
+    getUserBusinessAccess,
+    getTodayVisitsDocRef
 } from '@/lib/database'
 import {
     sendWhatsAppToDelivery,
@@ -224,6 +225,27 @@ export default function TodayOrdersPage() {
             }
         }
         fetchBusiness()
+    }, [businessId])
+
+    // Load visits count
+    const [visitsCount, setVisitsCount] = useState(0)
+
+    useEffect(() => {
+        if (!businessId) return
+
+        const visitRef = getTodayVisitsDocRef(businessId)
+        const unsubscribe = onSnapshot(visitRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data()
+                setVisitsCount(data.count || 0)
+            } else {
+                setVisitsCount(0)
+            }
+        }, (error) => {
+            console.error("Error listening to visits:", error)
+        })
+
+        return () => unsubscribe()
     }, [businessId])
 
     // Fetch products
@@ -654,7 +676,11 @@ export default function TodayOrdersPage() {
 
                     {/* Totals Summary */}
                     <div className="bg-white border-b border-gray-100 px-6 py-4">
-                        <div className="flex justify-end items-center">
+                        <div className="flex justify-end items-center gap-8">
+                            <div className="text-right">
+                                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Visitas Hoy</p>
+                                <p className="text-2xl font-bold text-gray-900">{visitsCount}</p>
+                            </div>
                             <div className="text-right">
                                 <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Ventas</p>
                                 <p className="text-2xl font-bold text-green-600">

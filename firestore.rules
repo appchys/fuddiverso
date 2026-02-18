@@ -114,6 +114,12 @@ service cloud.firestore {
 
       // Borrar no permitido
       allow delete: if false;
+
+      // Subcolección de visitas diarias
+      match /daily/{dateId} {
+        allow read: if true;
+        allow write: if true;
+      }
     }
 
     // Colección de ubicaciones (direcciones de clientes)

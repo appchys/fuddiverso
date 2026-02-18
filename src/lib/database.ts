@@ -15,7 +15,8 @@ import {
   increment as firestoreIncrement,
   Timestamp,
   getCountFromServer,
-  onSnapshot
+  onSnapshot,
+  writeBatch
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
@@ -1848,30 +1849,39 @@ export async function getBusinessesByOwner(ownerId: string): Promise<Business[]>
 
 /**
  * Incrementa el contador de visitas para un negocio en Firestore.
- * Crea el documento si no existe con count = 1.
+ * - Incrementa el contador GLOBAL en visits/{businessId}
+ * - Incrementa el contador DIARIO en visits/{businessId}/daily/{YYYY-MM-DD}
  */
 export async function incrementVisitFirestore(businessId: string, count: number = 1) {
   if (!businessId) throw new Error('businessId is required')
   if (count <= 0) return false
   try {
     const visitRef = doc(db, 'visits', businessId)
+    const now = new Date()
+    // Formato YYYY-MM-DD local
+    const dateStr = now.toLocaleDateString('en-CA')
 
-    // Intentar hacer update con increment; si falla porque no existe, crear el doc
-    try {
-      await updateDoc(visitRef, {
-        count: firestoreIncrement(count),
-        updatedAt: serverTimestamp()
-      })
-      return true
-    } catch (e) {
-      // Si no existe, crear con count = count
-      await setDoc(visitRef, {
-        count: count,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      })
-      return true
-    }
+    const batch = writeBatch(db)
+
+    // 1. Actualizar global (crear si no existe)
+    // Nota: Como no podemos saber si existe dentro de un batch sin leer, 
+    // usamos set con merge: true para el global también es más seguro, 
+    // pero firestoreIncrement funciona bien con set+merge.
+    batch.set(visitRef, {
+      count: firestoreIncrement(count),
+      updatedAt: serverTimestamp()
+    }, { merge: true })
+
+    // 2. Actualizar diario
+    const dailyRef = doc(db, 'visits', businessId, 'daily', dateStr)
+    batch.set(dailyRef, {
+      count: firestoreIncrement(count),
+      date: dateStr,
+      updatedAt: serverTimestamp()
+    }, { merge: true })
+
+    await batch.commit()
+    return true
   } catch (error) {
     console.error('Error incrementing visit in Firestore:', error)
     throw error
@@ -1889,6 +1899,15 @@ export async function getVisitsForBusiness(businessId: string): Promise<number> 
     console.error('Error getting visits from Firestore:', error)
     return 0
   }
+}
+
+/**
+ * Retorna la referencia al documento de visitas de hoy para escuchar cambios en tiempo real
+ */
+export function getTodayVisitsDocRef(businessId: string) {
+  const now = new Date()
+  const dateStr = now.toLocaleDateString('en-CA')
+  return doc(db, 'visits', businessId, 'daily', dateStr)
 }
 // --- end visitas ---
 
@@ -4742,7 +4761,6 @@ export async function creditReferral(
 // ==========================================
 
 import { Settlement } from '../types'
-import { writeBatch } from 'firebase/firestore'
 
 /**
  * Actualiza el estado de liquidación y/o el cobrador de una orden
