@@ -31,8 +31,7 @@ import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import { auth } from '@/lib/firebase'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import DashboardSidebar from '@/components/DashboardSidebar'
-
-// ... existing imports ...
+import ProductList from '@/components/ProductList'
 
 // Helper function to check point in polygon (if not imported, but we added it to imports above)
 // If isPointInPolygon is not exported from @/lib/database, we might need to define it here or import it.
@@ -99,6 +98,7 @@ const getStatusText = (status: string) => {
         case 'confirmed': return 'Confirmado'
         case 'preparing': return 'Preparando'
         case 'ready': return 'Listo para entrega'
+        case 'on_way': return 'En camino'
         case 'delivered': return 'Entregado'
         case 'cancelled': return 'Cancelado'
         default: return status
@@ -111,6 +111,7 @@ const getStatusColor = (status: string) => {
         case 'confirmed': return 'bg-blue-100 text-blue-800'
         case 'preparing': return 'bg-purple-100 text-purple-800'
         case 'ready': return 'bg-green-100 text-green-800'
+        case 'on_way': return 'bg-indigo-100 text-indigo-800'
         case 'delivered': return 'bg-gray-100 text-gray-800'
         case 'cancelled': return 'bg-red-100 text-red-800'
         default: return 'bg-gray-100 text-gray-800'
@@ -175,6 +176,9 @@ export default function TodayOrdersPage() {
     // Handle tab navigation
     useEffect(() => {
         if (activeTab !== 'orders') {
+            // Si es la pestaña de productos, no redirigir (SPA mode)
+            if (activeTab === 'profile' && profileSubTab === 'products') return;
+
             const queryParams = new URLSearchParams()
             queryParams.set('tab', activeTab)
 
@@ -205,6 +209,33 @@ export default function TodayOrdersPage() {
 
     const [customerContactModalOpen, setCustomerContactModalOpen] = useState(false)
     const [selectedOrderForCustomerContact, setSelectedOrderForCustomerContact] = useState<Order | null>(null)
+
+    // ProductList specific state
+    const [categories, setCategories] = useState<string[]>([])
+
+    useEffect(() => {
+        if (business?.categories) {
+            setCategories(business.categories)
+        }
+    }, [business])
+
+    const handleProductsChange = (newProducts: Product[]) => {
+        setProducts(newProducts)
+    }
+
+    const handleCategoriesChange = (newCategories: string[]) => {
+        setCategories(newCategories)
+    }
+
+    const handleDirectUpdate = async (field: keyof Business, value: any) => {
+        if (!business?.id) return
+        try {
+            await updateBusiness(business.id, { [field]: value })
+            setBusiness(prev => prev ? { ...prev, [field]: value } : null)
+        } catch (error) {
+            console.error("Error updating business", error)
+        }
+    }
 
     // Auth protection
     useEffect(() => {
@@ -674,94 +705,110 @@ export default function TodayOrdersPage() {
                         </div>
                     </header>
 
-                    {/* Totals Summary */}
-                    <div className="bg-white border-b border-gray-100 px-6 py-4">
-                        <div className="flex justify-end items-center gap-8">
-                            <div className="text-right">
-                                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Visitas Hoy</p>
-                                <p className="text-2xl font-bold text-gray-900">{visitsCount}</p>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Ventas</p>
-                                <p className="text-2xl font-bold text-green-600">
-                                    ${orders.reduce((acc, order) => {
-                                        if (order.status === 'cancelled') return acc
-
-                                        // 1. Try to calculate from items (most accurate for "product only" value)
-                                        if (order.items && order.items.length > 0) {
-                                            const itemsTotal = order.items.reduce((sum, item) => {
-                                                // Check for item.subtotal first, then calculate manually
-                                                if (typeof item.subtotal === 'number') return sum + item.subtotal
-
-                                                // Manual calculation backup
-                                                const price = item.product?.price || 0
-                                                const quantity = item.quantity || 1
-                                                return sum + (price * quantity)
-                                            }, 0)
-
-                                            if (itemsTotal > 0) return acc + itemsTotal
-                                        }
-
-                                        // 2. Fallback to order.subtotal if available
-                                        if (typeof order.subtotal === 'number') return acc + order.subtotal
-
-                                        // 3. Last resort: use total (might include delivery, but better than 0)
-                                        return acc + (order.total || 0)
-                                    }, 0).toFixed(2)}
-                                </p>
-                            </div>
+                    {/* Main Content Area: Conditional Rendering */}
+                    {activeTab === 'profile' && profileSubTab === 'products' ? (
+                        <div className="p-4 sm:p-6">
+                            <ProductList
+                                business={business}
+                                products={products}
+                                categories={categories}
+                                onProductsChange={handleProductsChange}
+                                onCategoriesChange={handleCategoriesChange}
+                                onDirectUpdate={handleDirectUpdate}
+                            />
                         </div>
-                    </div>
+                    ) : (
+                        <>
+                            {/* Totals Summary */}
+                            <div className="bg-white border-b border-gray-100 px-6 py-4">
+                                <div className="flex justify-end items-center gap-8">
+                                    <div className="text-right">
+                                        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Visitas Hoy</p>
+                                        <p className="text-2xl font-bold text-gray-900">{visitsCount}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Ventas</p>
+                                        <p className="text-2xl font-bold text-green-600">
+                                            ${orders.reduce((acc, order) => {
+                                                if (order.status === 'cancelled') return acc
 
-                    {/* Orders List by Status */}
-                    <div className="p-4 space-y-6">
-                        {['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'].map(status => {
-                            const statusOrders = orders.filter(o => o.status === status);
-                            if (statusOrders.length === 0) return null;
+                                                // 1. Try to calculate from items (most accurate for "product only" value)
+                                                if (order.items && order.items.length > 0) {
+                                                    const itemsTotal = order.items.reduce((sum, item) => {
+                                                        // Check for item.subtotal first, then calculate manually
+                                                        if (typeof item.subtotal === 'number') return sum + item.subtotal
 
-                            return (
-                                <CollapsibleSection
-                                    key={status}
-                                    title={getStatusText(status)}
-                                    count={statusOrders.length}
-                                    status={status}
-                                    defaultExpanded={!['delivered', 'cancelled'].includes(status)}
-                                >
-                                    {statusOrders.length === 0 ? (
-                                        <p className="text-sm text-gray-400 italic text-center py-2">No hay pedidos en este estado</p>
-                                    ) : (
-                                        statusOrders.map(order => (
-                                            <OrderCard
-                                                key={order.id}
-                                                order={order}
-                                                availableDeliveries={availableDeliveries}
-                                                onStatusChange={handleStatusChange}
-                                                onDeliveryAssign={handleDeliveryAssignment}
-                                                onPaymentEdit={() => handlePaymentClick(order)}
-                                                onWhatsAppDelivery={() => handleSendWhatsAppAndAdvance(order)}
-                                                onPrint={() => handlePrint(order)}
-                                                onDeliveryStatusClick={(order) => {
-                                                    setSelectedOrderForStatusModal(order)
-                                                    setDeliveryStatusModalOpen(true)
-                                                }}
-                                                onEdit={() => {
-                                                    setSelectedOrderForEdit(order)
-                                                    setManualSidebarMode('edit')
-                                                    setManualOrderSidebarOpen(true)
-                                                }}
-                                                onDelete={() => handleDeleteOrder(order.id)}
-                                                onCustomerClick={() => {
-                                                    setSelectedOrderForCustomerContact(order)
-                                                    setCustomerContactModalOpen(true)
-                                                }}
-                                                businessPhone={business?.phone}
-                                            />
-                                        ))
-                                    )}
-                                </CollapsibleSection>
-                            )
-                        })}
-                    </div>
+                                                        // Manual calculation backup
+                                                        const price = item.product?.price || 0
+                                                        const quantity = item.quantity || 1
+                                                        return sum + (price * quantity)
+                                                    }, 0)
+
+                                                    if (itemsTotal > 0) return acc + itemsTotal
+                                                }
+
+                                                // 2. Fallback to order.subtotal if available
+                                                if (typeof order.subtotal === 'number') return acc + order.subtotal
+
+                                                // 3. Last resort: use total (might include delivery, but better than 0)
+                                                return acc + (order.total || 0)
+                                            }, 0).toFixed(2)}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Orders List by Status */}
+                            <div className="p-4 space-y-6">
+                                {['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'].map(status => {
+                                    const statusOrders = orders.filter(o => o.status === status);
+                                    if (statusOrders.length === 0) return null;
+
+                                    return (
+                                        <CollapsibleSection
+                                            key={status}
+                                            title={getStatusText(status)}
+                                            count={statusOrders.length}
+                                            status={status}
+                                            defaultExpanded={!['delivered', 'cancelled'].includes(status)}
+                                        >
+                                            {statusOrders.length === 0 ? (
+                                                <p className="text-sm text-gray-400 italic text-center py-2">No hay pedidos en este estado</p>
+                                            ) : (
+                                                statusOrders.map(order => (
+                                                    <OrderCard
+                                                        key={order.id}
+                                                        order={order}
+                                                        availableDeliveries={availableDeliveries}
+                                                        onStatusChange={handleStatusChange}
+                                                        onDeliveryAssign={handleDeliveryAssignment}
+                                                        onPaymentEdit={() => handlePaymentClick(order)}
+                                                        onWhatsAppDelivery={() => handleSendWhatsAppAndAdvance(order)}
+                                                        onPrint={() => handlePrint(order)}
+                                                        onDeliveryStatusClick={(order) => {
+                                                            setSelectedOrderForStatusModal(order)
+                                                            setDeliveryStatusModalOpen(true)
+                                                        }}
+                                                        onEdit={() => {
+                                                            setSelectedOrderForEdit(order)
+                                                            setManualSidebarMode('edit')
+                                                            setManualOrderSidebarOpen(true)
+                                                        }}
+                                                        onDelete={() => handleDeleteOrder(order.id)}
+                                                        onCustomerClick={() => {
+                                                            setSelectedOrderForCustomerContact(order)
+                                                            setCustomerContactModalOpen(true)
+                                                        }}
+                                                        businessPhone={business?.phone}
+                                                    />
+                                                ))
+                                            )}
+                                        </CollapsibleSection>
+                                    )
+                                })}
+                            </div>
+                        </>
+                    )}
 
                     {/* Floating Action Button for Manual Order */}
                     <button
@@ -959,6 +1006,7 @@ const getActionIcon = (status: string) => {
     switch (status) {
         case 'preparing': return 'bi-fire text-orange-500'
         case 'ready': return 'bi-check2 text-green-600'
+        case 'on_way': return 'bi-bicycle text-indigo-500'
         case 'delivered': return 'bi-stars text-purple-500'
         default: return 'bi-arrow-right'
     }
@@ -969,6 +1017,7 @@ const getActionText = (status: string) => {
         case 'confirmed': return 'Confirmar'
         case 'preparing': return 'Preparando'
         case 'ready': return 'Listo para la entrega'
+        case 'on_way': return 'En camino'
         case 'delivered': return 'Entregado'
         default: return getStatusText(status)
     }
@@ -978,6 +1027,7 @@ const getActionEmoji = (status: string) => {
     switch (status) {
         case 'preparing': return '🔥'
         case 'ready': return '✔️'
+        case 'on_way': return '🛵'
         case 'delivered': return '🎉'
         default: return '➡️'
     }

@@ -59,6 +59,9 @@ export function LiveCheckoutsPanel({ businessId }: { businessId: string }) {
             // Filtrar checkouts inactivos (más de 30 mins sin actividad)
             const now = new Date();
             const filtered = activeCheckouts.filter(c => {
+                // Filter out completed checkouts (step 4 is success)
+                if (c.currentStep > 3) return false;
+
                 if (!c.updatedAt) return false;
                 const lastUpdate = c.updatedAt?.toDate ? c.updatedAt.toDate() : new Date(c.updatedAt);
                 const diffMins = (now.getTime() - lastUpdate.getTime()) / 60000;

@@ -510,6 +510,9 @@ export function CheckoutContent({
 
   // Sincronizar estado del checkout en Firestore para monitoreo en tiempo real
   useEffect(() => {
+    // Si se está procesando la orden, no sincronizar (para evitar condiciones de carrera con la limpieza)
+    if (isProcessingOrder) return
+
     const syncCheckoutProgress = async () => {
       // Solo sincronizar si hay usuario
       const effectiveClientId = user?.id || clientFound?.id
@@ -584,7 +587,8 @@ export function CheckoutContent({
     clientFound?.id,
     selectedLocation,
     embeddedBusinessId,
-    business?.id
+    business?.id,
+    isProcessingOrder
   ])
 
   // Limpiar el progreso del checkout cuando se completa la orden
