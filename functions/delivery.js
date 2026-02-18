@@ -179,7 +179,7 @@ async function autoAssignDelivery(order) {
         if (latlong && !latlong.startsWith('pluscode:')) {
             const [lat, lng] = latlong.split(',').map(Number);
             if (!isNaN(lat) && !isNaN(lng)) {
-                const zonesSnap = await db.collection('coverage_zones').where('isActive', '==', true).get();
+                const zonesSnap = await db.collection('coverageZones').where('isActive', '==', true).get();
                 if (!zonesSnap.empty) {
                     const zones = zonesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
