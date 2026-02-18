@@ -51,6 +51,7 @@ export default function AdminDashboard() {
   const [recommenders, setRecommenders] = useState<any[]>([])
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
   const [chartData, setChartData] = useState<any[]>([])
+  const [telegramChartData, setTelegramChartData] = useState<any[]>([])
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
 
@@ -147,6 +148,65 @@ export default function AdminDashboard() {
 
     return () => clearInterval(interval)
   }, [orders, dateRange])
+
+  // New useEffect to fetch and process client data for Telegram chart
+  useEffect(() => {
+    const fetchTelegramData = async () => {
+      try {
+        const clients = await getAllClientsGlobal();
+
+        // Filter clients with Telegram link
+        const linkedClients = clients.filter(c => c.lastTelegramLinkDate);
+
+        // Group by date
+        const grouped = linkedClients.reduce((acc: any, client) => {
+          let dateStr = '';
+          const dateVal = client.lastTelegramLinkDate;
+          let date: Date | null = null;
+
+          if (dateVal && typeof dateVal === 'object' && 'seconds' in dateVal) {
+            date = new Date(dateVal.seconds * 1000);
+          } else if (dateVal instanceof Date) {
+            date = dateVal;
+          } else if (typeof dateVal === 'string') {
+            date = new Date(dateVal);
+          }
+
+          if (date && !isNaN(date.getTime())) {
+            const day = date.getDate().toString().padStart(2, '0');
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            dateStr = `${day}/${month}`;
+          } else {
+            return acc;
+          }
+
+          if (!acc[dateStr]) {
+            acc[dateStr] = 0;
+          }
+          acc[dateStr]++;
+          return acc;
+        }, {});
+
+        const formattedData = Object.keys(grouped).map(key => ({
+          date: key,
+          count: grouped[key]
+        })).sort((a, b) => {
+          const [dayA, monthA] = a.date.split('/').map(Number);
+          const [dayB, monthB] = b.date.split('/').map(Number);
+          if (isNaN(dayA) || isNaN(monthA) || isNaN(dayB) || isNaN(monthB)) return 0;
+          return (monthA * 31 + dayA) - (monthB * 31 + dayB);
+        });
+
+        setTelegramChartData(formattedData);
+      } catch (error) {
+        console.error('Error fetching telegram stats:', error);
+      }
+    };
+
+    if (activeTab === 'general') {
+      fetchTelegramData();
+    }
+  }, [activeTab]);
 
   const loadData = async () => {
     try {
@@ -280,7 +340,7 @@ export default function AdminDashboard() {
           id: credit.id,
           phone: credit.userId,
           name: customerFromOrders?.name || globalClient?.nombres || 'Usuario',
-          image: globalClient?.fotoUrl || null,
+          image: globalClient?.photoURL || null,
           credits: credit.availableCredits || 0,
           totalCredits: credit.totalCredits || 0,
           linksCount: userLinks.length,
@@ -1216,6 +1276,44 @@ export default function AdminDashboard() {
 
           {/* Charts Section */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Telegram Chart */}
+            <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200 lg:col-span-2">
+              <div className="mb-6">
+                <h3 className="text-lg font-bold text-gray-900">Vinculaciones de Telegram</h3>
+                <p className="text-sm text-gray-500">Usuarios que han activado notificaciones</p>
+              </div>
+              <div className="h-80 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={telegramChartData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#9ca3af', fontSize: 12 }}
+                      dy={10}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#9ca3af', fontSize: 12 }}
+                    />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      cursor={{ fill: '#f3f4f6' }}
+                    />
+                    <Bar
+                      dataKey="count"
+                      name="Usuarios"
+                      fill="#0ea5e9"
+                      radius={[4, 4, 0, 0]}
+                      barSize={30}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
             {/* Gráfico de Pedidos (Nuevo) */}
             <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200 lg:col-span-2">
               <div className="flex items-center justify-between mb-6">

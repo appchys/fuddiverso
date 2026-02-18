@@ -1421,6 +1421,22 @@ export async function createBusinessFromGoogleAuth(userData: {
   }
 }
 
+export async function getAllClientsGlobal(): Promise<FirestoreClient[]> {
+  try {
+    const q = query(collection(db, 'clients'));
+    const querySnapshot = await getDocs(q);
+    const clients = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      // Ensure dates are properly handled if needed, though raw Firestore timestamps are often fine until display
+    })) as FirestoreClient[];
+    return clients;
+  } catch (error) {
+    console.error('Error getting all clients:', error);
+    throw error;
+  }
+}
+
 // Definir el tipo para el cliente desde Firestore
 export interface FirestoreClient {
   id: string;
@@ -1435,6 +1451,8 @@ export interface FirestoreClient {
   lastLoginAt?: any;
   lastRegistrationAt?: any;
   loginSource?: string;
+  telegramChatId?: string;
+  lastTelegramLinkDate?: any;
 }
 
 export interface ClientLocation {
@@ -4533,19 +4551,7 @@ export async function getAllReferralLinksGlobal(): Promise<any[]> {
 /**
  * Obtiene todos los clientes registrados (Administrativo)
  */
-export async function getAllClientsGlobal(): Promise<any[]> {
-  try {
-    const q = query(collection(db, 'clients'), orderBy('nombres', 'asc'))
-    const snapshot = await getDocs(q)
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }))
-  } catch (error) {
-    console.error('Error getting global clients:', error)
-    return []
-  }
-}
+
 
 /**
  * Registra un click en un link de referido

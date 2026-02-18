@@ -2,9 +2,9 @@ const axios = require('axios');
 const admin = require('firebase-admin');
 const { processOrderAction } = require('./delivery');
 
-const STORE_BOT_TOKEN = process.env.STORE_BOT_TOKEN || '8415155805:AAHU6nXGA1ZK8HVFHtTOJbcfa57Dsmbd7pg';
-const DELIVERY_BOT_TOKEN = process.env.DELIVERY_BOT_TOKEN || '8275094091:AAGDO1PSfE1bQn5u0zLWoC4yb6Or093lc6k';
-const CUSTOMER_BOT_TOKEN = process.env.CUSTOMER_BOT_TOKEN || '8506021400:AAFY2SnbM2ZoJwWYlqKPq5qzE_c5gmbJc8k';
+const STORE_BOT_TOKEN = process.env.STORE_BOT_TOKEN;
+const DELIVERY_BOT_TOKEN = process.env.DELIVERY_BOT_TOKEN;
+const CUSTOMER_BOT_TOKEN = process.env.CUSTOMER_BOT_TOKEN;
 
 /**
  * Función para formatear el mensaje de Telegram

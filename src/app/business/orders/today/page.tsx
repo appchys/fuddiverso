@@ -383,9 +383,7 @@ export default function TodayOrdersPage() {
             <div className="p-4 space-y-6">
                 {['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'].map(status => {
                     const statusOrders = orders.filter(o => o.status === status);
-                    if (statusOrders.length === 0 && ['cancelled', 'delivered'].includes(status)) return null; // Hide empty cancelled/delivered to save space? Or show all? User said "En ese orden y en grupos colapsables". I'll show all or maybe hide cancelled if empty.
-                    // Let's show all for consistency, maybe except cancelled if empty.
-                    if (statusOrders.length === 0 && status === 'cancelled') return null;
+                    if (statusOrders.length === 0) return null;
 
                     return (
                         <CollapsibleSection
