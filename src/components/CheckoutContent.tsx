@@ -1423,6 +1423,19 @@ export function CheckoutContent({
       });
 
       const orderId = await createOrder(orderData);
+
+      // === LIMPIAR checkout progress INMEDIATAMENTE después de crear la orden ===
+      // Esto debe hacerse ANTES de navegar/redirigir, porque el useEffect de limpieza
+      // no se ejecuta si el componente se desmonta por la navegación.
+      try {
+        const clientIdToClean = user?.id || clientFound?.id
+        if (clientIdToClean && businessId) {
+          await clearCheckoutProgress(clientIdToClean, businessId)
+        }
+      } catch (e) {
+        console.error('Error clearing checkout progress:', e)
+      }
+
       try {
         const orderDateStr = new Date().toISOString().split('T')[0]
         await registerOrderConsumption(

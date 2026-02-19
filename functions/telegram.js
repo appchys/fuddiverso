@@ -17,11 +17,70 @@ function formatTelegramMessage(orderData, businessName, isAccepted = false) {
     let timingType = 'Inmediato';
 
     if (orderData.timing?.type === 'scheduled') {
+        const scheduledTime = orderData.timing.scheduledTime || '';
         timingType = 'Programado';
-        scheduledTimeStr = orderData.timing.scheduledTime || '';
+
+        // Intentar parsear la fecha programada
+        let dateObj = null;
+        if (orderData.timing.scheduledDate) {
+            const sd = orderData.timing.scheduledDate;
+            // Manejar Timestamp de Firestore (objeto con seconds) o Date nativo
+            if (sd.toDate && typeof sd.toDate === 'function') {
+                dateObj = sd.toDate();
+            } else if (sd.seconds) {
+                dateObj = new Date(sd.seconds * 1000);
+            } else if (sd._seconds) {
+                dateObj = new Date(sd._seconds * 1000);
+            } else {
+                dateObj = new Date(sd);
+            }
+        }
+
+        if (dateObj && !isNaN(dateObj.getTime())) {
+            // Configuración para Zona Horaria de Ecuador
+            const timeZone = 'America/Guayaquil';
+            const now = new Date();
+
+            // Formateadores
+            const isoDateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+
+            const todayStr = isoDateFormatter.format(now);
+            const scheduledStr = isoDateFormatter.format(dateObj);
+
+            // Calcular mañana
+            const tomorrow = new Date(now);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowStr = isoDateFormatter.format(tomorrow);
+
+            if (scheduledStr === todayStr) {
+                scheduledTimeStr = `Hoy a las ${scheduledTime}`;
+            } else if (scheduledStr === tomorrowStr) {
+                scheduledTimeStr = `Mañana a las ${scheduledTime}`;
+            } else {
+                // Formato: "Sábado 21 de febrero"
+                const fullDateFormatter = new Intl.DateTimeFormat('es-EC', {
+                    timeZone,
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long'
+                });
+
+                let datePart = fullDateFormatter.format(dateObj);
+                // Capitalizar primera letra
+                datePart = datePart.charAt(0).toUpperCase() + datePart.slice(1);
+
+                scheduledTimeStr = `${datePart} a las ${scheduledTime}`;
+            }
+        } else {
+            // Fallback si no hay fecha válida
+            scheduledTimeStr = scheduledTime;
+        }
     }
 
-    const deliveryInfo = orderData.delivery?.references || 'Dirección no especificada';
+    let deliveryInfo = orderData.delivery?.references || 'Dirección no especificada';
+    if (orderData.delivery?.type === 'pickup') {
+        deliveryInfo = '🏪 Retiro en tienda';
+    }
     let mapsLink = '';
     if (orderData.delivery?.latlong) {
         const [lat, lng] = orderData.delivery.latlong.split(',').map(s => s.trim());

@@ -286,14 +286,14 @@ async function linkCustomerTelegramToOrderLogic(order, orderId) {
   try {
     // Buscar el cliente en Firestore
     const clientDoc = await admin.firestore().collection('clients').doc(clientId).get();
-    
+
     if (clientDoc.exists) {
       const clientData = clientDoc.data();
       const telegramChatId = clientData.telegramChatId;
 
       if (telegramChatId) {
         console.log(`🔗 Vinculando telegramChatId de cliente ${clientId} a orden ${orderId}`);
-        
+
         // Actualizar la orden con el telegramChatId del cliente Y el clientId si no estaba
         const updateData = {
           customer: {

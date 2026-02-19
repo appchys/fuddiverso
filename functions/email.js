@@ -4,100 +4,100 @@ const { getBusinessAdminEmails } = require('./utils');
 
 // Configurar el transportador de email
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER || 'appchys.ec@gmail.com',
-        pass: process.env.EMAIL_PASS || 'oukz zreo izmi clul'
-    },
-    tls: {
-        rejectUnauthorized: false // Permite certificados auto-firmados
-    }
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER || 'appchys.ec@gmail.com',
+    pass: process.env.EMAIL_PASS || 'oukz zreo izmi clul'
+  },
+  tls: {
+    rejectUnauthorized: false // Permite certificados auto-firmados
+  }
 });
 
 /**
  * Enviar email cuando se crea una nueva orden
  */
 async function sendOrderCreatedEmail(order, orderId) {
-    try {
-        console.log(`📧 Procesando email para orden: ${orderId}`);
+  try {
+    console.log(`📧 Procesando email para orden: ${orderId}`);
 
-        // Obtener datos del negocio desde Firestore
-        let businessEmail = 'info@fuddi.shop';
-        let recipients = [];
-        if (order.businessId) {
-            try {
-                const businessDoc = await admin.firestore().collection('businesses').doc(order.businessId).get();
-                if (businessDoc.exists) {
-                    const businessData = businessDoc.data();
-                    if (businessData.email) {
-                        businessEmail = businessData.email;
-                        recipients.push(businessEmail);
-                    }
-
-                    // Obtener emails de administradores
-                    const adminEmails = await getBusinessAdminEmails(order.businessId);
-                    adminEmails.forEach(email => {
-                        if (!recipients.includes(email)) {
-                            recipients.push(email);
-                        }
-                    });
-
-                    // Verificar configuración de notificaciones
-                    const settings = businessData.notificationSettings || {
-                        emailOrderClient: true,
-                        emailOrderManual: true
-                    };
-
-                    const isManualOrder = !!order.createdByAdmin;
-                    const shouldSendEmail = isManualOrder
-                        ? settings.emailOrderManual
-                        : settings.emailOrderClient;
-
-                    if (!shouldSendEmail) {
-                        console.log(`🔕 Notificaciones desactivadas para este tipo de orden (${isManualOrder ? 'Manual' : 'Cliente'}). Email cancelado.`);
-                        return;
-                    }
-                }
-            } catch (e) {
-                console.warn('⚠️ No se pudo obtener datos del negocio:', e.message);
-            }
-        }
-
-        if (recipients.length === 0) {
+    // Obtener datos del negocio desde Firestore
+    let businessEmail = 'info@fuddi.shop';
+    let recipients = [];
+    if (order.businessId) {
+      try {
+        const businessDoc = await admin.firestore().collection('businesses').doc(order.businessId).get();
+        if (businessDoc.exists) {
+          const businessData = businessDoc.data();
+          if (businessData.email) {
+            businessEmail = businessData.email;
             recipients.push(businessEmail);
-        }
+          }
 
-        // Obtener datos del cliente desde la colección 'clients' usando su ID
-        let customerName = order.customer?.name || 'Cliente no especificado';
-        let customerPhone = order.customer?.phone || 'No registrado';
-
-        if (order.customer?.id) {
-            try {
-                const clientDoc = await admin.firestore().collection('clients').doc(order.customer.id).get();
-                if (clientDoc.exists) {
-                    const clientData = clientDoc.data();
-                    customerName = clientData.nombres || customerName;
-                    customerPhone = clientData.celular || customerPhone;
-                }
-            } catch (e) {
-                console.warn('⚠️ No se pudo obtener los datos del cliente:', e.message);
+          // Obtener emails de administradores
+          const adminEmails = await getBusinessAdminEmails(order.businessId);
+          adminEmails.forEach(email => {
+            if (!recipients.includes(email)) {
+              recipients.push(email);
             }
+          });
+
+          // Verificar configuración de notificaciones
+          const settings = businessData.notificationSettings || {
+            emailOrderClient: true,
+            emailOrderManual: true
+          };
+
+          const isManualOrder = !!order.createdByAdmin;
+          const shouldSendEmail = isManualOrder
+            ? settings.emailOrderManual
+            : settings.emailOrderClient;
+
+          if (!shouldSendEmail) {
+            console.log(`🔕 Notificaciones desactivadas para este tipo de orden (${isManualOrder ? 'Manual' : 'Cliente'}). Email cancelado.`);
+            return;
+          }
         }
+      } catch (e) {
+        console.warn('⚠️ No se pudo obtener datos del negocio:', e.message);
+      }
+    }
 
-        // Información de entrega
-        let deliveryInfo = 'No aplica (retiro en tienda)';
-        let mapHtml = '';
+    if (recipients.length === 0) {
+      recipients.push(businessEmail);
+    }
 
-        if (order.delivery?.type === 'delivery') {
-            deliveryInfo = order.delivery?.references || 'Dirección no especificada';
+    // Obtener datos del cliente desde la colección 'clients' usando su ID
+    let customerName = order.customer?.name || 'Cliente no especificado';
+    let customerPhone = order.customer?.phone || 'No registrado';
 
-            if (order.delivery?.latlong) {
-                // Parsear latlong si viene en formato "lat,lng"
-                const [lat, lng] = order.delivery.latlong.split(',').map(s => s.trim());
-                if (lat && lng) {
-                    const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=17&size=400x200&markers=color:red%7C${lat},${lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
-                    const mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-                    mapHtml = `
+    if (order.customer?.id) {
+      try {
+        const clientDoc = await admin.firestore().collection('clients').doc(order.customer.id).get();
+        if (clientDoc.exists) {
+          const clientData = clientDoc.data();
+          customerName = clientData.nombres || customerName;
+          customerPhone = clientData.celular || customerPhone;
+        }
+      } catch (e) {
+        console.warn('⚠️ No se pudo obtener los datos del cliente:', e.message);
+      }
+    }
+
+    // Información de entrega
+    let deliveryInfo = 'No aplica (retiro en tienda)';
+    let mapHtml = '';
+
+    if (order.delivery?.type === 'delivery') {
+      deliveryInfo = order.delivery?.references || 'Dirección no especificada';
+
+      if (order.delivery?.latlong) {
+        // Parsear latlong si viene en formato "lat,lng"
+        const [lat, lng] = order.delivery.latlong.split(',').map(s => s.trim());
+        if (lat && lng) {
+          const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=17&size=400x200&markers=color:red%7C${lat},${lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
+          const mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+          mapHtml = `
             <div style="margin-top: 16px;">
               <a href="${mapsLink}" target="_blank" style="text-decoration:none;">
                 <img src="${staticMapUrl}" alt="Ver ubicación" style="border-radius:8px;border:1px solid #ddd;max-width:100%;display:block;">
@@ -105,79 +105,79 @@ async function sendOrderCreatedEmail(order, orderId) {
               </a>
             </div>
           `;
-                }
-            }
         }
+      }
+    }
 
-        // Generar HTML de productos
-        let productsHtml = '<ul style="padding-left:20px;">';
-        let itemCount = 0;
-        if (Array.isArray(order.items)) {
-            order.items.forEach(item => {
-                const itemTotal = (item.price * item.quantity).toFixed(2);
-                const variant = item.variant || '';
-                productsHtml += `
+    // Generar HTML de productos
+    let productsHtml = '<ul style="padding-left:20px;">';
+    let itemCount = 0;
+    if (Array.isArray(order.items)) {
+      order.items.forEach(item => {
+        const itemTotal = (item.price * item.quantity).toFixed(2);
+        const variant = item.variant || '';
+        productsHtml += `
           <li style="margin-bottom:8px;">
             <strong>${item.name}</strong>${variant ? ` (${variant})` : ''}
             <br/>
             <small>Cantidad: ${item.quantity} × $${item.price.toFixed(2)} = $${itemTotal}</small>
           </li>
         `;
-                itemCount++;
-            });
-        }
-        productsHtml += '</ul>';
+        itemCount++;
+      });
+    }
+    productsHtml += '</ul>';
 
-        // Información de pago
-        const paymentMethod = order.payment?.method || 'No especificado';
-        const paymentStatus = order.payment?.paymentStatus || 'pending';
-        let paymentStatusText = '';
+    // Información de pago
+    const paymentMethod = order.payment?.method || 'No especificado';
+    const paymentStatus = order.payment?.paymentStatus || 'pending';
+    let paymentStatusText = '';
 
-        if (paymentStatus === 'pending') paymentStatusText = '⏳ Pendiente';
-        else if (paymentStatus === 'paid') paymentStatusText = '✅ Pagado';
-        else if (paymentStatus === 'validating') paymentStatusText = '⏱️ Validando';
+    if (paymentStatus === 'pending') paymentStatusText = '⏳ Pendiente';
+    else if (paymentStatus === 'paid') paymentStatusText = '✅ Pagado';
+    else if (paymentStatus === 'validating') paymentStatusText = '⏱️ Validando';
 
-        let paymentDetailsHtml = '';
-        if (paymentMethod === 'mixed') {
-            const cash = order.payment?.cashAmount || 0;
-            const transfer = order.payment?.transferAmount || 0;
-            paymentDetailsHtml = `
+    let paymentDetailsHtml = '';
+    if (paymentMethod === 'mixed') {
+      const cash = order.payment?.cashAmount || 0;
+      const transfer = order.payment?.transferAmount || 0;
+      paymentDetailsHtml = `
         <br/><small style="color: #666;">
           💵 Efectivo: $${cash.toFixed(2)}<br/>
           🏦 Transferencia: $${transfer.toFixed(2)}
         </small>
       `;
-        }
+    }
 
-        // Detalles de costo
-        const subtotal = order.subtotal || 0;
-        const total = order.total || 0;
-        // Calcular envío si no viene explícito (Total - Subtotal)
-        let deliveryCost = order.delivery?.deliveryCost;
-        if (deliveryCost === undefined) {
-            deliveryCost = Math.max(0, total - subtotal);
-        }
+    // Detalles de costo
+    const subtotal = order.subtotal || 0;
+    const total = order.total || 0;
+    // Calcular envío si no viene explícito (Total - Subtotal)
+    let deliveryCost = order.delivery?.deliveryCost;
+    if (deliveryCost === undefined) {
+      deliveryCost = Math.max(0, total - subtotal);
+    }
 
-        // Formatear fecha programada
-        let scheduledDateStr = 'Hoy';
-        if (order.timing?.scheduledDate) {
-            const dateObj = order.timing.scheduledDate;
-            // Manejar tanto Timestamp de Firestore como objeto con seconds
-            const seconds = dateObj.seconds || dateObj._seconds;
-            if (seconds) {
-                scheduledDateStr = new Date(seconds * 1000).toLocaleDateString('es-EC', {
-                    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-                });
-            }
-        }
+    // Formatear fecha programada
+    let scheduledDateStr = 'Hoy';
+    if (order.timing?.scheduledDate) {
+      const dateObj = order.timing.scheduledDate;
+      // Manejar tanto Timestamp de Firestore como objeto con seconds
+      const seconds = dateObj.seconds || dateObj._seconds;
+      if (seconds) {
+        scheduledDateStr = new Date(seconds * 1000).toLocaleDateString('es-EC', {
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        });
+      }
+    }
 
-        // Texto de vista previa para notificaciones
-        const previewText = order.delivery?.type === 'delivery'
-            ? `🏍️ ${order.delivery?.references || 'Dirección no especificada'}`
-            : '🏪 Retiro en tienda';
+    // Texto de vista previa para notificaciones
+    const previewText = order.delivery?.type === 'delivery'
+      ? `🏍️ ${order.delivery?.references || 'Dirección no especificada'}`
+      : '🏪 Retiro en tienda';
 
-        // Generar HTML del email
-        const htmlContent = `
+    // Generar HTML del email
+    const htmlContent = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
         <!-- Preview text (visible in notification preview, hidden in email body) -->
         <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
@@ -263,43 +263,43 @@ async function sendOrderCreatedEmail(order, orderId) {
       </div>
     `;
 
-        // Determinar el ícono según el tipo de tiempo (inmediato o programado)
-        const isScheduled = order.timing?.type === 'scheduled';
-        const timeIcon = isScheduled ? '⏰' : '⚡';
+    // Determinar el ícono según el tipo de tiempo (inmediato o programado)
+    const isScheduled = order.timing?.type === 'scheduled';
+    const timeIcon = isScheduled ? '⏰' : '⚡';
 
-        // Definir el asunto del correo según quién creó la orden
-        const subject = order.createdByAdmin
-            ? `🔔 ¡Nuevo pedido de ${customerName}! - Fuddi`
-            : `${timeIcon} ${customerName} ha hecho un pedido! - Fuddi`;
+    // Definir el asunto del correo según quién creó la orden
+    const subject = order.createdByAdmin
+      ? `🔔 ¡Nuevo pedido de ${customerName}! - Fuddi`
+      : `${timeIcon} ${customerName} ha hecho un pedido! - Fuddi`;
 
-        // Enviar email
-        const mailOptions = {
-            from: 'pedidos@fuddi.shop',
-            to: recipients.join(', '),
-            subject: subject,
-            html: htmlContent
-        };
+    // Enviar email
+    const mailOptions = {
+      from: 'pedidos@fuddi.shop',
+      to: recipients.join(', '),
+      subject: subject,
+      html: htmlContent
+    };
 
-        await transporter.sendMail(mailOptions);
-        console.log(`✅ Email enviado correctamente a: ${recipients.join(', ')}`);
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Email enviado correctamente a: ${recipients.join(', ')}`);
 
-    } catch (error) {
-        console.error(`❌ Error enviando email para orden ${orderId}:`, error);
-    }
+  } catch (error) {
+    console.error(`❌ Error enviando email para orden ${orderId}:`, error);
+  }
 }
 
 /**
  * Enviar email de actualización de negocio (login)
  */
 async function sendBusinessLoginEmail(business) {
-    const adminEmail = 'appchys.ec@gmail.com';
-    try {
-        console.log(`🔓 Negocio inició sesión: ${business.name}`);
-        const mailOptions = {
-            from: 'sistema@fuddi.shop',
-            to: adminEmail,
-            subject: `🔓 Negocio inició sesión [${business.loginSource || 'N/A'}] - ${business.name}`,
-            html: `
+  const adminEmail = 'appchys.ec@gmail.com';
+  try {
+    console.log(`🔓 Negocio inició sesión: ${business.name}`);
+    const mailOptions = {
+      from: 'sistema@fuddi.shop',
+      to: adminEmail,
+      subject: `🔓 Negocio inició sesión [${business.loginSource || 'N/A'}] - ${business.name}`,
+      html: `
         <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
           <h2 style="color: #444;">🔓 Inicio de Sesión de Negocio</h2>
           <p>El administrador del negocio ha ingresado desde: <strong>${business.loginSource || 'Desconocido'}</strong></p>
@@ -311,25 +311,25 @@ async function sendBusinessLoginEmail(business) {
           </table>
         </div>
       `
-        };
-        await transporter.sendMail(mailOptions);
-    } catch (error) {
-        console.error('❌ Error enviando email de login de negocio:', error);
-    }
+    };
+    await transporter.sendMail(mailOptions);
+  } catch (error) {
+    console.error('❌ Error enviando email de login de negocio:', error);
+  }
 }
 
 /**
  * Enviar email de registro de negocio
  */
 async function sendBusinessCreatedEmail(business) {
-    const adminEmail = 'appchys.ec@gmail.com';
-    try {
-        console.log(`🏪 Nuevo negocio registrado: ${business.name}`);
-        const mailOptions = {
-            from: 'sistema@fuddi.shop',
-            to: adminEmail,
-            subject: `🏪 ¡Nuevo Negocio! [${business.loginSource || 'N/A'}] - ${business.name}`,
-            html: `
+  const adminEmail = 'appchys.ec@gmail.com';
+  try {
+    console.log(`🏪 Nuevo negocio registrado: ${business.name}`);
+    const mailOptions = {
+      from: 'sistema@fuddi.shop',
+      to: adminEmail,
+      subject: `🏪 ¡Nuevo Negocio! [${business.loginSource || 'N/A'}] - ${business.name}`,
+      html: `
         <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
           <h2 style="color: #aa1918;">🏪 Nuevo Registro de Negocio</h2>
           <p>Un nuevo local se ha unido a Fuddiverso desde: <strong>${business.loginSource || 'Desconocido'}</strong></p>
@@ -342,37 +342,37 @@ async function sendBusinessCreatedEmail(business) {
           </table>
         </div>
       `
-        };
-        await transporter.sendMail(mailOptions);
-    } catch (error) {
-        console.error('❌ Error enviando email de nuevo negocio:', error);
-    }
+    };
+    await transporter.sendMail(mailOptions);
+  } catch (error) {
+    console.error('❌ Error enviando email de nuevo negocio:', error);
+  }
 }
 
 /**
  * Enviar email de progreso de checkout
  */
 async function sendCheckoutProgressEmail(clientData, businessData, clientId, businessId) {
-    try {
-        const businessEmail = businessData.email || 'info@fuddi.shop';
-        const businessName = businessData.name || 'Negocio';
-        const customerName = clientData.nombres || 'Cliente';
+  try {
+    const businessEmail = businessData.email || 'info@fuddi.shop';
+    const businessName = businessData.name || 'Negocio';
+    const customerName = clientData.nombres || 'Cliente';
 
-        // Verificar configuración
-        const settings = businessData.notificationSettings || {
-            emailCheckoutProgress: false
-        };
+    // Verificar configuración
+    const settings = businessData.notificationSettings || {
+      emailCheckoutProgress: false
+    };
 
-        if (!settings.emailCheckoutProgress) {
-            console.log(`🔕 Notificaciones de checkout desactivadas para negocio ${businessId}. Email cancelado.`);
-            return;
-        }
+    if (!settings.emailCheckoutProgress) {
+      console.log(`🔕 Notificaciones de checkout desactivadas para negocio ${businessId}. Email cancelado.`);
+      return;
+    }
 
-        const mailOptions = {
-            from: 'sistema@fuddi.shop',
-            to: businessEmail,
-            subject: `🛒 ${customerName} está haciendo checkout en ${businessName}`,
-            html: `
+    const mailOptions = {
+      from: 'sistema@fuddi.shop',
+      to: businessEmail,
+      subject: `🛒 ${customerName} está haciendo checkout en ${businessName}`,
+      html: `
         <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
           <h2 style="color: #aa1918;">🛒 Checkout Iniciado</h2>
           <p><strong>${customerName}</strong> ha comenzado el proceso de checkout en <strong>${businessName}</strong>.</p>
@@ -408,28 +408,28 @@ async function sendCheckoutProgressEmail(clientData, businessData, clientId, bus
           </p>
         </div>
       `
-        };
+    };
 
-        await transporter.sendMail(mailOptions);
-        console.log(`✅ Email de checkout enviado a ${businessEmail} para cliente ${clientId} en negocio ${businessId}`);
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Email de checkout enviado a ${businessEmail} para cliente ${clientId} en negocio ${businessId}`);
 
-    } catch (error) {
-        console.error(`❌ Error enviando email de checkout:`, error);
-    }
+  } catch (error) {
+    console.error(`❌ Error enviando email de checkout:`, error);
+  }
 }
 
 /**
  * Enviar email de resumen diario
  */
 async function sendDailySummaryEmail(business, todayOrders, recipients, todayFormatted, previewDateStr) {
-    const businessName = business.name || 'Tu Negocio';
-    const businessEmail = business.email;
+  const businessName = business.name || 'Tu Negocio';
+  const businessEmail = business.email;
 
-    let ordersHtml = '';
-    let totalRevenue = 0;
+  let ordersHtml = '';
+  let totalRevenue = 0;
 
-    if (todayOrders.length === 0) {
-        ordersHtml = `
+  if (todayOrders.length === 0) {
+    ordersHtml = `
         <div style="background-color: #f0f0f0; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
           <p style="font-size: 16px; color: #666; margin: 0;">
             📭 No hay órdenes programadas para hoy
@@ -439,8 +439,8 @@ async function sendDailySummaryEmail(business, todayOrders, recipients, todayFor
           </p>
         </div>
       `;
-    } else {
-        ordersHtml = `
+  } else {
+    ordersHtml = `
         <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
           <thead>
             <tr style="background-color: #aa1918; color: white;">
@@ -453,12 +453,12 @@ async function sendDailySummaryEmail(business, todayOrders, recipients, todayFor
           <tbody>
       `;
 
-        todayOrders.forEach((order, index) => {
-            totalRevenue += order.total;
-            const bgColor = index % 2 === 0 ? '#ffffff' : '#f9f9f9';
-            const deliveryIcon = order.deliveryType === 'delivery' ? '🚚' : '🏪';
+    todayOrders.forEach((order, index) => {
+      totalRevenue += order.total;
+      const bgColor = index % 2 === 0 ? '#ffffff' : '#f9f9f9';
+      const deliveryIcon = order.deliveryType === 'delivery' ? '🚚' : '🏪';
 
-            ordersHtml += `
+      ordersHtml += `
           <tr style="background-color: ${bgColor};">
             <td style="padding: 12px 8px; border-bottom: 1px solid #eee; font-weight: bold; color: #aa1918;">
               ${order.scheduledTime}
@@ -474,9 +474,9 @@ async function sendDailySummaryEmail(business, todayOrders, recipients, todayFor
             </td>
           </tr>
         `;
-        });
+    });
 
-        ordersHtml += `
+    ordersHtml += `
           </tbody>
           <tfoot>
             <tr style="background-color: #f0f0f0;">
@@ -490,9 +490,9 @@ async function sendDailySummaryEmail(business, todayOrders, recipients, todayFor
           </tfoot>
         </table>
       `;
-    }
+  }
 
-    const htmlContent = `
+  const htmlContent = `
       <div style="font-family: Arial, sans-serif; max-width: 650px; margin: 0 auto; color: #333;">
         <!-- Preview text (visible in notification preview, hidden in email body) -->
         <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
@@ -531,97 +531,97 @@ async function sendDailySummaryEmail(business, todayOrders, recipients, todayFor
       </div>
     `;
 
-    const mailOptions = {
-        from: 'resumen@fuddi.shop',
-        to: recipients.join(', '),
-        subject: `${businessName}! Tienes ${todayOrders.length} ${todayOrders.length === 1 ? 'pedido programado' : 'pedidos programados'} para hoy!`,
-        html: htmlContent
-    };
+  const mailOptions = {
+    from: 'resumen@fuddi.shop',
+    to: recipients.join(', '),
+    subject: `${businessName}! Tienes ${todayOrders.length} ${todayOrders.length === 1 ? 'pedido programado' : 'pedidos programados'} para hoy!`,
+    html: htmlContent
+  };
 
-    try {
-        await transporter.sendMail(mailOptions);
-        console.log(`✅ Resumen enviado a ${businessName} (${businessEmail})`);
-        return true;
-    } catch (emailError) {
-        console.error(`❌ Error enviando resumen a ${businessName}:`, emailError);
-        return false;
-    }
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Resumen enviado a ${businessName} (${businessEmail})`);
+    return true;
+  } catch (emailError) {
+    console.error(`❌ Error enviando resumen a ${businessName}:`, emailError);
+    return false;
+  }
 }
 
 /**
  * Enviar email de asignación a delivery
  */
 async function sendDeliveryAssignmentEmail(order, orderId, deliveryEmail, customerName, customerPhone, businessData) {
-    const businessName = businessData.name || 'Negocio';
-    const businessLogo = businessData.image || '';
-    const businessPhone = businessData.phone || '';
+  const businessName = businessData.name || 'Negocio';
+  const businessLogo = businessData.image || '';
+  const businessPhone = businessData.phone || '';
 
-    // Información de entrega
-    let deliveryInfo = 'Retiro en tienda';
-    let deliveryType = 'pickup';
-    let mapHtml = '';
-    let photoHtml = '';
+  // Información de entrega
+  let deliveryInfo = 'Retiro en tienda';
+  let deliveryType = 'pickup';
+  let mapHtml = '';
+  let photoHtml = '';
 
-    if (order.delivery?.type === 'delivery') {
-        deliveryType = 'delivery';
-        deliveryInfo = order.delivery?.references || 'Dirección no especificada';
+  if (order.delivery?.type === 'delivery') {
+    deliveryType = 'delivery';
+    deliveryInfo = order.delivery?.references || 'Dirección no especificada';
 
-        if (order.delivery?.latlong) {
-            const [lat, lng] = order.delivery.latlong.split(',').map(s => s.trim());
-            if (lat && lng) {
-                const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=17&size=400x200&markers=color:red%7C${lat},${lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
-                const mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-                mapHtml = `
+    if (order.delivery?.latlong) {
+      const [lat, lng] = order.delivery.latlong.split(',').map(s => s.trim());
+      if (lat && lng) {
+        const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=17&size=400x200&markers=color:red%7C${lat},${lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
+        const mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+        mapHtml = `
             <div style="margin-top: 12px; margin-bottom: 12px;">
               <a href="${mapsLink}" target="_blank" style="text-decoration:none;">
                 <img src="${staticMapUrl}" alt="Ver ubicación" style="border-radius:8px;border:1px solid #ddd;max-width:100%;display:block;height:200px;object-fit:cover;">
               </a>
             </div>
           `;
-            }
-        }
+      }
+    }
 
-        if (order.delivery?.photo) {
-            photoHtml = `
+    if (order.delivery?.photo) {
+      photoHtml = `
           <div style="margin-top: 12px; margin-bottom: 12px;">
             <p style="margin: 0 0 8px 0; font-size: 12px; color: #666;"><strong>Foto de referencia:</strong></p>
             <img src="${order.delivery.photo}" alt="Foto de referencia" style="border-radius:8px;border:1px solid #ddd;max-width:100%;height:200px;object-fit:cover;">
           </div>
         `;
-        }
     }
+  }
 
-    // Generar HTML de productos
-    let productsHtml = '<ul style="padding-left:20px; margin: 8px 0;">';
-    let itemCount = 0;
-    if (Array.isArray(order.items)) {
-        order.items.forEach(item => {
-            const itemTotal = (item.price * item.quantity).toFixed(2);
-            const variant = item.variant || '';
-            productsHtml += `
+  // Generar HTML de productos
+  let productsHtml = '<ul style="padding-left:20px; margin: 8px 0;">';
+  let itemCount = 0;
+  if (Array.isArray(order.items)) {
+    order.items.forEach(item => {
+      const itemTotal = (item.price * item.quantity).toFixed(2);
+      const variant = item.variant || '';
+      productsHtml += `
           <li style="margin-bottom:8px;">
             <strong>${item.name}</strong>${variant ? ` (${variant})` : ''}
             <br/>
             <small style="color: #666;">Cantidad: ${item.quantity} × $${item.price.toFixed(2)} = $${itemTotal}</small>
           </li>
         `;
-            itemCount++;
-        });
-    }
-    productsHtml += '</ul>';
+      itemCount++;
+    });
+  }
+  productsHtml += '</ul>';
 
-    // Información de pago
-    const paymentMethod = order.payment?.method || 'No especificado';
-    let paymentMethodText = '';
-    if (paymentMethod === 'cash') paymentMethodText = '💵 Efectivo';
-    else if (paymentMethod === 'transfer') paymentMethodText = '🏦 Transferencia';
-    else if (paymentMethod === 'mixed') paymentMethodText = '💳 Mixto';
+  // Información de pago
+  const paymentMethod = order.payment?.method || 'No especificado';
+  let paymentMethodText = '';
+  if (paymentMethod === 'cash') paymentMethodText = '💵 Efectivo';
+  else if (paymentMethod === 'transfer') paymentMethodText = '🏦 Transferencia';
+  else if (paymentMethod === 'mixed') paymentMethodText = '💳 Mixto';
 
-    let paymentDetailsHtml = '';
-    if (paymentMethod === 'mixed') {
-        const cash = order.payment?.cashAmount || 0;
-        const transfer = order.payment?.transferAmount || 0;
-        paymentDetailsHtml = `
+  let paymentDetailsHtml = '';
+  if (paymentMethod === 'mixed') {
+    const cash = order.payment?.cashAmount || 0;
+    const transfer = order.payment?.transferAmount || 0;
+    paymentDetailsHtml = `
         <tr>
           <td style="padding: 8px 0; border-bottom: 1px solid #eee; font-size: 12px;">💵 Efectivo:</td>
           <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right; font-size: 12px;">$${cash.toFixed(2)}</td>
@@ -631,46 +631,46 @@ async function sendDeliveryAssignmentEmail(order, orderId, deliveryEmail, custom
           <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right; font-size: 12px;">$${transfer.toFixed(2)}</td>
         </tr>
       `;
+  }
+
+  // Detalles de costo
+  const subtotal = order.subtotal || 0;
+  const total = order.total || 0;
+  let deliveryCost = order.delivery?.deliveryCost;
+  if (deliveryCost === undefined) {
+    deliveryCost = Math.max(0, total - subtotal);
+  }
+
+  // Formatear fecha y hora de entrega
+  let scheduledDateStr = 'Hoy';
+  let scheduledTimeStr = 'Lo antes posible';
+  let timingType = 'Inmediato';
+
+  if (order.timing?.type === 'scheduled') {
+    timingType = 'Programado';
+    const dateObj = order.timing.scheduledDate;
+    const seconds = dateObj?.seconds || dateObj?._seconds;
+    if (seconds) {
+      scheduledDateStr = new Date(seconds * 1000).toLocaleDateString('es-EC', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+      });
     }
+    scheduledTimeStr = order.timing.scheduledTime || 'No especificada';
+  }
 
-    // Detalles de costo
-    const subtotal = order.subtotal || 0;
-    const total = order.total || 0;
-    let deliveryCost = order.delivery?.deliveryCost;
-    if (deliveryCost === undefined) {
-        deliveryCost = Math.max(0, total - subtotal);
-    }
+  // Token/código único
+  const confirmToken = Buffer.from(`${orderId}|confirm`).toString('base64');
+  const discardToken = Buffer.from(`${orderId}|discard`).toString('base64');
 
-    // Formatear fecha y hora de entrega
-    let scheduledDateStr = 'Hoy';
-    let scheduledTimeStr = 'Lo antes posible';
-    let timingType = 'Inmediato';
+  // URLs de acción
+  const dashboardUrl = 'https://fuddi.shop/delivery/dashboard';
+  const confirmUrl = `https://fuddi.shop/api/delivery/handle-order?action=confirm&token=${confirmToken}`;
+  const discardUrl = `https://fuddi.shop/api/delivery/handle-order?action=discard&token=${discardToken}`;
 
-    if (order.timing?.type === 'scheduled') {
-        timingType = 'Programado';
-        const dateObj = order.timing.scheduledDate;
-        const seconds = dateObj?.seconds || dateObj?._seconds;
-        if (seconds) {
-            scheduledDateStr = new Date(seconds * 1000).toLocaleDateString('es-EC', {
-                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-            });
-        }
-        scheduledTimeStr = order.timing.scheduledTime || 'No especificada';
-    }
-
-    // Token/código único
-    const confirmToken = Buffer.from(`${orderId}|confirm`).toString('base64');
-    const discardToken = Buffer.from(`${orderId}|discard`).toString('base64');
-
-    // URLs de acción
-    const dashboardUrl = 'https://fuddi.shop/delivery/dashboard';
-    const confirmUrl = `https://fuddi.shop/api/delivery/handle-order?action=confirm&token=${confirmToken}`;
-    const discardUrl = `https://fuddi.shop/api/delivery/handle-order?action=discard&token=${discardToken}`;
-
-    // Header del negocio para el email
-    let businessHeaderHtml = '';
-    if (businessName !== 'Negocio') {
-        businessHeaderHtml = `
+  // Header del negocio para el email
+  let businessHeaderHtml = '';
+  if (businessName !== 'Negocio') {
+    businessHeaderHtml = `
         <table border="0" cellpadding="0" cellspacing="0" style="width: 100%; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
           <tr>
             <td width="50" style="vertical-align: middle; padding-right: 12px;">
@@ -695,9 +695,9 @@ async function sendDeliveryAssignmentEmail(order, orderId, deliveryEmail, custom
           </tr>
         </table>
       `;
-    }
+  }
 
-    const htmlContent = `
+  const htmlContent = `
       <div style="display: none; max-height: 0px; overflow: hidden;">
         📍 ${deliveryInfo}
       </div>
@@ -810,27 +810,27 @@ async function sendDeliveryAssignmentEmail(order, orderId, deliveryEmail, custom
       </div>
     `;
 
-    // Enviar email
-    const mailOptions = {
-        from: 'pedidos@fuddi.shop',
-        to: deliveryEmail,
-        subject: `🛵 Asignado - ${customerName} - ${businessName}`,
-        html: htmlContent
-    };
+  // Enviar email
+  const mailOptions = {
+    from: 'pedidos@fuddi.shop',
+    to: deliveryEmail,
+    subject: `🛵 Asignado - ${customerName} - ${businessName}`,
+    html: htmlContent
+  };
 
-    try {
-        await transporter.sendMail(mailOptions);
-        console.log(`✅ Email de nueva orden enviado a: ${deliveryEmail}`);
-    } catch (e) {
-        console.error(`❌ Error enviando email a delivery: ${e.message}`);
-    }
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Email de nueva orden enviado a: ${deliveryEmail}`);
+  } catch (e) {
+    console.error(`❌ Error enviando email a delivery: ${e.message}`);
+  }
 }
 
 /**
  * Enviar email de recordatorio
  */
 async function sendReminderEmail(order, orderId, recipients, scheduledTime, scheduledDateStr, customerName, customerPhone, deliveryInfo, previewText, productsHtml) {
-    const htmlContent = `
+  const htmlContent = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
       <!-- Preview text (visible in notification preview, hidden in email body) -->
       <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
@@ -894,24 +894,24 @@ async function sendReminderEmail(order, orderId, recipients, scheduledTime, sche
     </div>
   `;
 
-    // Enviar el email
-    const mailOptions = {
-        from: 'recordatorios@fuddi.shop',
-        to: recipients.join(', '),
-        subject: `⏰ Recordatorio: ${customerName}`,
-        html: htmlContent
-    };
+  // Enviar el email
+  const mailOptions = {
+    from: 'recordatorios@fuddi.shop',
+    to: recipients.join(', '),
+    subject: `⏰ Recordatorio: ${customerName}`,
+    html: htmlContent
+  };
 
-    await transporter.sendMail(mailOptions);
+  await transporter.sendMail(mailOptions);
 }
 
 module.exports = {
-    transporter,
-    sendOrderCreatedEmail,
-    sendBusinessCreatedEmail,
-    sendBusinessLoginEmail,
-    sendCheckoutProgressEmail,
-    sendDailySummaryEmail,
-    sendDeliveryAssignmentEmail,
-    sendReminderEmail
+  transporter,
+  sendOrderCreatedEmail,
+  sendBusinessCreatedEmail,
+  sendBusinessLoginEmail,
+  sendCheckoutProgressEmail,
+  sendDailySummaryEmail,
+  sendDeliveryAssignmentEmail,
+  sendReminderEmail
 };

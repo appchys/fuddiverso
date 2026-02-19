@@ -1215,7 +1215,7 @@ export default function TodayOrdersPage() {
                             </button>
 
                             {/* Live Checkouts Panel - Moved to bottom */}
-                            {businessId && <div className="p-4"><LiveCheckoutsPanel businessId={businessId} /></div>}
+                            {businessId && <div className="p-4"><LiveCheckoutsPanel businessId={businessId} orders={orders} /></div>}
 
                             <PaymentManagementModals
                                 isOpen={paymentModalOpen}

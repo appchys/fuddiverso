@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { formatDistanceToNow } from 'date-fns';
@@ -36,11 +36,12 @@ interface CheckoutSession {
     updatedAt: any;
 }
 
-export function LiveCheckoutsPanel({ businessId }: { businessId: string }) {
-    const [checkouts, setCheckouts] = useState<CheckoutSession[]>([]);
+export function LiveCheckoutsPanel({ businessId, orders = [] }: { businessId: string; orders?: any[] }) {
+    const [rawCheckouts, setRawCheckouts] = useState<CheckoutSession[]>([]);
     const [loading, setLoading] = useState(true);
     const [isExpanded, setIsExpanded] = useState(false);
 
+    // Fetch raw data from Firestore (no order-based filtering here to avoid stale closures)
     useEffect(() => {
         if (!businessId) return;
 
@@ -56,24 +57,35 @@ export function LiveCheckoutsPanel({ businessId }: { businessId: string }) {
                 ...doc.data()
             })) as CheckoutSession[];
 
-            // Filtrar checkouts inactivos (más de 30 mins sin actividad)
+            // Only apply time-based and step-based filters here
             const now = new Date();
             const filtered = activeCheckouts.filter(c => {
-                // Filter out completed checkouts (step 4 is success)
                 if (c.currentStep > 3) return false;
-
                 if (!c.updatedAt) return false;
                 const lastUpdate = c.updatedAt?.toDate ? c.updatedAt.toDate() : new Date(c.updatedAt);
                 const diffMins = (now.getTime() - lastUpdate.getTime()) / 60000;
                 return diffMins < 30;
             });
 
-            setCheckouts(filtered);
+            setRawCheckouts(filtered);
             setLoading(false);
         });
 
         return () => unsubscribe();
     }, [businessId]);
+
+    // Apply order-based filtering reactively (orders prop changes on each new order)
+    const checkouts = useMemo(() => {
+        if (rawCheckouts.length === 0) return [];
+        const orderPhones = new Set(
+            orders.map(o => o.customer?.phone).filter(Boolean)
+        );
+        return rawCheckouts.filter(c => {
+            const sessionPhone = c.customerData?.phone;
+            if (sessionPhone && orderPhones.has(sessionPhone)) return false;
+            return true;
+        });
+    }, [rawCheckouts, orders]);
 
     if (loading || checkouts.length === 0) return null;
 
