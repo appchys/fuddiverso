@@ -17,6 +17,12 @@ interface FieldDef {
     example: string
 }
 
+interface ActionButton {
+    text: string
+    type: 'url' | 'callback'
+    value: string
+}
+
 // ─── Config ──────────────────────────────────────────────────
 const RECIPIENTS: { key: Recipient; label: string; icon: string }[] = [
     { key: 'store', label: 'Tienda', icon: 'bi-shop' },
@@ -70,20 +76,121 @@ const EMOJI_GROUPS = [
     { label: 'Ubicación', emojis: ['📍', '🗺️', '📸', '🏠', '🏁', '🛒', '🚀', '🔗', '📋', '✍️'] },
 ]
 
+// ─── Default Templates (current hardcoded messages) ──────────
+const DEFAULT_TEMPLATES: Record<string, string> = {
+    // ── Tienda ──
+    store_new_order: `🛵 <b>{{businessName}}!</b>
+Hora estimada: {{scheduledTime}}
+
+<b>Datos del cliente</b>
+👤 Nombres: {{customerName}}
+📱 Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>
+
+<b>Datos de entrega</b>
+🗺️ <a href="{{mapsLink}}">Ver en Google Maps</a>
+{{deliveryAddress}}
+
+<b>Detalles del pedido</b>
+{{items}}
+
+<b>Detalles del pago</b>
+Pedido: {{subtotal}}
+Envío: {{deliveryCost}}
+
+{{paymentMethod}}
+💰 Valor a cobrar: {{total}}`,
+
+    store_confirmed: `✅ <b>Pedido confirmado</b>
+
+El pedido de <b>{{customerName}}</b> ha sido confirmado exitosamente.
+Se está buscando un repartidor.`,
+
+    store_delivery_accepted: `🛵 <b>¡Repartidor asignado!</b>
+
+El repartidor <b>{{deliveryName}}</b> ha aceptado el pedido de <b>{{customerName}}</b>.`,
+
+    // ── Delivery ──
+    delivery_assigned: `🛵 <b>[{{businessName}}]</b> tiene un pedido para ti!
+
+<b>Datos de entrega</b>
+🗺️ <a href="{{mapsLink}}">Ver en Google Maps</a>
+{{deliveryAddress}}
+
+<b>Detalles del pedido</b>
+{{items}}
+
+Envío: {{deliveryCost}}
+
+<b>Datos del cliente</b>
+👤 {{customerName}}`,
+
+    delivery_accepted: `🛵 <b>{{businessName}}!</b>
+Hora estimada: {{scheduledTime}}
+
+<b>Datos del cliente</b>
+👤 Nombres: {{customerName}}
+📱 Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>
+
+<b>Datos de entrega</b>
+🗺️ <a href="{{mapsLink}}">Ver en Google Maps</a>
+{{deliveryAddress}}
+
+<b>Detalles del pedido</b>
+{{items}}
+
+<b>Detalles del pago</b>
+Pedido: {{subtotal}}
+Envío: {{deliveryCost}}
+
+{{paymentMethod}}
+💰 Valor a cobrar: {{total}}`,
+
+    // ── Cliente ──
+    customer_confirmed: `✅ <b>¡Pedido Confirmado!</b>
+
+El negocio <b>{{businessName}}</b> ha aceptado tu pedido y comenzará a prepararlo pronto.`,
+
+    customer_preparing: `👨‍🍳 <b>¡Manos a la obra!</b>
+
+Están preparando tu pedido en <b>{{businessName}}</b>.`,
+
+    customer_ready: `🎉 <b>¡Tu pedido está listo!</b>
+
+Pronto será entregado o ya puedes pasar a retirarlo.`,
+
+    customer_on_way: `🚴 <b>¡Tu pedido va en camino!</b>
+
+El repartidor ya tiene tu orden y se dirige a tu ubicación.`,
+
+    customer_delivered: `🎊 <b>¡Pedido Entregado!</b>
+
+Gracias por comprar en <b>{{businessName}}</b>. ¡Buen provecho!`,
+
+    customer_cancelled: `❌ <b>Pedido Cancelado</b>
+
+Lo sentimos, tu pedido ha sido cancelado.`,
+}
+
 // ─── Component ───────────────────────────────────────────────
 export default function TelegramTemplateEditor() {
     const [recipient, setRecipient] = useState<Recipient>('store')
     const [event, setEvent] = useState('new_order')
     const [templateText, setTemplateText] = useState('')
     const [templates, setTemplates] = useState<Record<string, string>>({})
+    const [templateButtons, setTemplateButtons] = useState<Record<string, ActionButton[][]>>({})
     const [saving, setSaving] = useState(false)
     const [saved, setSaved] = useState(false)
     const [loading, setLoading] = useState(true)
     const [showEmojis, setShowEmojis] = useState(false)
     const [showFields, setShowFields] = useState(false)
+    const [showLinkCreator, setShowLinkCreator] = useState(false)
+    const [linkUrl, setLinkUrl] = useState('')
+    const [linkText, setLinkText] = useState('')
+    const [actionButtons, setActionButtons] = useState<ActionButton[][]>([])
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const emojiRef = useRef<HTMLDivElement>(null)
     const fieldsRef = useRef<HTMLDivElement>(null)
+    const linkRef = useRef<HTMLDivElement>(null)
 
     // Current template key
     const templateKey = `${recipient}_${event}`
@@ -93,8 +200,9 @@ export default function TelegramTemplateEditor() {
         const load = async () => {
             try {
                 setLoading(true)
-                const data = await getTelegramTemplates()
-                setTemplates(data)
+                const { templates: tpl, buttons: btn } = await getTelegramTemplates()
+                setTemplates(tpl)
+                setTemplateButtons(btn as Record<string, ActionButton[][]>)
             } catch (error) {
                 console.error('Error loading templates:', error)
             } finally {
@@ -106,9 +214,10 @@ export default function TelegramTemplateEditor() {
 
     // Update textarea when switching template
     useEffect(() => {
-        setTemplateText(templates[templateKey] || '')
+        setTemplateText(templates[templateKey] || DEFAULT_TEMPLATES[templateKey] || '')
+        setActionButtons(templateButtons[templateKey] || [])
         setSaved(false)
-    }, [recipient, event, templates, templateKey])
+    }, [recipient, event, templates, templateButtons, templateKey])
 
     // When recipient changes, reset event to first available
     useEffect(() => {
@@ -118,7 +227,7 @@ export default function TelegramTemplateEditor() {
         }
     }, [recipient])
 
-    // Close emoji/fields dropdown on outside click
+    // Close emoji/fields/link dropdown on outside click
     useEffect(() => {
         const handler = (e: MouseEvent) => {
             if (emojiRef.current && !emojiRef.current.contains(e.target as Node)) {
@@ -126,6 +235,9 @@ export default function TelegramTemplateEditor() {
             }
             if (fieldsRef.current && !fieldsRef.current.contains(e.target as Node)) {
                 setShowFields(false)
+            }
+            if (linkRef.current && !linkRef.current.contains(e.target as Node)) {
+                setShowLinkCreator(false)
             }
         }
         document.addEventListener('mousedown', handler)
@@ -199,11 +311,64 @@ export default function TelegramTemplateEditor() {
         setShowFields(false)
     }, [insertAtCursor])
 
+    const insertLink = useCallback(() => {
+        if (!linkUrl.trim()) return
+        const displayText = linkText.trim() || linkUrl.trim()
+        insertAtCursor(`<a href="${linkUrl.trim()}">${displayText}</a>`)
+        setLinkUrl('')
+        setLinkText('')
+        setShowLinkCreator(false)
+    }, [linkUrl, linkText, insertAtCursor])
+
+    // ─── Action Buttons ──────────────────────────────────────
+    const addButtonRow = () => {
+        setActionButtons(prev => [...prev, [{ text: '', type: 'url', value: '' }]])
+        setSaved(false)
+    }
+
+    const addButtonToRow = (rowIndex: number) => {
+        setActionButtons(prev => {
+            const updated = [...prev]
+            updated[rowIndex] = [...updated[rowIndex], { text: '', type: 'url', value: '' }]
+            return updated
+        })
+        setSaved(false)
+    }
+
+    const updateButton = (rowIndex: number, btnIndex: number, field: keyof ActionButton, value: string) => {
+        setActionButtons(prev => {
+            const updated = [...prev]
+            updated[rowIndex] = [...updated[rowIndex]]
+            updated[rowIndex][btnIndex] = { ...updated[rowIndex][btnIndex], [field]: value }
+            return updated
+        })
+        setSaved(false)
+    }
+
+    const removeButton = (rowIndex: number, btnIndex: number) => {
+        setActionButtons(prev => {
+            const updated = [...prev]
+            updated[rowIndex] = updated[rowIndex].filter((_, i) => i !== btnIndex)
+            if (updated[rowIndex].length === 0) {
+                return updated.filter((_, i) => i !== rowIndex)
+            }
+            return updated
+        })
+        setSaved(false)
+    }
+
     const handleSave = async () => {
         setSaving(true)
         try {
-            await saveTelegramTemplate(recipient, event, templateText)
+            // Clean empty buttons before saving
+            const cleanButtons = actionButtons
+                .map(row => row.filter(b => b.text.trim()))
+                .filter(row => row.length > 0)
+
+            await saveTelegramTemplate(recipient, event, templateText, cleanButtons.length > 0 ? cleanButtons : undefined)
             setTemplates(prev => ({ ...prev, [templateKey]: templateText }))
+            setTemplateButtons(prev => ({ ...prev, [templateKey]: cleanButtons }))
+            setActionButtons(cleanButtons)
             setSaved(true)
             setTimeout(() => setSaved(false), 3000)
         } catch (error) {
@@ -271,8 +436,8 @@ export default function TelegramTemplateEditor() {
                                     key={r.key}
                                     onClick={() => setRecipient(r.key)}
                                     className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all border ${recipient === r.key
-                                            ? 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm'
-                                            : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                                        ? 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm'
+                                        : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
                                         }`}
                                 >
                                     <i className={`bi ${r.icon}`}></i>
@@ -305,9 +470,14 @@ export default function TelegramTemplateEditor() {
                             <i className="bi bi-check-circle-fill"></i> Plantilla guardada
                         </span>
                     )}
-                    {!templates[templateKey] && (
+                    {!templates[templateKey] && DEFAULT_TEMPLATES[templateKey] && (
+                        <span className="text-xs text-blue-600 font-medium flex items-center gap-1">
+                            <i className="bi bi-file-earmark-text"></i> Borrador por defecto — edita y guarda
+                        </span>
+                    )}
+                    {!templates[templateKey] && !DEFAULT_TEMPLATES[templateKey] && (
                         <span className="text-xs text-amber-600 font-medium flex items-center gap-1">
-                            <i className="bi bi-exclamation-circle"></i> Sin plantilla — se usará texto por defecto
+                            <i className="bi bi-exclamation-circle"></i> Sin plantilla
                         </span>
                     )}
                 </div>
@@ -406,6 +576,85 @@ export default function TelegramTemplateEditor() {
                                 </div>
                             )}
                         </div>
+
+                        <div className="w-px h-6 bg-gray-200 mx-1"></div>
+
+                        {/* Link Creator */}
+                        <div className="relative" ref={linkRef}>
+                            <button
+                                onClick={() => {
+                                    setShowLinkCreator(!showLinkCreator)
+                                    setShowEmojis(false)
+                                    setShowFields(false)
+                                    // Pre-fill with selected text
+                                    if (!showLinkCreator && textareaRef.current) {
+                                        const ta = textareaRef.current
+                                        const sel = templateText.substring(ta.selectionStart, ta.selectionEnd)
+                                        if (sel) setLinkText(sel)
+                                    }
+                                }}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${showLinkCreator ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-200 text-gray-700'}`}
+                                title="Insertar Enlace"
+                            >
+                                <i className="bi bi-link-45deg"></i>
+                                Enlace
+                            </button>
+                            {showLinkCreator && (
+                                <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-gray-200 p-4 z-50 w-80">
+                                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Crear Enlace</p>
+                                    <div className="space-y-3">
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-600 mb-1">Texto a mostrar</label>
+                                            <input
+                                                type="text"
+                                                value={linkText}
+                                                onChange={e => setLinkText(e.target.value)}
+                                                placeholder="Ej: Ver en Google Maps"
+                                                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                autoFocus
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-600 mb-1">URL</label>
+                                            <input
+                                                type="text"
+                                                value={linkUrl}
+                                                onChange={e => setLinkUrl(e.target.value)}
+                                                placeholder="https://... o {{mapsLink}}"
+                                                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
+                                                onKeyDown={e => { if (e.key === 'Enter') insertLink() }}
+                                            />
+                                            <p className="text-[10px] text-gray-400 mt-1">Puedes usar campos como <code className="bg-gray-100 px-1 rounded">{'{{mapsLink}}'}</code> o <code className="bg-gray-100 px-1 rounded">{'{{whatsappLink}}'}</code></p>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={insertLink}
+                                                disabled={!linkUrl.trim()}
+                                                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors disabled:opacity-40"
+                                            >
+                                                <i className="bi bi-link-45deg"></i>
+                                                Insertar Enlace
+                                            </button>
+                                            <button
+                                                onClick={() => { setShowLinkCreator(false); setLinkUrl(''); setLinkText('') }}
+                                                className="px-3 py-2 text-gray-500 hover:text-gray-700 text-xs font-medium"
+                                            >
+                                                Cancelar
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {/* Preview */}
+                                    {linkUrl.trim() && (
+                                        <div className="mt-3 pt-3 border-t border-gray-100">
+                                            <p className="text-[10px] text-gray-400 mb-1">Vista previa del código:</p>
+                                            <code className="block text-[11px] bg-gray-50 px-2 py-1.5 rounded-lg text-gray-600 break-all">
+                                                {`<a href="${linkUrl.trim()}">${linkText.trim() || linkUrl.trim()}</a>`}
+                                            </code>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     {/* Textarea */}
@@ -472,6 +721,25 @@ export default function TelegramTemplateEditor() {
                                         </span>
                                     </div>
                                 </div>
+
+                                {/* Action Buttons Preview */}
+                                {actionButtons.length > 0 && actionButtons.some(row => row.some(b => b.text.trim())) && (
+                                    <div className="mt-2 space-y-1">
+                                        {actionButtons.map((row, ri) => (
+                                            <div key={ri} className="flex gap-1">
+                                                {row.filter(b => b.text.trim()).map((btn, bi) => (
+                                                    <div
+                                                        key={bi}
+                                                        className="flex-1 text-center py-2 px-3 bg-[#2b5278] rounded-lg text-[13px] font-medium text-blue-300 hover:bg-[#345e8a] transition-colors cursor-pointer"
+                                                    >
+                                                        {btn.type === 'url' && <i className="bi bi-box-arrow-up-right text-[10px] mr-1"></i>}
+                                                        {btn.text || 'Botón'}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="flex flex-col items-center justify-center h-64 text-gray-300">
@@ -490,6 +758,92 @@ export default function TelegramTemplateEditor() {
                         </p>
                     </div>
                 </div>
+            </div>
+
+            {/* Action Buttons Builder */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-indigo-50 rounded-lg">
+                            <i className="bi bi-grid-3x2-gap text-indigo-600"></i>
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-bold text-gray-900">Botones de Acción</h4>
+                            <p className="text-[10px] text-gray-400">Botones interactivos debajo del mensaje</p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={addButtonRow}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors border border-indigo-200"
+                    >
+                        <i className="bi bi-plus-lg"></i>
+                        Agregar Fila
+                    </button>
+                </div>
+
+                {actionButtons.length === 0 ? (
+                    <div className="text-center py-8 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
+                        <i className="bi bi-grid-3x2-gap text-3xl text-gray-300 mb-2"></i>
+                        <p className="text-sm text-gray-400 font-medium">Sin botones de acción</p>
+                        <p className="text-[10px] text-gray-300 mt-1">Agrega filas de botones que aparecerán debajo del mensaje</p>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {actionButtons.map((row, rowIndex) => (
+                            <div key={rowIndex} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Fila {rowIndex + 1}</span>
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            onClick={() => addButtonToRow(rowIndex)}
+                                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-0.5 px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+                                            title="Agregar botón a esta fila"
+                                        >
+                                            <i className="bi bi-plus text-xs"></i> Botón
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    {row.map((btn, btnIndex) => (
+                                        <div key={btnIndex} className="flex items-start gap-2 bg-white rounded-lg p-2.5 border border-gray-100">
+                                            <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                <input
+                                                    type="text"
+                                                    value={btn.text}
+                                                    onChange={e => updateButton(rowIndex, btnIndex, 'text', e.target.value)}
+                                                    placeholder="Texto del botón"
+                                                    className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                />
+                                                <select
+                                                    value={btn.type}
+                                                    onChange={e => updateButton(rowIndex, btnIndex, 'type', e.target.value)}
+                                                    className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none"
+                                                >
+                                                    <option value="url">🔗 URL</option>
+                                                    <option value="callback">⚡ Callback</option>
+                                                </select>
+                                                <input
+                                                    type="text"
+                                                    value={btn.value}
+                                                    onChange={e => updateButton(rowIndex, btnIndex, 'value', e.target.value)}
+                                                    placeholder={btn.type === 'url' ? 'https://...' : 'callback_data'}
+                                                    className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
+                                                />
+                                            </div>
+                                            <button
+                                                onClick={() => removeButton(rowIndex, btnIndex)}
+                                                className="p-1.5 text-gray-300 hover:text-red-500 transition-colors shrink-0"
+                                                title="Eliminar botón"
+                                            >
+                                                <i className="bi bi-trash3 text-xs"></i>
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* Quick Reference */}

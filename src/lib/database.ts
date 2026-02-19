@@ -4901,17 +4901,22 @@ export async function getAllSettlements(): Promise<Settlement[]> {
 export async function saveTelegramTemplate(
   recipient: string,
   event: string,
-  template: string
+  template: string,
+  buttons?: { text: string; type: string; value: string }[][]
 ): Promise<void> {
   try {
     const docId = `${recipient}_${event}`
     const docRef = doc(db, 'telegramTemplates', docId)
-    await setDoc(docRef, {
+    const data: Record<string, unknown> = {
       recipient,
       event,
       template,
       updatedAt: serverTimestamp()
-    }, { merge: true })
+    }
+    if (buttons !== undefined) {
+      data.buttons = buttons
+    }
+    await setDoc(docRef, data, { merge: true })
   } catch (error) {
     console.error('Error saving telegram template:', error)
     throw error
@@ -4920,20 +4925,27 @@ export async function saveTelegramTemplate(
 
 /**
  * Obtener todas las plantillas de Telegram
- * Retorna un mapa { "recipient_event": "template string", ... }
+ * Retorna { templates: { key: text }, buttons: { key: ActionButton[][] } }
  */
-export async function getTelegramTemplates(): Promise<Record<string, string>> {
+export async function getTelegramTemplates(): Promise<{
+  templates: Record<string, string>
+  buttons: Record<string, { text: string; type: string; value: string }[][]>
+}> {
   try {
     const snapshot = await getDocs(collection(db, 'telegramTemplates'))
     const templates: Record<string, string> = {}
+    const buttons: Record<string, { text: string; type: string; value: string }[][]> = {}
     snapshot.docs.forEach(d => {
       const data = d.data()
       const key = `${data.recipient}_${data.event}`
       templates[key] = data.template || ''
+      if (data.buttons) {
+        buttons[key] = data.buttons
+      }
     })
-    return templates
+    return { templates, buttons }
   } catch (error) {
     console.error('Error getting telegram templates:', error)
-    return {}
+    return { templates: {}, buttons: {} }
   }
 }
