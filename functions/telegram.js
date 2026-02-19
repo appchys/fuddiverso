@@ -6,10 +6,170 @@ const STORE_BOT_TOKEN = process.env.STORE_BOT_TOKEN;
 const DELIVERY_BOT_TOKEN = process.env.DELIVERY_BOT_TOKEN;
 const CUSTOMER_BOT_TOKEN = process.env.CUSTOMER_BOT_TOKEN;
 
+// ─── Template Engine ─────────────────────────────────────────
+let _templateCache = null;
+let _templateCacheTime = 0;
+const TEMPLATE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Obtener plantillas de Firestore con cache en memoria
+ */
+async function getTemplatesFromFirestore() {
+    const now = Date.now();
+    if (_templateCache && (now - _templateCacheTime) < TEMPLATE_CACHE_TTL) {
+        return _templateCache;
+    }
+    try {
+        const snapshot = await admin.firestore().collection('telegramTemplates').get();
+        const templates = {};
+        snapshot.docs.forEach(doc => {
+            const data = doc.data();
+            const key = `${data.recipient}_${data.event}`;
+            templates[key] = data.template || '';
+        });
+        _templateCache = templates;
+        _templateCacheTime = now;
+        return templates;
+    } catch (error) {
+        console.error('Error fetching telegram templates:', error);
+        return _templateCache || {};
+    }
+}
+
+/**
+ * Reemplazar {{variables}} en un template string
+ */
+function renderTemplate(templateString, variables) {
+    if (!templateString) return null;
+    let result = templateString;
+    for (const [key, value] of Object.entries(variables)) {
+        const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+        result = result.replace(regex, value != null ? String(value) : '');
+    }
+    return result;
+}
+
+/**
+ * Construir mapa de variables a partir de una orden
+ */
+function buildTemplateVariables(orderData, businessName, options = {}) {
+    const orderId = orderData.id || '';
+    const customerName = orderData.customer?.name || 'No especificado';
+    const phone = orderData.customer?.phone || '';
+    const total = orderData.total || 0;
+    const subtotal = orderData.subtotal || 0;
+    const deliveryCost = orderData.delivery?.deliveryCost !== undefined
+        ? orderData.delivery.deliveryCost
+        : Math.max(0, total - subtotal);
+    const paymentMethod = orderData.payment?.method || 'No especificado';
+    let paymentMethodText = '';
+    if (paymentMethod === 'cash') paymentMethodText = '💵 Efectivo';
+    else if (paymentMethod === 'transfer') paymentMethodText = '🏦 Transferencia';
+    else if (paymentMethod === 'mixed') paymentMethodText = '💳 Mixto';
+
+    const deliveryAddress = orderData.delivery?.type === 'pickup'
+        ? '🏪 Retiro en tienda'
+        : (orderData.delivery?.references || 'Dirección no especificada');
+    const deliveryType = orderData.delivery?.type || 'delivery';
+
+    // Timing
+    let scheduledTimeStr = 'Inmediato';
+    if (orderData.timing?.type === 'scheduled') {
+        scheduledTimeStr = orderData.timing.scheduledTime || 'Programado';
+    }
+
+    // Maps link
+    let mapsLink = '';
+    if (orderData.delivery?.latlong) {
+        const [lat, lng] = orderData.delivery.latlong.split(',').map(s => s.trim());
+        if (lat && lng) {
+            mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+        }
+    }
+
+    // Items text
+    let itemsText = '';
+    if (Array.isArray(orderData.items) && orderData.items.length > 0) {
+        const groupedItems = {};
+        orderData.items.forEach(item => {
+            const productName = item.name || 'Producto';
+            if (!groupedItems[productName]) groupedItems[productName] = [];
+            groupedItems[productName].push(item);
+        });
+        Object.keys(groupedItems).forEach(productName => {
+            const items = groupedItems[productName];
+            const hasVariants = items.some(item => item.variant && item.variant.trim() !== '');
+            if (hasVariants) {
+                itemsText += `${productName}\n`;
+                items.forEach(item => {
+                    itemsText += `( ${item.quantity || 1} ) ${item.variant || productName}\n`;
+                });
+            } else {
+                items.forEach(item => {
+                    itemsText += `( ${item.quantity || 1} ) ${productName}\n`;
+                });
+            }
+        });
+    }
+
+    // WhatsApp link
+    let whatsappLink = '';
+    if (phone) {
+        const formattedPhone = phone.replace(/^0/, '');
+        const waMessage = encodeURIComponent(`Hola, soy delivery de ${businessName}.`);
+        whatsappLink = `https://wa.me/593${formattedPhone}?text=${waMessage}`;
+    }
+
+    return {
+        businessName: businessName || 'Negocio',
+        customerName,
+        customerPhone: phone,
+        orderId: orderId.slice(0, 6),
+        total: `$${total.toFixed(2)}`,
+        subtotal: `$${subtotal.toFixed(2)}`,
+        deliveryCost: `$${deliveryCost.toFixed(2)}`,
+        paymentMethod: paymentMethodText,
+        deliveryAddress,
+        deliveryType,
+        scheduledTime: scheduledTimeStr,
+        items: itemsText.trim(),
+        mapsLink: mapsLink ? `<a href="${mapsLink}">Ver en Google Maps</a>` : '',
+        deliveryName: options.deliveryName || '',
+        whatsappLink: whatsappLink ? `<a href="${whatsappLink}">${phone}</a>` : (phone || ''),
+    };
+}
+
 /**
  * Función para formatear el mensaje de Telegram
+ * Intenta usar plantilla de Firestore primero, luego fallback a hardcoded.
  */
-function formatTelegramMessage(orderData, businessName, isAccepted = false) {
+async function formatTelegramMessage(orderData, businessName, isAccepted = false) {
+    // ─── Try template from Firestore ───
+    try {
+        const templates = await getTemplatesFromFirestore();
+        const templateKey = isAccepted ? 'store_new_order' : 'delivery_assigned';
+        const template = templates[templateKey];
+        if (template) {
+            const variables = buildTemplateVariables(orderData, businessName);
+            const rendered = renderTemplate(template, variables);
+            if (rendered) {
+                let mapsLink = '';
+                let locationImageLink = '';
+                if (orderData.delivery?.latlong) {
+                    const [lat, lng] = orderData.delivery.latlong.split(',').map(s => s.trim());
+                    if (lat && lng) {
+                        mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+                        locationImageLink = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=400x200&markers=color:red%7C${lat},${lng}&key=`;
+                    }
+                }
+                return { text: rendered, mapsLink, locationImageLink };
+            }
+        }
+    } catch (err) {
+        console.log('Template lookup failed, using hardcoded:', err.message);
+    }
+
+    // ─── Fallback: hardcoded message ───
     const orderId = orderData.id || '';
 
     // Información de entrega
@@ -326,7 +486,7 @@ async function handleStoreWebhook(req, res) {
                         const orderData = orderDoc.data();
                         // ACCIÓN SINCRONIZADA PARA LA TIENDA
                         const businessName = orderData.businessName || 'Tienda';
-                        const { text: telegramText } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+                        const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
 
                         const handlerName = callbackQuery.from.first_name || 'Alguien';
                         let finalStatusText = '';
@@ -396,7 +556,7 @@ async function updateBusinessTelegramMessage(orderData, orderId) {
         if (businessMessages.length === 0) return;
 
         const businessName = orderData.businessName || 'Tienda';
-        const { text: telegramText } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+        const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
 
         const handlerName = orderData.confirmedBy || 'Tienda';
         let finalStatusText = '';
@@ -583,7 +743,7 @@ async function handleDeliveryWebhook(req, res) {
                                 newText += `\n\n🎉 <b>Entregado</b>`;
 
                             } else if (action !== 'discard') {
-                                const { text: formattedText, mapsLink, locationImageLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+                                const { text: formattedText, mapsLink, locationImageLink } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
                                 newText = formattedText + `\n\n${statusLabel}`;
 
                                 replyMarkup = { inline_keyboard: [] };
@@ -835,26 +995,41 @@ async function sendCustomerTelegramNotification(orderData, orderId) {
     const status = orderData.status;
     let message = '';
 
-    // Emojis y mensajes según estado
-    if (status === 'confirmed') {
-        message = `✅ <b>¡Pedido Confirmado!</b>\n\nEl negocio <b>${businessName}</b> ha aceptado tu pedido y comenzará a prepararlo pronto.`;
-    } else if (status === 'preparing') {
-        message = `👨‍🍳 <b>¡Manos a la obra!</b>\n\nEstán preparando tu pedido en <b>${businessName}</b>.`;
-    } else if (status === 'ready') {
-        message = `🎉 <b>¡Tu pedido está listo!</b>\n\nPronto será entregado o ya puedes pasar a retirarlo.`;
-    } else if (status === 'on_way') {
-        if (orderData.delivery?.assignedDelivery) {
-            let deliveryName = 'Un repartidor';
-            // Intentar obtener nombre del repartidor si lo tenemos disponible o hacer fetch si es crítico
-            // Para simplicidad, usaremos un genérico o si ya viene en orderData (a veces se denormaliza)
-            message = `🚴 <b>¡Tu pedido va en camino!</b>\n\nEl repartidor ya tiene tu orden y se dirige a tu ubicación.`;
-        } else {
-            message = `🚴 <b>¡Tu pedido va en camino!</b>`;
+    // ─── Try template from Firestore ───
+    try {
+        const templates = await getTemplatesFromFirestore();
+        const templateKey = `customer_${status}`;
+        const template = templates[templateKey];
+        if (template) {
+            const variables = buildTemplateVariables(orderData, businessName);
+            const rendered = renderTemplate(template, variables);
+            if (rendered) {
+                message = rendered;
+            }
         }
-    } else if (status === 'delivered') {
-        message = `🎊 <b>¡Pedido Entregado!</b>\n\nGracias por comprar en <b>${businessName}</b>. ¡Buen provecho!`;
-    } else if (status === 'cancelled') {
-        message = `❌ <b>Pedido Cancelado</b>\n\nLo sentimos, tu pedido ha sido cancelado.`;
+    } catch (err) {
+        console.log('Customer template lookup failed, using hardcoded:', err.message);
+    }
+
+    // ─── Fallback: hardcoded messages ───
+    if (!message) {
+        if (status === 'confirmed') {
+            message = `✅ <b>¡Pedido Confirmado!</b>\n\nEl negocio <b>${businessName}</b> ha aceptado tu pedido y comenzará a prepararlo pronto.`;
+        } else if (status === 'preparing') {
+            message = `👨‍🍳 <b>¡Manos a la obra!</b>\n\nEstán preparando tu pedido en <b>${businessName}</b>.`;
+        } else if (status === 'ready') {
+            message = `🎉 <b>¡Tu pedido está listo!</b>\n\nPronto será entregado o ya puedes pasar a retirarlo.`;
+        } else if (status === 'on_way') {
+            if (orderData.delivery?.assignedDelivery) {
+                message = `🚴 <b>¡Tu pedido va en camino!</b>\n\nEl repartidor ya tiene tu orden y se dirige a tu ubicación.`;
+            } else {
+                message = `🚴 <b>¡Tu pedido va en camino!</b>`;
+            }
+        } else if (status === 'delivered') {
+            message = `🎊 <b>¡Pedido Entregado!</b>\n\nGracias por comprar en <b>${businessName}</b>. ¡Buen provecho!`;
+        } else if (status === 'cancelled') {
+            message = `❌ <b>Pedido Cancelado</b>\n\nLo sentimos, tu pedido ha sido cancelado.`;
+        }
     }
 
     if (message) {
@@ -869,7 +1044,7 @@ async function sendCustomerTelegramNotification(orderData, orderId) {
 
 async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId, businessName) {
     if (deliveryData && deliveryData.telegramChatId) {
-        const { text: telegramText, mapsLink, locationImageLink } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, false);
+        const { text: telegramText, mapsLink, locationImageLink } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, false);
 
         // Botones de acción
         const confirmToken = Buffer.from(`${orderId}|confirm`).toString('base64');
@@ -921,7 +1096,7 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     if (chatIds.length === 0) return;
 
     const businessName = businessData.name || 'Tienda';
-    const { text: telegramText } = formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+    const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
 
     const linkPreviewOptions = { is_disabled: true };
 

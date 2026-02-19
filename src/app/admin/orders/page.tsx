@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getAllBusinesses, updateOrderStatus, updateOrder, getDeliveriesByStatus } from '@/lib/database'
-import { Order, Business } from '@/types'
+import { getAllBusinesses, updateOrderStatus, updateOrder, getDeliveriesByStatus, getProductsByBusiness } from '@/lib/database'
+import { Order, Business, Product } from '@/types'
 import { db } from '@/lib/firebase'
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
 import OrderSidebar from '@/components/OrderSidebar'
+import ManualOrderSidebar from '@/components/ManualOrderSidebar'
 import { sendWhatsAppToDelivery } from '@/components/WhatsAppUtils'
 
 export default function OrderManagement() {
@@ -30,6 +31,12 @@ export default function OrderManagement() {
   const [isPickupExpanded, setIsPickupExpanded] = useState(false)
   const [showSearchBar, setShowSearchBar] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
+
+  // Estados para ManualOrderSidebar (editar orden)
+  const [isEditSidebarOpen, setIsEditSidebarOpen] = useState(false)
+  const [editOrder, setEditOrder] = useState<Order | null>(null)
+  const [editBusiness, setEditBusiness] = useState<Business | null>(null)
+  const [editProducts, setEditProducts] = useState<Product[]>([])
 
   const toggleMap = (orderId: string) => {
     setExpandedMaps(prev => ({
@@ -292,6 +299,22 @@ export default function OrderManagement() {
   const handleOpenOrderSidebar = (orderId: string) => {
     setSelectedOrderId(orderId)
     setIsOrderSidebarOpen(true)
+  }
+
+  const handleEditOrder = async (order: Order) => {
+    try {
+      const business = businesses.find(b => b.id === order.businessId) || null
+      setEditBusiness(business)
+      if (order.businessId) {
+        const prods = await getProductsByBusiness(order.businessId)
+        setEditProducts(prods)
+      }
+      setEditOrder(order)
+      setIsEditSidebarOpen(true)
+    } catch (error) {
+      console.error('Error loading edit data:', error)
+      alert('Error al cargar datos para editar')
+    }
   }
 
   const getTimeElapsed = (order: Order) => {
@@ -885,6 +908,13 @@ export default function OrderManagement() {
                   </div>
                   <div className="shrink-0 pb-0.5">
                     <button
+                      onClick={() => handleEditOrder(order)}
+                      className="w-10 h-10 flex items-center justify-center bg-white text-gray-400 rounded-xl hover:text-purple-600 active:bg-purple-50 transition-all border border-gray-100 shadow-sm"
+                      title="Editar Pedido"
+                    >
+                      <i className="bi bi-pencil-square text-lg"></i>
+                    </button>
+                    <button
                       onClick={() => handleOpenOrderSidebar(order.id!)}
                       className="w-10 h-10 flex items-center justify-center bg-white text-gray-400 rounded-xl hover:text-blue-600 active:bg-blue-50 transition-all border border-gray-100 shadow-sm"
                       title="Ver Detalle"
@@ -1101,7 +1131,14 @@ export default function OrderManagement() {
                               Retiro en tienda
                             </span>
                           </div>
-                          <div className="shrink-0">
+                          <div className="shrink-0 flex items-center gap-2">
+                            <button
+                              onClick={() => handleEditOrder(order)}
+                              className="w-10 h-10 flex items-center justify-center bg-white text-gray-400 rounded-xl hover:text-purple-600 active:bg-purple-50 transition-all border border-gray-100 shadow-sm"
+                              title="Editar Pedido"
+                            >
+                              <i className="bi bi-pencil-square text-lg"></i>
+                            </button>
                             <button
                               onClick={() => handleOpenOrderSidebar(order.id!)}
                               className="w-10 h-10 flex items-center justify-center bg-white text-gray-400 rounded-xl hover:text-blue-600 active:bg-blue-50 transition-all border border-gray-100 shadow-sm"
@@ -1327,7 +1364,14 @@ export default function OrderManagement() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleEditOrder(order)}
+                          className="p-1 text-gray-400 hover:text-purple-600 transition-colors"
+                          title="Editar Pedido"
+                        >
+                          <i className="bi bi-pencil-square text-lg"></i>
+                        </button>
                         <button
                           onClick={() => handleOpenOrderSidebar(order.id!)}
                           className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
@@ -1630,6 +1674,18 @@ export default function OrderManagement() {
         isOpen={isOrderSidebarOpen}
         onClose={() => setIsOrderSidebarOpen(false)}
         orderId={selectedOrderId || null}
+      />
+
+      {/* Sidebar de Editar Orden */}
+      <ManualOrderSidebar
+        isOpen={isEditSidebarOpen}
+        onClose={() => { setIsEditSidebarOpen(false); setEditOrder(null) }}
+        business={editBusiness}
+        products={editProducts}
+        onOrderCreated={() => { }}
+        mode="edit"
+        editOrder={editOrder}
+        onOrderUpdated={() => { setIsEditSidebarOpen(false); setEditOrder(null) }}
       />
     </div >
   )

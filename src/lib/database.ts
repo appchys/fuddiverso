@@ -4889,3 +4889,51 @@ export async function getAllSettlements(): Promise<Settlement[]> {
     return []
   }
 }
+
+// ============================================================================
+// PLANTILLAS DE TELEGRAM
+// ============================================================================
+
+/**
+ * Guardar o actualizar una plantilla de Telegram
+ * Doc ID = `${recipient}_${event}` (ej: "store_new_order")
+ */
+export async function saveTelegramTemplate(
+  recipient: string,
+  event: string,
+  template: string
+): Promise<void> {
+  try {
+    const docId = `${recipient}_${event}`
+    const docRef = doc(db, 'telegramTemplates', docId)
+    await setDoc(docRef, {
+      recipient,
+      event,
+      template,
+      updatedAt: serverTimestamp()
+    }, { merge: true })
+  } catch (error) {
+    console.error('Error saving telegram template:', error)
+    throw error
+  }
+}
+
+/**
+ * Obtener todas las plantillas de Telegram
+ * Retorna un mapa { "recipient_event": "template string", ... }
+ */
+export async function getTelegramTemplates(): Promise<Record<string, string>> {
+  try {
+    const snapshot = await getDocs(collection(db, 'telegramTemplates'))
+    const templates: Record<string, string> = {}
+    snapshot.docs.forEach(d => {
+      const data = d.data()
+      const key = `${data.recipient}_${data.event}`
+      templates[key] = data.template || ''
+    })
+    return templates
+  } catch (error) {
+    console.error('Error getting telegram templates:', error)
+    return {}
+  }
+}

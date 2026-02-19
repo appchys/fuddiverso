@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useEffect, Fragment } from 'react'
+import { useState, useEffect, Fragment, lazy, Suspense } from 'react'
+
+const TelegramTemplateEditor = lazy(() => import('@/components/TelegramTemplateEditor'))
 import {
   getAllOrders,
   getAllBusinesses,
@@ -38,7 +40,7 @@ export default function AdminDashboard() {
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'settlements'>('home')
+  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'settlements' | 'templates'>('home')
   // Estado para liquidaciones
   const [selectedSettlementBusiness, setSelectedSettlementBusiness] = useState<string | null>(null)
   const [processingSettlement, setProcessingSettlement] = useState(false)
@@ -1086,6 +1088,13 @@ export default function AdminDashboard() {
             <i className="bi bi-cash-coin md:hidden me-1.5"></i>
             Liquidaciones
           </button>
+          <button
+            onClick={() => setActiveTab('templates')}
+            className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'templates' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <i className="bi bi-chat-left-text md:hidden me-1.5"></i>
+            Plantillas
+          </button>
         </div>
       </div>
 
@@ -1535,6 +1544,10 @@ export default function AdminDashboard() {
         renderCustomersTab()
       ) : activeTab === 'settlements' ? (
         renderSettlementsTab()
+      ) : activeTab === 'templates' ? (
+        <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
+          <TelegramTemplateEditor />
+        </Suspense>
       ) : (
         renderRecommendersTab()
       )}
