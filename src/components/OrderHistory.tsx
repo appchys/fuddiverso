@@ -28,7 +28,7 @@ export default function OrderHistory({
   getOrderDateTime = (order) => new Date(order.createdAt),
   OrderRow
 }: OrderHistoryProps) {
-  const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set())
+  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set())
 
   // Categorizar órdenes
   const categorizedOrders = useMemo(() => {
@@ -46,9 +46,10 @@ export default function OrderHistory({
       return timeA - timeB
     })
 
+    // Past orders incluye hoy y anteriores
     const pastOrders = orders.filter(order => {
       const orderDate = getOrderDateTime(order)
-      return orderDate < today
+      return orderDate < tomorrow
     }).sort((a, b) => {
       const timeA = getOrderDateTime(a).getTime()
       const timeB = getOrderDateTime(b).getTime()
@@ -88,18 +89,18 @@ export default function OrderHistory({
       }))
   }
 
-  const toggleDateCollapse = (dateKey: string) => {
-    const newCollapsed = new Set(collapsedDates)
-    if (newCollapsed.has(dateKey)) {
-      newCollapsed.delete(dateKey)
+  const toggleDateExpansion = (dateKey: string) => {
+    const newExpanded = new Set(expandedDates)
+    if (newExpanded.has(dateKey)) {
+      newExpanded.delete(dateKey)
     } else {
-      newCollapsed.add(dateKey)
+      newExpanded.add(dateKey)
     }
-    setCollapsedDates(newCollapsed)
+    setExpandedDates(newExpanded)
   }
 
-  const { upcomingOrders, pastOrders } = categorizedOrders
-  const groupedPastOrders = groupOrdersByDate(pastOrders.slice(0, 100))
+  const { upcomingOrders } = categorizedOrders
+  const groupedPastOrders = groupOrdersByDate(orders.slice(0, 100))
 
   return (
     <div>
@@ -119,7 +120,7 @@ export default function OrderHistory({
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {upcomingOrders.map((order) => 
+                        {upcomingOrders.map((order) =>
                           OrderRow ? (
                             <OrderRow key={order.id} order={order} isToday={false} />
                           ) : (
@@ -157,9 +158,9 @@ export default function OrderHistory({
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-bold text-gray-900">
                     <i className="bi bi-archive me-2"></i>
-                    Historial de Pedidos ({pastOrders.length})
+                    Historial de Pedidos ({orders.length})
                   </h2>
-                  {pastOrders.length > 100 && (
+                  {orders.length > 100 && (
                     <span className="text-sm text-gray-500">
                       Mostrando los últimos 100 pedidos
                     </span>
@@ -168,12 +169,12 @@ export default function OrderHistory({
 
                 <div className="space-y-4">
                   {groupedPastOrders.map(({ date, orders }) => {
-                    const isCollapsed = collapsedDates.has(date)
+                    const isExpanded = expandedDates.has(date)
                     return (
                       <div key={date} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                         {/* Header de fecha colapsable */}
                         <button
-                          onClick={() => toggleDateCollapse(date)}
+                          onClick={() => toggleDateExpansion(date)}
                           className="w-full px-4 py-3 bg-gray-50 border-b border-gray-200 text-left hover:bg-gray-100 transition-colors"
                         >
                           <div className="flex items-center justify-between">
@@ -187,13 +188,13 @@ export default function OrderHistory({
                               <span className="text-sm text-gray-500 mr-2">
                                 ${orders.reduce((sum, order) => sum + (order.total || 0), 0).toFixed(2)} total
                               </span>
-                              <i className={`bi ${isCollapsed ? 'bi-chevron-down' : 'bi-chevron-up'} text-gray-400`}></i>
+                              <i className={`bi ${isExpanded ? 'bi-chevron-up' : 'bi-chevron-down'} text-gray-400`}></i>
                             </div>
                           </div>
                         </button>
 
                         {/* Tabla de pedidos (colapsable) */}
-                        {!isCollapsed && (
+                        {isExpanded && (
                           <div className="overflow-x-auto">
                             <table className="w-full">
                               <tbody className="bg-white divide-y divide-gray-200">

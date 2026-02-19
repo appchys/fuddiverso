@@ -97,7 +97,9 @@ export default function BusinessDashboard() {
   const [historicalOrders, setHistoricalOrders] = useState<Order[]>([])
   const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet'>('orders')
+  const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist'>('orders')
+
+  // ... (other state variables remain the same)
 
   const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>('general')
   const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
@@ -108,6 +110,51 @@ export default function BusinessDashboard() {
   const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today') // Nueva pestaña para pedidos
   const [historyLoaded, setHistoryLoaded] = useState(false) // Control para carga lazy del historial
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(businessId)
+
+  // Handle tab navigation
+  useEffect(() => {
+    if (activeTab !== 'orders') {
+      // Si es checklist, redirigir a la página de pedidos con tab=checklist
+      if (activeTab === 'checklist') {
+        router.push(`/business/orders/today?tab=checklist`)
+        return;
+      }
+
+      const queryParams = new URLSearchParams()
+      queryParams.set('tab', activeTab)
+
+      if (activeTab === 'profile') queryParams.set('profileSubTab', profileSubTab)
+      if (activeTab === 'reports') queryParams.set('reportsSubTab', reportsSubTab)
+
+      router.push(`/business/dashboard?${queryParams.toString()}`)
+    }
+  }, [activeTab, profileSubTab, reportsSubTab, router])
+
+  // Manejar navegación profunda desde URL (tab y subtab)
+  useEffect(() => {
+    if (loading || !selectedBusinessId) return;
+
+    const query = new URLSearchParams(window.location.search);
+    const tab = query.get('tab');
+    const subtab = query.get('subtab');
+
+    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes', 'stats', 'wallet', 'checklist'].includes(tab)) {
+
+      setActiveTab(tab as any);
+      if (tab === 'profile') {
+        setIsTiendaMenuOpen(true);
+        if (subtab && ['general', 'products', 'fidelizacion', 'notifications'].includes(subtab)) {
+          setProfileSubTab(subtab as any);
+        }
+      }
+      if (tab === 'reports') {
+        setIsReportsMenuOpen(true);
+        if (subtab && ['general', 'deliveries', 'costs'].includes(subtab)) {
+          setReportsSubTab(subtab as any);
+        }
+      }
+    }
+  }, [loading, selectedBusinessId]);
   const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null) // Nuevo estado
   const [manualSidebarMode, setManualSidebarMode] = useState<'create' | 'edit'>('create')
   const [editingOrderForSidebar, setEditingOrderForSidebar] = useState<Order | null>(null)
@@ -2766,7 +2813,7 @@ export default function BusinessDashboard() {
           user={user}
           onLogout={logout}
         />
-        <div className="flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full">
+        <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full ${sidebarOpen ? 'lg:ml-72' : ''}`}>
           {/* Header - ahora dentro del contenedor scrollable */}
           <header className="bg-white shadow-sm border-b sticky top-0 z-10">
             <div className="px-4 sm:px-6">

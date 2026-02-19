@@ -914,6 +914,31 @@ export async function getOrdersByBusiness(businessId: string): Promise<Order[]> 
   }
 }
 
+// Obtiene todos los pedidos del negocio sin filtros de estado o fecha
+export async function getOrdersByBusinessComplete(businessId: string): Promise<Order[]> {
+  try {
+    const q = query(
+      collection(db, 'orders'),
+      where('businessId', '==', businessId)
+    )
+    const querySnapshot = await getDocs(q)
+    const orders = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: parseCreatedAt(doc.data().createdAt)
+    })) as Order[]
+
+    return orders.sort((a, b) => {
+      const dateA = getOrderReferenceDate(a)
+      const dateB = getOrderReferenceDate(b)
+      return dateB.getTime() - dateA.getTime()
+    })
+  } catch (error) {
+    console.error('Error getting complete orders:', error)
+    throw error
+  }
+}
+
 
 // Obtiene solo los pedidos recientes (de hoy en adelante) para un negocio específico.
 // Esto se usa para el dashboard en la pestaña de "Hoy" para evitar cargar

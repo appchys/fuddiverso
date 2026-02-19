@@ -1,13 +1,13 @@
 'use client'
 
 import React from 'react'
-import { useRouter } from 'next/navigation'
+
 
 interface DashboardSidebarProps {
     sidebarOpen: boolean
     setSidebarOpen: (open: boolean) => void
-    activeTab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet'
-    setActiveTab: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet') => void
+    activeTab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist'
+    setActiveTab: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist') => void
 
     profileSubTab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'
     setProfileSubTab: (tab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins') => void
@@ -21,6 +21,8 @@ interface DashboardSidebarProps {
     isIOS: boolean
     needsUserAction: boolean
     requestPermission: () => void
+    ordersSubTab?: 'today' | 'history'
+    setOrdersSubTab?: (tab: 'today' | 'history') => void
     // User info
     user: {
         email?: string | null
@@ -48,9 +50,10 @@ export default function DashboardSidebar({
     needsUserAction,
     requestPermission,
     user,
-    onLogout
+    onLogout,
+    ordersSubTab = 'today',
+    setOrdersSubTab
 }: DashboardSidebarProps) {
-    const router = useRouter()
 
     return (
         <div className={`
@@ -72,22 +75,54 @@ export default function DashboardSidebar({
                 <nav className="space-y-2">
 
 
-                    <button
-                        onClick={() => {
-                            setActiveTab('orders')
-                            setSidebarOpen(false)
-                        }}
-                        className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'orders'
-                            ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                            : 'text-gray-700 hover:bg-gray-50'
-                            }`}
-                    >
-                        <span className="material-symbols-rounded me-3 text-lg">receipt_long</span>
-                        <span className="font-medium">Pedidos</span>
-                        <span className="ml-auto bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs">
-                            {ordersCount}
-                        </span>
-                    </button>
+                    <div className="space-y-1">
+                        <button
+                            onClick={() => {
+                                setActiveTab('checklist')
+                                setSidebarOpen(false)
+                            }}
+                            className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'checklist'
+                                ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                                : 'text-gray-700 hover:bg-gray-50'
+                                }`}
+                        >
+                            <span className="material-symbols-rounded me-3 text-lg">space_dashboard</span>
+                            <span className="font-medium">Inicio</span>
+                        </button>
+
+                        <button
+                            onClick={() => {
+                                setActiveTab('orders')
+                                setOrdersSubTab?.('today')
+                                setSidebarOpen(false)
+                            }}
+                            className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'orders' && ordersSubTab === 'today'
+                                ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                                : 'text-gray-700 hover:bg-gray-50'
+                                }`}
+                        >
+                            <span className="material-symbols-rounded me-3 text-lg">receipt_long</span>
+                            <span className="font-medium">Pedidos de hoy</span>
+                            <span className="ml-auto bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs">
+                                {ordersCount}
+                            </span>
+                        </button>
+
+                        <button
+                            onClick={() => {
+                                setActiveTab('orders')
+                                setOrdersSubTab?.('history')
+                                setSidebarOpen(false)
+                            }}
+                            className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'orders' && ordersSubTab === 'history'
+                                ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                                : 'text-gray-700 hover:bg-gray-50'
+                                }`}
+                        >
+                            <span className="material-symbols-rounded me-3 text-lg">history</span>
+                            <span className="font-medium">Historial de pedidos</span>
+                        </button>
+                    </div>
 
                     <button
                         onClick={() => {
@@ -129,10 +164,6 @@ export default function DashboardSidebar({
                                     <button
                                         key={sub.id}
                                         onClick={() => {
-                                            if (sub.id === 'general') {
-                                                router.push('/business/profile/edit')
-                                                return
-                                            }
                                             setActiveTab('profile')
                                             setProfileSubTab(sub.id as any)
                                             setSidebarOpen(false)

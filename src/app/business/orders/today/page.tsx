@@ -1,7 +1,8 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { Business, Order, Delivery, Product } from '@/types'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { db } from '@/lib/firebase'
@@ -16,7 +17,12 @@ import {
     updateOrderStatus,
     updateBusiness,
     getUserBusinessAccess,
-    getTodayVisitsDocRef
+    getTodayVisitsDocRef,
+    getHistoricalOrdersByBusiness,
+    getOrdersByBusinessComplete,
+    uploadImage,
+    addBusinessAdministrator,
+    removeBusinessAdministrator
 } from '@/lib/database'
 import {
     sendWhatsAppToDelivery,
@@ -32,12 +38,29 @@ import { auth } from '@/lib/firebase'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import DashboardSidebar from '@/components/DashboardSidebar'
 import ProductList from '@/components/ProductList'
+import DayPreflightChecklist from '@/components/DayPreflightChecklist'
 
 // Helper function to check point in polygon (if not imported, but we added it to imports above)
 // If isPointInPolygon is not exported from @/lib/database, we might need to define it here or import it.
 // Assuming it is exported based on dashboard/page.tsx usage.
 
-// ... existing code ...
+// dynamic loading for history
+const OrderHistory = dynamic(() => import('@/components/OrderHistory'), {
+    loading: () => (
+        <div className="flex justify-center items-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
+        </div>
+    ),
+    ssr: false
+})
+
+// Lazy-loaded SPA tab components
+const StatisticsView = dynamic(() => import('@/components/StatisticsView'), { ssr: false })
+const WalletView = dynamic(() => import('@/components/WalletView'), { ssr: false })
+const IngredientStockManagement = dynamic(() => import('@/components/IngredientStockManagement'), { ssr: false })
+const CostReports = dynamic(() => import('@/components/CostReports'), { ssr: false })
+const BusinessProfileDashboard = dynamic(() => import('@/components/BusinessProfileDashboard'), { ssr: false })
+const BusinessProfileEditor = dynamic(() => import('@/components/BusinessProfileEditor'), { ssr: false })
 
 // Auto-assign logic
 const autoAssignDeliveryForOrder = async (order: Order): Promise<string | undefined> => {
@@ -167,27 +190,24 @@ export default function TodayOrdersPage() {
     } = pushNotifications || {} as any
 
     // Sidebar State
-    const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet'>('orders')
+    const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist'>('orders')
     const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>('general')
     const [reportsSubTab, setReportsSubTab] = useState<'general' | 'deliveries' | 'costs'>('general')
     const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
     const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false)
 
-    // Handle tab navigation
+    // Read tab from URL on mount (deep-link support)
     useEffect(() => {
-        if (activeTab !== 'orders') {
-            // Si es la pestaña de productos, no redirigir (SPA mode)
-            if (activeTab === 'profile' && profileSubTab === 'products') return;
-
-            const queryParams = new URLSearchParams()
-            queryParams.set('tab', activeTab)
-
-            if (activeTab === 'profile') queryParams.set('profileSubTab', profileSubTab)
-            if (activeTab === 'reports') queryParams.set('reportsSubTab', reportsSubTab)
-
-            router.push(`/business/dashboard?${queryParams.toString()}`)
+        const params = new URLSearchParams(window.location.search)
+        const tab = params.get('tab')
+        if (tab) {
+            setActiveTab(tab as any)
+            const pSub = params.get('profileSubTab')
+            if (pSub) setProfileSubTab(pSub as any)
+            const rSub = params.get('reportsSubTab')
+            if (rSub) setReportsSubTab(rSub as any)
         }
-    }, [activeTab, profileSubTab, reportsSubTab, router])
+    }, [])
 
     // activeTab removed (was 'orders') - now we use orders state directly
     const [orders, setOrders] = useState<Order[]>([])
@@ -195,6 +215,12 @@ export default function TodayOrdersPage() {
     const [availableDeliveries, setAvailableDeliveries] = useState<Delivery[]>([])
     const [business, setBusiness] = useState<Business | null>(null)
     const [products, setProducts] = useState<Product[]>([])
+
+    // Sub-tab state for Orders
+    const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today')
+    const [historicalOrders, setHistoricalOrders] = useState<Order[]>([])
+    const [historyLoading, setHistoryLoading] = useState(false)
+    const [historyLoaded, setHistoryLoaded] = useState(false)
 
     // ... existing modal states ...
     const [paymentModalOpen, setPaymentModalOpen] = useState(false)
@@ -212,6 +238,8 @@ export default function TodayOrdersPage() {
 
     // ProductList specific state
     const [categories, setCategories] = useState<string[]>([])
+    const [productsLoaded, setProductsLoaded] = useState(false)
+    const [productsLoading, setProductsLoading] = useState(false)
 
     useEffect(() => {
         if (business?.categories) {
@@ -234,6 +262,178 @@ export default function TodayOrdersPage() {
             setBusiness(prev => prev ? { ...prev, [field]: value } : null)
         } catch (error) {
             console.error("Error updating business", error)
+        }
+    }
+
+    // === Profile Editing State (for BusinessProfileDashboard) ===
+    const [editedBusiness, setEditedBusiness] = useState<Business | null>(null)
+    const [isEditingProfile, setIsEditingProfile] = useState(false)
+    const [uploadingCover, setUploadingCover] = useState(false)
+    const [uploadingProfile, setUploadingProfile] = useState(false)
+    const [uploadingLocation, setUploadingLocation] = useState(false)
+    const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null)
+    const [savingProfile, setSavingProfile] = useState(false)
+
+    // Determine user role
+    useEffect(() => {
+        if (!business || !user) return
+        const isOwner = business.ownerId === user.uid
+        if (isOwner) {
+            setUserRole('owner')
+        } else {
+            const adminEntry = business.administrators?.find(a => a.email === user.email)
+            setUserRole(adminEntry?.role as any || 'admin')
+        }
+    }, [business, user])
+
+    const handleEditProfile = () => {
+        setIsEditingProfile(true)
+        setEditedBusiness(business ? { ...business } : null)
+    }
+
+    const handleCancelEdit = () => {
+        setIsEditingProfile(false)
+        setEditedBusiness(null)
+    }
+
+    const handleSaveProfile = async () => {
+        if (!editedBusiness) return
+        try {
+            await updateBusiness(editedBusiness.id, editedBusiness)
+            setBusiness(editedBusiness)
+            setBusinesses(prev => prev.map(b => b.id === editedBusiness.id ? editedBusiness : b))
+            setIsEditingProfile(false)
+            setEditedBusiness(null)
+            alert('Información actualizada exitosamente')
+        } catch (error) {
+            alert('Error al guardar los cambios. Inténtalo de nuevo.')
+        }
+    }
+
+    const handleBusinessFieldChange = (field: keyof Business, value: any) => {
+        if (!editedBusiness) return
+        setEditedBusiness({ ...editedBusiness, [field]: value })
+    }
+
+    const handleScheduleFieldChange = (day: string, key: 'open' | 'close' | 'isOpen', value: any) => {
+        if (!editedBusiness) return
+        const schedule = editedBusiness.schedule ? { ...editedBusiness.schedule } : {} as any
+        const dayObj = schedule[day] ? { ...schedule[day] } : { open: '09:00', close: '18:00', isOpen: true }
+        dayObj[key] = value
+        schedule[day] = dayObj
+        setEditedBusiness({ ...editedBusiness, schedule })
+    }
+
+    const handleToggleDayOpen = (day: string) => {
+        if (!editedBusiness) return
+        const schedule = editedBusiness.schedule ? { ...editedBusiness.schedule } : {} as any
+        const dayObj = schedule[day] ? { ...schedule[day] } : { open: '09:00', close: '18:00', isOpen: true }
+        dayObj.isOpen = !dayObj.isOpen
+        schedule[day] = dayObj
+        setEditedBusiness({ ...editedBusiness, schedule })
+    }
+
+    const handleCoverImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0]
+        if (!file || !business) return
+        setUploadingCover(true)
+        try {
+            const path = `businesses/covers/${business.id}_${Date.now()}_${file.name}`
+            const imageUrl = await uploadImage(file, path)
+            await updateBusiness(business.id, { coverImage: imageUrl })
+            const updatedBusiness = { ...business, coverImage: imageUrl }
+            setBusiness(updatedBusiness)
+            if (editedBusiness?.id === business.id) setEditedBusiness({ ...editedBusiness, coverImage: imageUrl })
+            setBusinesses(prev => prev.map(b => b.id === business.id ? updatedBusiness : b))
+        } catch (error) {
+            alert('Error al subir la imagen de portada.')
+        } finally {
+            setUploadingCover(false)
+        }
+    }
+
+    const handleProfileImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0]
+        if (!file || !business) return
+        setUploadingProfile(true)
+        try {
+            const path = `businesses/profiles/${business.id}_${Date.now()}_${file.name}`
+            const imageUrl = await uploadImage(file, path)
+            await updateBusiness(business.id, { image: imageUrl })
+            const updatedBusiness = { ...business, image: imageUrl }
+            setBusiness(updatedBusiness)
+            if (editedBusiness?.id === business.id) setEditedBusiness({ ...editedBusiness, image: imageUrl })
+            setBusinesses(prev => prev.map(b => b.id === business.id ? updatedBusiness : b))
+        } catch (error) {
+            alert('Error al subir la imagen de perfil.')
+        } finally {
+            setUploadingProfile(false)
+        }
+    }
+
+    const handleLocationImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0]
+        if (!file || !business) return
+        setUploadingLocation(true)
+        try {
+            const path = `businesses/locations/${business.id}_${Date.now()}_${file.name}`
+            const imageUrl = await uploadImage(file, path)
+            await updateBusiness(business.id, { locationImage: imageUrl })
+            const updatedBusiness = { ...business, locationImage: imageUrl }
+            setBusiness(updatedBusiness)
+            if (editedBusiness?.id === business.id) setEditedBusiness({ ...editedBusiness, locationImage: imageUrl })
+            setBusinesses(prev => prev.map(b => b.id === business.id ? updatedBusiness : b))
+        } catch (error) {
+            alert('Error al subir la foto del local.')
+        } finally {
+            setUploadingLocation(false)
+        }
+    }
+
+    const handleRemoveAdmin = async (adminEmail: string) => {
+        if (!business || !confirm('¿Estás seguro de que quieres remover este administrador?')) return
+        try {
+            await removeBusinessAdministrator(business.id, adminEmail)
+            const updatedBusiness = await getBusiness(business.id)
+            if (updatedBusiness) {
+                setBusiness(updatedBusiness)
+                setBusinesses(prev => prev.map(b => b.id === business.id ? updatedBusiness : b))
+            }
+            alert('Administrador removido exitosamente')
+        } catch (error: any) {
+            alert(error.message || 'Error al remover administrador')
+        }
+    }
+
+    const handleTransferOwnership = async (admin: any) => {
+        if (!business || !user) return
+        if (!admin.uid) {
+            alert('Este administrador aún no ha vinculado su cuenta. No se puede transferir la propiedad.')
+            return
+        }
+        if (!confirm(`¿Estás SEGURO de que quieres transferir la propiedad de "${business.name}" a ${admin.email}?`)) return
+        try {
+            const { transferBusinessOwnership } = await import('@/lib/database')
+            await transferBusinessOwnership(business.id, admin.email, admin.uid, user.uid, user.email || '')
+            alert('¡Propiedad transferida exitosamente! El dashboard se recargará.')
+            window.location.reload()
+        } catch (error: any) {
+            alert(error.message || 'Error al transferir propiedad')
+        }
+    }
+
+    // Handler for BusinessProfileEditor (Generales tab)
+    const handleSaveProfileGeneral = async (updatedData: Partial<Business>) => {
+        if (!business) return
+        setSavingProfile(true)
+        try {
+            await updateBusiness(business.id, { ...updatedData, updatedAt: new Date() })
+            setBusiness(prev => prev ? { ...prev, ...updatedData } : null)
+            alert('Información actualizada exitosamente')
+        } catch (error) {
+            alert('Error al guardar los cambios. Inténtalo de nuevo.')
+        } finally {
+            setSavingProfile(false)
         }
     }
 
@@ -279,19 +479,34 @@ export default function TodayOrdersPage() {
         return () => unsubscribe()
     }, [businessId])
 
-    // Fetch products
+    // Fetch products (Lazy loading)
+    useEffect(() => {
+        // Reset products state when business changes
+        setProductsLoaded(false)
+        setProducts([])
+    }, [businessId])
+
     useEffect(() => {
         if (!businessId) return
-        const fetchProducts = async () => {
-            try {
-                const productsData = await getProductsByBusiness(businessId)
-                setProducts(productsData)
-            } catch (error) {
-                console.error("Error fetching products", error)
+
+        const shouldLoad = (activeTab === 'profile' && profileSubTab === 'products') || manualOrderSidebarOpen
+
+        if (shouldLoad && !productsLoaded && !productsLoading) {
+            const fetchProducts = async () => {
+                setProductsLoading(true)
+                try {
+                    const productsData = await getProductsByBusiness(businessId)
+                    setProducts(productsData)
+                    setProductsLoaded(true)
+                } catch (error) {
+                    console.error("Error fetching products", error)
+                } finally {
+                    setProductsLoading(false)
+                }
             }
+            fetchProducts()
         }
-        fetchProducts()
-    }, [businessId])
+    }, [businessId, activeTab, profileSubTab, manualOrderSidebarOpen, productsLoaded, productsLoading])
 
     // Fetch active deliveries
     useEffect(() => {
@@ -342,8 +557,11 @@ export default function TodayOrdersPage() {
                 snapshot.docChanges().forEach(change => {
                     if (change.type === 'added') {
                         // Verificar si el pedido es de hoy antes de sonar
-                        const orderData = change.doc.data()
-                        const orderDate = toSafeDate(orderData.createdAt)
+                        const orderData = change.doc.data() as Order
+                        const orderDate = orderData.timing?.type === 'scheduled' && orderData.timing.scheduledDate
+                            ? toSafeDate(orderData.timing.scheduledDate)
+                            : toSafeDate(orderData.createdAt)
+
                         if (orderDate >= startOfDay && orderDate < endOfDay) {
                             playNotificationSound()
                         }
@@ -359,7 +577,9 @@ export default function TodayOrdersPage() {
 
             // Filter for today's orders
             const todayOrders = allOrders.filter(order => {
-                const orderDate = toSafeDate(order.createdAt)
+                const orderDate = order.timing?.type === 'scheduled' && order.timing.scheduledDate
+                    ? toSafeDate(order.timing.scheduledDate)
+                    : toSafeDate(order.createdAt)
                 return orderDate >= startOfDay && orderDate < endOfDay
             })
 
@@ -385,6 +605,28 @@ export default function TodayOrdersPage() {
 
         return () => unsubscribe()
     }, [businessId])
+
+    // Load History
+    const loadHistory = async () => {
+        if (!businessId || historyLoading || historyLoaded) return
+        setHistoryLoading(true)
+        try {
+            // Obtenemos todos los pedidos para el historial completo
+            const data = await getOrdersByBusinessComplete(businessId)
+            setHistoricalOrders(data)
+            setHistoryLoaded(true)
+        } catch (error) {
+            console.error("Error loading history", error)
+        } finally {
+            setHistoryLoading(false)
+        }
+    }
+
+    useEffect(() => {
+        if (ordersSubTab === 'history' || (!loading && orders.length === 0)) {
+            loadHistory()
+        }
+    }, [ordersSubTab, businessId, loading, orders.length])
 
     // Load all user businesses for dropdown
     useEffect(() => {
@@ -584,9 +826,11 @@ export default function TodayOrdersPage() {
                     requestPermission={requestPermission}
                     user={user}
                     onLogout={handleLogout}
+                    ordersSubTab={ordersSubTab}
+                    setOrdersSubTab={setOrdersSubTab}
                 />
 
-                <div className="flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full lg:ml-72">
+                <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full ${sidebarOpen ? 'lg:ml-72' : ''}`}>
                     {/* Header */}
                     <header className="bg-white shadow-sm border-b sticky top-0 z-10 w-full">
                         <div className="px-4 sm:px-6">
@@ -599,9 +843,15 @@ export default function TodayOrdersPage() {
                                         <i className="bi bi-list text-2xl"></i>
                                     </button>
 
-                                    <div className="text-xl sm:text-2xl font-bold text-red-600">
+                                    <button
+                                        onClick={() => {
+                                            setActiveTab('orders')
+                                            setOrdersSubTab('today')
+                                        }}
+                                        className="text-xl sm:text-2xl font-bold text-red-600 hover:opacity-80 transition-opacity"
+                                    >
                                         Fuddi
-                                    </div>
+                                    </button>
                                     <span className="hidden sm:inline text-gray-600">Pedidos de Hoy</span>
                                 </div>
 
@@ -734,172 +984,287 @@ export default function TodayOrdersPage() {
                     </header>
 
                     {/* Main Content Area: Conditional Rendering */}
-                    {activeTab === 'profile' && profileSubTab === 'products' ? (
+                    {activeTab === 'checklist' ? (
                         <div className="p-4 sm:p-6">
-                            <ProductList
+                            <DayPreflightChecklist
                                 business={business}
-                                products={products}
-                                categories={categories}
-                                onProductsChange={handleProductsChange}
-                                onCategoriesChange={handleCategoriesChange}
-                                onDirectUpdate={handleDirectUpdate}
+                                onToggleStoreStatus={handleToggleStoreStatus}
+                                updatingStoreStatus={updatingStoreStatus}
+                                onUpdateDeliveryTime={handleUpdateDeliveryTime}
+                                updatingDeliveryTime={updatingDeliveryTime}
+                                onGoToProducts={() => { setActiveTab('profile'); setProfileSubTab('products') }}
+                                historicalOrders={historicalOrders}
                             />
+                        </div>
+                    ) : activeTab === 'stats' ? (
+                        <div className="p-4 sm:p-6">
+                            <StatisticsView key={business?.id} orders={[...orders, ...historicalOrders]} />
+                        </div>
+                    ) : activeTab === 'wallet' ? (
+                        <div className="p-4 sm:p-6">
+                            {business && <WalletView business={business} orders={orders} historicalOrders={historicalOrders} />}
+                        </div>
+                    ) : activeTab === 'inventory' ? (
+                        <div className="p-4 sm:p-6">
+                            <IngredientStockManagement business={business} />
+                        </div>
+                    ) : activeTab === 'reports' ? (
+                        <div className="p-4 sm:p-6">
+                            <CostReports key={reportsSubTab} business={business} initialReportType={reportsSubTab as any} />
+                        </div>
+                    ) : activeTab === 'profile' && profileSubTab === 'general' ? (
+                        <div className="p-4 sm:p-6">
+                            {business && (
+                                <BusinessProfileEditor
+                                    business={business}
+                                    onSave={handleSaveProfileGeneral}
+                                    onCancel={() => setActiveTab('orders')}
+                                    saving={savingProfile}
+                                />
+                            )}
+                        </div>
+                    ) : activeTab === 'profile' && profileSubTab !== 'products' && profileSubTab !== 'general' ? (
+                        <div className="p-4 sm:p-6">
+                            {business && (
+                                <BusinessProfileDashboard
+                                    key={profileSubTab}
+                                    business={business}
+                                    editedBusiness={editedBusiness}
+                                    isEditingProfile={isEditingProfile}
+                                    uploadingCover={uploadingCover}
+                                    uploadingProfile={uploadingProfile}
+                                    uploadingLocation={uploadingLocation}
+                                    products={products}
+                                    categories={categories}
+                                    onCoverImageUpload={handleCoverImageUpload}
+                                    onProfileImageUpload={handleProfileImageUpload}
+                                    onLocationImageUpload={handleLocationImageUpload}
+                                    onEditProfile={handleEditProfile}
+                                    onCancelEdit={handleCancelEdit}
+                                    onSaveProfile={handleSaveProfile}
+                                    onBusinessFieldChange={handleBusinessFieldChange}
+                                    onScheduleFieldChange={handleScheduleFieldChange}
+                                    onToggleDayOpen={handleToggleDayOpen}
+                                    onProductsChange={handleProductsChange}
+                                    onCategoriesChange={handleCategoriesChange}
+                                    initialTab={profileSubTab}
+                                    onDirectUpdate={handleDirectUpdate}
+                                    onRemoveAdmin={handleRemoveAdmin}
+                                    onTransferOwnership={handleTransferOwnership}
+                                    userRole={userRole}
+                                />
+                            )}
+                        </div>
+                    ) : activeTab === 'profile' && profileSubTab === 'products' ? (
+                        <div className="p-4 sm:p-6">
+                            {productsLoading ? (
+                                <div className="flex justify-center items-center py-12">
+                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
+                                </div>
+                            ) : (
+                                <ProductList
+                                    business={business}
+                                    products={products}
+                                    categories={categories}
+                                    onProductsChange={handleProductsChange}
+                                    onCategoriesChange={handleCategoriesChange}
+                                    onDirectUpdate={handleDirectUpdate}
+                                />
+                            )}
                         </div>
                     ) : (
                         <>
-                            {/* Totals Summary */}
-                            <div className="bg-white border-b border-gray-100 px-6 py-4">
-                                <div className="flex justify-end items-center gap-8">
-                                    <div className="text-right">
-                                        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Visitas Hoy</p>
-                                        <p className="text-2xl font-bold text-gray-900">{visitsCount}</p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Ventas</p>
-                                        <p className="text-2xl font-bold text-green-600">
-                                            ${orders.reduce((acc, order) => {
-                                                if (order.status === 'cancelled') return acc
+                            {/* Sub-tabs for Orders removed - managed by sidebar */}
 
-                                                // 1. Try to calculate from items (most accurate for "product only" value)
-                                                if (order.items && order.items.length > 0) {
-                                                    const itemsTotal = order.items.reduce((sum, item) => {
-                                                        // Check for item.subtotal first, then calculate manually
-                                                        if (typeof item.subtotal === 'number') return sum + item.subtotal
-
-                                                        // Manual calculation backup
-                                                        const price = item.product?.price || 0
-                                                        const quantity = item.quantity || 1
-                                                        return sum + (price * quantity)
-                                                    }, 0)
-
-                                                    if (itemsTotal > 0) return acc + itemsTotal
-                                                }
-
-                                                // 2. Fallback to order.subtotal if available
-                                                if (typeof order.subtotal === 'number') return acc + order.subtotal
-
-                                                // 3. Last resort: use total (might include delivery, but better than 0)
-                                                return acc + (order.total || 0)
-                                            }, 0).toFixed(2)}
-                                        </p>
-                                    </div>
+                            {ordersSubTab === 'history' ? (
+                                <div className="p-4 sm:p-6">
+                                    <OrderHistory
+                                        orders={historicalOrders}
+                                        onOrderEdit={(o) => {
+                                            setSelectedOrderForEdit(o)
+                                            setManualSidebarMode('edit')
+                                            setManualOrderSidebarOpen(true)
+                                        }}
+                                        onOrderDelete={(id) => handleDeleteOrder(id)}
+                                        getStatusColor={getStatusColor}
+                                        getStatusText={getStatusText}
+                                        getOrderDateTime={(o) => {
+                                            if (o.timing?.type === 'scheduled' && o.timing.scheduledDate) {
+                                                return toSafeDate(o.timing.scheduledDate)
+                                            }
+                                            return toSafeDate(o.createdAt)
+                                        }}
+                                    />
+                                    {historyLoading && (
+                                        <div className="flex justify-center py-8">
+                                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
+                            ) : (
+                                <>
+                                    {/* Totals Summary */}
+                                    <div className="bg-white border-b border-gray-100 px-6 py-4">
+                                        <div className="flex justify-end items-center gap-8">
+                                            <div className="text-right">
+                                                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Visitas Hoy</p>
+                                                <p className="text-2xl font-bold text-gray-900">{visitsCount}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Ventas</p>
+                                                <p className="text-2xl font-bold text-green-600">
+                                                    ${orders.reduce((acc, order) => {
+                                                        if (order.status === 'cancelled') return acc
 
-                            {/* Orders List by Status */}
-                            <div className="p-4 space-y-6">
-                                {['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'].map(status => {
-                                    const statusOrders = orders.filter(o => o.status === status);
-                                    if (statusOrders.length === 0) return null;
+                                                        // 1. Try to calculate from items (most accurate for "product only" value)
+                                                        if (order.items && order.items.length > 0) {
+                                                            const itemsTotal = order.items.reduce((sum, item) => {
+                                                                // Check for item.subtotal first, then calculate manually
+                                                                if (typeof item.subtotal === 'number') return sum + item.subtotal
 
-                                    return (
-                                        <CollapsibleSection
-                                            key={status}
-                                            title={getStatusText(status)}
-                                            count={statusOrders.length}
-                                            status={status}
-                                            defaultExpanded={!['delivered', 'cancelled'].includes(status)}
-                                        >
-                                            {statusOrders.length === 0 ? (
-                                                <p className="text-sm text-gray-400 italic text-center py-2">No hay pedidos en este estado</p>
-                                            ) : (
-                                                statusOrders.map(order => (
-                                                    <OrderCard
-                                                        key={order.id}
-                                                        order={order}
-                                                        availableDeliveries={availableDeliveries}
-                                                        onStatusChange={handleStatusChange}
-                                                        onDeliveryAssign={handleDeliveryAssignment}
-                                                        onPaymentEdit={() => handlePaymentClick(order)}
-                                                        onWhatsAppDelivery={() => handleSendWhatsAppAndAdvance(order)}
-                                                        onPrint={() => handlePrint(order)}
-                                                        onDeliveryStatusClick={(order) => {
-                                                            setSelectedOrderForStatusModal(order)
-                                                            setDeliveryStatusModalOpen(true)
-                                                        }}
-                                                        onEdit={() => {
-                                                            setSelectedOrderForEdit(order)
-                                                            setManualSidebarMode('edit')
-                                                            setManualOrderSidebarOpen(true)
-                                                        }}
-                                                        onDelete={() => handleDeleteOrder(order.id)}
-                                                        onCustomerClick={() => {
-                                                            setSelectedOrderForCustomerContact(order)
-                                                            setCustomerContactModalOpen(true)
-                                                        }}
-                                                        businessPhone={business?.phone}
-                                                    />
-                                                ))
-                                            )}
-                                        </CollapsibleSection>
-                                    )
-                                })}
-                            </div>
+                                                                // Manual calculation backup
+                                                                const price = item.product?.price || 0
+                                                                const quantity = item.quantity || 1
+                                                                return sum + (price * quantity)
+                                                            }, 0)
+
+                                                            if (itemsTotal > 0) return acc + itemsTotal
+                                                        }
+
+                                                        // 2. Fallback to order.subtotal if available
+                                                        if (typeof order.subtotal === 'number') return acc + order.subtotal
+
+                                                        // 3. Last resort: use total (might include delivery, but better than 0)
+                                                        return acc + (order.total || 0)
+                                                    }, 0).toFixed(2)}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {orders.length === 0 ? (
+                                        <DayPreflightChecklist
+                                            business={business}
+                                            onToggleStoreStatus={handleToggleStoreStatus}
+                                            updatingStoreStatus={updatingStoreStatus}
+                                            onUpdateDeliveryTime={handleUpdateDeliveryTime}
+                                            updatingDeliveryTime={updatingDeliveryTime}
+                                            onGoToProducts={() => { setActiveTab('profile'); setProfileSubTab('products') }}
+                                            historicalOrders={historicalOrders}
+                                        />
+                                    ) : (
+                                        <div className="p-4 space-y-6">
+                                            {['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'].map(status => {
+                                                const statusOrders = orders.filter(o => o.status === status);
+                                                if (statusOrders.length === 0) return null;
+
+                                                return (
+                                                    <CollapsibleSection
+                                                        key={status}
+                                                        title={getStatusText(status)}
+                                                        count={statusOrders.length}
+                                                        status={status}
+                                                        defaultExpanded={!['delivered', 'cancelled'].includes(status)}
+                                                    >
+                                                        {statusOrders.map(order => (
+                                                            <OrderCard
+                                                                key={order.id}
+                                                                order={order}
+                                                                availableDeliveries={availableDeliveries}
+                                                                onStatusChange={handleStatusChange}
+                                                                onDeliveryAssign={handleDeliveryAssignment}
+                                                                onPaymentEdit={() => handlePaymentClick(order)}
+                                                                onWhatsAppDelivery={() => handleSendWhatsAppAndAdvance(order)}
+                                                                onPrint={() => handlePrint(order)}
+                                                                onDeliveryStatusClick={(order) => {
+                                                                    setSelectedOrderForStatusModal(order)
+                                                                    setDeliveryStatusModalOpen(true)
+                                                                }}
+                                                                onEdit={() => {
+                                                                    setSelectedOrderForEdit(order)
+                                                                    setManualSidebarMode('edit')
+                                                                    setManualOrderSidebarOpen(true)
+                                                                }}
+                                                                onDelete={() => handleDeleteOrder(order.id)}
+                                                                onCustomerClick={() => {
+                                                                    setSelectedOrderForCustomerContact(order)
+                                                                    setCustomerContactModalOpen(true)
+                                                                }}
+                                                                businessPhone={business?.phone}
+                                                            />
+                                                        ))}
+                                                    </CollapsibleSection>
+                                                )
+                                            })}
+                                        </div>
+                                    )}
+                                </>
+                            )}
+
+                            {/* Floating Action Button for Manual Order */}
+                            <button
+                                onClick={() => {
+                                    setManualSidebarMode('create')
+                                    setSelectedOrderForEdit(null)
+                                    setManualOrderSidebarOpen(true)
+                                }}
+                                className="fixed bottom-6 right-6 w-14 h-14 bg-red-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-red-700 hover:scale-105 transition-all z-40"
+                                style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
+                            >
+                                <i className="bi bi-plus-lg text-2xl"></i>
+                            </button>
+
+                            {/* Live Checkouts Panel - Moved to bottom */}
+                            {businessId && <div className="p-4"><LiveCheckoutsPanel businessId={businessId} /></div>}
+
+                            <PaymentManagementModals
+                                isOpen={paymentModalOpen}
+                                onClose={() => setPaymentModalOpen(false)}
+                                order={selectedOrderForPayment}
+                                onOrderUpdated={handleOrderUpdatedFromModal}
+                            />
+
+                            <DeliveryStatusModal
+                                isOpen={deliveryStatusModalOpen}
+                                onClose={() => setDeliveryStatusModalOpen(false)}
+                                order={selectedOrderForStatusModal}
+                                deliveryAgent={availableDeliveries.find(d => d.id === selectedOrderForStatusModal?.delivery?.assignedDelivery)}
+                                onWhatsApp={() => {
+                                    if (selectedOrderForStatusModal) {
+                                        handleSendWhatsAppAndAdvance(selectedOrderForStatusModal)
+                                        setDeliveryStatusModalOpen(false)
+                                    }
+                                }}
+                            />
+
+                            <ManualOrderSidebar
+                                isOpen={manualOrderSidebarOpen}
+                                onClose={() => {
+                                    setManualOrderSidebarOpen(false)
+                                    setSelectedOrderForEdit(null)
+                                    setManualSidebarMode('create')
+                                }}
+                                business={business}
+                                products={products}
+                                onOrderCreated={() => {
+                                    setManualOrderSidebarOpen(false)
+                                }}
+                                mode={manualSidebarMode}
+                                editOrder={selectedOrderForEdit}
+                                onOrderUpdated={() => {
+                                    setManualOrderSidebarOpen(false)
+                                    setSelectedOrderForEdit(null)
+                                    setManualSidebarMode('create')
+                                }}
+                            />
+
+                            <CustomerContactModal
+                                isOpen={customerContactModalOpen}
+                                onClose={() => setCustomerContactModalOpen(false)}
+                                order={selectedOrderForCustomerContact}
+                            />
                         </>
                     )}
-
-                    {/* Floating Action Button for Manual Order */}
-                    <button
-                        onClick={() => {
-                            setManualSidebarMode('create')
-                            setSelectedOrderForEdit(null)
-                            setManualOrderSidebarOpen(true)
-                        }}
-                        className="fixed bottom-6 right-6 w-14 h-14 bg-red-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-red-700 hover:scale-105 transition-all z-40"
-                        style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
-                    >
-                        <i className="bi bi-plus-lg text-2xl"></i>
-                    </button>
-
-                    {/* Live Checkouts Panel - Moved to bottom */}
-                    {businessId && <div className="p-4"><LiveCheckoutsPanel businessId={businessId} /></div>}
-
-                    <PaymentManagementModals
-                        isOpen={paymentModalOpen}
-                        onClose={() => setPaymentModalOpen(false)}
-                        order={selectedOrderForPayment}
-                        onOrderUpdated={handleOrderUpdatedFromModal}
-                    />
-
-                    <DeliveryStatusModal
-                        isOpen={deliveryStatusModalOpen}
-                        onClose={() => setDeliveryStatusModalOpen(false)}
-                        order={selectedOrderForStatusModal}
-                        deliveryAgent={availableDeliveries.find(d => d.id === selectedOrderForStatusModal?.delivery?.assignedDelivery)}
-                        onWhatsApp={() => {
-                            if (selectedOrderForStatusModal) {
-                                handleSendWhatsAppAndAdvance(selectedOrderForStatusModal)
-                                setDeliveryStatusModalOpen(false)
-                            }
-                        }}
-                    />
-
-                    <ManualOrderSidebar
-                        isOpen={manualOrderSidebarOpen}
-                        onClose={() => {
-                            setManualOrderSidebarOpen(false)
-                            setSelectedOrderForEdit(null)
-                            setManualSidebarMode('create')
-                        }}
-                        business={business}
-                        products={products}
-                        onOrderCreated={() => {
-                            setManualOrderSidebarOpen(false)
-                        }}
-                        mode={manualSidebarMode}
-                        editOrder={selectedOrderForEdit}
-                        onOrderUpdated={() => {
-                            setManualOrderSidebarOpen(false)
-                            setSelectedOrderForEdit(null)
-                            setManualSidebarMode('create')
-                        }}
-                    />
-
-                    <CustomerContactModal
-                        isOpen={customerContactModalOpen}
-                        onClose={() => setCustomerContactModalOpen(false)}
-                        order={selectedOrderForCustomerContact}
-                    />
                 </div>
             </div>
         </div>
