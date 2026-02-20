@@ -4914,7 +4914,11 @@ export async function saveTelegramTemplate(
       updatedAt: serverTimestamp()
     }
     if (buttons !== undefined) {
-      data.buttons = buttons
+      // Firestore doesn't support nested arrays, so flatten rows with a row index
+      const flatButtons = buttons.flatMap((row, rowIndex) =>
+        row.map(btn => ({ ...btn, row: rowIndex }))
+      )
+      data.buttons = flatButtons
     }
     await setDoc(docRef, data, { merge: true })
   } catch (error) {
@@ -4940,7 +4944,15 @@ export async function getTelegramTemplates(): Promise<{
       const key = `${data.recipient}_${data.event}`
       templates[key] = data.template || ''
       if (data.buttons) {
-        buttons[key] = data.buttons
+        // Reconstruct 2D array from flat structure with row indices
+        const flat = data.buttons as Array<{ text: string; type: string; value: string; row: number }>
+        const rows: { text: string; type: string; value: string }[][] = []
+        flat.forEach(btn => {
+          const ri = btn.row ?? 0
+          while (rows.length <= ri) rows.push([])
+          rows[ri].push({ text: btn.text, type: btn.type, value: btn.value })
+        })
+        buttons[key] = rows
       }
     })
     return { templates, buttons }

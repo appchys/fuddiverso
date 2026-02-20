@@ -37,15 +37,44 @@ async function getTemplatesFromFirestore() {
 }
 
 /**
- * Reemplazar {{variables}} en un template string
+ * Reemplazar {{variables}} en un template string y soportar lógica condicional simple
+ * Sintaxis bloque if: {{#if variable == 'valor'}} ... {{/if}}
+ * Soporta: ==, !=, y solo variable (existencia)
  */
 function renderTemplate(templateString, variables) {
     if (!templateString) return null;
     let result = templateString;
+
+    // 1. Procesar bloques condicionales: {{#if condition}} content [{{else}} alternative] {{/if}}
+    // Regex para capturar {{#if (variable)(operator)?('value')?}} (content) [{{else}} (alternative)] {{/if}}
+    const ifRegex = /\{\{#if\s+([\w.]+)(?:\s*(==|!=|contains)\s*(?:'([^']*)'|"([^"]*)"))?\s*\}\}([\s\S]*?)(?:\{\{else\}\}([\s\S]*?))?\{\{\/if\}\}/g;
+
+    result = result.replace(ifRegex, (match, variable, operator, val1, val2, content, alternative) => {
+        const varValue = variables[variable];
+        const compareValue = val1 || val2;
+        let show = false;
+
+        if (operator === '==') {
+            show = String(varValue) === String(compareValue);
+        } else if (operator === '!=') {
+            show = String(varValue) !== String(compareValue);
+        } else if (operator === 'contains') {
+            show = String(varValue).toLowerCase().includes(String(compareValue).toLowerCase());
+        } else {
+            // Solo {{#if variable}} -> chequear si existe y es truthy
+            show = !!varValue;
+        }
+
+        if (show) return content;
+        return alternative || '';
+    });
+
+    // 2. Reemplazar variables normales: {{variable}}
     for (const [key, value] of Object.entries(variables)) {
         const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
         result = result.replace(regex, value != null ? String(value) : '');
     }
+
     return result;
 }
 
@@ -136,6 +165,7 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
         mapsLink: mapsLink ? `<a href="${mapsLink}">Ver en Google Maps</a>` : '',
         deliveryName: options.deliveryName || '',
         whatsappLink: whatsappLink ? `<a href="${whatsappLink}">${phone}</a>` : (phone || ''),
+        paymentMethodRaw: paymentMethod,
     };
 }
 
