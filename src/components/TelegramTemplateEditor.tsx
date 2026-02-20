@@ -16,6 +16,7 @@ interface FieldDef {
     key: string
     label: string
     example: string
+    options?: Array<{ value: string; label: string }>
 }
 
 interface ActionButton {
@@ -196,14 +197,31 @@ const AVAILABLE_FIELDS: FieldDef[] = [
     { key: 'deliveryCost', label: 'Costo Envío', example: '$3.50' },
     { key: 'paymentMethod', label: 'Método de Pago', example: '💵 Efectivo' },
     { key: 'deliveryAddress', label: 'Dirección Entrega', example: 'Av. Principal y 2da' },
-    { key: 'deliveryType', label: 'Tipo Entrega', example: 'delivery' },
+    {
+        key: 'deliveryType',
+        label: 'Tipo Entrega',
+        example: 'delivery',
+        options: [
+            { value: 'delivery', label: 'A Domicilio' },
+            { value: 'pickup', label: 'Retiro en Tienda' },
+        ]
+    },
     { key: 'scheduledTime', label: 'Hora Programada', example: 'Hoy a las 3:00 PM' },
     { key: 'items', label: 'Lista de Productos', example: '(2) Pizza Grande\n(1) Coca Cola' },
     { key: 'mapsLink', label: 'Link Google Maps', example: 'https://maps.google.com/...' },
     { key: 'deliveryName', label: 'Nombre Repartidor', example: 'Carlos' },
     { key: 'whatsappLink', label: 'Link WhatsApp', example: 'https://wa.me/593...' },
     { key: 'confirmedBy', label: 'Confirmado por', example: 'María' },
-    { key: 'paymentMethodRaw', label: 'Método Pago (Raw)', example: 'cash' },
+    {
+        key: 'paymentMethodRaw',
+        label: 'Método Pago (Raw)',
+        example: 'cash',
+        options: [
+            { value: 'cash', label: 'Efectivo' },
+            { value: 'transfer', label: 'Transferencia' },
+            { value: 'mixed', label: 'Mixto' },
+        ]
+    },
 ]
 
 const EMOJI_GROUPS = [
@@ -1080,13 +1098,26 @@ export default function TelegramTemplateEditor() {
                                                 {condOperator !== 'exists' && (
                                                     <div>
                                                         <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">A este valor:</label>
-                                                        <input
-                                                            type="text"
-                                                            value={condValue}
-                                                            onChange={e => setCondValue(e.target.value)}
-                                                            placeholder="valor..."
-                                                            className="w-full px-3 py-1.5 text-[11px] border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                                                        />
+                                                        {AVAILABLE_FIELDS.find(f => f.key === condField)?.options ? (
+                                                            <select
+                                                                value={condValue}
+                                                                onChange={e => setCondValue(e.target.value)}
+                                                                className="w-full px-2 py-1.5 text-[11px] border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                                                            >
+                                                                <option value="">Selecciona una opción...</option>
+                                                                {AVAILABLE_FIELDS.find(f => f.key === condField)?.options?.map(opt => (
+                                                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                                ))}
+                                                            </select>
+                                                        ) : (
+                                                            <input
+                                                                type="text"
+                                                                value={condValue}
+                                                                onChange={e => setCondValue(e.target.value)}
+                                                                placeholder="valor..."
+                                                                className="w-full px-3 py-1.5 text-[11px] border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                                            />
+                                                        )}
                                                     </div>
                                                 )}
 
