@@ -154,7 +154,7 @@ export default function PaymentManagementModals({
                         {/* Header */}
                         <div className="flex items-center justify-between mb-6">
                             <h2 className="text-xl font-bold text-gray-900">
-                                <i className="bi bi-credit-card me-2"></i>
+                                <i className={`bi ${editPaymentData.method === 'transfer' ? 'bi-bank text-blue-600' : 'bi-credit-card'} me-2`}></i>
                                 Editar Método de Pago
                             </h2>
                             <button
@@ -246,7 +246,7 @@ export default function PaymentManagementModals({
                                         className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300"
                                     />
                                     <span className="ml-3 text-gray-700">
-                                        <i className="bi bi-credit-card me-2 text-blue-600"></i>
+                                        <i className="bi bi-bank me-2 text-blue-600"></i>
                                         Transferencia
                                     </span>
                                 </label>

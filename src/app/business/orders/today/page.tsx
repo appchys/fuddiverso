@@ -1556,13 +1556,7 @@ function OrderCard({
                         {/* Chevron for expand/collapse */}
                         <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 text-xs mr-2 transform transition-transform duration-200`}></i>
 
-                        <span
-                            className="text-sm font-bold text-gray-900 flex items-center gap-2 hover:text-red-600 transition-colors"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                onCustomerClick()
-                            }}
-                        >
+                        <span className="text-sm font-bold text-gray-900 flex items-center gap-2">
                             <i className={`bi ${isDelivery ? 'bi-scooter' : 'bi-shop'} text-gray-400`}></i>
                             {order.customer?.name || "Cliente"}
                         </span>
@@ -1679,7 +1673,7 @@ function OrderCard({
                                         : 'bg-red-100 text-red-700'
                                     }`}
                             >
-                                <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-credit-card' :
+                                <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' :
                                     order.payment?.method === 'mixed' ? 'bi-cash-coin' : 'bi-cash'
                                     }`}></i>
                                 <span>${(order.total || 0).toFixed(2)}</span>
@@ -1720,11 +1714,18 @@ function OrderCard({
                     {/* Actions: Edit & Delete */}
                     <div className="flex gap-2 pt-4 border-t border-gray-100">
                         <button
+                            onClick={onCustomerClick}
+                            className="flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium text-green-600 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
+                        >
+                            <i className="bi bi-person-fill"></i>
+                            Contactar
+                        </button>
+                        <button
                             onClick={onEdit}
                             className="flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
                         >
                             <i className="bi bi-pencil"></i>
-                            Editar Pedido
+                            Editar
                         </button>
                         <button
                             onClick={onDelete}

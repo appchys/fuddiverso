@@ -194,7 +194,10 @@ export function LiveCheckoutsPanel({ businessId, orders = [] }: { businessId: st
                                 </div>
 
                                 <div className="flex items-center gap-2 text-xs">
-                                    <i className="bi bi-credit-card text-green-600"></i>
+                                    <i className={`bi ${session.paymentData?.method === 'transfer' ? 'bi-bank text-blue-600' :
+                                        session.paymentData?.method === 'cash' ? 'bi-cash text-green-600' :
+                                            session.paymentData?.method === 'mixed' ? 'bi-cash-coin text-orange-600' :
+                                                'bi-credit-card text-gray-400'}`}></i>
                                     <span className="text-gray-600">
                                         {session.paymentData?.method === 'cash' ? 'Efectivo' :
                                             session.paymentData?.method === 'transfer' ? 'Transferencia' :
