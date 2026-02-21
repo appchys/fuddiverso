@@ -846,6 +846,7 @@ export default function ManualOrderSidebar({
         referencia: newLocationData.referencia.trim(),
         tarifa: newLocationData.tarifa,
         sector: 'Sin especificar',
+        createdBy: 'admin',
         ...(photoUrl && { photo: photoUrl })
       });
 

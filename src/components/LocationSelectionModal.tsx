@@ -158,7 +158,8 @@ export default function LocationSelectionModal({
                 latlong: newLocationData.latlong,
                 referencia: newLocationData.referencia,
                 tarifa: newLocationData.tarifa,
-                sector: 'Sin especificar'
+                sector: 'Sin especificar',
+                createdBy: 'client'
             });
 
             const newLocation: ClientLocation = {

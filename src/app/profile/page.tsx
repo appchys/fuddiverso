@@ -121,7 +121,7 @@ export default function ProfilePage() {
 
     // 1. Cargar Ubicaciones
     try {
-      const locs = await getClientLocations(user.id)
+      const locs = await getClientLocations(user.id, 'client')
       setLocations(locs)
     } catch (e) {
       console.error('Error loading locations:', e)

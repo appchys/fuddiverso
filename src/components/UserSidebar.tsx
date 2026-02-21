@@ -248,7 +248,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     // Cuando el usuario inicia sesión, cargar sus ubicaciones guardadas
     useEffect(() => {
         if (user?.id) {
-            getClientLocations(user.id).then(locs => {
+            getClientLocations(user.id, 'client').then(locs => {
                 setUserLocations(locs)
 
                 // Persistence Logic: Try to restore last selected location

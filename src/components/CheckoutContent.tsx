@@ -446,36 +446,9 @@ export function CheckoutContent({
     const loadUserLocations = async () => {
       setLoadingLocations(true)
       try {
-        const locations = await getClientLocations(user.id)
+        const locations = await getClientLocations(user.id, 'client')
         setClientLocations(locations)
 
-        // Selección automática sólo cuando el usuario ya eligió "Domicilio" y aún no hay ubicación
-        if (deliveryData.type === 'delivery' && !selectedLocation && locations.length > 0) {
-          // Intentar cargar la ubicación activa del UserSidebar desde localStorage
-          let locationToSelect = locations[0] // Default: primera ubicación
-
-          try {
-            const storedCoords = localStorage.getItem('userCoordinates')
-            if (storedCoords) {
-              const coords = JSON.parse(storedCoords)
-              // Buscar la ubicación que coincida con las coordenadas guardadas
-              const matchingLocation = locations.find(loc => {
-                if (!loc.latlong) return false
-                const [lat, lng] = loc.latlong.split(',').map(c => parseFloat(c.trim()))
-                // Comparar con tolerancia de 0.0001 grados (~11 metros)
-                return Math.abs(lat - coords.lat) < 0.0001 && Math.abs(lng - coords.lng) < 0.0001
-              })
-
-              if (matchingLocation) {
-                locationToSelect = matchingLocation
-              }
-            }
-          } catch (e) {
-            console.error('Error loading user coordinates from localStorage:', e)
-          }
-
-          await handleLocationSelect(locationToSelect)
-        }
       } catch (error) {
         console.error('Error loading user locations:', error)
         setClientLocations([])
@@ -1781,33 +1754,6 @@ export function CheckoutContent({
                       }
                       setDeliveryData(prev => ({ ...prev, type: 'delivery', tarifa: '0' }));
 
-                      // Intento de sincronización: Buscar si la ubicación seleccionada en el Sidebar (localStorage) coincide con alguna guardada
-                      const storedCoordsStr = localStorage.getItem('userCoordinates');
-                      if (storedCoordsStr && clientLocations.length > 0) {
-                        try {
-                          const stored = JSON.parse(storedCoordsStr);
-                          const match = clientLocations.find(l => {
-                            const [lLat, lLng] = l.latlong.split(',').map((n: string) => parseFloat(n.trim()));
-                            return Math.abs(lLat - stored.lat) < 0.0001 && Math.abs(lLng - stored.lng) < 0.0001;
-                          });
-
-                          if (match) {
-                            handleLocationSelect(match);
-                            return;
-                          }
-                        } catch (e) {
-                          console.error("Error syncing location from storage:", e);
-                        }
-                      }
-
-                      if (selectedLocation) return;
-
-                      if (clientLocations.length > 0) {
-                        handleLocationSelect(clientLocations[0]);
-                        return;
-                      }
-
-                      // Fallback: si no hay ubicaciones guardadas, abrir modal para seleccionar/crear
                       openLocationModal();
                     }}
                     className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${!user

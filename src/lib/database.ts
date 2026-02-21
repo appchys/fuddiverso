@@ -1489,6 +1489,7 @@ export interface ClientLocation {
   tarifa: string;
   latlong: string;
   photo?: string;
+  createdBy?: 'client' | 'admin';
 }
 
 // Nueva función para obtener un negocio por su username
@@ -1545,12 +1546,16 @@ export async function getClientById(clientId: string): Promise<FirestoreClient |
 }
 
 // Nueva función para obtener ubicaciones del cliente
-export async function getClientLocations(clientId: string): Promise<ClientLocation[]> {
+export async function getClientLocations(clientId: string, createdBy?: 'client' | 'admin'): Promise<ClientLocation[]> {
   try {
-    const q = query(
+    let q = query(
       collection(db, 'ubicaciones'),
       where('id_cliente', '==', clientId)
     );
+
+    if (createdBy) {
+      q = query(q, where('createdBy', '==', createdBy));
+    }
 
     const querySnapshot = await getDocs(q);
     const locations: ClientLocation[] = [];
@@ -1564,7 +1569,8 @@ export async function getClientLocations(clientId: string): Promise<ClientLocati
         sector: locationData.sector || '',
         tarifa: locationData.tarifa || '',
         latlong: locationData.latlong || '',
-        photo: locationData.photo || ''
+        photo: locationData.photo || '',
+        createdBy: locationData.createdBy || undefined
       });
     });
     return locations;
@@ -1801,7 +1807,15 @@ export async function updateLocation(locationId: string, locationData: Partial<C
 }
 
 // Función para crear nueva ubicación de cliente
-export async function createClientLocation(locationData: { id_cliente: string, latlong: string, referencia: string, tarifa: string, sector: string, photo?: string }): Promise<string> {
+export async function createClientLocation(locationData: {
+  id_cliente: string,
+  latlong: string,
+  referencia: string,
+  tarifa: string,
+  sector: string,
+  photo?: string,
+  createdBy: 'client' | 'admin'
+}): Promise<string> {
   try {
     // Si id_cliente parece ser un número de teléfono, necesitamos convertirlo al ID real
     let clientId = locationData.id_cliente;
@@ -1829,6 +1843,7 @@ export async function createClientLocation(locationData: { id_cliente: string, l
       referencia: locationData.referencia,
       tarifa: locationData.tarifa,
       sector: locationData.sector || 'Sin especificar',
+      createdBy: locationData.createdBy,
       ...(locationData.photo && { photo: locationData.photo }),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
