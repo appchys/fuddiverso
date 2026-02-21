@@ -5,7 +5,7 @@ export interface Business {
   name: string
   username: string // Campo para URL amigable (ej: "munchys")
   description: string
-  address: string
+  address?: string
   phone: string // Formato ecuatoriano: 09XXXXXXXX (10 dígitos)
   email: string
   ownerId?: string // UID del usuario propietario en Firebase Auth
@@ -19,7 +19,7 @@ export interface Business {
     lat: number
     lng: number
   }
-  references: string
+  references?: string
   bankAccount?: {
     bankName: string
     accountType: string

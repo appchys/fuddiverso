@@ -101,13 +101,11 @@ function BusinessRegisterForm() {
         username: formData.username,
         email: currentUser.email || '', // Usar el email del usuario autenticado
         phone: formData.phone,
-        address: '', // Ubicación se pedirá después
         description: formData.description,
         image: imageUrl,
         coverImage: coverImageUrl,
         category: formData.category,
         businessType: formData.businessType,
-        references: '', // Ubicación se pedirá después
         ownerId: currentUser.uid,
         latlong: location,
         deliveryTime: 30

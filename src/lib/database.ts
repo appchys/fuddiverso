@@ -265,13 +265,11 @@ export async function createBusinessFromForm(formData: {
   username: string;
   email: string;
   phone: string;
-  address: string;
   description: string;
   category?: string;
   businessType?: 'food_store' | 'distributor';
   image?: string;
   coverImage?: string;
-  references?: string;
   ownerId?: string;
   latlong?: string;
   deliveryTime?: number;
@@ -294,14 +292,14 @@ export async function createBusinessFromForm(formData: {
     username: formData.username,
     email: formData.email,
     phone: formData.phone,
-    address: formData.address,
+    address: '',
     description: formData.description,
     image: formData.image,
     coverImage: formData.coverImage,
     ownerId: formData.ownerId,
     administrators: [], // Inicializar vacío para administradores adicionales
     adminEmails: [], // Inicializar vacío para queries optimizadas
-    references: formData.references || '',
+    references: '',
     categories: [],
     category: formData.category,
     businessType: formData.businessType || 'food_store',
@@ -312,7 +310,7 @@ export async function createBusinessFromForm(formData: {
     pickupSettings: {
       enabled: false,
       latlong: formData.latlong || '',
-      references: formData.references || '',
+      references: '',
       storePhotoUrl: ''
     },
     schedule: {

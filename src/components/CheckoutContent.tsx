@@ -2515,7 +2515,6 @@ export function CheckoutContent({
               />
               <div className="mt-4 text-center">
                 <p className="text-white font-bold text-lg">{business.name}</p>
-                <p className="text-gray-300 text-sm">{business.address}</p>
               </div>
             </div>
           </div>

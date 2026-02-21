@@ -203,12 +203,6 @@ export const BusinessProfileSection: React.FC<BusinessProfileSectionProps> = ({
                 </span>
               </div>
 
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <i className="bi bi-geo-alt me-2"></i>Dirección
-                </label>
-                <p className="text-gray-900 text-sm sm:text-base">{business.address}</p>
-              </div>
 
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -217,12 +211,6 @@ export const BusinessProfileSection: React.FC<BusinessProfileSectionProps> = ({
                 <p className="text-gray-900 text-sm sm:text-base">{business.description}</p>
               </div>
 
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <i className="bi bi-building me-2"></i>Referencias de Ubicación
-                </label>
-                <p className="text-gray-900 text-sm sm:text-base">{business.references || 'Sin referencias'}</p>
-              </div>
 
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -353,17 +341,6 @@ export const BusinessProfileSection: React.FC<BusinessProfileSectionProps> = ({
                 </select>
               </div>
 
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <i className="bi bi-geo-alt me-2"></i>Dirección
-                </label>
-                <input
-                  type="text"
-                  value={editedBusiness?.address || ''}
-                  onChange={(e) => onBusinessFieldChange('address', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
-                />
-              </div>
 
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -377,18 +354,6 @@ export const BusinessProfileSection: React.FC<BusinessProfileSectionProps> = ({
                 />
               </div>
 
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <i className="bi bi-building me-2"></i>Referencias de Ubicación
-                </label>
-                <textarea
-                  value={editedBusiness?.references || ''}
-                  onChange={(e) => onBusinessFieldChange('references', e.target.value)}
-                  rows={2}
-                  placeholder="Ej: Cerca del centro comercial, junto a la farmacia..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
-                />
-              </div>
 
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">

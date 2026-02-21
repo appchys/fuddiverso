@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { Business } from '@/types'
 import { uploadImage } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
+import { GoogleMap, useCurrentLocation } from './GoogleMap'
 
 interface BusinessProfileEditorProps {
     business: Business
@@ -24,13 +25,12 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
         description: business.description || '',
         phone: business.phone || '',
         email: business.email || '',
-        address: business.address || '',
-        references: business.references || '',
         category: business.category || '',
         businessType: (business.businessType || 'food_store') as 'food_store' | 'distributor',
         isActive: business.isActive ?? true,
         isHidden: business.isHidden ?? false,
-        deliveryTime: business.deliveryTime || 30
+        deliveryTime: business.deliveryTime || 30,
+        pickupSettings: business.pickupSettings || { enabled: false, references: '', latlong: '', storePhotoUrl: '' }
     })
 
     const [schedule, setSchedule] = useState(business.schedule || {
@@ -51,7 +51,11 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
     const [uploadingCover, setUploadingCover] = useState(false)
     const [dragActiveLogo, setDragActiveLogo] = useState(false)
     const [dragActiveCover, setDragActiveCover] = useState(false)
-    const [activeSection, setActiveSection] = useState<'identity' | 'contact' | 'visual' | 'schedule'>('identity')
+    const [dragActivePickup, setDragActivePickup] = useState(false)
+    const [uploadingPickupPhoto, setUploadingPickupPhoto] = useState(false)
+    const [activeSection, setActiveSection] = useState<'identity' | 'contact' | 'visual' | 'schedule' | 'pickup'>('identity')
+
+    const { location: currentGeoLocation, loading: locating, getCurrentLocation } = useCurrentLocation()
 
     const days = [
         { key: 'monday', label: 'Lunes' },
@@ -120,6 +124,52 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
         }))
     }
 
+    const handlePickupChange = (field: string, value: any) => {
+        setFormData(prev => ({
+            ...prev,
+            pickupSettings: {
+                ...prev.pickupSettings,
+                [field]: value
+            }
+        }))
+    }
+
+    const handlePickupLocationChange = (lat: number, lng: number) => {
+        setFormData(prev => ({
+            ...prev,
+            pickupSettings: {
+                ...prev.pickupSettings,
+                latlong: `${lat}, ${lng}`
+            }
+        }))
+    }
+
+    const handlePickupPhotoChange = async (file: File) => {
+        setUploadingPickupPhoto(true)
+        try {
+            const optimized = await optimizeImage(file, 800, 0.8)
+            const path = `businesses/${business.id}/pickup_${Date.now()}.webp`
+            const url = await uploadImage(optimized as any, path)
+            setFormData(prev => ({
+                ...prev,
+                pickupSettings: {
+                    ...prev.pickupSettings,
+                    storePhotoUrl: url
+                }
+            }))
+        } catch (error) {
+            console.error('Error uploading pickup photo:', error)
+            alert('Error al subir la foto del local')
+        }
+        setUploadingPickupPhoto(false)
+    }
+
+    useEffect(() => {
+        if (currentGeoLocation) {
+            handlePickupLocationChange(currentGeoLocation.lat, currentGeoLocation.lng)
+        }
+    }, [currentGeoLocation])
+
     const handleSubmit = async () => {
         let logoUrl = business.image
         let coverUrl = business.coverImage
@@ -156,8 +206,6 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
             description: formData.description,
             phone: formData.phone,
             email: formData.email,
-            address: formData.address,
-            references: formData.references,
             category: formData.category,
             businessType: formData.businessType,
             isActive: formData.isActive,
@@ -165,7 +213,8 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
             image: logoUrl,
             coverImage: coverUrl,
             schedule,
-            deliveryTime: Number(formData.deliveryTime)
+            deliveryTime: Number(formData.deliveryTime),
+            pickupSettings: formData.pickupSettings
         })
     }
 
@@ -173,7 +222,8 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
         { key: 'identity', label: 'Identidad', icon: 'bi-shop' },
         { key: 'contact', label: 'Contacto', icon: 'bi-telephone' },
         { key: 'visual', label: 'Visual', icon: 'bi-image' },
-        { key: 'schedule', label: 'Horario', icon: 'bi-clock' }
+        { key: 'schedule', label: 'Horario', icon: 'bi-clock' },
+        { key: 'pickup', label: 'Retiro', icon: 'bi-shop-window' }
     ]
 
     return (
@@ -406,32 +456,6 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                         />
                                     </div>
                                 </div>
-
-                                {/* Dirección */}
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Dirección</label>
-                                    <input
-                                        type="text"
-                                        name="address"
-                                        value={formData.address}
-                                        onChange={handleChange}
-                                        className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300"
-                                        placeholder="Dirección completa del negocio"
-                                    />
-                                </div>
-
-                                {/* Referencias */}
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Referencias de Ubicación</label>
-                                    <textarea
-                                        name="references"
-                                        value={formData.references}
-                                        onChange={handleChange}
-                                        rows={2}
-                                        className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300 resize-none"
-                                        placeholder="Cerca del centro comercial, frente al parque..."
-                                    />
-                                </div>
                             </div>
                         )}
 
@@ -609,7 +633,138 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                             </div>
                         )}
 
-                        {/* Botones de Acción */}
+                        {/* Section: Retiro en tienda */}
+                        {activeSection === 'pickup' && (
+                            <div className="space-y-8 animate-fadeIn">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">5</span>
+                                    <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Retiros en Tienda</h3>
+                                </div>
+
+                                {/* Toggle Principal */}
+                                <div className="bg-white rounded-3xl p-6 border-2 border-dashed border-gray-100 flex items-center justify-between group hover:border-red-100 transition-colors">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all ${formData.pickupSettings.enabled ? 'bg-red-600 text-white shadow-lg shadow-red-200' : 'bg-gray-100 text-gray-400'}`}>
+                                            <i className="bi bi-shop-window"></i>
+                                        </div>
+                                        <div>
+                                            <h4 className="font-black text-gray-900 uppercase tracking-widest text-[10px]">Estatus del Servicio</h4>
+                                            <p className="text-sm font-bold text-gray-500">{formData.pickupSettings.enabled ? 'Habilitado para clientes' : 'Desactivado temporalmente'}</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePickupChange('enabled', !formData.pickupSettings.enabled)}
+                                        className={`w-14 h-8 rounded-full transition-all duration-300 relative ${formData.pickupSettings.enabled ? 'bg-red-600' : 'bg-gray-200'}`}
+                                    >
+                                        <div className={`absolute top-1.5 w-5 h-5 rounded-full bg-white transition-all duration-300 shadow-sm ${formData.pickupSettings.enabled ? 'left-7.5' : 'left-1.5'}`}></div>
+                                    </button>
+                                </div>
+
+                                {formData.pickupSettings.enabled && (
+                                    <div className="space-y-8 animate-fadeIn">
+                                        {/* Referencias del Local */}
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Instrucciones de Retiro / Referencias</label>
+                                            <textarea
+                                                value={formData.pickupSettings.references}
+                                                onChange={(e) => handlePickupChange('references', e.target.value)}
+                                                className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300 min-h-[100px]"
+                                                placeholder="Ej: Retirar por la ventanilla lateral frente al parque central..."
+                                            />
+                                        </div>
+
+                                        {/* Mapa de Ubicación */}
+                                        <div className="space-y-4">
+                                            <div className="flex items-center justify-between px-1">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Ubicación en el Mapa</label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => getCurrentLocation()}
+                                                    disabled={locating}
+                                                    className="flex items-center gap-2 text-[10px] font-black text-red-600 uppercase tracking-widest hover:text-red-700 transition-colors"
+                                                >
+                                                    <i className={`bi ${locating ? 'animate-spin bi-arrow-repeat' : 'bi-geo-alt-fill'}`}></i>
+                                                    {locating ? 'Obteniendo...' : 'Usar mi ubicación actual'}
+                                                </button>
+                                            </div>
+                                            <div className="rounded-3xl overflow-hidden border-2 border-gray-100 shadow-inner h-[250px] relative">
+                                                {(() => {
+                                                    const coords = formData.pickupSettings.latlong.split(',').map(c => parseFloat(c.trim()));
+                                                    const lat = !isNaN(coords[0]) ? coords[0] : -0.1807;
+                                                    const lng = !isNaN(coords[1]) ? coords[1] : -78.4678;
+                                                    return (
+                                                        <GoogleMap
+                                                            latitude={lat}
+                                                            longitude={lng}
+                                                            height="100%"
+                                                            draggable={true}
+                                                            onLocationChange={handlePickupLocationChange}
+                                                        />
+                                                    );
+                                                })()}
+                                            </div>
+                                            <p className="text-[9px] font-bold text-gray-400 text-center uppercase tracking-widest">Puedes mover el marcador para ajustar la ubicación exacta</p>
+                                        </div>
+
+                                        {/* Foto del Local */}
+                                        <div className="space-y-4">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Foto para Identificar el Local (Opcional)</label>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                                <div
+                                                    onDragOver={(e) => { e.preventDefault(); setDragActivePickup(true); }}
+                                                    onDragLeave={() => setDragActivePickup(false)}
+                                                    onDrop={(e) => {
+                                                        e.preventDefault();
+                                                        setDragActivePickup(false);
+                                                        if (e.dataTransfer.files?.[0]) handlePickupPhotoChange(e.dataTransfer.files[0]);
+                                                    }}
+                                                    className={`aspect-video rounded-3xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-3 cursor-pointer overflow-hidden group ${dragActivePickup ? 'border-red-500 bg-red-50' : 'border-gray-100 bg-gray-50/50 hover:bg-white hover:border-red-200'}`}
+                                                    onClick={() => document.getElementById('pickup-photo-input')?.click()}
+                                                >
+                                                    {formData.pickupSettings.storePhotoUrl ? (
+                                                        <div className="relative w-full h-full">
+                                                            <img src={formData.pickupSettings.storePhotoUrl} alt="Store" className="w-full h-full object-cover" />
+                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                                <i className="bi bi-camera text-white text-2xl"></i>
+                                                            </div>
+                                                        </div>
+                                                    ) : uploadingPickupPhoto ? (
+                                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
+                                                    ) : (
+                                                        <>
+                                                            <i className="bi bi-camera text-2xl text-gray-300"></i>
+                                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Subir Foto</span>
+                                                        </>
+                                                    )}
+                                                    <input
+                                                        id="pickup-photo-input"
+                                                        type="file"
+                                                        className="hidden"
+                                                        accept="image/*"
+                                                        onChange={(e) => e.target.files?.[0] && handlePickupPhotoChange(e.target.files[0])}
+                                                    />
+                                                </div>
+                                                <div className="flex flex-col justify-center gap-2">
+                                                    <p className="text-xs font-bold text-gray-500 leading-relaxed italic">
+                                                        "Una foto nítida de la fachada de tu local ayuda a los clientes a encontrarte más rápido."
+                                                    </p>
+                                                    {formData.pickupSettings.storePhotoUrl && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handlePickupChange('storePhotoUrl', '')}
+                                                            className="text-[10px] font-black text-red-600 uppercase tracking-widest text-left mt-2 hover:text-red-700 transition-colors"
+                                                        >
+                                                            Eliminar Foto
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         <div className="pt-8 flex flex-col sm:flex-row items-center gap-4">
                             <button
                                 type="button"

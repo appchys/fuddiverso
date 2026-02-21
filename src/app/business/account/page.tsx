@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { Business } from '@/types'
-import { getBusinessesByOwner, updateBusiness, deleteBusiness, createBusinessFromForm, getBusiness } from '@/lib/database'
+import { getBusinessesByOwner, updateBusiness, deleteBusiness } from '@/lib/database'
 
 export default function AccountPage() {
     const router = useRouter()
@@ -12,18 +12,8 @@ export default function AccountPage() {
 
     const [businesses, setBusinesses] = useState<Business[]>([])
     const [loading, setLoading] = useState(true)
-    const [showCreateModal, setShowCreateModal] = useState(false)
     const [showDeleteModal, setShowDeleteModal] = useState<string | null>(null)
     const [actionLoading, setActionLoading] = useState<string | null>(null)
-
-    // Estado para crear nueva tienda
-    const [newBusinessData, setNewBusinessData] = useState({
-        name: '',
-        username: '',
-        description: '',
-        category: 'restaurante'
-    })
-    const [createError, setCreateError] = useState('')
 
     // Protección de ruta
     useEffect(() => {
@@ -82,55 +72,6 @@ export default function AccountPage() {
         }
     }
 
-    // Crear nueva tienda
-    const handleCreateBusiness = async () => {
-        if (!newBusinessData.name.trim() || !newBusinessData.username.trim()) {
-            setCreateError('El nombre y el username son obligatorios')
-            return
-        }
-
-        // Validar username (solo letras, números y guiones bajos)
-        const usernameRegex = /^[a-zA-Z0-9_]+$/
-        if (!usernameRegex.test(newBusinessData.username)) {
-            setCreateError('El username solo puede contener letras, números y guiones bajos')
-            return
-        }
-
-        setActionLoading('create')
-        setCreateError('')
-
-        try {
-            // Usar createBusinessFromForm que maneja todos los campos requeridos
-            const newBusinessId = await createBusinessFromForm({
-                name: newBusinessData.name,
-                username: newBusinessData.username.toLowerCase(),
-                description: newBusinessData.description,
-                email: user!.email || '',
-                phone: '',
-                address: '',
-                category: newBusinessData.category,
-                ownerId: user!.uid
-            })
-
-            // Obtener el negocio recién creado
-            const newBusiness = await getBusiness(newBusinessId)
-            if (newBusiness) {
-                setBusinesses(prev => [...prev, newBusiness])
-            }
-
-            setShowCreateModal(false)
-            setNewBusinessData({ name: '', username: '', description: '', category: 'restaurante' })
-        } catch (error: any) {
-            console.error('Error creating business:', error)
-            if (error.message?.includes('username')) {
-                setCreateError('Este username ya está en uso')
-            } else {
-                setCreateError('Error al crear la tienda. Inténtalo de nuevo.')
-            }
-        } finally {
-            setActionLoading(null)
-        }
-    }
 
     if (authLoading || loading) {
         return (
@@ -209,7 +150,7 @@ export default function AccountPage() {
                         Mis Tiendas
                     </h2>
                     <button
-                        onClick={() => setShowCreateModal(true)}
+                        onClick={() => router.push('/business/register')}
                         className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
                     >
                         <i className="bi bi-plus-lg"></i>
@@ -225,7 +166,7 @@ export default function AccountPage() {
                         <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes tiendas</h3>
                         <p className="text-gray-500 mb-6">Crea tu primera tienda para empezar a vender</p>
                         <button
-                            onClick={() => setShowCreateModal(true)}
+                            onClick={() => router.push('/business/register')}
                             className="inline-flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
                         >
                             <i className="bi bi-plus-lg"></i>
@@ -331,137 +272,6 @@ export default function AccountPage() {
                     </div>
                 )}
             </main>
-
-            {/* Modal para crear tienda */}
-            {showCreateModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full overflow-hidden">
-                        <div className="p-6 border-b border-gray-200">
-                            <div className="flex items-center justify-between">
-                                <h3 className="text-lg font-semibold text-gray-900">
-                                    <i className="bi bi-plus-circle me-2 text-red-600"></i>
-                                    Nueva Tienda
-                                </h3>
-                                <button
-                                    onClick={() => {
-                                        setShowCreateModal(false)
-                                        setCreateError('')
-                                    }}
-                                    className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                                >
-                                    <i className="bi bi-x-lg"></i>
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="p-6 space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Nombre de la tienda *
-                                </label>
-                                <input
-                                    type="text"
-                                    value={newBusinessData.name}
-                                    onChange={(e) => setNewBusinessData(prev => ({ ...prev, name: e.target.value }))}
-                                    placeholder="Ej: Pollos Mary"
-                                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Username * <span className="text-gray-400 font-normal">(fuddi.shop/username)</span>
-                                </label>
-                                <div className="flex items-center">
-                                    <span className="px-3 py-3 bg-gray-100 border border-r-0 border-gray-200 rounded-l-lg text-gray-500 text-sm">
-                                        fuddi.shop/
-                                    </span>
-                                    <input
-                                        type="text"
-                                        value={newBusinessData.username}
-                                        onChange={(e) => setNewBusinessData(prev => ({
-                                            ...prev,
-                                            username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '')
-                                        }))}
-                                        placeholder="mi_tienda"
-                                        className="flex-1 px-4 py-3 border border-gray-200 rounded-r-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                                    />
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Descripción
-                                </label>
-                                <textarea
-                                    value={newBusinessData.description}
-                                    onChange={(e) => setNewBusinessData(prev => ({ ...prev, description: e.target.value }))}
-                                    placeholder="Describe tu negocio..."
-                                    rows={3}
-                                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Categoría
-                                </label>
-                                <select
-                                    value={newBusinessData.category}
-                                    onChange={(e) => setNewBusinessData(prev => ({ ...prev, category: e.target.value }))}
-                                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                                >
-                                    <option value="restaurante">🍽️ Restaurante</option>
-                                    <option value="cafeteria">☕ Cafetería</option>
-                                    <option value="panaderia">🥖 Panadería</option>
-                                    <option value="heladeria">🍦 Heladería</option>
-                                    <option value="comida_rapida">🍔 Comida Rápida</option>
-                                    <option value="pizzeria">🍕 Pizzería</option>
-                                    <option value="marisqueria">🦐 Marisquería</option>
-                                    <option value="tienda">🛒 Tienda</option>
-                                    <option value="otro">📦 Otro</option>
-                                </select>
-                            </div>
-
-                            {createError && (
-                                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
-                                    <i className="bi bi-exclamation-circle me-2"></i>
-                                    {createError}
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="p-6 bg-gray-50 border-t border-gray-200 flex gap-3">
-                            <button
-                                onClick={() => {
-                                    setShowCreateModal(false)
-                                    setCreateError('')
-                                }}
-                                className="flex-1 px-4 py-3 border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors font-medium"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={handleCreateBusiness}
-                                disabled={actionLoading === 'create'}
-                                className="flex-1 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium disabled:opacity-50 flex items-center justify-center gap-2"
-                            >
-                                {actionLoading === 'create' ? (
-                                    <>
-                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                        Creando...
-                                    </>
-                                ) : (
-                                    <>
-                                        <i className="bi bi-plus-lg"></i>
-                                        Crear Tienda
-                                    </>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* Modal de confirmación para eliminar */}
             {showDeleteModal && (
