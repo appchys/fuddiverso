@@ -41,9 +41,17 @@ export function LiveCheckoutsPanel({ businessId, orders = [] }: { businessId: st
     const [loading, setLoading] = useState(true);
     const [isExpanded, setIsExpanded] = useState(false);
 
+    // Debug logging
+    useEffect(() => {
+        console.log('[LiveCheckouts] Mounted with businessId:', businessId);
+    }, [businessId]);
+
     // Fetch raw data from Firestore (no order-based filtering here to avoid stale closures)
     useEffect(() => {
-        if (!businessId) return;
+        if (!businessId) {
+            console.log('[LiveCheckouts] No businessId provided');
+            return;
+        }
 
         const q = query(
             collection(db, 'checkoutProgress'),
@@ -57,17 +65,33 @@ export function LiveCheckoutsPanel({ businessId, orders = [] }: { businessId: st
                 ...doc.data()
             })) as CheckoutSession[];
 
+            console.log(`[LiveCheckouts] Total raw docs in DB for business:`, activeCheckouts.length);
+
             // Only apply time-based and step-based filters here
             const now = new Date();
             const filtered = activeCheckouts.filter(c => {
-                if (c.currentStep > 3) return false;
-                if (!c.updatedAt) return false;
+                if (c.currentStep > 3) {
+                    console.log(`[LiveCheckouts] Session ${c.id} filtered out: step > 3 (${c.currentStep})`);
+                    return false;
+                }
+                if (!c.updatedAt) {
+                    console.log(`[LiveCheckouts] Session ${c.id} filtered out: no updatedAt`);
+                    return false;
+                }
                 const lastUpdate = c.updatedAt?.toDate ? c.updatedAt.toDate() : new Date(c.updatedAt);
                 const diffMins = (now.getTime() - lastUpdate.getTime()) / 60000;
-                return diffMins < 30;
+                if (diffMins >= 30) {
+                    console.log(`[LiveCheckouts] Session ${c.id} filtered out: too old (${diffMins.toFixed(1)} mins)`);
+                    return false;
+                }
+                return true;
             });
 
+            console.log(`[LiveCheckouts] Raw sessions after time/step filter:`, filtered.length);
             setRawCheckouts(filtered);
+            setLoading(false);
+        }, (error) => {
+            console.error('[LiveCheckouts] Snapshot error:', error);
             setLoading(false);
         });
 
@@ -80,14 +104,29 @@ export function LiveCheckoutsPanel({ businessId, orders = [] }: { businessId: st
         const orderPhones = new Set(
             orders.map(o => o.customer?.phone).filter(Boolean)
         );
-        return rawCheckouts.filter(c => {
+
+        const final = rawCheckouts.filter(c => {
             const sessionPhone = c.customerData?.phone;
-            if (sessionPhone && orderPhones.has(sessionPhone)) return false;
+            if (sessionPhone && orderPhones.has(sessionPhone)) {
+                console.log(`[LiveCheckouts] Session ${c.id} filtered out: phone exists in today's orders`);
+                return false;
+            }
             return true;
         });
+
+        console.log(`[LiveCheckouts] Final checkouts to render:`, final.length);
+        return final;
     }, [rawCheckouts, orders]);
 
-    if (loading || checkouts.length === 0) return null;
+    if (loading) {
+        console.log('[LiveCheckouts] Still loading...');
+        return null;
+    }
+
+    if (checkouts.length === 0) {
+        console.log('[LiveCheckouts] No sessions to show (checkouts.length === 0)');
+        return null;
+    }
 
     return (
         <div className="mb-6 bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden">

@@ -1142,62 +1142,65 @@ export default function TodayOrdersPage() {
                                         </div>
                                     </div>
 
-                                    {orders.length === 0 ? (
-                                        <DayPreflightChecklist
-                                            business={business}
-                                            onToggleStoreStatus={handleToggleStoreStatus}
-                                            updatingStoreStatus={updatingStoreStatus}
-                                            onUpdateDeliveryTime={handleUpdateDeliveryTime}
-                                            updatingDeliveryTime={updatingDeliveryTime}
-                                            onGoToProducts={() => { setActiveTab('profile'); setProfileSubTab('products') }}
-                                            historicalOrders={historicalOrders}
-                                        />
-                                    ) : (
-                                        <div className="p-4 space-y-6">
-                                            {['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'].map(status => {
-                                                const statusOrders = orders.filter(o => o.status === status);
-                                                if (statusOrders.length === 0) return null;
+                                    <div className="p-4 space-y-6">
+                                        {orders.length === 0 ? (
+                                            <DayPreflightChecklist
+                                                business={business}
+                                                onToggleStoreStatus={handleToggleStoreStatus}
+                                                updatingStoreStatus={updatingStoreStatus}
+                                                onUpdateDeliveryTime={handleUpdateDeliveryTime}
+                                                updatingDeliveryTime={updatingDeliveryTime}
+                                                onGoToProducts={() => { setActiveTab('profile'); setProfileSubTab('products') }}
+                                                historicalOrders={historicalOrders}
+                                            />
+                                        ) : (
+                                            <div className="space-y-6">
+                                                {['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'].map(status => {
+                                                    const statusOrders = orders.filter(o => o.status === status);
+                                                    if (statusOrders.length === 0) return null;
 
-                                                return (
-                                                    <CollapsibleSection
-                                                        key={status}
-                                                        title={getStatusText(status)}
-                                                        count={statusOrders.length}
-                                                        status={status}
-                                                        defaultExpanded={!['delivered', 'cancelled'].includes(status)}
-                                                    >
-                                                        {statusOrders.map(order => (
-                                                            <OrderCard
-                                                                key={order.id}
-                                                                order={order}
-                                                                availableDeliveries={availableDeliveries}
-                                                                onStatusChange={handleStatusChange}
-                                                                onDeliveryAssign={handleDeliveryAssignment}
-                                                                onPaymentEdit={() => handlePaymentClick(order)}
-                                                                onWhatsAppDelivery={() => handleSendWhatsAppAndAdvance(order)}
-                                                                onPrint={() => handlePrint(order)}
-                                                                onDeliveryStatusClick={(order) => {
-                                                                    setSelectedOrderForStatusModal(order)
-                                                                    setDeliveryStatusModalOpen(true)
-                                                                }}
-                                                                onEdit={() => {
-                                                                    setSelectedOrderForEdit(order)
-                                                                    setManualSidebarMode('edit')
-                                                                    setManualOrderSidebarOpen(true)
-                                                                }}
-                                                                onDelete={() => handleDeleteOrder(order.id)}
-                                                                onCustomerClick={() => {
-                                                                    setSelectedOrderForCustomerContact(order)
-                                                                    setCustomerContactModalOpen(true)
-                                                                }}
-                                                                businessPhone={business?.phone}
-                                                            />
-                                                        ))}
-                                                    </CollapsibleSection>
-                                                )
-                                            })}
-                                        </div>
-                                    )}
+                                                    return (
+                                                        <CollapsibleSection
+                                                            key={status}
+                                                            title={getStatusText(status)}
+                                                            count={statusOrders.length}
+                                                            status={status}
+                                                            defaultExpanded={!['delivered', 'cancelled'].includes(status)}
+                                                        >
+                                                            {statusOrders.map(order => (
+                                                                <OrderCard
+                                                                    key={order.id}
+                                                                    order={order}
+                                                                    availableDeliveries={availableDeliveries}
+                                                                    onStatusChange={handleStatusChange}
+                                                                    onDeliveryAssign={handleDeliveryAssignment}
+                                                                    onPaymentEdit={() => handlePaymentClick(order)}
+                                                                    onWhatsAppDelivery={() => handleSendWhatsAppAndAdvance(order)}
+                                                                    onPrint={() => handlePrint(order)}
+                                                                    onDeliveryStatusClick={(order) => {
+                                                                        setSelectedOrderForStatusModal(order)
+                                                                        setDeliveryStatusModalOpen(true)
+                                                                    }}
+                                                                    onEdit={() => {
+                                                                        setSelectedOrderForEdit(order)
+                                                                        setManualSidebarMode('edit')
+                                                                        setManualOrderSidebarOpen(true)
+                                                                    }}
+                                                                    onDelete={() => handleDeleteOrder(order.id)}
+                                                                    onCustomerClick={() => {
+                                                                        setSelectedOrderForCustomerContact(order)
+                                                                        setCustomerContactModalOpen(true)
+                                                                    }}
+                                                                    businessPhone={business?.phone}
+                                                                />
+                                                            ))}
+                                                        </CollapsibleSection>
+                                                    )
+                                                })}
+                                            </div>
+                                        )}
+                                        {businessId && <LiveCheckoutsPanel businessId={businessId} orders={orders} />}
+                                    </div>
                                 </>
                             )}
 
@@ -1213,9 +1216,6 @@ export default function TodayOrdersPage() {
                             >
                                 <i className="bi bi-plus-lg text-2xl"></i>
                             </button>
-
-                            {/* Live Checkouts Panel - Moved to bottom */}
-                            {businessId && <div className="p-4"><LiveCheckoutsPanel businessId={businessId} orders={orders} /></div>}
 
                             <PaymentManagementModals
                                 isOpen={paymentModalOpen}
