@@ -1076,6 +1076,13 @@ function RestaurantContent() {
     localStorage.setItem('carts', JSON.stringify(allCarts))
   }
 
+  const clearCart = () => {
+    setCart([])
+    if (business?.id) {
+      updateCartInStorage(business.id, [])
+    }
+  }
+
   const getCartItemQuantity = (productId: string, variantName?: string | null) => {
     const item = cart.find(item => item.id === productId && item.variantName === variantName)
     return item ? item.quantity : 0
@@ -1617,6 +1624,7 @@ function RestaurantContent() {
         business={business}
         removeFromCart={removeFromCart}
         updateQuantity={updateQuantity}
+        clearCart={clearCart}
         addItemToCart={(item: any) => {
           if (!business?.id) return
 

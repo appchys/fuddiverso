@@ -1547,7 +1547,7 @@ export function CheckoutContent({
         <div className="px-4 sm:px-6 pt-6 pb-4 bg-white sticky top-0 z-10 border-b border-gray-100 shadow-sm mb-6">
           <div className="max-w-xl mx-auto flex items-center">
             <Link
-              href={business?.username ? `/app/${business.username}` : '/'}
+              href={business?.username ? `/${business.username}` : '/'}
               className="p-2 -ml-2 text-gray-800 hover:bg-gray-100 rounded-full transition-colors flex items-center gap-2"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -28,6 +28,7 @@ interface CartSidebarProps {
     business: any
     removeFromCart: (productId: string, variantName?: string | null) => void
     updateQuantity: (productId: string, quantity: number, variantName?: string | null) => void
+    clearCart: () => void
     addItemToCart: (item: any) => void
     onOpenUserSidebar?: () => void
 }
@@ -39,6 +40,7 @@ export default function CartSidebar({
     business,
     removeFromCart,
     updateQuantity,
+    clearCart,
     addItemToCart,
     onOpenUserSidebar
 }: CartSidebarProps) {
@@ -645,9 +647,11 @@ export default function CartSidebar({
                                     embeddedCartItems={cart}
                                     onEmbeddedBack={() => setView('cart')}
                                     onClearCart={() => {
+                                        clearCart()
                                         setView('cart')
                                     }}
                                     onOrderCreated={(orderId) => {
+                                        clearCart()
                                         setCreatedOrderId(orderId)
                                         setOrderSidebarOpen(true)
                                     }}
@@ -821,7 +825,10 @@ export default function CartSidebar({
 
             <OrderSidebar
                 isOpen={orderSidebarOpen}
-                onClose={() => setOrderSidebarOpen(false)}
+                onClose={() => {
+                    setOrderSidebarOpen(false)
+                    onClose()
+                }}
                 orderId={createdOrderId}
             />
         </div>

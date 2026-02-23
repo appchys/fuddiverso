@@ -770,20 +770,36 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
         <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2"></div>
 
         <div className="max-w-md mx-auto px-4 py-6 relative z-10">
+          {/* Back Button if not embedded */}
+          {!embedded && business?.username && (
+            <button
+              onClick={() => router.push(`/${business.username}`)}
+              className="mb-4 flex items-center gap-2 text-white/80 hover:text-white transition-colors group"
+            >
+              <i className="bi bi-arrow-left group-hover:-translate-x-1 transition-transform"></i>
+              <span className="text-sm font-bold uppercase tracking-wider">Volver a la tienda</span>
+            </button>
+          )}
+
           {/* Foto del negocio + Estado */}
           <div className="flex items-center gap-4">
             {/* Foto redonda del negocio */}
-            {business?.image ? (
-              <img
-                src={business.image}
-                alt={business.name}
-                className="w-16 h-16 rounded-full object-cover border-4 border-white/30 shadow-xl flex-shrink-0"
-              />
-            ) : (
-              <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center border-4 border-white/30 flex-shrink-0">
-                <i className="bi bi-shop text-2xl text-white"></i>
-              </div>
-            )}
+            <div
+              onClick={() => business?.username && router.push(`/${business.username}`)}
+              className="cursor-pointer transition-transform hover:scale-105 active:scale-95 flex-shrink-0"
+            >
+              {business?.image ? (
+                <img
+                  src={business.image}
+                  alt={business.name}
+                  className="w-16 h-16 rounded-full object-cover border-4 border-white/30 shadow-xl"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center border-4 border-white/30">
+                  <i className="bi bi-shop text-2xl text-white"></i>
+                </div>
+              )}
+            </div>
 
             {/* Estado del pedido */}
             <div className="flex-1">
@@ -793,7 +809,6 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
               <h1 className="text-xl font-black text-white leading-tight">
                 {statusMessage.text}
               </h1>
-
             </div>
           </div>
 
