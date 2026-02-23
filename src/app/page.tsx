@@ -141,6 +141,12 @@ function HomePageContent() {
     updateCartInStorage(selectedProductBusiness.id, newCart)
   }
 
+  const clearCart = () => {
+    if (!selectedProductBusiness?.id) return
+    setCart([])
+    updateCartInStorage(selectedProductBusiness.id, [])
+  }
+
   // Cargar productos de proveedores de forma paralela y eficiente
   useEffect(() => {
     const fetchSupplierProducts = async () => {
@@ -718,6 +724,7 @@ function HomePageContent() {
         business={selectedProductBusiness}
         removeFromCart={removeFromCart}
         updateQuantity={updateQuantity}
+        clearCart={clearCart}
         addItemToCart={addItemToCart}
       />
     </div>

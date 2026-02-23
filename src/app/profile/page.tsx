@@ -390,6 +390,12 @@ export default function ProfilePage() {
     updateCartInStorage(selectedBusiness.id, newCart)
   }
 
+  const clearCart = () => {
+    if (!selectedBusiness?.id) return
+    setSelectedBusinessCart([])
+    updateCartInStorage(selectedBusiness.id, [])
+  }
+
   // REFERRAL HANDLERS
   const handleCopyLink = (referral: any) => {
     const referralUrl = `${window.location.origin}/${referral.businessUsername}/${referral.productSlug}?ref=${referral.code}`
@@ -948,6 +954,7 @@ export default function ProfilePage() {
           business={selectedBusiness}
           removeFromCart={removeFromCart}
           updateQuantity={updateQuantity}
+          clearCart={clearCart}
           addItemToCart={addItemToCart}
           onOpenUserSidebar={() => setIsUserSidebarOpen(true)}
         />

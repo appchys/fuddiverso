@@ -308,6 +308,12 @@ export default function ProductPageByUsername() {
     updateCartInStorage(business.id, newCart)
   }
 
+  const clearCart = () => {
+    if (!business?.id) return
+    setCart([])
+    updateCartInStorage(business.id, [])
+  }
+
   const updateCartInStorage = (businessId: string, businessCart: any[]) => {
     const savedCarts = localStorage.getItem('carts')
     const allCarts = savedCarts ? JSON.parse(savedCarts) : {}
@@ -715,6 +721,7 @@ export default function ProductPageByUsername() {
         business={business}
         removeFromCart={removeFromCart}
         updateQuantity={updateQuantity}
+        clearCart={clearCart}
         addItemToCart={(item: any) => {
           if (!business?.id) return
 
