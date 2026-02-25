@@ -54,6 +54,7 @@ export default function AdminDashboard() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
   const [chartData, setChartData] = useState<any[]>([])
   const [telegramChartData, setTelegramChartData] = useState<any[]>([])
+  const [linkedClients, setLinkedClients] = useState<any[]>([])
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
 
@@ -158,10 +159,34 @@ export default function AdminDashboard() {
         const clients = await getAllClientsGlobal();
 
         // Filter clients with Telegram link
-        const linkedClients = clients.filter(c => c.lastTelegramLinkDate);
+        const filteredLinkedClients = clients.filter(c => c.lastTelegramLinkDate);
 
-        // Group by date
-        const grouped = linkedClients.reduce((acc: any, client) => {
+        // Process for list
+        const processedClients = filteredLinkedClients.map(client => {
+          let date: Date | null = null;
+          const dateVal = client.lastTelegramLinkDate;
+
+          if (dateVal && typeof dateVal === 'object' && 'seconds' in dateVal) {
+            date = new Date(dateVal.seconds * 1000);
+          } else if (dateVal instanceof Date) {
+            date = dateVal;
+          } else if (typeof dateVal === 'string') {
+            date = new Date(dateVal);
+          }
+
+          return {
+            ...client,
+            normalizedDate: date
+          };
+        }).sort((a, b) => {
+          if (!a.normalizedDate || !b.normalizedDate) return 0;
+          return b.normalizedDate.getTime() - a.normalizedDate.getTime();
+        });
+
+        setLinkedClients(processedClients);
+
+        // Group by date for chart
+        const grouped = filteredLinkedClients.reduce((acc: any, client) => {
           let dateStr = '';
           const dateVal = client.lastTelegramLinkDate;
           let date: Date | null = null;
@@ -1320,6 +1345,53 @@ export default function AdminDashboard() {
                     />
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Lista de Clientes Vinculados */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 lg:col-span-2 overflow-hidden">
+              <div className="p-6 border-b border-gray-100">
+                <h3 className="text-lg font-bold text-gray-900">Clientes Vinculados recientemente</h3>
+                <p className="text-sm text-gray-500">Listado de usuarios con Telegram activo</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teléfono</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {linkedClients.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="px-6 py-10 text-center text-gray-500">
+                          No hay clientes vinculados aún.
+                        </td>
+                      </tr>
+                    ) : (
+                      linkedClients.slice(0, 10).map((client, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                                <i className="bi bi-person"></i>
+                              </div>
+                              <div className="text-sm font-bold text-gray-900">{client.nombres || 'Usuario'}</div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {client.celular}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {client.normalizedDate?.toLocaleDateString()} {client.normalizedDate?.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
 

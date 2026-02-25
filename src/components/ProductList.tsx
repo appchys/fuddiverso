@@ -1037,190 +1037,182 @@ export default function ProductList({
               <form onSubmit={handleSaveProduct} className="space-y-6">
                 {/* PESTAÑA: INFORMACIÓN GENERAL */}
                 {activeTab === 'general' && (
-                  <>
-                    {/* Sección de Imagen - Visual */}
-                    <div>
-                      <label htmlFor="image-upload" className="block cursor-pointer">
-                        <div className="relative w-full aspect-square bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 hover:border-red-400 hover:bg-red-50 transition-colors flex items-center justify-center overflow-hidden group">
-                          {uploading && formData.image && (
-                            <div className="absolute inset-0 z-20 bg-black/50 backdrop-blur-[1px] flex flex-col items-center justify-center">
-                              <i className="bi bi-arrow-clockwise animate-spin text-white text-3xl mb-3"></i>
-                              <p className="text-white text-sm font-black uppercase tracking-widest">Subiendo imagen</p>
-                            </div>
-                          )}
-                          {formData.image ? (
-                            <div className="absolute inset-0 w-full h-full">
-                              <img src={URL.createObjectURL(formData.image)} alt="Preview" className="w-full h-full object-cover" />
-                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                <div className="text-center">
-                                  <i className="bi bi-camera text-white text-2xl mb-2 block"></i>
-                                  <p className="text-white text-sm font-medium">Cambiar imagen</p>
+                  <div className="space-y-8">
+                    {/* Sección Superior: Imagen + Nombre/Precio */}
+                    <div className="flex flex-col sm:flex-row gap-8">
+                      {/* Lado Izquierdo: Imagen más pequeña */}
+                      <div className="w-40 h-40 flex-shrink-0 mx-auto sm:mx-0">
+                        <label htmlFor="image-upload" className="block cursor-pointer h-full">
+                          <div className="relative h-full bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200 hover:border-red-400 hover:bg-red-50 transition-all flex items-center justify-center overflow-hidden group shadow-inner">
+                            {uploading && formData.image && (
+                              <div className="absolute inset-0 z-20 bg-black/50 backdrop-blur-[1px] flex flex-col items-center justify-center">
+                                <i className="bi bi-arrow-clockwise animate-spin text-white text-xl mb-1"></i>
+                                <p className="text-white text-[8px] font-black uppercase tracking-widest">Subiendo</p>
+                              </div>
+                            )}
+                            {formData.image ? (
+                              <div className="absolute inset-0 w-full h-full">
+                                <img src={URL.createObjectURL(formData.image)} alt="Preview" className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                  <i className="bi bi-camera text-white text-xl"></i>
                                 </div>
                               </div>
-                            </div>
-                          ) : editingProduct?.image ? (
-                            <div className="absolute inset-0 w-full h-full">
-                              <img src={editingProduct.image} alt="Current" className="w-full h-full object-cover" />
-                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                <div className="text-center">
-                                  <i className="bi bi-camera text-white text-2xl mb-2 block"></i>
-                                  <p className="text-white text-sm font-medium">Cambiar imagen</p>
+                            ) : editingProduct?.image ? (
+                              <div className="absolute inset-0 w-full h-full">
+                                <img src={editingProduct.image} alt="Current" className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                  <i className="bi bi-camera text-white text-xl"></i>
                                 </div>
                               </div>
-                            </div>
-                          ) : (
-                            <div className="text-center">
-                              <i className="bi bi-box-seam text-6xl text-gray-300 mb-3 block"></i>
-                              <p className="text-gray-500 font-medium mb-1">Arrastra una imagen aquí</p>
-                              <p className="text-gray-400 text-sm">o haz clic para seleccionar</p>
-                            </div>
-                          )}
-                        </div>
-                      </label>
-                      <input
-                        id="image-upload"
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageChange}
-                        className="hidden"
-                      />
-                    </div>
-
-                    {/* Nombre del Producto - Editable y Destacado */}
-                    <div>
-                      <div className="relative">
+                            ) : (
+                              <div className="text-center p-4">
+                                <i className="bi bi-camera text-3xl text-gray-300 mb-1 block"></i>
+                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Foto</p>
+                              </div>
+                            )}
+                          </div>
+                        </label>
                         <input
-                          type="text"
-                          name="name"
-                          value={formData.name}
-                          onChange={handleInputChange}
-                          placeholder="Nombre del producto"
-                          className={`w-full text-2xl sm:text-3xl font-bold text-gray-900 border-b-2 focus:outline-none transition-colors py-2 px-0 ${errors.name ? 'border-red-500 text-red-600' : 'border-transparent hover:border-gray-300 focus:border-red-500'
-                            }`}
+                          id="image-upload"
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageChange}
+                          className="hidden"
                         />
-                        {formData.name && (
-                          <button
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, name: '' }))}
-                            className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500 transition-colors"
-                          >
-                            <i className="bi bi-x-circle-fill"></i>
-                          </button>
-                        )}
                       </div>
-                      {errors.name && <p className="text-red-500 text-sm mt-2">{errors.name}</p>}
+
+                      {/* Lado Derecho: Nombre y Precio */}
+                      <div className="flex-1 space-y-6">
+                        {/* Nombre del Producto */}
+                        <div>
+                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1">Nombre del Producto</label>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              name="name"
+                              value={formData.name}
+                              onChange={handleInputChange}
+                              placeholder="Ej: Hamburguesa VIP"
+                              className={`w-full text-xl font-bold text-gray-900 border-b-2 focus:outline-none transition-colors py-1 px-0 ${errors.name ? 'border-red-500 text-red-600' : 'border-gray-100 hover:border-gray-300 focus:border-red-500'
+                                }`}
+                            />
+                          </div>
+                          {errors.name && <p className="text-red-500 text-[10px] mt-1 font-bold italic">{errors.name}</p>}
+                        </div>
+
+                        {/* Precio */}
+                        <div>
+                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1">Precio</label>
+                          <div className="relative max-w-[200px]">
+                            <span className="absolute left-0 top-1 text-2xl font-bold text-gray-900">$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              name="price"
+                              value={formData.price}
+                              onChange={handleInputChange}
+                              onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                              placeholder="0.00"
+                              className={`w-full pl-6 pr-0 py-1 text-2xl font-bold border-b-2 focus:outline-none transition-colors bg-transparent ${errors.price ? 'border-red-500 text-red-600' : 'border-gray-100 hover:border-gray-300 focus:border-red-500 text-gray-900'
+                                }`}
+                            />
+                          </div>
+                          {errors.price && <p className="text-red-500 text-[10px] mt-1 font-bold italic">{errors.price}</p>}
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Descripción - Editable tipo nombre */}
+                    {/* Descripción */}
                     <div>
+                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1">Descripción</label>
                       <textarea
                         name="description"
                         value={formData.description}
                         onChange={handleInputChange}
-                        rows={2}
-                        placeholder="Describe tu producto..."
-                        className={`w-full px-0 py-2 border-b-2 focus:outline-none transition-colors bg-transparent text-gray-600 resize-none ${errors.description ? 'border-red-500 text-red-600' : 'border-transparent hover:border-gray-300 focus:border-red-500'
+                        rows={3}
+                        placeholder="Cuéntanos más sobre este delicioso producto..."
+                        className={`w-full px-4 py-3 bg-gray-50 border-2 rounded-2xl focus:outline-none transition-all text-sm font-medium ${errors.description ? 'border-red-500 text-red-600' : 'border-gray-50 hover:border-gray-200 focus:border-red-500 focus:bg-white'
                           }`}
                       />
-                      {errors.description && <p className="text-red-500 text-sm mt-2">{errors.description}</p>}
+                      {errors.description && <p className="text-red-500 text-[10px] mt-1 font-bold italic">{errors.description}</p>}
                     </div>
 
-                    {/* Precio - Grande y destacado */}
-                    <div>
-                      <div className="relative">
-                        <span className="absolute left-0 top-2 text-3xl sm:text-4xl font-bold text-gray-900">$</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          name="price"
-                          value={formData.price}
-                          onChange={handleInputChange}
-                          placeholder="0.00"
-                          className={`w-full pl-10 sm:pl-12 pr-0 py-2 text-3xl sm:text-4xl font-bold border-b-2 focus:outline-none transition-colors bg-transparent ${errors.price ? 'border-red-500 text-red-600' : 'border-transparent hover:border-gray-300 focus:border-red-500 text-gray-900'
-                            }`}
-                        />
-                      </div>
-                      {errors.price && <p className="text-red-500 text-sm mt-2">{errors.price}</p>}
-                    </div>
+                    {/* Categoría y Disponibilidad en una fila */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-end">
+                      {/* Categoría */}
+                      <div>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Categoría</label>
+                        <div className="space-y-2">
+                          {categories.length > 0 && (
+                            <select
+                              name="category"
+                              value={formData.category}
+                              onChange={handleInputChange}
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 font-medium bg-white"
+                            >
+                              {categories.map((cat) => (
+                                <option key={cat} value={cat}>{cat}</option>
+                              ))}
+                            </select>
+                          )}
 
-                    {/* Categoría - Unificada */}
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-3">CATEGORÍA</label>
-                      <div className="space-y-2">
-                        {categories.length === 0 ? (
-                          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                            <p className="text-sm text-blue-600 font-medium mb-2">📌 Categoría por defecto</p>
-                            <p className="text-sm text-gray-600">Se usará "General" como categoría principal</p>
-                          </div>
-                        ) : (
-                          <select
-                            name="category"
-                            value={formData.category}
-                            onChange={handleInputChange}
-                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 font-medium bg-white"
-                          >
-                            {categories.map((cat) => (
-                              <option key={cat} value={cat}>{cat}</option>
-                            ))}
-                          </select>
-                        )}
-
-                        {/* Botón para agregar nueva categoría - Integrado */}
-                        {!showNewCategory ? (
-                          <button
-                            type="button"
-                            onClick={() => setShowNewCategory(true)}
-                            className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-red-400 hover:bg-red-50 transition-colors font-medium text-sm"
-                          >
-                            <i className="bi bi-plus-circle me-2"></i>
-                            Agregar nueva categoría
-                          </button>
-                        ) : (
-                          <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
-                            <input
-                              type="text"
-                              value={newCategory}
-                              onChange={(e) => setNewCategory(e.target.value)}
-                              placeholder="Nombre de la nueva categoría"
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
-                              autoFocus
-                            />
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={handleAddCategory}
-                                className="flex-1 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm transition-colors"
-                              >
-                                <i className="bi bi-check-lg me-1"></i>
-                                Crear
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowNewCategory(false)
-                                  setNewCategory('')
-                                }}
-                                className="flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium text-sm transition-colors"
-                              >
-                                Cancelar
-                              </button>
+                          {/* Botón para agregar nueva categoría - Integrado */}
+                          {!showNewCategory ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowNewCategory(true)}
+                              className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-red-400 hover:bg-red-50 transition-colors font-medium text-sm"
+                            >
+                              <i className="bi bi-plus-circle me-2"></i>
+                              Ej: Principales, Postres, Bebidas
+                            </button>
+                          ) : (
+                            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+                              <input
+                                type="text"
+                                value={newCategory}
+                                onChange={(e) => setNewCategory(e.target.value)}
+                                placeholder="Nombre de la nueva categoría"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                                autoFocus
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleAddCategory}
+                                  className="flex-1 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm transition-colors"
+                                >
+                                  <i className="bi bi-check-lg me-1"></i>
+                                  Crear
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowNewCategory(false)
+                                    setNewCategory('')
+                                  }}
+                                  className="flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium text-sm transition-colors"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Disponibilidad */}
-                    <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={formData.isAvailable}
-                        onChange={(e) => setFormData(prev => ({ ...prev, isAvailable: e.target.checked }))}
-                        className="w-5 h-5 rounded text-red-600 cursor-pointer"
-                      />
-                      <span className="font-medium text-gray-700">Producto disponible</span>
-                    </label>
+                      {/* Disponibilidad */}
+                      <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={formData.isAvailable}
+                          onChange={(e) => setFormData(prev => ({ ...prev, isAvailable: e.target.checked }))}
+                          className="w-5 h-5 rounded text-red-600 cursor-pointer"
+                        />
+                        <span className="font-medium text-gray-700">Producto disponible</span>
+                      </label>
+                    </div>
 
                     {/* Variantes */}
                     <div className="border-t pt-6">
@@ -1369,7 +1361,8 @@ export default function ProductList({
                                 min="0"
                                 value={currentVariant.price}
                                 onChange={(e) => setCurrentVariant(prev => ({ ...prev, price: e.target.value }))}
-                                placeholder="Precio (opcional)"
+                                onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                placeholder="Precio"
                                 className="w-full pl-7 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-red-500 shadow-sm transition-all"
                               />
                             </div>
@@ -1395,7 +1388,7 @@ export default function ProductList({
                         </div>
                       )}
                     </div>
-                  </>
+                  </div>
                 )}
 
                 {/* PESTAÑA: INGREDIENTES Y COSTOS */}
@@ -1572,6 +1565,7 @@ export default function ProductList({
                                     name="unitCost"
                                     value={currentIngredient.unitCost}
                                     onChange={handleIngredientChange}
+                                    onWheel={(e) => (e.target as HTMLInputElement).blur()}
                                     className="w-full pl-8 pr-4 py-4 bg-white border-2 border-slate-100 rounded-2xl focus:outline-none focus:border-emerald-500 font-bold text-slate-900 transition-all"
                                     placeholder="0.00"
                                   />
@@ -1590,6 +1584,7 @@ export default function ProductList({
                                     name="quantity"
                                     value={currentIngredient.quantity}
                                     onChange={handleIngredientChange}
+                                    onWheel={(e) => (e.target as HTMLInputElement).blur()}
                                     className="w-full px-4 py-4 bg-white border-2 border-slate-100 rounded-2xl focus:outline-none focus:border-emerald-500 font-bold text-slate-900 transition-all"
                                     placeholder="1.0"
                                   />
