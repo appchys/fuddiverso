@@ -1078,11 +1078,12 @@ export async function getAllOrders(): Promise<Order[]> {
   }
 }
 
-export async function updateOrderStatus(orderId: string, status: Order['status']) {
+export async function updateOrderStatus(orderId: string, status: Order['status'], reason?: string) {
   try {
     const docRef = doc(db, 'orders', orderId)
     // Mapear el campo de historial correspondiente al estado
     const historyFieldMap: Record<Order['status'], string> = {
+      borrador: 'statusHistory.borradorAt',
       pending: 'statusHistory.pendingAt',
       confirmed: 'statusHistory.confirmedAt',
       preparing: 'statusHistory.preparingAt',
@@ -1096,6 +1097,10 @@ export async function updateOrderStatus(orderId: string, status: Order['status']
       status,
       updatedAt: serverTimestamp(),
       [historyFieldMap[status]]: serverTimestamp()
+    }
+
+    if (status === 'cancelled' && reason) {
+      updatePayload.rejectionReason = reason
     }
 
     // Además, mantener un alias plano deliveredAt para consultas/UX cuando aplica

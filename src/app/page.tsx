@@ -305,7 +305,7 @@ function HomePageContent() {
 
   const filteredRandomProducts = randomProducts.filter(product => {
     const business = businesses.find(b => b.id === product.businessId)
-    return business?.businessType !== 'distributor'
+    return business?.businessType !== 'distributor' && !!product.image
   })
 
   return (

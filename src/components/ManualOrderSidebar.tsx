@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
 import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation } from '@/lib/database'
 import { searchClients } from '@/lib/client-search'
@@ -52,7 +52,7 @@ interface ManualOrderData {
   transferAmount: number
   total: number
   selectedDelivery: any
-  orderStatus: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'on_way' | 'delivered' | 'cancelled'
+  orderStatus: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'on_way' | 'delivered' | 'cancelled' | 'borrador'
 }
 
 interface ManualOrderSidebarProps {
@@ -1088,6 +1088,8 @@ export default function ManualOrderSidebar({
 
     setCreatingOrder(true)
     try {
+      const finalStatus = computedStatus;
+
       const now = new Date();
       const firestoreTimestamp = {
         seconds: Math.floor(now.getTime() / 1000),
@@ -1153,7 +1155,7 @@ export default function ManualOrderSidebar({
         },
         subtotal: manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0),
         total: manualOrderData.total,
-        status: manualOrderData.orderStatus || 'confirmed' as const,
+        status: finalStatus as any,
         createdByAdmin: true,
         createdAt: new Date(),
         updatedAt: new Date()
@@ -1177,7 +1179,7 @@ export default function ManualOrderSidebar({
           timing: orderData.timing,
           payment: orderData.payment,
           total: orderData.total,
-          status: manualOrderData.orderStatus,
+          status: finalStatus,
           updatedAt: new Date()
         }
         await updateOrder(editOrder.id, updatePayload)
@@ -1233,7 +1235,7 @@ export default function ManualOrderSidebar({
       transferAmount: 0,
       total: 0,
       selectedDelivery: null,
-      orderStatus: 'pending'
+      orderStatus: 'borrador'
     })
     setClientFound(false)
     setShowCreateClient(false)
@@ -1244,7 +1246,23 @@ export default function ManualOrderSidebar({
     onClose()
   }
 
-  // ...existing code... (forced create removed)
+  // Determinar si la información requerida está completa
+  const isInfoComplete = useMemo(() => {
+    return (
+      manualOrderData.customerName.trim() !== '' &&
+      manualOrderData.customerPhone.trim() !== '' &&
+      manualOrderData.selectedProducts.length > 0 &&
+      manualOrderData.deliveryType !== '' &&
+      (manualOrderData.timingType === 'immediate' || (manualOrderData.scheduledDate !== '' && manualOrderData.scheduledTime !== ''))
+    );
+  }, [manualOrderData.customerName, manualOrderData.customerPhone, manualOrderData.selectedProducts, manualOrderData.deliveryType, manualOrderData.timingType, manualOrderData.scheduledDate, manualOrderData.scheduledTime]);
+
+  // Estado calculado para mostrar en la UI y guardar
+  const computedStatus = useMemo(() => {
+    if (!isInfoComplete) return 'borrador';
+    if (manualOrderData.orderStatus === 'borrador') return 'confirmed';
+    return manualOrderData.orderStatus;
+  }, [isInfoComplete, manualOrderData.orderStatus]);
 
   if (!isOpen) return null
 
@@ -1257,19 +1275,6 @@ export default function ManualOrderSidebar({
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">{mode === 'edit' ? 'Editar pedido' : 'Nuevo pedido'}</h2>
           <div className="flex items-center gap-2">
-            {/* Selector de estado */}
-            <select
-              value={manualOrderData.orderStatus}
-              onChange={(e) => setManualOrderData(prev => ({ ...prev, orderStatus: e.target.value as any }))}
-              className="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="pending">Pendiente</option>
-              <option value="confirmed">Confirmado</option>
-              <option value="preparing">Preparando</option>
-              <option value="ready">Listo</option>
-              <option value="delivered">Entregado</option>
-              <option value="cancelled">Cancelado</option>
-            </select>
             <button
               onClick={handleCancel}
               className="p-2 hover:bg-gray-100 rounded-full"

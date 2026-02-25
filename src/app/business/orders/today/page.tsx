@@ -118,12 +118,13 @@ import { LiveCheckoutsPanel } from '@/components/LiveCheckoutsPanel'
 const getStatusText = (status: string) => {
     switch (status) {
         case 'pending': return 'Pendiente'
+        case 'borrador': return 'Borrador'
         case 'confirmed': return 'Confirmado'
         case 'preparing': return 'Preparando'
         case 'ready': return 'Listo para entrega'
         case 'on_way': return 'En camino'
         case 'delivered': return 'Entregado'
-        case 'cancelled': return 'Cancelado'
+        case 'cancelled': return 'Descartado'
         default: return status
     }
 }
@@ -131,6 +132,7 @@ const getStatusText = (status: string) => {
 const getStatusColor = (status: string) => {
     switch (status) {
         case 'pending': return 'bg-yellow-100 text-yellow-800'
+        case 'borrador': return 'bg-orange-100 text-orange-800'
         case 'confirmed': return 'bg-blue-100 text-blue-800'
         case 'preparing': return 'bg-purple-100 text-purple-800'
         case 'ready': return 'bg-green-100 text-green-800'
@@ -696,7 +698,7 @@ export default function TodayOrdersPage() {
         // Notification bell callback
     }
 
-    const handleStatusChange = async (orderId: string, newStatus: Order['status']) => {
+    const handleStatusChange = async (orderId: string, newStatus: Order['status'], reason?: string) => {
         try {
             const currentOrder = orders.find(o => o.id === orderId);
             let assignmentUpdate: any = {};
@@ -711,7 +713,7 @@ export default function TodayOrdersPage() {
                 }
             }
 
-            await updateOrderStatus(orderId, newStatus)
+            await updateOrderStatus(orderId, newStatus, reason)
 
             if (Object.keys(assignmentUpdate).length > 0) {
                 const orderRef = doc(db, 'orders', orderId);
@@ -1154,7 +1156,7 @@ export default function TodayOrdersPage() {
                                             />
                                         ) : (
                                             <div className="space-y-6">
-                                                {['pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'].map(status => {
+                                                {['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'].map(status => {
                                                     const statusOrders = orders.filter(o => o.status === status);
                                                     if (statusOrders.length === 0) return null;
 
@@ -1385,7 +1387,7 @@ function DeliveryStatusModal({
                             className="w-full flex items-center justify-center gap-2 py-3.5 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-200"
                         >
                             <i className="bi bi-whatsapp text-xl"></i>
-                            Enviar mensaje al Delivery
+                            Notificar por WhatsApp
                         </button>
                     </div>
                 </div>
@@ -1396,7 +1398,7 @@ function DeliveryStatusModal({
 
 const getActionIcon = (status: string) => {
     switch (status) {
-        case 'preparing': return 'bi-fire text-orange-500'
+        case 'preparing': return 'bi-fire text-purple-500'
         case 'ready': return 'bi-check2 text-green-600'
         case 'on_way': return 'bi-bicycle text-indigo-500'
         case 'delivered': return 'bi-stars text-purple-500'
@@ -1443,6 +1445,7 @@ function CollapsibleSection({
     const getDotColor = (s: string) => {
         switch (s) {
             case 'pending': return 'bg-yellow-500 shadow-yellow-200'
+            case 'borrador': return 'bg-orange-400 shadow-orange-200'
             case 'confirmed': return 'bg-blue-500 shadow-blue-200'
             case 'preparing': return 'bg-purple-500 shadow-purple-200'
             case 'ready': return 'bg-green-500 shadow-green-200'
@@ -1454,7 +1457,7 @@ function CollapsibleSection({
     }
 
     return (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-4">
             <button
                 onClick={() => setIsExpanded(!isExpanded)}
                 className="w-full px-4 py-3 flex justify-between items-center bg-gray-50/50 hover:bg-gray-100 transition-colors"
@@ -1492,7 +1495,7 @@ function OrderCard({
 }: {
     order: Order,
     availableDeliveries: Delivery[],
-    onStatusChange: (id: string, status: Order['status']) => void,
+    onStatusChange: (id: string, status: Order['status'], reason?: string) => void,
     onDeliveryAssign: (id: string, deliveryId: string) => void,
     onPaymentEdit: () => void,
     onWhatsAppDelivery: () => void,
@@ -1506,6 +1509,9 @@ function OrderCard({
     const nextStatus = getNextStatus(order.status)
     const isDelivery = order.delivery?.type === 'delivery'
     const [isExpanded, setIsExpanded] = useState(false)
+    const [statusMenuOpen, setStatusMenuOpen] = useState(false)
+    const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false)
+    const [discardReason, setDiscardReason] = useState('')
 
     // Urgency check
     const isUrgent = () => {
@@ -1544,7 +1550,63 @@ function OrderCard({
     });
 
     return (
-        <div className={`bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden transition-all ${urgent ? 'animate-pulse border-red-300 ring-2 ring-red-100' : ''}`}>
+        <div className={`bg-white rounded-xl shadow-sm border border-gray-100 transition-all ${statusMenuOpen || confirmDiscardOpen ? 'relative z-30' : ''} ${urgent ? 'animate-pulse border-red-300 ring-2 ring-red-100' : ''}`}>
+            {/* Confirmation Modal for Discard */}
+            {confirmDiscardOpen && (
+                <div className="absolute inset-0 z-50 bg-white/95 backdrop-blur-sm rounded-xl flex flex-col items-center justify-center p-4 text-center animate-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
+                    <div className="w-12 h-12 bg-red-50 text-red-600 rounded-full flex items-center justify-center mb-3">
+                        <i className="bi bi-trash3 text-xl"></i>
+                    </div>
+                    <h4 className="font-bold text-gray-900 mb-1">¿Descartar pedido?</h4>
+                    <p className="text-xs text-gray-500 mb-3 px-4 line-clamp-2">
+                        Se marcará como descartado y desaparecerá de la lista activa.
+                    </p>
+
+                    {/* Reason Selector */}
+                    <div className="w-full max-w-[280px] mb-4">
+                        <label className="block text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1.5 text-left ml-1">
+                            Motivo del descarte
+                        </label>
+                        <select
+                            value={discardReason}
+                            onChange={(e) => setDiscardReason(e.target.value)}
+                            className="w-full bg-gray-50 border border-gray-200 rounded-lg py-2 px-3 text-sm outline-none focus:ring-2 focus:ring-red-100 focus:border-red-300 transition-all font-medium"
+                        >
+                            <option value="">Selecciona un motivo...</option>
+                            <option value="Cliente no responde">Cliente no responde</option>
+                            <option value="Sin stock de productos">Sin stock de productos</option>
+                            <option value="Fuera de zona de cobertura">Fuera de zona de cobertura</option>
+                            <option value="Pedido duplicado">Pedido duplicado</option>
+                            <option value="Fallo en el pago">Fallo en el pago</option>
+                            <option value="Otro">Otro motivo</option>
+                        </select>
+                    </div>
+
+                    <div className="flex gap-2 w-full max-w-[280px]">
+                        <button
+                            onClick={() => {
+                                setConfirmDiscardOpen(false)
+                                setDiscardReason('')
+                            }}
+                            className="flex-1 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={() => {
+                                onStatusChange(order.id, 'cancelled', discardReason || 'Sin motivo especificado')
+                                setConfirmDiscardOpen(false)
+                                setDiscardReason('')
+                                setStatusMenuOpen(false)
+                            }}
+                            className="flex-1 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={!discardReason}
+                        >
+                            Confirmar
+                        </button>
+                    </div>
+                </div>
+            )}
             {/* Card Header: Time & Status */}
             <div
                 className="px-4 py-3 border-b border-gray-50 flex justify-between items-start bg-gray-50/50 cursor-pointer hover:bg-gray-100 transition-colors"
@@ -1556,7 +1618,7 @@ function OrderCard({
                         <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 text-xs mr-2 transform transition-transform duration-200`}></i>
 
                         <span className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                            <i className={`bi ${isDelivery ? 'bi-scooter' : 'bi-shop'} text-gray-400`}></i>
+                            {!isDelivery && <i className="bi bi-shop text-gray-400"></i>}
                             {order.customer?.name || "Cliente"}
                         </span>
                     </div>
@@ -1603,6 +1665,73 @@ function OrderCard({
                                 )}
                             </button>
                         )}
+
+                        {/* Discard Button for Pending Orders */}
+                        {order.status === 'pending' && (
+                            <button
+                                onClick={() => setConfirmDiscardOpen(true)}
+                                className="px-3 py-1.5 text-xs font-semibold text-gray-400 bg-gray-50 border border-gray-100 rounded-lg hover:bg-gray-100 transition-colors shadow-sm"
+                            >
+                                Descartar
+                            </button>
+                        )}
+
+                        {/* Status Select Menu */}
+                        {order.status !== 'pending' &&
+                            <div className="relative">
+                                <button
+                                    onClick={() => setStatusMenuOpen(!statusMenuOpen)}
+                                    className={`p-1.5 text-lg rounded-lg transition-all hover:bg-gray-100 ${statusMenuOpen ? 'bg-gray-100' : ''}`}
+                                    title="Cambiar estado"
+                                >
+                                    <i className="bi bi-three-dots-vertical"></i>
+                                </button>
+
+                                {statusMenuOpen &&
+                                    <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-20 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                                        <button
+                                            onClick={() => {
+                                                onStatusChange(order.id, 'preparing')
+                                                setStatusMenuOpen(false)
+                                            }}
+                                            className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                        >
+                                            <i className="bi bi-fire text-purple-500"></i>
+                                            Preparando
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                onStatusChange(order.id, 'ready')
+                                                setStatusMenuOpen(false)
+                                            }}
+                                            className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                        >
+                                            <i className="bi bi-box-seam text-green-500"></i>
+                                            Listo para entrega
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                onStatusChange(order.id, 'delivered')
+                                                setStatusMenuOpen(false)
+                                            }}
+                                            className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                        >
+                                            <i className="bi bi-check-all text-gray-500"></i>
+                                            Entregado
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setConfirmDiscardOpen(true)
+                                            }}
+                                            className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 border-t border-gray-50 mt-1"
+                                        >
+                                            <i className="bi bi-x-circle text-gray-500"></i>
+                                            Descartado
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        }
 
                         {/* Delivery Acceptance Status */}
                         {isDelivery && order.delivery?.assignedDelivery && (

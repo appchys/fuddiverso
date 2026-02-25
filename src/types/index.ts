@@ -210,7 +210,7 @@ export interface Order {
   payment: PaymentInfo
   total: number
   subtotal?: number
-  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'on_way' | 'delivered' | 'cancelled'
+  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'on_way' | 'delivered' | 'cancelled' | 'borrador'
   createdAt: Date
   updatedAt: Date
   deliveredAt?: Date | Timestamp // Fecha y hora cuando se marcó como entregado
