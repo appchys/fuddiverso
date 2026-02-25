@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react'
 import { GoogleMap } from './GoogleMap'
 import LocationMap from './LocationMap'
 import { ClientLocation, createClientLocation, getDeliveryFeeForLocation } from '@/lib/database'
+import { isInstagramBrowser, getDeviceType, openInExternalBrowser } from '@/lib/instagram-detect'
 
 interface NewLocationData {
     latlong: string
@@ -34,6 +35,13 @@ export default function LocationSelectionModal({
 }: LocationSelectionModalProps) {
     // Estado local para controlar si estamos seleccionando o agregando
     const [isAddingNewLocation, setIsAddingNewLocation] = useState(initialAddingState)
+    const [isInInstagram, setIsInInstagram] = useState(false)
+    const [deviceType, setDeviceType] = useState<'android' | 'ios' | 'desktop'>('desktop')
+
+    useEffect(() => {
+        setIsInInstagram(isInstagramBrowser())
+        setDeviceType(getDeviceType())
+    }, [])
 
     useEffect(() => {
         if (isOpen) {
@@ -276,6 +284,43 @@ export default function LocationSelectionModal({
                                     Ubicación en el mapa
                                 </label>
                                 <div className="rounded-2xl overflow-hidden shadow-sm border border-gray-200 bg-gray-50 h-[220px] relative">
+                                    {/* Advertencia para Instagram - Diseño Premium */}
+                                    {isInInstagram && !mapCoordinates && (
+                                        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center bg-white/95 backdrop-blur-sm">
+                                            <div className="w-20 h-20 bg-gradient-to-tr from-[#f9ce34] via-[#ee2a7b] to-[#6228d7] rounded-3xl flex items-center justify-center mb-6 text-white shadow-xl rotate-3 animate-pulse">
+                                                <i className="bi bi-instagram text-4xl"></i>
+                                            </div>
+                                            <h4 className="text-xl font-black text-gray-900 mb-3 tracking-tight">¡Espera un momento! 🛑</h4>
+                                            <p className="text-sm text-gray-600 mb-6 px-4 leading-relaxed font-medium text-balance">
+                                                Detectamos que estás en <b>Instagram</b>. Para que podamos encontrar tu ubicación con total precisión, te recomendamos usar tu navegador habitual.
+                                            </p>
+
+                                            {deviceType === 'android' ? (
+                                                <button
+                                                    onClick={() => openInExternalBrowser()}
+                                                    className="w-full bg-gray-900 text-white font-bold py-4 px-8 rounded-2xl shadow-lg hover:bg-black transition-all flex items-center justify-center gap-3 transform active:scale-95"
+                                                >
+                                                    <i className="bi bi-box-arrow-up-right text-lg"></i>
+                                                    Abrir en navegador
+                                                </button>
+                                            ) : deviceType === 'ios' ? (
+                                                <div className="w-full bg-blue-50 border border-blue-100 p-4 rounded-2xl shadow-sm">
+                                                    <p className="text-xs text-blue-800 font-bold mb-2 uppercase tracking-widest">Instrucciones</p>
+                                                    <p className="text-sm text-blue-700 leading-snug">
+                                                        Toca los <i className="bi bi-three-dots text-lg align-middle mx-1"></i> en la esquina superior y selecciona <b>"Abrir en navegador"</b>.
+                                                    </p>
+                                                </div>
+                                            ) : null}
+
+                                            <button
+                                                onClick={() => setIsInInstagram(false)} // Permitir continuar bajo su propio riesgo
+                                                className="mt-6 text-sm text-gray-400 hover:text-gray-900 font-bold uppercase tracking-wider transition-colors"
+                                            >
+                                                Continuar aquí de todos modos
+                                            </button>
+                                        </div>
+                                    )}
+
                                     {mapCoordinates ? (
                                         <GoogleMap
                                             latitude={mapCoordinates.lat}
