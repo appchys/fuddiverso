@@ -608,7 +608,8 @@ function DeliveryDashboardContent() {
       ready: 'bg-green-100 text-green-800 border-green-200',
       delivered: 'bg-gray-100 text-gray-800 border-gray-200',
       cancelled: 'bg-red-100 text-red-800 border-red-200',
-      on_way: 'bg-cyan-100 text-cyan-800 border-cyan-200'
+      on_way: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+      borrador: 'bg-orange-100 text-orange-800 border-orange-200'
     }
     return colors[status] || colors.pending
   }
@@ -621,7 +622,8 @@ function DeliveryDashboardContent() {
       ready: 'Listo',
       delivered: 'Entregado',
       cancelled: 'Cancelado',
-      on_way: 'En camino'
+      on_way: 'En camino',
+      borrador: 'Borrador'
     }
     return texts[status] || status
   }

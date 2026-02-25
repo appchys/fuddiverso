@@ -1513,6 +1513,18 @@ function OrderCard({
     const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false)
     const [discardReason, setDiscardReason] = useState('')
 
+    // Prevent scroll when modal is open
+    useEffect(() => {
+        if (confirmDiscardOpen) {
+            document.body.style.overflow = 'hidden'
+        } else {
+            document.body.style.overflow = ''
+        }
+        return () => {
+            document.body.style.overflow = ''
+        }
+    }, [confirmDiscardOpen])
+
     // Urgency check
     const isUrgent = () => {
         // Only for active orders that are not ready or delivered
@@ -1550,60 +1562,71 @@ function OrderCard({
     });
 
     return (
-        <div className={`bg-white rounded-xl shadow-sm border border-gray-100 transition-all ${statusMenuOpen || confirmDiscardOpen ? 'relative z-30' : ''} ${urgent ? 'animate-pulse border-red-300 ring-2 ring-red-100' : ''}`}>
+        <div className={`bg-white rounded-xl shadow-sm border border-gray-100 transition-all ${statusMenuOpen ? 'relative z-30' : ''} ${urgent ? 'animate-pulse border-red-300 ring-2 ring-red-100' : ''}`}>
             {/* Confirmation Modal for Discard */}
             {confirmDiscardOpen && (
-                <div className="absolute inset-0 z-50 bg-white/95 backdrop-blur-sm rounded-xl flex flex-col items-center justify-center p-4 text-center animate-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
-                    <div className="w-12 h-12 bg-red-50 text-red-600 rounded-full flex items-center justify-center mb-3">
-                        <i className="bi bi-trash3 text-xl"></i>
-                    </div>
-                    <h4 className="font-bold text-gray-900 mb-1">¿Descartar pedido?</h4>
-                    <p className="text-xs text-gray-500 mb-3 px-4 line-clamp-2">
-                        Se marcará como descartado y desaparecerá de la lista activa.
-                    </p>
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
+                    <div
+                        className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300"
+                        onClick={() => {
+                            setConfirmDiscardOpen(false)
+                            setDiscardReason('')
+                        }}
+                    />
 
-                    {/* Reason Selector */}
-                    <div className="w-full max-w-[280px] mb-4">
-                        <label className="block text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1.5 text-left ml-1">
-                            Motivo del descarte
-                        </label>
-                        <select
-                            value={discardReason}
-                            onChange={(e) => setDiscardReason(e.target.value)}
-                            className="w-full bg-gray-50 border border-gray-200 rounded-lg py-2 px-3 text-sm outline-none focus:ring-2 focus:ring-red-100 focus:border-red-300 transition-all font-medium"
-                        >
-                            <option value="">Selecciona un motivo...</option>
-                            <option value="Cliente no responde">Cliente no responde</option>
-                            <option value="Sin stock de productos">Sin stock de productos</option>
-                            <option value="Fuera de zona de cobertura">Fuera de zona de cobertura</option>
-                            <option value="Pedido duplicado">Pedido duplicado</option>
-                            <option value="Fallo en el pago">Fallo en el pago</option>
-                            <option value="Otro">Otro motivo</option>
-                        </select>
-                    </div>
+                    <div className="relative bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 flex flex-col items-center text-center animate-in zoom-in-95 duration-200">
+                        <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mb-4">
+                            <i className="bi bi-trash3 text-2xl"></i>
+                        </div>
 
-                    <div className="flex gap-2 w-full max-w-[280px]">
-                        <button
-                            onClick={() => {
-                                setConfirmDiscardOpen(false)
-                                setDiscardReason('')
-                            }}
-                            className="flex-1 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            onClick={() => {
-                                onStatusChange(order.id, 'cancelled', discardReason || 'Sin motivo especificado')
-                                setConfirmDiscardOpen(false)
-                                setDiscardReason('')
-                                setStatusMenuOpen(false)
-                            }}
-                            className="flex-1 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-                            disabled={!discardReason}
-                        >
-                            Confirmar
-                        </button>
+                        <h4 className="text-xl font-bold text-gray-900 mb-2">¿Descartar pedido?</h4>
+                        <p className="text-sm text-gray-500 mb-6 px-2">
+                            Se marcará como descartado y desaparecerá de la lista activa. Por favor selecciona el motivo.
+                        </p>
+
+                        {/* Reason Selector */}
+                        <div className="w-full mb-6">
+                            <label className="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-2 text-left ml-1">
+                                Motivo del descarte
+                            </label>
+                            <select
+                                value={discardReason}
+                                onChange={(e) => setDiscardReason(e.target.value)}
+                                className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 px-4 text-sm outline-none focus:ring-2 focus:ring-red-100 focus:border-red-300 transition-all font-medium"
+                            >
+                                <option value="">Selecciona un motivo...</option>
+                                <option value="Cliente no responde">Cliente no responde</option>
+                                <option value="Sin stock de productos">Sin stock de productos</option>
+                                <option value="Fuera de zona de cobertura">Fuera de zona de cobertura</option>
+                                <option value="Pedido duplicado">Pedido duplicado</option>
+                                <option value="Fallo en el pago">Fallo en el pago</option>
+                                <option value="Otro">Otro motivo</option>
+                            </select>
+                        </div>
+
+                        <div className="flex gap-3 w-full">
+                            <button
+                                onClick={() => {
+                                    setConfirmDiscardOpen(false)
+                                    setDiscardReason('')
+                                }}
+                                className="flex-1 py-3 text-sm font-bold text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => {
+                                    onStatusChange(order.id, 'cancelled', discardReason || 'Sin motivo especificado')
+                                    setConfirmDiscardOpen(false)
+                                    setDiscardReason('')
+                                    setStatusMenuOpen(false)
+                                }}
+                                className="flex-1 py-3 text-sm font-bold text-white bg-red-600 rounded-xl hover:bg-red-700 transition-colors shadow-lg shadow-red-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+                                disabled={!discardReason}
+                            >
+                                Confirmar
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
