@@ -746,14 +746,13 @@ export default function TodayOrdersPage() {
         }
     }
 
-    const handleSendWhatsAppAndAdvance = async (order: Order) => {
+    const handleSendWhatsAppToDelivery = async (order: Order) => {
         try {
             await sendWhatsAppToDelivery(
                 order,
                 availableDeliveries,
-                business,
-                async (id, status) => { await handleStatusChange(id, status) },
-                (updatedOrder) => { /* Local update if needed */ }
+                business
+                // Removed callbacks to prevent automatic status advancement
             )
         } catch (e) {
             console.error("Error sending WhatsApp", e)
@@ -1175,7 +1174,7 @@ export default function TodayOrdersPage() {
                                                                     onStatusChange={handleStatusChange}
                                                                     onDeliveryAssign={handleDeliveryAssignment}
                                                                     onPaymentEdit={() => handlePaymentClick(order)}
-                                                                    onWhatsAppDelivery={() => handleSendWhatsAppAndAdvance(order)}
+                                                                    onWhatsAppDelivery={() => handleSendWhatsAppToDelivery(order)}
                                                                     onPrint={() => handlePrint(order)}
                                                                     onDeliveryStatusClick={(order) => {
                                                                         setSelectedOrderForStatusModal(order)
@@ -1231,7 +1230,7 @@ export default function TodayOrdersPage() {
                                 deliveryAgent={availableDeliveries.find(d => d.id === selectedOrderForStatusModal?.delivery?.assignedDelivery)}
                                 onWhatsApp={() => {
                                     if (selectedOrderForStatusModal) {
-                                        handleSendWhatsAppAndAdvance(selectedOrderForStatusModal)
+                                        handleSendWhatsAppToDelivery(selectedOrderForStatusModal)
                                         setDeliveryStatusModalOpen(false)
                                     }
                                 }}
