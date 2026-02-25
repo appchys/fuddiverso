@@ -292,7 +292,7 @@ export default function LocationSelectionModal({
                                             </div>
                                             <h4 className="text-xl font-black text-gray-900 mb-3 tracking-tight">¡Espera un momento! 🛑</h4>
                                             <p className="text-sm text-gray-600 mb-6 px-4 leading-relaxed font-medium text-balance">
-                                                Detectamos que estás en <b>Instagram</b>. Para que podamos encontrar tu ubicación con total precisión, te recomendamos usar tu navegador habitual.
+                                                GPS bloqueado por <b>Instagram</b>.
                                             </p>
 
                                             {deviceType === 'android' ? (
@@ -305,9 +305,8 @@ export default function LocationSelectionModal({
                                                 </button>
                                             ) : deviceType === 'ios' ? (
                                                 <div className="w-full bg-blue-50 border border-blue-100 p-4 rounded-2xl shadow-sm">
-                                                    <p className="text-xs text-blue-800 font-bold mb-2 uppercase tracking-widest">Instrucciones</p>
                                                     <p className="text-sm text-blue-700 leading-snug">
-                                                        Toca los <i className="bi bi-three-dots text-lg align-middle mx-1"></i> en la esquina superior y selecciona <b>"Abrir en navegador"</b>.
+                                                        Toca los <i className="bi bi-three-dots text-lg align-middle mx-1"></i> en la esquina superior y selecciona <b>"Abrir en navegador externo"</b>.
                                                     </p>
                                                 </div>
                                             ) : null}

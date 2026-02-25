@@ -1132,7 +1132,7 @@ export default function ProductList({
                         onChange={handleInputChange}
                         rows={3}
                         placeholder="Cuéntanos más sobre este delicioso producto..."
-                        className={`w-full px-4 py-3 bg-gray-50 border-2 rounded-2xl focus:outline-none transition-all text-sm font-medium ${errors.description ? 'border-red-500 text-red-600' : 'border-gray-50 hover:border-gray-200 focus:border-red-500 focus:bg-white'
+                        className={`w-full px-4 py-3 bg-gray-50 border-2 rounded-2xl focus:outline-none transition-all text-base font-medium ${errors.description ? 'border-red-500 text-red-600' : 'border-gray-50 hover:border-gray-200 focus:border-red-500 focus:bg-white'
                           }`}
                       />
                       {errors.description && <p className="text-red-500 text-[10px] mt-1 font-bold italic">{errors.description}</p>}
@@ -1349,7 +1349,7 @@ export default function ProductList({
                             value={currentVariant.name}
                             onChange={(e) => setCurrentVariant(prev => ({ ...prev, name: e.target.value }))}
                             placeholder="Ej: Tamaño grande, Con queso extra"
-                            className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-red-500 shadow-sm transition-all"
+                            className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-base font-bold focus:outline-none focus:border-red-500 shadow-sm transition-all"
                             autoFocus
                           />
                           <div className="flex gap-2">
@@ -1363,7 +1363,7 @@ export default function ProductList({
                                 onChange={(e) => setCurrentVariant(prev => ({ ...prev, price: e.target.value }))}
                                 onWheel={(e) => (e.target as HTMLInputElement).blur()}
                                 placeholder="Precio"
-                                className="w-full pl-7 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-red-500 shadow-sm transition-all"
+                                className="w-full pl-7 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-base font-bold focus:outline-none focus:border-red-500 shadow-sm transition-all"
                               />
                             </div>
                             <button

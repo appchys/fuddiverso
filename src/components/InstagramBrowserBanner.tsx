@@ -1,24 +1,45 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { isInstagramBrowser, getDeviceType, openInExternalBrowser } from '@/lib/instagram-detect'
+import { isRestrictedBrowser, getRestrictedBrowserType, getDeviceType, openInExternalBrowser } from '@/lib/instagram-detect'
 
 export default function InstagramBrowserBanner() {
   const [showBanner, setShowBanner] = useState(false)
   const [deviceType, setDeviceType] = useState<'android' | 'ios' | 'desktop'>('desktop')
+  const [browserType, setBrowserType] = useState<'instagram' | 'safari-view' | null>(null)
 
   useEffect(() => {
-    const inInstagram = isInstagramBrowser()
+    const isRestricted = isRestrictedBrowser()
+    const browserTypeDetected = getRestrictedBrowserType()
     const device = getDeviceType()
     
     setDeviceType(device)
-    setShowBanner(inInstagram && device !== 'desktop')
+    setBrowserType(browserTypeDetected)
+    setShowBanner(isRestricted && device !== 'desktop')
   }, [])
 
-  if (!showBanner) return null
+  if (!showBanner || !browserType) return null
 
   const isAndroid = deviceType === 'android'
   const isIos = deviceType === 'ios'
+  const isInstagram = browserType === 'instagram'
+  const isSafariView = browserType === 'safari-view'
+
+  const getTitle = () => {
+    if (isInstagram) return 'Abre Fuddi en tu navegador'
+    if (isSafariView) return 'Mejora tu experiencia en Fuddi'
+    return 'Abre Fuddi en tu navegador'
+  }
+
+  const getDescription = () => {
+    if (isInstagram) {
+      return 'El navegador de Instagram tiene limitaciones. Para una mejor experiencia, abre Fuddi en tu navegador externo.'
+    }
+    if (isSafariView) {
+      return 'Este navegador tiene limitaciones con el acceso a GPS. Para una mejor experiencia, abre Fuddi en Safari.'
+    }
+    return ''
+  }
 
   return (
     <div className="sticky top-0 z-50 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-3 shadow-lg">
@@ -32,20 +53,30 @@ export default function InstagramBrowserBanner() {
 
         {/* Contenido */}
         <div className="flex-grow">
-          <h3 className="font-bold mb-1">Abre Fuddi en tu navegador</h3>
+          <h3 className="font-bold mb-1">{getTitle()}</h3>
           
-          {isAndroid && (
+          {isAndroid && isInstagram && (
             <p className="text-sm opacity-95">
-              El navegador de Instagram tiene limitaciones. Para una mejor experiencia, copia esta URL en tu navegador externo.
+              {getDescription()}
             </p>
           )}
           
-          {isIos && (
+          {isIos && isInstagram && (
             <div className="text-sm opacity-95 space-y-1">
-              <p>Para una experiencia completa:</p>
+              <p>{getDescription()}</p>
               <ol className="list-decimal list-inside space-y-0.5 ml-1">
                 <li>Toca los <strong>3 puntos</strong> en la esquina superior derecha</li>
                 <li>Selecciona <strong>"Abrir en navegador externo"</strong> o Safari</li>
+              </ol>
+            </div>
+          )}
+
+          {isSafariView && isIos && (
+            <div className="text-sm opacity-95 space-y-1">
+              <p>{getDescription()}</p>
+              <ol className="list-decimal list-inside space-y-0.5 ml-1">
+                <li>Abre <strong>Safari</strong> directamente</li>
+                <li>Ingresa <strong>fuddi.shop</strong> en la barra de direcciones</li>
               </ol>
             </div>
           )}
@@ -53,7 +84,7 @@ export default function InstagramBrowserBanner() {
 
         {/* Botones */}
         <div className="flex-shrink-0 flex gap-2">
-          {isAndroid && (
+          {isAndroid && isInstagram && (
             <button
               onClick={() => openInExternalBrowser()}
               className="bg-white text-blue-600 hover:bg-gray-100 font-semibold py-1.5 px-3 rounded-lg text-sm transition-colors"

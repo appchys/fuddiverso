@@ -1,13 +1,49 @@
 /**
- * Detecta si el usuario está usando el navegador integrado de Instagram
+ * Detecta si el usuario está usando el navegador integrado de Instagram o SFSafariViewController
  */
-export const isInstagramBrowser = (): boolean => {
+export const isRestrictedBrowser = (): boolean => {
   if (typeof navigator === 'undefined') return false
   
   const userAgent = navigator.userAgent || navigator.vendor || ''
   
   // Instagram incluye su nombre en el User Agent
-  return /Instagram/.test(userAgent)
+  if (/Instagram/.test(userAgent)) return true
+  
+  // SFSafariViewController: detectar por la ausencia de ciertos indicadores de Safari real
+  // Safari real incluye "Safari" después de "Version"
+  // SFSafariViewController en apps nativas NO incluye "Safari" pero sí "Version"
+  if (/iPhone|iPad|iPod/.test(userAgent) && !userAgent.includes('Safari')) {
+    return true
+  }
+  
+  // Otra forma de detectar: apps nativas que usan WKWebView/SFSafariViewController
+  // no tendrán el header de Safari esperado
+  if (/iPhone|iPad|iPod/.test(userAgent) && /Version\//.test(userAgent) && !/ Safari\//.test(userAgent)) {
+    return true
+  }
+  
+  return false
+}
+
+/**
+ * Obtiene el tipo específico de navegador restringido
+ */
+export const getRestrictedBrowserType = (): 'instagram' | 'safari-view' | null => {
+  if (typeof navigator === 'undefined') return null
+  
+  const userAgent = navigator.userAgent || navigator.vendor || ''
+  
+  if (/Instagram/.test(userAgent)) return 'instagram'
+  
+  if (/iPhone|iPad|iPod/.test(userAgent) && !userAgent.includes('Safari')) {
+    return 'safari-view'
+  }
+  
+  if (/iPhone|iPad|iPod/.test(userAgent) && /Version\//.test(userAgent) && !/ Safari\//.test(userAgent)) {
+    return 'safari-view'
+  }
+  
+  return null
 }
 
 /**
