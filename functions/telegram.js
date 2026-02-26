@@ -1,10 +1,30 @@
 const axios = require('axios');
 const admin = require('firebase-admin');
+const functions = require('firebase-functions');
 const { processOrderAction } = require('./delivery');
 
-const STORE_BOT_TOKEN = process.env.STORE_BOT_TOKEN;
-const DELIVERY_BOT_TOKEN = process.env.DELIVERY_BOT_TOKEN;
-const CUSTOMER_BOT_TOKEN = process.env.CUSTOMER_BOT_TOKEN;
+// Obtener tokens de Telegram (primero intenta process.env, luego functions.config())
+let STORE_BOT_TOKEN = process.env.STORE_BOT_TOKEN;
+let DELIVERY_BOT_TOKEN = process.env.DELIVERY_BOT_TOKEN;
+let CUSTOMER_BOT_TOKEN = process.env.CUSTOMER_BOT_TOKEN;
+
+// Fallback a functions.config() si no está en process.env
+try {
+  const config = functions.config();
+  if (config.telegram) {
+    if (!STORE_BOT_TOKEN) STORE_BOT_TOKEN = config.telegram.store_token;
+    if (!DELIVERY_BOT_TOKEN) DELIVERY_BOT_TOKEN = config.telegram.delivery_token;
+    if (!CUSTOMER_BOT_TOKEN) CUSTOMER_BOT_TOKEN = config.telegram.customer_token;
+  }
+} catch (e) {
+  console.warn('⚠️ No se pudo acceder a functions.config(), usando process.env');
+}
+
+// LOG INICIAL PARA VALIDAR TOKENS
+console.log('🔍 [Telegram Init] Validando tokens de Telegram:');
+console.log(`✓ STORE_BOT_TOKEN: ${STORE_BOT_TOKEN ? '✅ CONFIGURADO' : '❌ NO CONFIGURADO'}`);
+console.log(`✓ DELIVERY_BOT_TOKEN: ${DELIVERY_BOT_TOKEN ? '✅ CONFIGURADO' : '❌ NO CONFIGURADO'}`);
+console.log(`✓ CUSTOMER_BOT_TOKEN: ${CUSTOMER_BOT_TOKEN ? '✅ CONFIGURADO' : '❌ NO CONFIGURADO'}`);
 
 // ─── Template Engine ─────────────────────────────────────────
 let _templateCache = null;
@@ -427,12 +447,48 @@ async function formatTelegramMessage(orderData, businessName, isAccepted = false
 
 /**
  * Función genérica para enviar mensajes de Telegram
+ * Valida respuesta y maneja errores correctamente
  */
 async function sendTelegramMessageGeneric(token, chatId, text, replyMarkup = null, linkPreviewOptions = null) {
     try {
+        // VALIDAR TOKEN
+        if (!token) {
+            console.error('❌ [Telegram] Token de Telegram no configurado. Verifique las variables de entorno.');
+            return null;
+        }
+
+        // VALIDAR TOKEN NO TENGA ESPACIOS
+        if (token !== token.trim()) {
+            console.error('❌ [Telegram] Token tiene espacios al inicio o final. Limpiando...');
+            token = token.trim();
+        }
+
+        // VALIDAR FORMATO DE TOKEN (debe empezar con números seguidos de :)
+        if (!token.includes(':') || token.split(':').length !== 2) {
+            console.error('❌ [Telegram] Formato de token inválido. Esperado: "botid:token"');
+            return null;
+        }
+
+        // VALIDAR CHAT ID
+        if (!chatId) {
+            console.warn('⚠️ [Telegram] Chat ID vacío o indefinido');
+            return null;
+        }
+
+        // Convertir chatId a número si es string
+        const numericChatId = typeof chatId === 'string' ? parseInt(chatId, 10) : chatId;
+        if (isNaN(numericChatId)) {
+            console.warn('⚠️ [Telegram] Chat ID no es un número válido:', chatId);
+            return null;
+        }
+
+        const botId = token.substring(0, token.indexOf(':'));
         const url = `https://api.telegram.org/bot${token}/sendMessage`;
+        console.log(`📤 [Telegram-Generic] Bot: ${botId} | Chat: ${numericChatId} | URL longitud: ${url.length}`);
+        console.log(`📤 [Telegram-Generic] Intentando conexión a Telegram...`);
+        
         const data = {
-            chat_id: chatId,
+            chat_id: numericChatId,
             text: text,
             parse_mode: 'HTML'
         };
@@ -442,10 +498,47 @@ async function sendTelegramMessageGeneric(token, chatId, text, replyMarkup = nul
         if (linkPreviewOptions) {
             data.link_preview_options = linkPreviewOptions;
         }
-        const response = await axios.post(url, data);
-        return response.data;
+        
+        console.log(`📤 [Telegram-Generic] Enviando payload. Tamaño: ${JSON.stringify(data).length} bytes`);
+        
+        const startTime = Date.now();
+        const response = await axios.post(url, data, {
+            timeout: 10000  // 10 segundos timeout
+        });
+        const duration = Date.now() - startTime;
+        
+        const responseData = response.data;
+        console.log(`✅ [Telegram-Generic] Respuesta recibida en ${duration}ms. Status HTTP: ${response.status}`);
+        console.log(`✅ [Telegram-Generic] Response.ok: ${responseData.ok}, tiene result: ${!!responseData.result}`);
+        
+        // Validar que la respuesta fue exitosa (ok: true en Telegram API)
+        if (!responseData.ok) {
+            console.error('❌ [Telegram] Error en respuesta de Telegram:', {
+                chatId: numericChatId,
+                botId: botId,
+                ok: responseData.ok,
+                errorCode: responseData.error_code,
+                description: responseData.description,
+                fullResponse: responseData
+            });
+            return responseData; // Retornar igual para análisis downstream
+        }
+        
+        const messageId = responseData.result?.message_id;
+        console.log(`✅ [Telegram] Mensaje enviado exitosamente. Bot: ${botId} | Chat: ${numericChatId} | Message ID: ${messageId}`);
+        return responseData;
     } catch (error) {
-        console.error('Error sending Telegram message:', error.response?.data || error.message);
+        console.error('❌ [Telegram] Error enviando mensaje:', {
+            chatId: chatId,
+            token: token ? `${token.substring(0,10)}...` : 'null',
+            statusCode: error.response?.status,
+            errorData: error.response?.data,
+            errorCode: error.code,
+            errorMessage: error.message,
+            errorType: error.constructor?.name,
+            isTimeout: error.code === 'ECONNABORTED',
+            isNetworkError: error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED'
+        });
         return null;
     }
 }
@@ -454,6 +547,10 @@ async function sendTelegramMessageGeneric(token, chatId, text, replyMarkup = nul
  * Enviar mensaje usando el bot de Tienda
  */
 async function sendStoreTelegramMessage(chatId, text, replyMarkup = null, linkPreviewOptions = null) {
+    if (!STORE_BOT_TOKEN) {
+        console.error('❌ [Telegram] STORE_BOT_TOKEN no configurado. No se puede enviar mensaje a tienda.');
+        return null;
+    }
     return sendTelegramMessageGeneric(STORE_BOT_TOKEN, chatId, text, replyMarkup, linkPreviewOptions);
 }
 
@@ -461,6 +558,10 @@ async function sendStoreTelegramMessage(chatId, text, replyMarkup = null, linkPr
  * Enviar mensaje usando el bot de Delivery
  */
 async function sendDeliveryTelegramMessage(chatId, text, replyMarkup = null, linkPreviewOptions = null) {
+    if (!DELIVERY_BOT_TOKEN) {
+        console.error('❌ [Telegram] DELIVERY_BOT_TOKEN no configurado. No se puede enviar mensaje a delivery.');
+        return null;
+    }
     return sendTelegramMessageGeneric(DELIVERY_BOT_TOKEN, chatId, text, replyMarkup, linkPreviewOptions);
 }
 
@@ -468,6 +569,10 @@ async function sendDeliveryTelegramMessage(chatId, text, replyMarkup = null, lin
  * Enviar mensaje usando el bot de Cliente
  */
 async function sendCustomerTelegramMessage(chatId, text, replyMarkup = null, linkPreviewOptions = null) {
+    if (!CUSTOMER_BOT_TOKEN) {
+        console.error('❌ [Telegram] CUSTOMER_BOT_TOKEN no configurado. No se puede enviar mensaje a cliente.');
+        return null;
+    }
     return sendTelegramMessageGeneric(CUSTOMER_BOT_TOKEN, chatId, text, replyMarkup, linkPreviewOptions);
 }
 
@@ -522,10 +627,13 @@ async function handleStoreWebhook(req, res) {
                     await sendStoreTelegramMessage(chatId, `❌ Error: ${result.error}`);
                 } else {
                     const orderId = result.orderId;
+                    console.log(`⚠️ [Store Webhook] Procesando callback biz_confirm para orden ${orderId}`);
 
                     try {
                         const orderDoc = await admin.firestore().collection('orders').doc(orderId).get();
                         const orderData = orderDoc.data();
+                        console.log(`📋 [Store Webhook] Orden recuperada. telegramBusinessMessages: ${JSON.stringify(orderData.telegramBusinessMessages)}`);
+                        
                         // ACCIÓN SINCRONIZADA PARA LA TIENDA
                         const businessName = orderData.businessName || 'Tienda';
                         const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
@@ -536,6 +644,7 @@ async function handleStoreWebhook(req, res) {
                         if (action === 'biz_confirm') {
                             // Guardar quién confirmó
                             await admin.firestore().collection('orders').doc(orderId).update({ confirmedBy: handlerName });
+                            console.log(`✍️ [Store Webhook] Guardado confirmedBy: ${handlerName}`);
 
                             const deliveryName = result.assignedDeliveryName;
                             finalStatusText = `\n\n✅ <b>Pedido Confirmado por ${handlerName}</b>`;
@@ -550,22 +659,36 @@ async function handleStoreWebhook(req, res) {
 
                         const syncText = telegramText + finalStatusText;
                         const businessMessages = orderData.telegramBusinessMessages || [];
+                        console.log(`📝 [Store Webhook] Mensajes a editar: ${businessMessages.length}`);
 
                         // Actualizar TODOS los mensajes enviados a los administradores
                         const editUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/editMessageText`;
-                        const updatePromises = businessMessages.map(msg =>
-                            axios.post(editUrl, {
+                        const updatePromises = businessMessages.map(msg => {
+                            console.log(`📤 [Store Webhook] Editando: chat=${msg.chatId}, messageId=${msg.messageId}`);
+                            return axios.post(editUrl, {
                                 chat_id: msg.chatId,
                                 message_id: msg.messageId,
                                 text: syncText,
                                 parse_mode: 'HTML',
                                 link_preview_options: { is_disabled: true }
-                            }).catch(err => console.error(`Error actualizando mensaje sincronizado en ${msg.chatId}:`, err.response?.data || err.message))
-                        );
-                        await Promise.allSettled(updatePromises);
+                            }).then(response => {
+                                console.log(`✅ [Store Webhook] Mensaje editado en chat ${msg.chatId}: ok=${response.data.ok}`);
+                                return response;
+                            }).catch(err => {
+                                console.error(`❌ [Store Webhook] Error editando en ${msg.chatId}:`, {
+                                    messageId: msg.messageId,
+                                    errorCode: err.response?.data?.error_code,
+                                    description: err.response?.data?.description,
+                                    message: err.message
+                                });
+                                return err;
+                            });
+                        });
+                        const results = await Promise.allSettled(updatePromises);
+                        console.log(`📊 [Store Webhook] Ediciones completadas: ${results.filter(r => r.status === 'fulfilled').length}/${businessMessages.length}`);
 
                     } catch (err) {
-                        console.error('Error updating business message:', err);
+                        console.error('❌ Error updating business message:', err);
                     }
                 }
 
@@ -594,8 +717,15 @@ async function handleStoreWebhook(req, res) {
  */
 async function updateBusinessTelegramMessage(orderData, orderId) {
     try {
+        console.log(`🔄 [updateBusinessTelegramMessage] Iniciando actualización para orden ${orderId}`);
+        
         const businessMessages = orderData.telegramBusinessMessages || [];
-        if (businessMessages.length === 0) return;
+        console.log(`📋 [updateBusinessTelegramMessage] telegramBusinessMessages: ${JSON.stringify(businessMessages)}`);
+        
+        if (businessMessages.length === 0) {
+            console.warn(`⚠️ [updateBusinessTelegramMessage] No hay mensajes guardados para editar en orden ${orderId}`);
+            return;
+        }
 
         const businessName = orderData.businessName || 'Tienda';
         const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
@@ -635,20 +765,40 @@ async function updateBusinessTelegramMessage(orderData, orderId) {
         }
 
         const syncText = telegramText + finalStatusText;
+        console.log(`📝 [updateBusinessTelegramMessage] Texto preparado. Longitud: ${syncText.length}`);
 
         const editUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/editMessageText`;
-        const updatePromises = businessMessages.map(msg =>
-            axios.post(editUrl, {
+        console.log(`🔗 [updateBusinessTelegramMessage] URL de edición: ${editUrl.substring(0, 50)}...`);
+        
+        const updatePromises = businessMessages.map(msg => {
+            console.log(`📤 [updateBusinessTelegramMessage] Editando mensaje en chat ${msg.chatId}, messageId ${msg.messageId}`);
+            return axios.post(editUrl, {
                 chat_id: msg.chatId,
                 message_id: msg.messageId,
                 text: syncText,
                 parse_mode: 'HTML',
                 link_preview_options: { is_disabled: true }
-            }).catch(err => console.error(`Error actualizando mensaje sincronizado en ${msg.chatId}:`, err.response?.data || err.message))
-        );
-        await Promise.allSettled(updatePromises);
+            }).then(response => {
+                console.log(`✅ [updateBusinessTelegramMessage] Mensaje actualizado en chat ${msg.chatId}: ${response.data.ok}`);
+                return response;
+            }).catch(err => {
+                console.error(`❌ [updateBusinessTelegramMessage] Error actualizando mensaje en ${msg.chatId}:`, {
+                    messageId: msg.messageId,
+                    errorCode: err.response?.data?.error_code,
+                    description: err.response?.data?.description,
+                    message: err.message
+                });
+                throw err;
+            });
+        });
+        
+        const results = await Promise.allSettled(updatePromises);
+        const successful = results.filter(r => r.status === 'fulfilled').length;
+        const failed = results.filter(r => r.status === 'rejected').length;
+        console.log(`📊 [updateBusinessTelegramMessage] Actualización completada. Exitosos: ${successful}, Fallidos: ${failed}`);
+        
     } catch (error) {
-        console.error('Error en updateBusinessTelegramMessage:', error);
+        console.error('❌ Error en updateBusinessTelegramMessage:', error);
     }
 }
 
@@ -973,6 +1123,12 @@ async function handleCustomerWebhook(req, res) {
 }
 
 async function sendCustomerTelegramNotification(orderData, orderId) {
+    // VALIDAR TOKEN ANTES DE CONTINUAR
+    if (!CUSTOMER_BOT_TOKEN) {
+        console.error(`❌ [Telegram] CUSTOMER_BOT_TOKEN no está configurado. No se pueden enviar notificaciones a clientes.`);
+        return;
+    }
+
     let chatId = orderData.customer?.telegramChatId;
 
     // Si no está en la orden, buscar en el perfil del cliente por ID o teléfono
@@ -993,7 +1149,7 @@ async function sendCustomerTelegramNotification(orderData, orderId) {
                     console.log(`✅ Cliente encontrado por teléfono: ${clientId}`);
                 }
             } catch (err) {
-                console.error('Error buscando cliente por teléfono:', err);
+                console.error('❌ Error buscando cliente por teléfono:', err);
             }
         }
 
@@ -1006,15 +1162,17 @@ async function sendCustomerTelegramNotification(orderData, orderId) {
                     console.log(`📱 ChatID recuperado del perfil de cliente ${clientId}: ${chatId}`);
                 }
             } catch (error) {
-                console.error('Error fetching client telegram info:', error);
+                console.error('❌ Error fetching client telegram info:', error);
             }
         }
     }
 
     if (!chatId) {
-        console.log(`⚠️ No se encontró chatId para orden ${orderId}, no se enviará notificación`);
+        console.warn(`⚠️ [Telegram] No se encontró chatId para orden ${orderId}, no se enviará notificación`);
         return;
     }
+
+    console.log(`📢 [Telegram] Enviando notificación de orden a cliente con chatId: ${chatId}`);
 
     let businessName = orderData.businessName;
 
@@ -1026,7 +1184,7 @@ async function sendCustomerTelegramNotification(orderData, orderId) {
                 businessName = businessDoc.data().name;
             }
         } catch (error) {
-            console.error('Error fetching business name for notification:', error);
+            console.error('❌ Error fetching business name for notification:', error);
         }
     }
 
@@ -1050,7 +1208,7 @@ async function sendCustomerTelegramNotification(orderData, orderId) {
             }
         }
     } catch (err) {
-        console.log('Customer template lookup failed, using hardcoded:', err.message);
+        console.log('⚠️ Customer template lookup failed, using hardcoded:', err.message);
     }
 
     // ─── Fallback: hardcoded messages ───
@@ -1075,49 +1233,84 @@ async function sendCustomerTelegramNotification(orderData, orderId) {
     }
 
     if (message) {
-        // Añadir enlace al seguimiento
-        // URL base: https://app.fuddiverso.com/o/ORDERID (Ajustar según dominio real)
-        // message += `\n\n<a href="https://app.fuddiverso.com/o/${orderId}">Ver detalles del pedido</a>`;
-
-        await sendCustomerTelegramMessage(chatId, message);
-        console.log(`✅ Notificación (Customer Bot) enviada a: ${chatId} para orden ${orderId}`);
+        const result = await sendCustomerTelegramMessage(chatId, message);
+        if (result && result.ok && result.result) {
+            console.log(`✅ Notificación (Customer Bot) enviada a: ${chatId} para orden ${orderId}`);
+        } else if (result) {
+            console.error(`❌ [Telegram] Error en respuesta para cliente ${chatId}:`, {
+                ok: result.ok,
+                errorCode: result.error_code,
+                description: result.description
+            });
+        } else {
+            console.error(`❌ [Telegram] Fallo al enviar notificación a cliente ${chatId}`);
+        }
+    } else {
+        console.warn(`⚠️ [Telegram] No se pudo construir mensaje para cliente en orden ${orderId}`);
     }
 }
 
 async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId, businessName) {
-    if (deliveryData && deliveryData.telegramChatId) {
-        const { text: telegramText, mapsLink, locationImageLink } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, false);
+    if (!deliveryData) {
+        console.warn(`⚠️ [Telegram] No hay datos de delivery para orden ${orderId}`);
+        return;
+    }
 
-        // Botones de acción
-        const confirmToken = Buffer.from(`${orderId}|confirm`).toString('base64');
-        const discardToken = Buffer.from(`${orderId}|discard`).toString('base64');
+    if (!deliveryData.telegramChatId) {
+        console.warn(`⚠️ [Telegram] Delivery sin telegramChatId. ID: ${deliveryData.id}`);
+        return;
+    }
 
-        const replyMarkup = {
-            inline_keyboard: [
-                [
-                    { text: "✅ Aceptar", callback_data: `order_confirm|${confirmToken}` },
-                    { text: "❌ Descartar", callback_data: `order_discard|${discardToken}` }
-                ]
+    // VALIDAR TOKEN ANTES DE CONTINUAR
+    if (!DELIVERY_BOT_TOKEN) {
+        console.error(`❌ [Telegram] DELIVERY_BOT_TOKEN no está configurado. No se pueden enviar notificaciones a delivery.`);
+        return;
+    }
+
+    console.log(`📢 [Telegram] Enviando notificación de orden a delivery ${deliveryData.id}`);
+
+    const { text: telegramText, mapsLink, locationImageLink } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, false);
+
+    // Botones de acción
+    const confirmToken = Buffer.from(`${orderId}|confirm`).toString('base64');
+    const discardToken = Buffer.from(`${orderId}|discard`).toString('base64');
+
+    const replyMarkup = {
+        inline_keyboard: [
+            [
+                { text: "✅ Aceptar", callback_data: `order_confirm|${confirmToken}` },
+                { text: "❌ Descartar", callback_data: `order_discard|${discardToken}` }
             ]
+        ]
+    };
+
+    let linkPreviewOptions = null;
+    if (locationImageLink) {
+        linkPreviewOptions = {
+            url: locationImageLink,
+            prefer_large_media: true,
+            show_above_text: true
         };
+    } else if (mapsLink) {
+        linkPreviewOptions = {
+            url: mapsLink,
+            prefer_large_media: true,
+            show_above_text: true
+        };
+    }
 
-        let linkPreviewOptions = null;
-        if (locationImageLink) {
-            linkPreviewOptions = {
-                url: locationImageLink,
-                prefer_large_media: true,
-                show_above_text: true
-            };
-        } else if (mapsLink) {
-            linkPreviewOptions = {
-                url: mapsLink,
-                prefer_large_media: true,
-                show_above_text: true
-            };
-        }
-
-        await sendDeliveryTelegramMessage(deliveryData.telegramChatId, telegramText, replyMarkup, linkPreviewOptions);
+    const result = await sendDeliveryTelegramMessage(deliveryData.telegramChatId, telegramText, replyMarkup, linkPreviewOptions);
+    
+    if (result && result.ok && result.result) {
         console.log(`✅ Notificación de Telegram (Delivery Bot) enviada a: ${deliveryData.telegramChatId}`);
+    } else if (result) {
+        console.error(`❌ [Telegram] Error en respuesta para delivery ${deliveryData.id}:`, {
+            ok: result.ok,
+            errorCode: result.error_code,
+            description: result.description
+        });
+    } else {
+        console.error(`❌ [Telegram] Fallo al enviar notificación a delivery ${deliveryData.id}`);
     }
 }
 
@@ -1125,20 +1318,44 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
  * Enviar notificación de Telegram a la tienda cuando se crea una orden
  */
 async function sendBusinessTelegramNotification(businessData, orderData, orderId) {
-    if (!businessData) return;
+    console.log(`🔍 [sendBusinessTelegramNotification] Iniciando para orden ${orderId}`);
+    
+    if (!businessData) {
+        console.warn(`⚠️ [Telegram] No se encontró datos del negocio para orden ${orderId}`);
+        return;
+    }
+
+    console.log(`📋 [sendBusinessTelegramNotification] businessData.id: ${businessData.id}, name: ${businessData.name}`);
 
     // Obtener IDs de chat (nuevos y antiguos para migración)
     let chatIds = businessData.telegramChatIds || [];
+    console.log(`📝 [sendBusinessTelegramNotification] telegramChatIds array: ${JSON.stringify(chatIds)}`);
 
     // Si existe el ID antiguo y no está en la lista nueva, incluirlo
     if (businessData.telegramChatId && !chatIds.includes(businessData.telegramChatId)) {
         chatIds = [...chatIds, businessData.telegramChatId];
+        console.log(`📝 [sendBusinessTelegramNotification] Se agregó telegramChatId antiguo: ${businessData.telegramChatId}`);
     }
 
-    if (chatIds.length === 0) return;
+    if (chatIds.length === 0) {
+        console.warn(`⚠️ [Telegram] Negocio ${businessData.id} no tiene telegramChatIds configurados. No se puede notificar.`);
+        return;
+    }
+
+    console.log(`📢 [Telegram] Enviando notificación de orden a negocio. ChatIDs: ${chatIds.join(', ')}`);
+
+    // VALIDAR TOKEN ANTES DE CONTINUAR
+    if (!STORE_BOT_TOKEN) {
+        console.error(`❌ [Telegram] STORE_BOT_TOKEN no está configurado. No se pueden enviar notificaciones de tienda.`);
+        console.error(`❌ STORE_BOT_TOKEN valor: "${STORE_BOT_TOKEN}"`);
+        return;
+    }
+
+    console.log(`✅ [Telegram] STORE_BOT_TOKEN está configurado: ${STORE_BOT_TOKEN.substring(0, 10)}...${STORE_BOT_TOKEN.substring(STORE_BOT_TOKEN.length - 10)}`);
 
     const businessName = businessData.name || 'Tienda';
     const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+    console.log(`📝 [Telegram] Mensaje formateado. Longitud: ${telegramText.length}`);
 
     const linkPreviewOptions = { is_disabled: true };
 
@@ -1159,17 +1376,36 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
 
     // Enviar a todos los IDs registrados y capturar Message IDs
     for (const chatId of chatIds) {
+        console.log(`📤 [Telegram] Enviando a chatId: ${chatId} (tipo: ${typeof chatId})`);
         try {
             const result = await sendStoreTelegramMessage(chatId, telegramText, replyMarkup, linkPreviewOptions);
-            if (result && result.result) {
+            console.log(`📥 [Telegram] Respuesta de sendStoreTelegramMessage: ${JSON.stringify(result).substring(0, 100)}...`);
+            
+            if (!result) {
+                console.error(`❌ [Telegram] No hay respuesta de Telegram para chat ${chatId}. El servidor retornó null.`);
+                continue;
+            }
+            if (result.ok === true && result.result) {
                 sentMessages.push({
                     chatId: chatId.toString(),
                     messageId: result.result.message_id
                 });
                 console.log(`✅ Notificación (Store Bot) enviada a chat ${chatId} (ID: ${result.result.message_id})`);
+            } else {
+                console.error(`❌ [Telegram] Error en respuesta para chat ${chatId}:`, {
+                    ok: result.ok,
+                    result: !!result.result,
+                    errorCode: result.error_code,
+                    description: result.description
+                });
             }
         } catch (err) {
-            console.error(`❌ Error enviando a chat ${chatId}:`, err);
+            console.error(`❌ [Telegram] Excepción enviando a chat ${chatId}:`, {
+                message: err.message,
+                code: err.code,
+                type: err.constructor?.name,
+                fullError: err
+            });
         }
     }
 
@@ -1179,10 +1415,13 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
             await admin.firestore().collection('orders').doc(orderId).update({
                 telegramBusinessMessages: sentMessages
             });
-            console.log(`📝 Mensajes de negocio vinculados al pedido ${orderId}`);
+            console.log(`📝 Mensajes de negocio vinculados al pedido ${orderId}. Total: ${sentMessages.length}`);
+            console.log(`📝 Detalles de mensajes guardados: ${JSON.stringify(sentMessages)}`);
         } catch (err) {
             console.error(`❌ Error guardando mensajes de negocio en Firestore:`, err);
         }
+    } else {
+        console.warn(`⚠️ [Telegram] No se pudo enviar mensaje a ningún chat del negocio para orden ${orderId}`);
     }
 }
 

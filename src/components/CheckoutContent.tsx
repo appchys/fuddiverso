@@ -1384,7 +1384,7 @@ export function CheckoutContent({
       // El delivery se asignará automáticamente cuando la tienda confirme el pedido en el dashboard
       const assignedDeliveryId = undefined;
 
-      // Luego crear el objeto orderData
+      // Luego crear el objeto orderData - USAR ESTRUCTURA IDÉNTICA A ÓRDENES MANUALES
       const orderData = {
         businessId: businessId,
         items: cartItems.map((item: any) => ({
@@ -1392,20 +1392,22 @@ export function CheckoutContent({
           name: item.productName || item.name,
           price: item.price,
           quantity: item.quantity,
-          variant: item.variantName || '',
-          image: item.image
+          variant: item.variantName || ''
         })),
         customer: {
           name: customerData.name,
           phone: customerData.phone
         },
+        // ESTRUCTURA IDÉNTICA A ÓRDENES MANUALES: conditional spread para delivery
         delivery: {
           type: deliveryData.type as 'delivery' | 'pickup',
-          references: deliveryData.type === 'delivery' ? (deliveryData.address || '') : '',
-          latlong: selectedLocation?.latlong || '',
-          photo: selectedLocation?.photo || '', // ADDED: Photo de la ubicación
-          deliveryCost: deliveryData.type === 'delivery' ? deliveryCost : 0,
-          assignedDelivery: assignedDeliveryId
+          ...(deliveryData.type === 'delivery' && {
+            latlong: selectedLocation?.latlong || '',
+            references: deliveryData.address || '',
+            photo: selectedLocation?.photo || '',
+            deliveryCost: deliveryCost,
+            assignedDelivery: assignedDeliveryId
+          })
         },
         timing: {
           type: (timingData.type || 'immediate') as 'immediate' | 'scheduled',
@@ -1414,18 +1416,15 @@ export function CheckoutContent({
         },
         payment: {
           method: (paymentData.method || 'cash') as 'cash' | 'transfer' | 'mixed',
-          selectedBank: paymentData.method === 'transfer' ? paymentData.selectedBank : '',
           paymentStatus: (paymentData.method === 'transfer' ? 'pending' : undefined) as 'pending' | 'validating' | 'paid' | undefined,
-          receiptImageUrl: paymentData.receiptImageUrl || ''
+          selectedBank: paymentData.method === 'transfer' ? paymentData.selectedBank : '',
+          ...(paymentData.receiptImageUrl && {
+            receiptImageUrl: paymentData.receiptImageUrl
+          })
         },
-        // NUEVO: Agregar código de referido si existe
-        referralCode: typeof window !== 'undefined' ? localStorage.getItem('pendingReferral') || undefined : undefined,
         total,
         subtotal,
         status: 'pending' as const,
-        statusHistory: {
-          pendingAt: Timestamp.now()
-        },
         createdByAdmin: false,
         createdAt: new Date(),
         updatedAt: new Date()

@@ -201,6 +201,7 @@ async function notifyBusinessTelegramOnOrderCreation(orderData, orderId) {
   }
 
   try {
+    console.log(`📬 [Telegram] Obteniendo datos de negocio ${orderData.businessId} para notificación...`);
     // Obtener datos del negocio
     const businessDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
     if (!businessDoc.exists) {
@@ -209,7 +210,7 @@ async function notifyBusinessTelegramOnOrderCreation(orderData, orderId) {
     }
 
     const businessData = businessDoc.data();
-
+    
     // Solo notificar si la orden NO fue creada por un admin (es decir, fue creada por un cliente)
     // O si fue creada por admin pero la tienda tiene habilitada la configuración de notificaciones para pedidos manuales por Telegram
     const notifyManual = businessData.notificationSettings?.telegramOrderManual === true;
@@ -219,6 +220,7 @@ async function notifyBusinessTelegramOnOrderCreation(orderData, orderId) {
       return;
     }
 
+    console.log(`📨 [Telegram] Enviando notificación a tienda ${businessData.name || 'desconocida'}...`);
     // Enviar notificación de Telegram a la tienda
     await telegramServices.sendBusinessTelegramNotification(businessData, orderData, orderId);
   } catch (error) {
@@ -231,8 +233,15 @@ async function notifyDeliveryAssignmentLogic(beforeData, afterData, orderId) {
   const beforeDeliveryId = beforeData.delivery?.assignedDelivery;
   const afterDeliveryId = afterData.delivery?.assignedDelivery;
 
-  if (!afterDeliveryId) return;
-  if (beforeDeliveryId === afterDeliveryId) return;
+  if (!afterDeliveryId) {
+    console.log(`ℹ️ Orden ${orderId} no tiene delivery asignado`);
+    return;
+  }
+  
+  if (beforeDeliveryId === afterDeliveryId) {
+    console.log(`ℹ️ Orden ${orderId} delivery no cambió`);
+    return;
+  }
 
   console.log(`📦 Orden ${orderId} asignada al delivery: ${afterDeliveryId}`);
   await notifyDeliveryCommon(afterData, orderId, afterDeliveryId, afterData.businessId);
@@ -325,6 +334,7 @@ exports.onOrderCreated = onDocumentCreated("orders/{orderId}", async (event) => 
   const orderId = event.params.orderId;
 
   console.log(`🚀 [CONSOLIDADO] Procesando CREACIÓN de orden: ${orderId}`);
+  console.log(`📋 [Order Details] businessId: ${order.businessId}, customer: ${order.customer?.name}, createdByAdmin: ${order.createdByAdmin}`);
 
   await Promise.allSettled([
     linkCustomerTelegramToOrderLogic(order, orderId),
