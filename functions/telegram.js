@@ -1362,7 +1362,7 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     console.log(`✅ [Telegram] STORE_BOT_TOKEN está configurado: ${STORE_BOT_TOKEN.substring(0, 10)}...${STORE_BOT_TOKEN.substring(STORE_BOT_TOKEN.length - 10)}`);
 
     const businessName = businessData.name || 'Tienda';
-    const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+    const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, false);
     console.log(`📝 [Telegram] Mensaje formateado. Longitud: ${telegramText.length}`);
         console.log(`🔍 [Telegram-DEBUG] Primeros 200 caracteres del HTML: ${telegramText.substring(0, 200)}`);
         console.log(`🔍 [Telegram-DEBUG] Buscando tags <a> en el mensaje...`);
