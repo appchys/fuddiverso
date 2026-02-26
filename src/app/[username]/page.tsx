@@ -434,6 +434,8 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
                             price: product.price,
                             image: product.image,
                             description: product.description,
+                            isAvailable: product.isAvailable, // Incluir
+                            scheduleAvailability: product.scheduleAvailability, // Incluir
                             businessId: product.businessId,
                             productId: product.id,
                           });
@@ -497,6 +499,8 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
                                 price: variant.price,
                                 image: product.image,
                                 description: variant.description || product.description,
+                                isAvailable: product.isAvailable, // Incluir
+                                scheduleAvailability: product.scheduleAvailability, // Incluir
                                 businessId: product.businessId,
                                 productId: product.id,
                                 variantId: variant.id
@@ -958,11 +962,13 @@ function RestaurantContent() {
     const cartItem = {
       id: product.id,
       name: product.name,
-      variantName: null, // No tiene variante
+      variantName: null,
       productName: product.name,
       price: product.price,
       image: product.image,
       description: product.description,
+      isAvailable: product.isAvailable, // Incluir disponibilidad
+      scheduleAvailability: product.scheduleAvailability, // Incluir horarios
       businessId: business.id,
       businessName: business.name,
       businessImage: business.image
@@ -1007,6 +1013,9 @@ function RestaurantContent() {
       newCart = [...cart, {
         ...product,
         quantity: 1,
+        // Garantizar que estos campos existan incluso si no vienen en el objeto product original
+        isAvailable: product.isAvailable ?? true,
+        scheduleAvailability: product.scheduleAvailability || null,
         businessId: business.id,
         businessName: business.name,
         businessImage: business.image
@@ -1247,7 +1256,7 @@ function RestaurantContent() {
   return (
     <div className="min-h-screen bg-gray-50">
       <InstagramBrowserBanner />
-      
+
       {/* Structured Data for SEO */}
       <BusinessStructuredData business={business} />
 

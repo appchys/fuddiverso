@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone } from '@/lib/validation'
@@ -34,6 +34,7 @@ import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
 import { Timestamp } from 'firebase/firestore'
 import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate, getNextAvailableSlot } from '@/lib/store-utils'
+import { isProductAvailableBySchedule, checkCartAvailability, getNextAvailableSlotForCart } from '@/lib/product-availability-utils'
 
 // Componente para subir comprobante de transferencia
 function TransferReceiptUploader({
@@ -381,6 +382,34 @@ export function CheckoutContent({
       setCartItems(embeddedCartItems || [])
     }
   }, [embeddedCartItems, isEmbedded])
+
+  // Validar disponibilidad de productos segun fecha/hora seleccionada
+  const cartAvailability = useMemo(() => {
+    try {
+      if (timingData.type === 'immediate') {
+        // Verificar contra el momento actual
+        return checkCartAvailability(cartItems as any[], new Date())
+      }
+
+      if (timingData.type !== 'scheduled' || !timingData.scheduledDate || !timingData.scheduledTime) {
+        return { available: true, unavailableProducts: [] as any[] }
+      }
+
+      const [year, month, day] = timingData.scheduledDate.split('-').map(Number)
+      const checkDate = new Date(year, month - 1, day)
+      return checkCartAvailability(cartItems as any[], checkDate, timingData.scheduledTime)
+    } catch (e) {
+      console.error('Error checking cart availability:', e)
+      return { available: true, unavailableProducts: [] as any[] }
+    }
+  }, [cartItems, timingData.type, timingData.scheduledDate, timingData.scheduledTime])
+
+  // Verificar si es posible pedir "Lo antes posible" (para deshabilitar el botón)
+  const canOrderNow = useMemo(() => {
+    if (!isStoreOpen(business)) return false
+    const availability = checkCartAvailability(cartItems as any[], new Date())
+    return availability.available
+  }, [cartItems, business])
 
   const handleRemoveItem = (index: number) => {
     const newItems = [...cartItems]
@@ -1090,6 +1119,20 @@ export function CheckoutContent({
       }
     }
 
+    if (step === 3) {
+      if (!timingData.type) {
+        newErrors.timing = 'Selecciona cuándo prefieres recibir tu pedido'
+      } else if (timingData.type === 'scheduled') {
+        if (!timingData.scheduledDate || !timingData.scheduledTime) {
+          newErrors.timing = 'Completa la fecha y hora programada'
+        } else if (!isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)) {
+          newErrors.timing = 'La tienda está cerrada en el horario seleccionado'
+        } else if (!cartAvailability.available) {
+          newErrors.timing = 'Algunos productos de tu carrito no están disponibles para esta fecha'
+        }
+      }
+    }
+
     if (step === 4) {
       if (!paymentData.method) {
         newErrors.paymentMethod = 'Selecciona un método de pago'
@@ -1133,7 +1176,7 @@ export function CheckoutContent({
       if (timingData.type === 'immediate') {
         maxStep = 4;
       } else if (timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime) {
-        if (isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)) {
+        if (isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) && cartAvailability.available) {
           maxStep = 4;
         }
       }
@@ -1174,7 +1217,7 @@ export function CheckoutContent({
     if (!timingData.type) return false;
     if (timingData.type === 'immediate') return true;
     if (timingData.type === 'scheduled') {
-      return Boolean(timingData.scheduledDate && timingData.scheduledTime && isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime));
+      return Boolean(timingData.scheduledDate && timingData.scheduledTime && isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) && cartAvailability.available);
     }
     return false;
   })();
@@ -1214,6 +1257,7 @@ export function CheckoutContent({
     if (timingData.type === 'scheduled') {
       if (!timingData.scheduledDate || !timingData.scheduledTime) return false;
       if (!isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)) return false;
+      if (!cartAvailability.available) return false;
     }
 
     // Paso 4: pago
@@ -1818,7 +1862,7 @@ export function CheckoutContent({
                 {deliveryData.type === 'delivery' && (
                   <div className="animate-fadeIn space-y-4">
                     <RestrictedBrowserGPSWarning />
-                    
+
                     {selectedLocation ? (
                       <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 flex items-start gap-3 relative group">
                         <div className="flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
@@ -1928,15 +1972,15 @@ export function CheckoutContent({
                   <button
                     type="button"
                     onClick={() => setTimingData({ type: 'immediate', scheduledDate: '', scheduledTime: '' })}
-                    disabled={!isStoreOpen(business)}
-                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${!isStoreOpen(business)
+                    disabled={!canOrderNow}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${!canOrderNow
                       ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
                       : timingData.type === 'immediate'
                         ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
                         : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
                       }`}
                   >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${!isStoreOpen(business)
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${!canOrderNow
                       ? 'bg-gray-200 text-gray-400'
                       : timingData.type === 'immediate'
                         ? 'bg-white/20 text-white'
@@ -1944,9 +1988,13 @@ export function CheckoutContent({
                       }`}>
                       <i className="bi bi-lightning-charge-fill"></i>
                     </div>
-                    <span className="font-bold">Lo antes posible</span>
-                    <span className={`text-xs mt-1 ${timingData.type === 'immediate' ? 'text-white/80' : 'text-gray-500'}`}>
-                      {isStoreOpen(business) ? `Aprox ${business?.deliveryTime || 30} minutos` : 'Tienda cerrada'}
+                    <span className="font-bold text-center leading-tight">Lo antes posible</span>
+                    <span className={`text-xs mt-1 text-center ${timingData.type === 'immediate' ? 'text-white/80' : 'text-gray-500'}`}>
+                      {!isStoreOpen(business)
+                        ? 'Tienda cerrada'
+                        : !canOrderNow
+                          ? 'Productos no disponibles hoy'
+                          : `Aprox ${business?.deliveryTime || 30} minutos`}
                     </span>
                     {timingData.type === 'immediate' && isStoreOpen(business) && (
                       <div className="absolute top-2 right-2 text-white text-xs">
@@ -1963,7 +2011,7 @@ export function CheckoutContent({
                       if (timingData.scheduledDate && timingData.scheduledTime) {
                         setTimingData({ ...timingData, type: 'scheduled' })
                       } else {
-                        const nextSlot = getNextAvailableSlot(business)
+                        const nextSlot = getNextAvailableSlotForCart(cartItems, business)
                         setTimingData({
                           type: 'scheduled',
                           scheduledDate: nextSlot?.date || '',
@@ -2038,6 +2086,27 @@ export function CheckoutContent({
                         </div>
                       </div>
                     )}
+
+                    {timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime && !cartAvailability.available && (
+                      <div className="col-span-2 mt-2 p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 animate-fadeIn">
+                        <i className="bi bi-calendar-x-fill text-red-500 mt-0.5"></i>
+                        <div className="text-sm text-red-700 w-full">
+                          <p className="font-bold mb-1">Estos productos no están disponibles para el día u hora seleccionada.</p>
+                          <div className="mt-2 space-y-3">
+                            {cartAvailability.unavailableProducts.map((item: any, i: number) => (
+                              <div key={i} className="border-l-2 border-red-200 pl-3 py-0.5">
+                                <p className="font-black text-red-900">{item.name}</p>
+                                <p className="text-xs mt-0.5 font-medium">
+                                  <span className="opacity-70">Disponible pronto:</span> {item.scheduleText}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="mt-3 text-xs opacity-80 italic">Cambia la fecha o retira estos productos de tu pedido para continuar.</p>
+                        </div>
+                      </div>
+                    )}
+
                   </div>
                 )}
               </div>

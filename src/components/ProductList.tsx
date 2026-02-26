@@ -68,6 +68,32 @@ export default function ProductList({
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [activeVariantMenu, setActiveVariantMenu] = useState<string | null>(null)
 
+  // Estados para disponibilidad por horarios
+  const [scheduleEnabled, setScheduleEnabled] = useState(false)
+  const [schedules, setSchedules] = useState<Array<{
+    id: string
+    days: string[]
+    startTime: string
+    endTime: string
+  }>>([])
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null)
+  const [currentSchedule, setCurrentSchedule] = useState({
+    days: [] as string[],
+    startTime: '09:00',
+    endTime: '17:00'
+  })
+
+  const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+  const dayLabels: Record<string, string> = {
+    Monday: 'Lun',
+    Tuesday: 'Mar',
+    Wednesday: 'Mié',
+    Thursday: 'Jue',
+    Friday: 'Vie',
+    Saturday: 'Sáb',
+    Sunday: 'Dom'
+  }
+
   const handleOpenNewProduct = () => {
     setEditingProduct(null)
     const defaultCategory = categories.length > 0 ? categories[0] : 'General'
@@ -87,6 +113,11 @@ export default function ProductList({
     setActiveTab('general')
     setEditingVariantId(null)
     setShowVariantForm(false)
+    // Resetear horarios
+    setScheduleEnabled(false)
+    setSchedules([])
+    setEditingScheduleId(null)
+    setCurrentSchedule({ days: [], startTime: '09:00', endTime: '17:00' })
     setShowProductForm(true)
   }
 
@@ -128,6 +159,17 @@ export default function ProductList({
       getIngredientLibrary(business.id).then(lib => setIngredientLibrary(lib))
     }
 
+    // Cargar horarios
+    if (product.scheduleAvailability?.enabled) {
+      setScheduleEnabled(true)
+      setSchedules(product.scheduleAvailability.schedules || [])
+    } else {
+      setScheduleEnabled(false)
+      setSchedules([])
+    }
+    setEditingScheduleId(null)
+    setCurrentSchedule({ days: [], startTime: '09:00', endTime: '17:00' })
+
     setCurrentIngredient({ name: '', unitCost: '', quantity: '' })
     setErrors({})
     setActiveTab('general')
@@ -157,6 +199,11 @@ export default function ProductList({
     setActiveTab('general')
     setEditingVariantId(null)
     setShowVariantForm(false)
+    // Resetear horarios
+    setScheduleEnabled(false)
+    setSchedules([])
+    setEditingScheduleId(null)
+    setCurrentSchedule({ days: [], startTime: '09:00', endTime: '17:00' })
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -398,6 +445,64 @@ export default function ProductList({
     }
   }
 
+  // Funciones para horarios
+  const addSchedule = () => {
+    if (currentSchedule.days.length === 0) {
+      alert('Selecciona al menos un día')
+      return
+    }
+    if (!currentSchedule.startTime || !currentSchedule.endTime) {
+      alert('Completa las horas de inicio y fin')
+      return
+    }
+
+    if (editingScheduleId) {
+      setSchedules(prev =>
+        prev.map(s =>
+          s.id === editingScheduleId
+            ? { ...s, days: currentSchedule.days, startTime: currentSchedule.startTime, endTime: currentSchedule.endTime }
+            : s
+        )
+      )
+      setEditingScheduleId(null)
+    } else {
+      const newSchedule = {
+        id: Date.now().toString(),
+        days: currentSchedule.days,
+        startTime: currentSchedule.startTime,
+        endTime: currentSchedule.endTime
+      }
+      setSchedules(prev => [...prev, newSchedule])
+    }
+    setCurrentSchedule({ days: [], startTime: '09:00', endTime: '17:00' })
+  }
+
+  const editSchedule = (schedule: typeof schedules[0]) => {
+    setCurrentSchedule({
+      days: schedule.days,
+      startTime: schedule.startTime,
+      endTime: schedule.endTime
+    })
+    setEditingScheduleId(schedule.id)
+  }
+
+  const removeSchedule = (scheduleId: string) => {
+    setSchedules(prev => prev.filter(s => s.id !== scheduleId))
+    if (editingScheduleId === scheduleId) {
+      setEditingScheduleId(null)
+      setCurrentSchedule({ days: [], startTime: '09:00', endTime: '17:00' })
+    }
+  }
+
+  const toggleDaySelection = (day: string) => {
+    setCurrentSchedule(prev => ({
+      ...prev,
+      days: prev.days.includes(day)
+        ? prev.days.filter(d => d !== day)
+        : [...prev.days, day]
+    }))
+  }
+
   // Cerrar sugerencias al hacer clic fuera
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -466,6 +571,10 @@ export default function ProductList({
         variants: variants.length > 0 ? variantsWithIngredients : undefined,
         ingredients: ingredients.length > 0 ? ingredients : undefined,
         isAvailable: formData.isAvailable,
+        scheduleAvailability: scheduleEnabled && schedules.length > 0 ? {
+          enabled: true,
+          schedules: schedules
+        } : (scheduleEnabled ? { enabled: true, schedules: [] } : undefined),
         businessId: business.id,
         updatedAt: new Date()
       }
@@ -1212,6 +1321,124 @@ export default function ProductList({
                         />
                         <span className="font-medium text-gray-700">Producto disponible</span>
                       </label>
+                    </div>
+
+                    {/* Disponibilidad por Horarios */}
+                    <div className="border-t pt-6">
+                      <label className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors mb-4 border-2 border-blue-100">
+                        <input
+                          type="checkbox"
+                          checked={scheduleEnabled}
+                          onChange={(e) => setScheduleEnabled(e.target.checked)}
+                          className="w-5 h-5 rounded text-blue-600 cursor-pointer"
+                        />
+                        <div>
+                          <span className="font-bold text-gray-900">Disponibilidad por Horarios</span>
+                          <p className="text-xs text-gray-600 mt-0.5">
+                            Configura días y horas específicas cuando ese producto está disponible
+                          </p>
+                        </div>
+                      </label>
+
+                      {scheduleEnabled && (
+                        <div className="space-y-4 bg-gray-50 p-6 rounded-2xl border border-blue-100">
+                          {/* Lista de horarios configurados */}
+                          {schedules.length > 0 && (
+                            <div className="space-y-2 mb-4">
+                              <h5 className="font-semibold text-gray-900 text-sm">Horarios configurados:</h5>
+                              {schedules.map(schedule => (
+                                <div key={schedule.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-gray-200">
+                                  <div className="flex-1">
+                                    <p className="font-medium text-gray-900">
+                                      {schedule.days.map(day => dayLabels[day] || day).join(', ')}
+                                    </p>
+                                    <p className="text-sm text-gray-600 mt-1">
+                                      {schedule.startTime} - {schedule.endTime}
+                                    </p>
+                                  </div>
+                                  <div className="flex gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => editSchedule(schedule)}
+                                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                      title="Editar horario"
+                                    >
+                                      <i className="bi bi-pencil"></i>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeSchedule(schedule.id)}
+                                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                      title="Eliminar horario"
+                                    >
+                                      <i className="bi bi-trash"></i>
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Formulario para agregar horario */}
+                          <div className="space-y-4 p-4 bg-white rounded-lg border-2 border-dashed border-blue-200">
+                            <div>
+                              <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">
+                                Selecciona los días
+                              </label>
+                              <div className="grid grid-cols-4 gap-2">
+                                {daysOfWeek.map(day => (
+                                  <button
+                                    key={day}
+                                    type="button"
+                                    onClick={() => toggleDaySelection(day)}
+                                    className={`py-2.5 px-2 rounded-lg font-bold text-xs transition-all ${
+                                      currentSchedule.days.includes(day)
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    }`}
+                                  >
+                                    {dayLabels[day]}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                                  Hora inicio
+                                </label>
+                                <input
+                                  type="time"
+                                  value={currentSchedule.startTime}
+                                  onChange={(e) => setCurrentSchedule(prev => ({ ...prev, startTime: e.target.value }))}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                                  Hora fin
+                                </label>
+                                <input
+                                  type="time"
+                                  value={currentSchedule.endTime}
+                                  onChange={(e) => setCurrentSchedule(prev => ({ ...prev, endTime: e.target.value }))}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                                />
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={addSchedule}
+                              className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors font-bold flex items-center justify-center gap-2"
+                            >
+                              <i className={`bi ${editingScheduleId ? 'bi-pencil' : 'bi-plus-lg'}`}></i>
+                              {editingScheduleId ? 'Actualizar Horario' : 'Agregar Horario'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Variantes */}

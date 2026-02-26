@@ -132,6 +132,18 @@ export interface ProductVariant {
   ingredients?: Ingredient[]
 }
 
+export interface ProductSchedule {
+  id: string
+  days: string[] // ['Monday', 'Tuesday', ...] o abreviados: ['Mon', 'Tue', ...]
+  startTime: string // Formato HH:mm (00:00 - 23:59)
+  endTime: string // Formato HH:mm (00:00 - 23:59)
+}
+
+export interface ProductScheduleAvailability {
+  enabled: boolean // Si está activado el sistema de horarios
+  schedules: ProductSchedule[] // Array de horarios cuando está disponible
+}
+
 export interface Product {
   id: string
   businessId: string
@@ -147,6 +159,7 @@ export interface Product {
   businessName?: string
   businessImage?: string
   ingredients?: Ingredient[]
+  scheduleAvailability?: ProductScheduleAvailability // Disponibilidad por horarios/días
   createdAt: Date
   updatedAt: Date
 }
