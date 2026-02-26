@@ -165,6 +165,18 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
         mapsLink: mapsLink ? `<a href="${mapsLink}">Ver en Google Maps</a>` : '',
         deliveryName: options.deliveryName || '',
         whatsappLink: whatsappLink ? `<a href="${whatsappLink}">${phone}</a>` : (phone || ''),
+        locationPhoto: orderData.delivery?.photo || '',
+        orderStatus: orderData.status || 'pending',
+        orderStatusLabel: ({
+            pending: 'Pendiente',
+            confirmed: 'Confirmado',
+            preparing: 'Preparando',
+            ready: 'Listo',
+            on_way: 'En camino',
+            delivered: 'Entregado',
+            cancelled: 'Cancelado',
+            borrador: 'Borrador'
+        })[orderData.status || 'pending'] || (orderData.status || 'Pendiente'),
         paymentMethodRaw: paymentMethod,
     };
 }
@@ -278,7 +290,7 @@ async function formatTelegramMessage(orderData, businessName, isAccepted = false
             mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
         }
     }
-    const locationImageLink = orderData.delivery?.image || '';
+    const locationImageLink = orderData.delivery?.photo || orderData.delivery?.image || '';
 
     // Información de pago
     const paymentMethod = orderData.payment?.method || 'No especificado';

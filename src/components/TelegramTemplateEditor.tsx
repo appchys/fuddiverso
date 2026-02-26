@@ -212,6 +212,22 @@ const AVAILABLE_FIELDS: FieldDef[] = [
     { key: 'deliveryName', label: 'Nombre Repartidor', example: 'Carlos' },
     { key: 'whatsappLink', label: 'Link WhatsApp', example: 'https://wa.me/593...' },
     { key: 'confirmedBy', label: 'Confirmado por', example: 'María' },
+    { key: 'locationPhoto', label: 'Foto de la ubicación', example: 'https://firebasestorage.googleapis.com/v0/b/fuddiverso.appspot.com/o/locations%2Fexample.jpg?alt=media' },
+    {
+        key: 'orderStatus',
+        label: 'Estado de la Orden',
+        example: 'pending',
+        options: [
+            { value: 'pending', label: 'Pendiente' },
+            { value: 'confirmed', label: 'Confirmado' },
+            { value: 'preparing', label: 'Preparando' },
+            { value: 'ready', label: 'Listo' },
+            { value: 'on_way', label: 'En camino' },
+            { value: 'delivered', label: 'Entregado' },
+            { value: 'cancelled', label: 'Cancelado' },
+            { value: 'borrador', label: 'Borrador' }
+        ]
+    },
     {
         key: 'paymentMethodRaw',
         label: 'Método Pago (Raw)',
@@ -462,6 +478,7 @@ export default function TelegramTemplateEditor() {
     const [condFalseText, setCondFalseText] = useState('')
 
     const [actionButtons, setActionButtons] = useState<ActionButton[][]>([])
+    const [copied, setCopied] = useState(false)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const emojiRef = useRef<HTMLDivElement>(null)
     const fieldsRef = useRef<HTMLDivElement>(null)
@@ -646,12 +663,32 @@ export default function TelegramTemplateEditor() {
         }
         condition += `{{/if}}`
 
-        insertAtCursor(condition)
+        // Siempre insertar en el editor principal
+        const ta = textareaRef.current
+        if (ta) {
+            ta.focus()
+            const start = ta.selectionStart
+            const end = ta.selectionEnd
+            const currentVal = templateText
+            const newVal = currentVal.substring(0, start) + condition + currentVal.substring(end)
+
+            setTemplateText(newVal)
+            setSaved(false)
+            setLastFocusedInput('main')
+
+            // Usar requestAnimationFrame para asegurar que el DOM se actualice antes de mover el cursor
+            requestAnimationFrame(() => {
+                ta.focus()
+                const newPos = start + condition.length
+                ta.setSelectionRange(newPos, newPos)
+            })
+        }
+
         setCondTrueText('')
         setCondFalseText('')
         setCondValue('')
         setShowCondBuilder(false)
-    }, [condField, condOperator, condValue, condTrueText, condFalseText, insertAtCursor])
+    }, [condField, condOperator, condValue, condTrueText, condFalseText, templateText])
 
     // ─── Action Buttons ──────────────────────────────────────
     const addButtonRow = () => {
@@ -709,6 +746,17 @@ export default function TelegramTemplateEditor() {
             alert('Error al guardar la plantilla')
         } finally {
             setSaving(false)
+        }
+    }
+
+    const handleCopy = async () => {
+        if (!templateText) return
+        try {
+            await navigator.clipboard.writeText(templateText)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+        } catch (err) {
+            console.error('Failed to copy text: ', err)
         }
     }
 
@@ -917,9 +965,9 @@ export default function TelegramTemplateEditor() {
                     </div>
 
                     {/* Editor + Preview */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-280px)] min-h-[600px] mb-6">
                         {/* Editor */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full overflow-hidden">
                             {/* Toolbar */}
                             <div className="flex items-center gap-1 px-3 py-2 border-b border-gray-100 bg-gray-50/50 flex-wrap rounded-t-xl">
                                 {/* Format buttons */}
@@ -1021,12 +1069,34 @@ export default function TelegramTemplateEditor() {
                                     </button>
                                     {showLinkCreator && (
                                         <div className="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-2xl border border-gray-200 p-3 z-[100] w-80">
-                                            <div className="space-y-2">
+                                            <div className="space-y-3">
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Sugerencias de URL:</label>
+                                                    <div className="flex flex-wrap gap-1 mb-2">
+                                                        {[
+                                                            { key: 'mapsLink', label: 'Maps', icon: '📍' },
+                                                            { key: 'whatsappLink', label: 'WA', icon: '📱' },
+                                                            { key: 'locationPhoto', label: '📸 Foto', text: '🖼 Foto adjunta' }
+                                                        ].map(sug => (
+                                                            <button
+                                                                key={sug.key}
+                                                                onClick={() => {
+                                                                    setLinkUrl(`{{${sug.key}}}`)
+                                                                    if (sug.text) setLinkText(sug.text)
+                                                                }}
+                                                                className="px-2 py-1 bg-gray-50 border border-gray-100 rounded-lg text-[10px] font-medium text-gray-600 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-all"
+                                                            >
+                                                                {sug.icon} {sug.key === 'locationPhoto' ? 'Foto ubicación' : sug.key}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
                                                 <input
                                                     type="text"
                                                     value={linkUrl}
                                                     onChange={e => setLinkUrl(e.target.value)}
-                                                    placeholder="https://..."
+                                                    placeholder="URL o {{campo}}..."
                                                     className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                                                 />
                                                 <input
@@ -1179,18 +1249,42 @@ export default function TelegramTemplateEditor() {
                             </div>
 
                             {/* Textarea */}
-                            <textarea
-                                ref={textareaRef}
-                                value={templateText}
-                                onFocus={() => setLastFocusedInput('main')}
-                                onChange={e => { setTemplateText(e.target.value); setSaved(false) }}
-                                placeholder="Escribe tu plantilla aquí..."
-                                className="w-full h-96 px-4 py-3 text-sm text-gray-700 border-none focus:outline-none resize-none font-mono rounded-b-xl"
-                            />
+                            <div className="relative flex-1">
+                                <textarea
+                                    ref={textareaRef}
+                                    value={templateText}
+                                    onFocus={() => setLastFocusedInput('main')}
+                                    onChange={e => { setTemplateText(e.target.value); setSaved(false) }}
+                                    placeholder="Escribe tu plantilla aquí..."
+                                    className="w-full h-full px-4 py-3 text-sm text-gray-700 border-none focus:outline-none resize-none font-mono"
+                                />
+
+                                {/* Copy Button */}
+                                <button
+                                    onClick={handleCopy}
+                                    className={`absolute bottom-4 right-4 p-2.5 rounded-xl shadow-lg border transition-all flex items-center gap-2 group ${copied
+                                        ? 'bg-green-500 text-white border-green-600 scale-105'
+                                        : 'bg-white text-gray-400 border-gray-100 hover:text-blue-600 hover:border-blue-100 hover:bg-blue-50'
+                                        }`}
+                                    title="Copiar contenido"
+                                >
+                                    {copied ? (
+                                        <>
+                                            <i className="bi bi-check-lg text-lg"></i>
+                                            <span className="text-[10px] font-bold uppercase tracking-wider">¡Copiado!</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <i className="bi bi-copy text-lg"></i>
+                                            <span className="max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-300 text-[10px] font-bold uppercase tracking-wider">Copiar</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
                         </div>
 
                         {/* Preview */}
-                        <div className="bg-gray-900 rounded-xl shadow-sm border border-gray-700 overflow-hidden flex flex-col">
+                        <div className="bg-gray-900 rounded-xl shadow-sm border border-gray-700 overflow-hidden flex flex-col h-full">
                             <div className="px-4 py-3 border-b border-gray-700 bg-gray-800 flex items-center gap-2">
                                 <i className="bi bi-eye text-blue-400"></i>
                                 <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Vista Previa</span>
