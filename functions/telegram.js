@@ -306,11 +306,15 @@ async function formatTelegramMessage(orderData, businessName, isAccepted = false
     let mapsLink = '';
     if (orderData.delivery?.latlong) {
         const [lat, lng] = orderData.delivery.latlong.split(',').map(s => s.trim());
-        if (lat && lng) {
+        if (lat && lng && lat.length > 0 && lng.length > 0) {
             mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
         }
     }
-    const locationImageLink = orderData.delivery?.photo || orderData.delivery?.image || '';
+    let locationImageLink = orderData.delivery?.photo || orderData.delivery?.image || '';
+    // Asegurar que locationImageLink sea una URL válida
+    if (locationImageLink && typeof locationImageLink === 'string' && locationImageLink.trim().length === 0) {
+        locationImageLink = '';
+    }
 
     // Información de pago
     const paymentMethod = orderData.payment?.method || 'No especificado';
@@ -378,10 +382,10 @@ async function formatTelegramMessage(orderData, businessName, isAccepted = false
         text += `🛵 <b>[${businessName}]</b> tiene un pedido para ti!\n\n`;
 
         text += `<b>Datos de entrega</b>\n`;
-        if (mapsLink) {
+        if (mapsLink && mapsLink.trim().length > 0) {
             text += `🗺️ <a href="${mapsLink}">Ver en Google Maps</a>\n`;
         }
-        if (locationImageLink) {
+        if (locationImageLink && locationImageLink.trim().length > 0) {
             text += `📸 <a href="${locationImageLink}">Ver foto de ubicación</a>\n`;
         }
         text += `${deliveryInfo}\n`;
@@ -403,20 +407,24 @@ async function formatTelegramMessage(orderData, businessName, isAccepted = false
 
         text += `<b>Datos del cliente</b>\n`;
         text += `👤 Nombres: ${customerName}\n`;
-        if (phone) {
+        if (phone && phone.trim().length > 0) {
             const waMessage = encodeURIComponent(`Hola, soy delivery de ${businessName}.`);
-            const formattedPhone = phone.replace(/^0/, '');
-            const waLink = `https://wa.me/593${formattedPhone}?text=${waMessage}`;
-            text += `📱 Whatsapp: <a href="${waLink}">${phone}</a>\n`;
+            const formattedPhone = phone.replace(/^0/, '').trim();
+            if (formattedPhone.length > 0) {
+                const waLink = `https://wa.me/593${formattedPhone}?text=${waMessage}`;
+                text += `📱 Whatsapp: <a href="${waLink}">${phone}</a>\n`;
+            } else {
+                text += `📱 Whatsapp: ${phone}\n`;
+            }
         } else {
             text += `📱 Whatsapp: No registrado\n`;
         }
 
         text += `\n<b>Datos de entrega</b>\n`;
-        if (mapsLink) {
+        if (mapsLink && mapsLink.trim().length > 0) {
             text += `🗺️ <a href="${mapsLink}">Ver en Google Maps</a>\n`;
         }
-        if (locationImageLink) {
+        if (locationImageLink && locationImageLink.trim().length > 0) {
             text += `📸 <a href="${locationImageLink}">Ver foto de ubicación</a>\n`;
         }
         text += `${deliveryInfo}\n`;
@@ -1356,7 +1364,14 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     const businessName = businessData.name || 'Tienda';
     const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
     console.log(`📝 [Telegram] Mensaje formateado. Longitud: ${telegramText.length}`);
-
+        console.log(`🔍 [Telegram-DEBUG] Primeros 200 caracteres del HTML: ${telegramText.substring(0, 200)}`);
+        console.log(`🔍 [Telegram-DEBUG] Buscando tags <a> en el mensaje...`);
+        const aTagMatches = telegramText.match(/<a[^>]*>/g);
+        if (aTagMatches) {
+            console.log(`🔍 [Telegram-DEBUG] Tags <a> encontrados: ${JSON.stringify(aTagMatches)}`);
+        } else {
+            console.log(`✅ [Telegram-DEBUG] No hay tags <a> en el mensaje`);
+        }
     const linkPreviewOptions = { is_disabled: true };
 
     // Botones de acción para la tienda
