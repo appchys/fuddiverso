@@ -216,16 +216,16 @@ const AVAILABLE_FIELDS: FieldDef[] = [
     {
         key: 'orderStatus',
         label: 'Estado de la Orden',
-        example: 'pending',
+        example: '⏳ Pendiente',
         options: [
-            { value: 'pending', label: 'Pendiente' },
-            { value: 'confirmed', label: 'Confirmado' },
-            { value: 'preparing', label: 'Preparando' },
-            { value: 'ready', label: 'Listo' },
-            { value: 'on_way', label: 'En camino' },
-            { value: 'delivered', label: 'Entregado' },
-            { value: 'cancelled', label: 'Cancelado' },
-            { value: 'borrador', label: 'Borrador' }
+            { value: 'pending', label: '⏳ Pendiente' },
+            { value: 'confirmed', label: '✅ Confirmado' },
+            { value: 'preparing', label: '👨‍🍳 En preparación' },
+            { value: 'ready', label: '🎉 Listo' },
+            { value: 'on_way', label: '🛵 En camino' },
+            { value: 'delivered', label: '🏁 Entregado' },
+            { value: 'cancelled', label: '❌ Cancelado' },
+            { value: 'borrador', label: '📝 Borrador' }
         ]
     },
     {
@@ -236,6 +236,24 @@ const AVAILABLE_FIELDS: FieldDef[] = [
             { value: 'cash', label: 'Efectivo' },
             { value: 'transfer', label: 'Transferencia' },
             { value: 'mixed', label: 'Mixto' },
+        ]
+    },
+    {
+        key: 'orderTimingType',
+        label: 'Tipo Tiempo (Inmediato/Programado)',
+        example: '⚡ Inmediato',
+        options: [
+            { value: 'immediate', label: '⚡ Inmediato' },
+            { value: 'scheduled', label: '⏰ Programado' },
+        ]
+    },
+    {
+        key: 'deliveryAcceptanceStatus',
+        label: 'Estado Aceptación Delivery',
+        example: '✅ Confirmado',
+        options: [
+            { value: 'accepted', label: '✅ Confirmado' },
+            { value: 'pending', label: '⏳ Esperando confirmación' },
         ]
     },
 ]
@@ -967,7 +985,7 @@ export default function TelegramTemplateEditor() {
                     {/* Editor + Preview */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-280px)] min-h-[600px] mb-6">
                         {/* Editor */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full overflow-hidden">
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full relative z-10">
                             {/* Toolbar */}
                             <div className="flex items-center gap-1 px-3 py-2 border-b border-gray-100 bg-gray-50/50 flex-wrap rounded-t-xl">
                                 {/* Format buttons */}
@@ -1249,7 +1267,7 @@ export default function TelegramTemplateEditor() {
                             </div>
 
                             {/* Textarea */}
-                            <div className="relative flex-1">
+                            <div className="relative flex-1 rounded-b-xl overflow-hidden">
                                 <textarea
                                     ref={textareaRef}
                                     value={templateText}

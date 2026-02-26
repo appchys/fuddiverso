@@ -271,6 +271,15 @@ export interface Delivery {
   fechaRegistro: string
   uid?: string // UID de Firebase Auth para autenticación
   telegramChatId?: string // ID de chat de Telegram para notificaciones
+  scheduleAvailability?: {
+    enabled: boolean
+    schedules: {
+      id: string
+      days: string[] // ['Monday', 'Tuesday', ...] o abreviados: ['Mon', 'Tue', ...]
+      startTime: string // Formato HH:mm (00:00 - 23:59)
+      endTime: string // Formato HH:mm (00:00 - 23:59)
+    }[]
+  }
 }
 
 export interface QRCode {

@@ -29,7 +29,19 @@ export default function DeliveriesAdmin() {
     nombres: '',
     celular: '',
     email: '',
-    estado: 'activo' as 'activo' | 'inactivo'
+    estado: 'activo' as 'activo' | 'inactivo',
+    scheduleEnabled: false,
+    schedules: [] as Array<{
+      id: string
+      days: string[]
+      startTime: string
+      endTime: string
+    }>
+  })
+  const [currentSchedule, setCurrentSchedule] = useState({
+    days: [] as string[],
+    startTime: '09:00',
+    endTime: '18:00'
   })
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
@@ -138,6 +150,18 @@ export default function DeliveriesAdmin() {
         fechaRegistro: new Date().toISOString()
       }
 
+      if (formData.scheduleEnabled) {
+        deliveryData.scheduleAvailability = {
+          enabled: true,
+          schedules: formData.schedules
+        }
+      } else {
+        deliveryData.scheduleAvailability = {
+          enabled: false,
+          schedules: []
+        }
+      }
+
       // Solo agregar fotoUrl si existe
       if (fotoUrl) {
         deliveryData.fotoUrl = fotoUrl;
@@ -153,8 +177,11 @@ export default function DeliveriesAdmin() {
         nombres: '',
         celular: '',
         email: '',
-        estado: 'activo'
+        estado: 'activo',
+        scheduleEnabled: false,
+        schedules: []
       })
+      setCurrentSchedule({ days: [], startTime: '09:00', endTime: '18:00' })
       setSelectedImage(null)
       setPreviewImage(null)
       setShowAddModal(false)
@@ -184,8 +211,11 @@ export default function DeliveriesAdmin() {
       nombres: delivery.nombres,
       celular: delivery.celular,
       email: delivery.email,
-      estado: delivery.estado
+      estado: delivery.estado,
+      scheduleEnabled: delivery.scheduleAvailability?.enabled || false,
+      schedules: delivery.scheduleAvailability?.schedules || []
     })
+    setCurrentSchedule({ days: [], startTime: '09:00', endTime: '18:00' })
     setPreviewImage(delivery.fotoUrl || null)
     setShowEditModal(true)
   }
@@ -217,7 +247,14 @@ export default function DeliveriesAdmin() {
         nombres: formData.nombres.trim(),
         celular: normalizePhone(formData.celular),
         email: formData.email.trim(),
-        estado: formData.estado
+        estado: formData.estado,
+        scheduleAvailability: formData.scheduleEnabled ? {
+          enabled: true,
+          schedules: formData.schedules
+        } : {
+          enabled: false,
+          schedules: []
+        }
       }
 
       // Solo incluir fotoUrl si ha cambiado
@@ -235,8 +272,11 @@ export default function DeliveriesAdmin() {
         nombres: '',
         celular: '',
         email: '',
-        estado: 'activo'
+        estado: 'activo',
+        scheduleEnabled: false,
+        schedules: []
       })
+      setCurrentSchedule({ days: [], startTime: '09:00', endTime: '18:00' })
       setSelectedImage(null)
       setPreviewImage(null)
       setShowEditModal(false)
@@ -273,6 +313,125 @@ export default function DeliveriesAdmin() {
       </div>
     )
   }
+
+  const renderScheduleEditor = () => (
+    <div className="pt-4 border-t border-gray-200 mt-4">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h4 className="text-sm font-medium text-gray-900 border-none">Horarios de Disponibilidad</h4>
+          <p className="text-xs text-gray-500">Activa si el repartidor tiene horarios específicos</p>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            className="sr-only peer"
+            checked={formData.scheduleEnabled}
+            onChange={(e) => setFormData({ ...formData, scheduleEnabled: e.target.checked })}
+          />
+          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
+        </label>
+      </div>
+
+      {formData.scheduleEnabled && (
+        <div className="p-4 border border-gray-200 rounded-lg bg-gray-50 space-y-4">
+          {formData.schedules.length > 0 && (
+            <div className="space-y-2">
+              {formData.schedules.map((schedule, idx) => (
+                <div key={idx} className="flex justify-between items-center bg-white p-3 rounded border shadow-sm">
+                  <div>
+                    <div className="flex flex-wrap gap-1 mb-1">
+                      {schedule.days.map(d => {
+                        const dayName = ({ Monday: 'Lun', Tuesday: 'Mar', Wednesday: 'Mié', Thursday: 'Jue', Friday: 'Vie', Saturday: 'Sáb', Sunday: 'Dom' } as Record<string, string>)[d] || d;
+                        return (
+                          <span key={d} className="text-[10px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-bold uppercase">
+                            {dayName}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <div className="text-sm text-gray-700 font-medium">
+                      <i className="bi bi-clock me-1 text-gray-400"></i>
+                      {schedule.startTime} - {schedule.endTime}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData(prev => ({
+                        ...prev,
+                        schedules: prev.schedules.filter((_, i) => i !== idx)
+                      }));
+                    }}
+                    className="text-gray-400 hover:text-red-600 transition-colors p-2"
+                  >
+                    <i className="bi bi-trash"></i>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="bg-white p-3 rounded border border-gray-200">
+            <h5 className="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">Añadir horario</h5>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => {
+                const isSelected = currentSchedule.days.includes(day);
+                const dayName = ({ Monday: 'Lun', Tuesday: 'Mar', Wednesday: 'Mié', Thursday: 'Jue', Friday: 'Vie', Saturday: 'Sáb', Sunday: 'Dom' } as Record<string, string>)[day];
+                return (
+                  <button
+                    type="button"
+                    key={day}
+                    onClick={() => setCurrentSchedule(prev => ({
+                      ...prev,
+                      days: isSelected ? prev.days.filter(d => d !== day) : [...prev.days, day]
+                    }))}
+                    className={`px-2 py-1 text-[10px] sm:text-xs font-medium rounded-full border transition-colors ${isSelected ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
+                  >
+                    {dayName}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex-1">
+                <label className="block text-[10px] uppercase font-semibold text-gray-500 mb-1">Inicio</label>
+                <input
+                  type="time"
+                  value={currentSchedule.startTime}
+                  onChange={(e) => setCurrentSchedule(prev => ({ ...prev, startTime: e.target.value }))}
+                  className="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-[10px] uppercase font-semibold text-gray-500 mb-1">Fin</label>
+                <input
+                  type="time"
+                  value={currentSchedule.endTime}
+                  onChange={(e) => setCurrentSchedule(prev => ({ ...prev, endTime: e.target.value }))}
+                  className="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none"
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (currentSchedule.days.length === 0) return alert('Selecciona al menos un día');
+                if (!currentSchedule.startTime || !currentSchedule.endTime) return alert('Completa las horas');
+                setFormData(prev => ({
+                  ...prev,
+                  schedules: [...prev.schedules, { id: Date.now().toString(), ...currentSchedule }]
+                }));
+                setCurrentSchedule({ days: [], startTime: '09:00', endTime: '18:00' });
+              }}
+              className="w-full text-sm bg-gray-900 text-white font-medium py-2 rounded-lg hover:bg-black transition-colors"
+            >
+              <i className="bi bi-plus-circle me-1.5"></i> Agregar Horario
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <div className="space-y-6">
@@ -356,8 +515,8 @@ export default function DeliveriesAdmin() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${delivery.estado === 'activo'
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-red-100 text-red-800'
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-red-100 text-red-800'
                       }`}>
                       {delivery.estado === 'activo' ? (
                         <>
@@ -408,8 +567,8 @@ export default function DeliveriesAdmin() {
                         onClick={() => delivery.id && handleToggleDeliveryStatus(delivery.id)}
                         disabled={!delivery.id}
                         className={`${delivery.estado === 'activo'
-                            ? 'text-red-600 hover:text-red-900'
-                            : 'text-green-600 hover:text-green-900'
+                          ? 'text-red-600 hover:text-red-900'
+                          : 'text-green-600 hover:text-green-900'
                           } disabled:opacity-50`}
                         title={delivery.estado === 'activo' ? 'Desactivar' : 'Activar'}
                       >
@@ -461,7 +620,7 @@ export default function DeliveriesAdmin() {
                 <button
                   onClick={() => {
                     setShowAddModal(false)
-                    setFormData({ nombres: '', celular: '', email: '', estado: 'activo' })
+                    setFormData({ nombres: '', celular: '', email: '', estado: 'activo', scheduleEnabled: false, schedules: [] })
                     setSelectedImage(null)
                     setPreviewImage(null)
                     setErrors({})
@@ -590,6 +749,8 @@ export default function DeliveriesAdmin() {
                   </select>
                 </div>
 
+                {renderScheduleEditor()}
+
                 {errors.submit && (
                   <div className="text-red-500 text-sm text-center">
                     {errors.submit}
@@ -602,7 +763,7 @@ export default function DeliveriesAdmin() {
                     type="button"
                     onClick={() => {
                       setShowAddModal(false)
-                      setFormData({ nombres: '', celular: '', email: '', estado: 'activo' })
+                      setFormData({ nombres: '', celular: '', email: '', estado: 'activo', scheduleEnabled: false, schedules: [] })
                       setSelectedImage(null)
                       setPreviewImage(null)
                       setErrors({})
@@ -649,7 +810,7 @@ export default function DeliveriesAdmin() {
                   onClick={() => {
                     setShowEditModal(false)
                     setEditingDelivery(null)
-                    setFormData({ nombres: '', celular: '', email: '', estado: 'activo' })
+                    setFormData({ nombres: '', celular: '', email: '', estado: 'activo', scheduleEnabled: false, schedules: [] })
                     setSelectedImage(null)
                     setPreviewImage(null)
                     setErrors({})
@@ -772,6 +933,8 @@ export default function DeliveriesAdmin() {
                   </select>
                 </div>
 
+                {renderScheduleEditor()}
+
                 {errors.submit && (
                   <div className="text-red-500 text-sm text-center">
                     {errors.submit}
@@ -785,7 +948,7 @@ export default function DeliveriesAdmin() {
                     onClick={() => {
                       setShowEditModal(false)
                       setEditingDelivery(null)
-                      setFormData({ nombres: '', celular: '', email: '', estado: 'activo' })
+                      setFormData({ nombres: '', celular: '', email: '', estado: 'activo', scheduleEnabled: false, schedules: [] })
                       setSelectedImage(null)
                       setPreviewImage(null)
                       setErrors({})
