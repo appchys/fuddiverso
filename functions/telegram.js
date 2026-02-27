@@ -208,6 +208,9 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
  */
 async function formatTelegramMessage(orderData, businessName, isAccepted = false) {
     // ─── Try template from Firestore ───
+    // COMENTADO: Las templates de Firestore para store_new_order/delivery_assigned generan HTML duplicado
+    // Se usa siempre el fallback para estas notificaciones que ya funciona correctamente
+    /*
     try {
         const templates = await getTemplatesFromFirestore();
         const templateKey = isAccepted ? 'store_new_order' : 'delivery_assigned';
@@ -231,6 +234,7 @@ async function formatTelegramMessage(orderData, businessName, isAccepted = false
     } catch (err) {
         console.log('Template lookup failed, using hardcoded:', err.message);
     }
+    */
 
     // ─── Fallback: hardcoded message ───
     const orderId = orderData.id || '';
