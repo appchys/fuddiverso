@@ -182,9 +182,10 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
         deliveryType,
         scheduledTime: scheduledTimeStr,
         items: itemsText.trim(),
-        mapsLink: mapsLink ? `<a href="${mapsLink}">Ver en Google Maps</a>` : '',
+        mapsLink: mapsLink,  // URLs SOLO, no HTML
         deliveryName: options.deliveryName || '',
-        whatsappLink: whatsappLink ? `<a href="${whatsappLink}">${phone}</a>` : (phone || ''),
+        whatsappLink: whatsappLink,  // URLs SOLO, no HTML
+        customerPhoneFormatted: phone,
         locationPhoto: orderData.delivery?.photo || '',
         orderStatus: orderData.status || 'pending',
         orderStatusLabel: ({
