@@ -27,3 +27,5 @@ next-env.d.ts
 
 # Ignorar credenciales sensibles
 multitienda-69778-firebase-adminsdk-fbsvc-496524456f.json
+sa_key.json
+.firebaserc
