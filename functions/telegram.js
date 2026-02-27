@@ -10,14 +10,14 @@ let CUSTOMER_BOT_TOKEN = process.env.CUSTOMER_BOT_TOKEN;
 
 // Fallback a functions.config() si no está en process.env
 try {
-  const config = functions.config();
-  if (config.telegram) {
-    if (!STORE_BOT_TOKEN) STORE_BOT_TOKEN = config.telegram.store_token;
-    if (!DELIVERY_BOT_TOKEN) DELIVERY_BOT_TOKEN = config.telegram.delivery_token;
-    if (!CUSTOMER_BOT_TOKEN) CUSTOMER_BOT_TOKEN = config.telegram.customer_token;
-  }
+    const config = functions.config();
+    if (config.telegram) {
+        if (!STORE_BOT_TOKEN) STORE_BOT_TOKEN = config.telegram.store_token;
+        if (!DELIVERY_BOT_TOKEN) DELIVERY_BOT_TOKEN = config.telegram.delivery_token;
+        if (!CUSTOMER_BOT_TOKEN) CUSTOMER_BOT_TOKEN = config.telegram.customer_token;
+    }
 } catch (e) {
-  console.warn('⚠️ No se pudo acceder a functions.config(), usando process.env');
+    console.warn('⚠️ No se pudo acceder a functions.config(), usando process.env');
 }
 
 // LOG INICIAL PARA VALIDAR TOKENS
@@ -229,11 +229,24 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
  * Función para formatear el mensaje de Telegram
  * Intenta usar plantilla de Firestore primero, luego fallback a hardcoded.
  */
-async function formatTelegramMessage(orderData, businessName, isAccepted = false) {
+async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = false) {
+    let templateKey = '';
+    let isAccepted = false;
+
+    if (typeof isAcceptedOrKey === 'string') {
+        templateKey = isAcceptedOrKey;
+        // Para el fallback recordamos el comportamiento anterior:
+        // delivery_assigned usaba false, store_new_order usaba true.
+        // Otros estados (como accepted, on_way) suelen querer el detalle completo.
+        isAccepted = templateKey !== 'delivery_assigned';
+    } else {
+        isAccepted = isAcceptedOrKey;
+        templateKey = isAccepted ? 'store_new_order' : 'delivery_assigned';
+    }
+
     // ─── Try template from Firestore ───
     try {
         const templates = await getTemplatesFromFirestore();
-        const templateKey = isAccepted ? 'store_new_order' : 'delivery_assigned';
         const template = templates[templateKey];
         if (template) {
             const variables = buildTemplateVariables(orderData, businessName);
@@ -518,7 +531,7 @@ async function sendTelegramMessageGeneric(token, chatId, text, replyMarkup = nul
         const url = `https://api.telegram.org/bot${token}/sendMessage`;
         console.log(`📤 [Telegram-Generic] Bot: ${botId} | Chat: ${numericChatId} | URL longitud: ${url.length}`);
         console.log(`📤 [Telegram-Generic] Intentando conexión a Telegram...`);
-        
+
         const data = {
             chat_id: numericChatId,
             text: text,
@@ -530,19 +543,19 @@ async function sendTelegramMessageGeneric(token, chatId, text, replyMarkup = nul
         if (linkPreviewOptions) {
             data.link_preview_options = linkPreviewOptions;
         }
-        
+
         console.log(`📤 [Telegram-Generic] Enviando payload. Tamaño: ${JSON.stringify(data).length} bytes`);
-        
+
         const startTime = Date.now();
         const response = await axios.post(url, data, {
             timeout: 10000  // 10 segundos timeout
         });
         const duration = Date.now() - startTime;
-        
+
         const responseData = response.data;
         console.log(`✅ [Telegram-Generic] Respuesta recibida en ${duration}ms. Status HTTP: ${response.status}`);
         console.log(`✅ [Telegram-Generic] Response.ok: ${responseData.ok}, tiene result: ${!!responseData.result}`);
-        
+
         // Validar que la respuesta fue exitosa (ok: true en Telegram API)
         if (!responseData.ok) {
             console.error('❌ [Telegram] Error en respuesta de Telegram:', {
@@ -555,14 +568,14 @@ async function sendTelegramMessageGeneric(token, chatId, text, replyMarkup = nul
             });
             return responseData; // Retornar igual para análisis downstream
         }
-        
+
         const messageId = responseData.result?.message_id;
         console.log(`✅ [Telegram] Mensaje enviado exitosamente. Bot: ${botId} | Chat: ${numericChatId} | Message ID: ${messageId}`);
         return responseData;
     } catch (error) {
         console.error('❌ [Telegram] Error enviando mensaje:', {
             chatId: chatId,
-            token: token ? `${token.substring(0,10)}...` : 'null',
+            token: token ? `${token.substring(0, 10)}...` : 'null',
             statusCode: error.response?.status,
             errorData: error.response?.data,
             errorCode: error.code,
@@ -665,7 +678,7 @@ async function handleStoreWebhook(req, res) {
                         const orderDoc = await admin.firestore().collection('orders').doc(orderId).get();
                         const orderData = orderDoc.data();
                         console.log(`📋 [Store Webhook] Orden recuperada. telegramBusinessMessages: ${JSON.stringify(orderData.telegramBusinessMessages)}`);
-                        
+
                         // ACCIÓN SINCRONIZADA PARA LA TIENDA
                         const businessName = orderData.businessName || 'Tienda';
                         const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
@@ -750,10 +763,10 @@ async function handleStoreWebhook(req, res) {
 async function updateBusinessTelegramMessage(orderData, orderId) {
     try {
         console.log(`🔄 [updateBusinessTelegramMessage] Iniciando actualización para orden ${orderId}`);
-        
+
         const businessMessages = orderData.telegramBusinessMessages || [];
         console.log(`📋 [updateBusinessTelegramMessage] telegramBusinessMessages: ${JSON.stringify(businessMessages)}`);
-        
+
         if (businessMessages.length === 0) {
             console.warn(`⚠️ [updateBusinessTelegramMessage] No hay mensajes guardados para editar en orden ${orderId}`);
             return;
@@ -801,7 +814,7 @@ async function updateBusinessTelegramMessage(orderData, orderId) {
 
         const editUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/editMessageText`;
         console.log(`🔗 [updateBusinessTelegramMessage] URL de edición: ${editUrl.substring(0, 50)}...`);
-        
+
         const updatePromises = businessMessages.map(msg => {
             console.log(`📤 [updateBusinessTelegramMessage] Editando mensaje en chat ${msg.chatId}, messageId ${msg.messageId}`);
             return axios.post(editUrl, {
@@ -823,12 +836,12 @@ async function updateBusinessTelegramMessage(orderData, orderId) {
                 throw err;
             });
         });
-        
+
         const results = await Promise.allSettled(updatePromises);
         const successful = results.filter(r => r.status === 'fulfilled').length;
         const failed = results.filter(r => r.status === 'rejected').length;
         console.log(`📊 [updateBusinessTelegramMessage] Actualización completada. Exitosos: ${successful}, Fallidos: ${failed}`);
-        
+
     } catch (error) {
         console.error('❌ Error en updateBusinessTelegramMessage:', error);
     }
@@ -967,7 +980,11 @@ async function handleDeliveryWebhook(req, res) {
                                 newText += `\n\n🎉 <b>Entregado</b>`;
 
                             } else if (action !== 'discard') {
-                                const { text: formattedText, mapsLink, locationImageLink } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+                                // Mapear acción a template key
+                                let templateKey = 'delivery_accepted';
+                                if (action === 'on_way') templateKey = 'delivery_on_way';
+
+                                const { text: formattedText, mapsLink, locationImageLink } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, templateKey);
                                 newText = formattedText + `\n\n${statusLabel}`;
 
                                 replyMarkup = { inline_keyboard: [] };
@@ -1332,7 +1349,7 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
     }
 
     const result = await sendDeliveryTelegramMessage(deliveryData.telegramChatId, telegramText, replyMarkup, linkPreviewOptions);
-    
+
     if (result && result.ok && result.result) {
         console.log(`✅ Notificación de Telegram (Delivery Bot) enviada a: ${deliveryData.telegramChatId}`);
     } else if (result) {
@@ -1351,7 +1368,7 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
  */
 async function sendBusinessTelegramNotification(businessData, orderData, orderId) {
     console.log(`🔍 [sendBusinessTelegramNotification] Iniciando para orden ${orderId}`);
-    
+
     if (!businessData) {
         console.warn(`⚠️ [Telegram] No se encontró datos del negocio para orden ${orderId}`);
         return;
@@ -1386,16 +1403,16 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     console.log(`✅ [Telegram] STORE_BOT_TOKEN está configurado: ${STORE_BOT_TOKEN.substring(0, 10)}...${STORE_BOT_TOKEN.substring(STORE_BOT_TOKEN.length - 10)}`);
 
     const businessName = businessData.name || 'Tienda';
-    const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, false);
+    const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
     console.log(`📝 [Telegram] Mensaje formateado. Longitud: ${telegramText.length}`);
-        console.log(`🔍 [Telegram-DEBUG] Primeros 200 caracteres del HTML: ${telegramText.substring(0, 200)}`);
-        console.log(`🔍 [Telegram-DEBUG] Buscando tags <a> en el mensaje...`);
-        const aTagMatches = telegramText.match(/<a[^>]*>/g);
-        if (aTagMatches) {
-            console.log(`🔍 [Telegram-DEBUG] Tags <a> encontrados: ${JSON.stringify(aTagMatches)}`);
-        } else {
-            console.log(`✅ [Telegram-DEBUG] No hay tags <a> en el mensaje`);
-        }
+    console.log(`🔍 [Telegram-DEBUG] Primeros 200 caracteres del HTML: ${telegramText.substring(0, 200)}`);
+    console.log(`🔍 [Telegram-DEBUG] Buscando tags <a> en el mensaje...`);
+    const aTagMatches = telegramText.match(/<a[^>]*>/g);
+    if (aTagMatches) {
+        console.log(`🔍 [Telegram-DEBUG] Tags <a> encontrados: ${JSON.stringify(aTagMatches)}`);
+    } else {
+        console.log(`✅ [Telegram-DEBUG] No hay tags <a> en el mensaje`);
+    }
     const linkPreviewOptions = { is_disabled: true };
 
     // Botones de acción para la tienda
@@ -1419,7 +1436,7 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
         try {
             const result = await sendStoreTelegramMessage(chatId, telegramText, replyMarkup, linkPreviewOptions);
             console.log(`📥 [Telegram] Respuesta de sendStoreTelegramMessage: ${JSON.stringify(result).substring(0, 100)}...`);
-            
+
             if (!result) {
                 console.error(`❌ [Telegram] No hay respuesta de Telegram para chat ${chatId}. El servidor retornó null.`);
                 continue;
