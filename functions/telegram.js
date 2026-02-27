@@ -163,16 +163,34 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
 
     // WhatsApp link
     let whatsappLink = '';
-    if (phone) {
-        const formattedPhone = phone.replace(/^0/, '');
-        const waMessage = encodeURIComponent(`Hola, soy delivery de ${businessName}.`);
-        whatsappLink = `https://wa.me/593${formattedPhone}?text=${waMessage}`;
+    let whatsappLinkHtml = '';
+    if (phone && phone.trim().length > 0) {
+        const formattedPhone = phone.replace(/^0/, '').trim();
+        if (formattedPhone.length > 0) {
+            const waMessage = encodeURIComponent(`Hola, soy delivery de ${businessName}.`);
+            whatsappLink = `https://wa.me/593${formattedPhone}?text=${waMessage}`;
+            whatsappLinkHtml = `<a href="${whatsappLink}">${phone}</a>`;
+        }
+    }
+
+    // Maps link HTML
+    let mapsLinkHtml = '';
+    if (mapsLink && mapsLink.trim().length > 0) {
+        mapsLinkHtml = `<a href="${mapsLink}">Ver en Google Maps</a>`;
+    }
+
+    // Location image HTML
+    let locationImageLinkHtml = '';
+    const locationImageLink = orderData.delivery?.photo || orderData.delivery?.image || '';
+    if (locationImageLink && typeof locationImageLink === 'string' && locationImageLink.trim().length > 0) {
+        locationImageLinkHtml = `<a href="${locationImageLink}">Ver foto de ubicación</a>`;
     }
 
     return {
         businessName: businessName || 'Negocio',
         customerName,
         customerPhone: phone,
+        customerPhoneFormatted: phone,
         orderId: orderId.slice(0, 6),
         total: `$${total.toFixed(2)}`,
         subtotal: `$${subtotal.toFixed(2)}`,
@@ -182,10 +200,15 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
         deliveryType,
         scheduledTime: scheduledTimeStr,
         items: itemsText.trim(),
-        mapsLink: mapsLink,  // URLs SOLO, no HTML
+        // URLs (para templates que quieran envolver manualmente)
+        mapsLink: mapsLink,
+        whatsappLink: whatsappLink,
+        locationImageLink: locationImageLink,
+        // HTML formado (para templates que usen directo)
+        mapsLinkHtml: mapsLinkHtml,
+        whatsappLinkHtml: whatsappLinkHtml,
+        locationImageLinkHtml: locationImageLinkHtml,
         deliveryName: options.deliveryName || '',
-        whatsappLink: whatsappLink,  // URLs SOLO, no HTML
-        customerPhoneFormatted: phone,
         locationPhoto: orderData.delivery?.photo || '',
         orderStatus: orderData.status || 'pending',
         orderStatusLabel: ({
@@ -208,9 +231,6 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
  */
 async function formatTelegramMessage(orderData, businessName, isAccepted = false) {
     // ─── Try template from Firestore ───
-    // COMENTADO: Las templates de Firestore para store_new_order/delivery_assigned generan HTML duplicado
-    // Se usa siempre el fallback para estas notificaciones que ya funciona correctamente
-    /*
     try {
         const templates = await getTemplatesFromFirestore();
         const templateKey = isAccepted ? 'store_new_order' : 'delivery_assigned';
@@ -234,7 +254,6 @@ async function formatTelegramMessage(orderData, businessName, isAccepted = false
     } catch (err) {
         console.log('Template lookup failed, using hardcoded:', err.message);
     }
-    */
 
     // ─── Fallback: hardcoded message ───
     const orderId = orderData.id || '';
