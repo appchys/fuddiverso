@@ -7,6 +7,7 @@ import { searchClients } from '@/lib/client-search'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { optimizeImage } from '@/lib/image-utils'
 
 
 interface Client {
@@ -835,9 +836,16 @@ export default function ManualOrderSidebar({
       let photoUrl = '';
       if (locationImageFile) {
         const timestamp = Date.now();
-        const fileName = `locations/${clientId}_${timestamp}_${locationImageFile.name}`;
+        const optimizedBlob = await optimizeImage(locationImageFile, 1000, 0.8, 'image/jpeg');
+        const optimizedFile = new File(
+          [optimizedBlob],
+          `${timestamp}_${locationImageFile.name.split('.')[0]}.jpg`,
+          { type: optimizedBlob.type || 'image/jpeg' }
+        );
+
+        const fileName = `locations/${clientId}_${optimizedFile.name}`;
         const storageRef = ref(storage, fileName);
-        await uploadBytes(storageRef, locationImageFile);
+        await uploadBytes(storageRef, optimizedFile);
         photoUrl = await getDownloadURL(storageRef);
       }
 
@@ -935,9 +943,16 @@ export default function ManualOrderSidebar({
       let photoUrl = newLocationData.photo; // Mantener la URL existente por defecto
       if (locationImageFile) {
         const timestamp = Date.now();
-        const fileName = `locations/${client.id}_${timestamp}_${locationImageFile.name}`;
+        const optimizedBlob = await optimizeImage(locationImageFile, 1000, 0.8, 'image/jpeg');
+        const optimizedFile = new File(
+          [optimizedBlob],
+          `${timestamp}_${locationImageFile.name.split('.')[0]}.jpg`,
+          { type: optimizedBlob.type || 'image/jpeg' }
+        );
+
+        const fileName = `locations/${client.id}_${optimizedFile.name}`;
         const storageRef = ref(storage, fileName);
-        await uploadBytes(storageRef, locationImageFile);
+        await uploadBytes(storageRef, optimizedFile);
         photoUrl = await getDownloadURL(storageRef);
       }
 

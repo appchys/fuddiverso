@@ -3,6 +3,9 @@ import { GoogleMap } from './GoogleMap'
 import LocationMap from './LocationMap'
 import { ClientLocation, createClientLocation, getDeliveryFeeForLocation, deleteLocation, updateLocation } from '@/lib/database'
 import { isInstagramBrowser, getDeviceType, openInExternalBrowser } from '@/lib/instagram-detect'
+import { storage } from '@/lib/firebase'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { optimizeImage } from '@/lib/image-utils'
 
 interface NewLocationData {
     latlong: string
@@ -47,6 +50,9 @@ export default function LocationSelectionModal({
     const [locationPermissionError, setLocationPermissionError] = useState<string | null>(null)
     const [gpsAttempts, setGpsAttempts] = useState(0)
     const [isManualMode, setIsManualMode] = useState(false)
+    const [locationImageFile, setLocationImageFile] = useState<File | null>(null)
+    const [locationImagePreview, setLocationImagePreview] = useState<string>('')
+    const [isSubmitting, setIsSubmitting] = useState(false)
 
     useEffect(() => {
         setIsInInstagram(isInstagramBrowser())
@@ -62,6 +68,9 @@ export default function LocationSelectionModal({
             setGpsAttempts(0)
             setLocationPermissionError(null)
             setNewLocationData({ latlong: '', referencia: '', tarifa: '1' })
+            setLocationImageFile(null)
+            setLocationImagePreview('')
+            setIsSubmitting(false)
         }
         return () => {
             document.body.style.overflow = ''
@@ -74,6 +83,9 @@ export default function LocationSelectionModal({
             setGpsAttempts(0)
             setLocationPermissionError(null)
             setNewLocationData({ latlong: '', referencia: '', tarifa: '1' })
+            setLocationImageFile(null)
+            setLocationImagePreview('')
+            setIsSubmitting(false)
         }
     }, [isAddingNewLocation])
 
@@ -190,14 +202,33 @@ export default function LocationSelectionModal({
             return;
         }
 
+        setIsSubmitting(true);
         try {
+            let photoUrl = '';
+            if (locationImageFile) {
+                const timestamp = Date.now();
+                // Optimizar imagen antes de subir (Max 1000px, 0.8 calidad, formato JPEG)
+                const optimizedBlob = await optimizeImage(locationImageFile, 1000, 0.8, 'image/jpeg');
+                const optimizedFile = new File(
+                    [optimizedBlob],
+                    `${timestamp}_${locationImageFile.name.split('.')[0]}.jpg`,
+                    { type: optimizedBlob.type || 'image/jpeg' }
+                );
+
+                const fileName = `locations/${clientId}_${optimizedFile.name}`;
+                const storageRef = ref(storage, fileName);
+                await uploadBytes(storageRef, optimizedFile);
+                photoUrl = await getDownloadURL(storageRef);
+            }
+
             const locationId = await createClientLocation({
                 id_cliente: clientId,
                 latlong: newLocationData.latlong,
                 referencia: newLocationData.referencia,
                 tarifa: newLocationData.tarifa,
                 sector: 'Sin especificar',
-                createdBy: 'client'
+                createdBy: 'client',
+                ...(photoUrl && { photo: photoUrl })
             });
 
             const newLocation: ClientLocation = {
@@ -206,15 +237,20 @@ export default function LocationSelectionModal({
                 latlong: newLocationData.latlong,
                 referencia: newLocationData.referencia,
                 sector: 'Sin especificar',
-                tarifa: newLocationData.tarifa
+                tarifa: newLocationData.tarifa,
+                ...(photoUrl && { photo: photoUrl })
             };
 
             onLocationCreated(newLocation);
             setNewLocationData({ latlong: '', referencia: '', tarifa: '1' }); // Reset
+            setLocationImageFile(null);
+            setLocationImagePreview('');
             setIsAddingNewLocation(false); // Volver a la lista o cerrar? El padre cierra el modal al seleccionar
         } catch (error) {
             console.error('❌ Error saving location:', error);
             alert('Error al guardar la ubicación. Por favor intenta de nuevo.');
+        } finally {
+            setIsSubmitting(false);
         }
     }
 
@@ -536,6 +572,46 @@ export default function LocationSelectionModal({
                                     required
                                 />
                             </div>
+
+                            {/* Photo Upload */}
+                            <div>
+                                <label className="block text-sm font-bold text-gray-900 mb-2">
+                                    Foto de referencia (opcional)
+                                </label>
+                                <div className="relative">
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) {
+                                                setLocationImageFile(file);
+                                                const reader = new FileReader();
+                                                reader.onloadend = () => {
+                                                    setLocationImagePreview(reader.result as string);
+                                                };
+                                                reader.readAsDataURL(file);
+                                            }
+                                        }}
+                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all font-medium text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-gray-900 file:text-white hover:file:bg-gray-800"
+                                    />
+                                </div>
+                                {locationImagePreview && (
+                                    <div className="mt-3 relative w-32 h-32 rounded-xl overflow-hidden shadow-sm border border-gray-200">
+                                        <img src={locationImagePreview} alt="Preview" className="w-full h-full object-cover" />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setLocationImageFile(null);
+                                                setLocationImagePreview('');
+                                            }}
+                                            className="absolute top-2 right-2 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-red-500 backdrop-blur-sm transition-colors shadow"
+                                        >
+                                            <i className="bi bi-x text-lg leading-none"></i>
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
                 </div>
@@ -572,14 +648,21 @@ export default function LocationSelectionModal({
                                 Cancelar
                             </button>
                             <button
-                                className={`flex-[2] py-3.5 rounded-xl transition-all font-bold text-sm shadow-lg flex items-center justify-center transform active:scale-[0.98] ${mapCoordinates
+                                className={`flex-[2] py-3.5 rounded-xl transition-all font-bold text-sm shadow-lg flex items-center justify-center transform active:scale-[0.98] ${mapCoordinates && !isSubmitting
                                     ? 'bg-gray-900 text-white hover:bg-gray-800 shadow-gray-200'
                                     : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
                                     }`}
-                                onClick={mapCoordinates ? handleSaveNewLocation : (e) => e.preventDefault()}
-                                disabled={!mapCoordinates}
+                                onClick={mapCoordinates && !isSubmitting ? handleSaveNewLocation : (e) => e.preventDefault()}
+                                disabled={!mapCoordinates || isSubmitting}
                             >
-                                Confirmar Ubicación
+                                {isSubmitting ? (
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-5 h-5 rounded-full border-2 border-gray-400 border-t-gray-600 animate-spin"></span>
+                                        <span>Guardando...</span>
+                                    </div>
+                                ) : (
+                                    <span>Guardar y Seleccionar</span>
+                                )}
                             </button>
                         </div>
                     )}
