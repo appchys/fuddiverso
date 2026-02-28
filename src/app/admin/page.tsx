@@ -40,7 +40,20 @@ export default function AdminDashboard() {
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'settlements' | 'templates'>('home')
+  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'settlements' | 'templates' | 'orders'>('home')
+  
+  // Estados para filtros del historial de órdenes
+  const [filterOrdersBusiness, setFilterOrdersBusiness] = useState<string>('all')
+  const [filterOrdersDeliveryType, setFilterOrdersDeliveryType] = useState<'all' | 'delivery' | 'pickup'>('all')
+  const [filterOrdersDateRange, setFilterOrdersDateRange] = useState({
+    start: (() => {
+      const d = new Date()
+      d.setDate(d.getDate() - 30)
+      return d.toISOString().split('T')[0]
+    })(),
+    end: new Date().toISOString().split('T')[0]
+  })
+  
   // Estado para liquidaciones
   const [selectedSettlementBusiness, setSelectedSettlementBusiness] = useState<string | null>(null)
   const [processingSettlement, setProcessingSettlement] = useState(false)
@@ -430,6 +443,259 @@ export default function AdminDashboard() {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderOrdersHistoryTab = () => {
+    // Aplicar filtros a las órdenes
+    let filteredOrders = orders.filter(order => {
+      // Filtro por tienda
+      if (filterOrdersBusiness !== 'all' && order.businessId !== filterOrdersBusiness) {
+        return false;
+      }
+
+      // Filtro por tipo de entrega
+      if (filterOrdersDeliveryType !== 'all') {
+        const deliveryType = order.delivery?.type || 'pickup';
+        if (filterOrdersDeliveryType === 'delivery' && deliveryType !== 'delivery') {
+          return false;
+        }
+        if (filterOrdersDeliveryType === 'pickup' && deliveryType !== 'pickup') {
+          return false;
+        }
+      }
+
+      // Filtro por rango de fechas
+      if (order.createdAt) {
+        try {
+          const orderDate = new Date(order.createdAt);
+          const startDate = new Date(filterOrdersDateRange.start);
+          const endDate = new Date(filterOrdersDateRange.end);
+          
+          startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(23, 59, 59, 999);
+          
+          if (orderDate < startDate || orderDate > endDate) {
+            return false;
+          }
+        } catch (e) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    // Ordenar por fecha descendente
+    filteredOrders = filteredOrders.sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime();
+      const dateB = new Date(b.createdAt).getTime();
+      return dateB - dateA;
+    });
+
+    // Calcular estadísticas de órdenes filtradas
+    const totalOrders = filteredOrders.length;
+    const totalRevenue = filteredOrders.reduce((sum, order) => sum + (order.total || 0), 0);
+    const deliveryOrders = filteredOrders.filter(o => o.delivery?.type === 'delivery').length;
+    const pickupOrders = filteredOrders.filter(o => o.delivery?.type !== 'delivery').length;
+
+    const statusConfig: Record<string, { bg: string; text: string; icon: string }> = {
+      pending: { bg: 'bg-amber-50', text: 'text-amber-700', icon: 'bi-clock-history' },
+      confirmed: { bg: 'bg-blue-50', text: 'text-blue-700', icon: 'bi-check2-circle' },
+      preparing: { bg: 'bg-orange-50', text: 'text-orange-700', icon: 'bi-fire' },
+      ready: { bg: 'bg-green-50', text: 'text-green-700', icon: 'bi-bag-check' },
+      delivered: { bg: 'bg-gray-50', text: 'text-gray-600', icon: 'bi-house-check' },
+      cancelled: { bg: 'bg-red-50', text: 'text-red-700', icon: 'bi-x-circle' }
+    };
+
+    return (
+      <div className="space-y-6">
+        {/* Tarjetas de estadísticas */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+          <div className="bg-white rounded-lg shadow-sm p-3 md:p-4 border border-gray-200">
+            <p className="text-xs md:text-sm font-medium text-gray-500">Órdenes</p>
+            <p className="text-xl md:text-2xl font-bold text-gray-900 mt-1">{totalOrders}</p>
+          </div>
+          <div className="bg-white rounded-lg shadow-sm p-3 md:p-4 border border-gray-200">
+            <p className="text-xs md:text-sm font-medium text-gray-500">Ingresos</p>
+            <p className="text-xl md:text-2xl font-bold text-green-600 mt-1">${totalRevenue.toFixed(0)}</p>
+          </div>
+          <div className="bg-white rounded-lg shadow-sm p-3 md:p-4 border border-gray-200">
+            <p className="text-xs md:text-sm font-medium text-gray-500">Delivery</p>
+            <p className="text-xl md:text-2xl font-bold text-blue-600 mt-1">{deliveryOrders}</p>
+          </div>
+          <div className="bg-white rounded-lg shadow-sm p-3 md:p-4 border border-gray-200">
+            <p className="text-xs md:text-sm font-medium text-gray-500">Retiro</p>
+            <p className="text-xl md:text-2xl font-bold text-purple-600 mt-1">{pickupOrders}</p>
+          </div>
+        </div>
+
+        {/* Filtros */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 md:p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Filtros</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Filtro de Tienda */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Tienda</label>
+              <select
+                value={filterOrdersBusiness}
+                onChange={(e) => setFilterOrdersBusiness(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="all">Todas las tiendas</option>
+                {businesses.map((business) => (
+                  <option key={business.id} value={business.id}>
+                    {business.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Filtro de Tipo de Entrega */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Tipo de Entrega</label>
+              <select
+                value={filterOrdersDeliveryType}
+                onChange={(e) => setFilterOrdersDeliveryType(e.target.value as 'all' | 'delivery' | 'pickup')}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="all">Todos</option>
+                <option value="delivery">Delivery</option>
+                <option value="pickup">Retiro en tienda</option>
+              </select>
+            </div>
+
+            {/* Filtro de Rango de Fechas */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Rango de Fechas</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={filterOrdersDateRange.start}
+                  onChange={(e) =>
+                    setFilterOrdersDateRange((prev) => ({
+                      ...prev,
+                      start: e.target.value,
+                    }))
+                  }
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <span className="text-gray-400">a</span>
+                <input
+                  type="date"
+                  value={filterOrdersDateRange.end}
+                  onChange={(e) =>
+                    setFilterOrdersDateRange((prev) => ({
+                      ...prev,
+                      end: e.target.value,
+                    }))
+                  }
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabla de Órdenes */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <div className="p-4 md:p-6 border-b border-gray-100">
+            <h3 className="text-lg font-bold text-gray-900">Historial de Órdenes</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Mostrando {filteredOrders.length} de {orders.length} órdenes
+            </p>
+          </div>
+
+          {filteredOrders.length === 0 ? (
+            <div className="p-8 text-center">
+              <i className="bi bi-inbox text-4xl text-gray-300 mb-3 block"></i>
+              <p className="text-gray-500 font-medium">No hay órdenes que coincidan con los filtros seleccionados</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID Orden</th>
+                    <th className="px-4 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tienda</th>
+                    <th className="px-4 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
+                    <th className="px-4 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                    <th className="px-4 md:px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                    <th className="px-4 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                    <th className="px-4 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredOrders.map((order) => {
+                    const business = businesses.find((b) => b.id === order.businessId);
+                    const deliveryType = order.delivery?.type === 'delivery' ? 'Delivery' : 'Retiro';
+                    const status = statusConfig[order.status] || statusConfig.pending;
+
+                    return (
+                      <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 md:px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
+                          {order.id.slice(0, 8)}...
+                        </td>
+                        <td className="px-4 md:px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {business?.name || 'N/A'}
+                        </td>
+                        <td className="px-4 md:px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">{order.customer?.name || 'Sin nombre'}</div>
+                          <div className="text-xs text-gray-500">{order.customer?.phone || 'Sin teléfono'}</div>
+                        </td>
+                        <td className="px-4 md:px-6 py-4 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium ${
+                              deliveryType === 'Delivery'
+                                ? 'bg-blue-50 text-blue-700'
+                                : 'bg-purple-50 text-purple-700'
+                            }`}
+                          >
+                            <i
+                              className={`bi ${
+                                deliveryType === 'Delivery' ? 'bi-scooter' : 'bi-house-door'
+                              }`}
+                            ></i>
+                            {deliveryType}
+                          </span>
+                        </td>
+                        <td className="px-4 md:px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-gray-900">
+                          ${order.total?.toFixed(2) || '0.00'}
+                        </td>
+                        <td className="px-4 md:px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium ${status.bg} ${status.text}`}>
+                            <i className={`bi ${status.icon}`}></i>
+                            {order.status === 'pending'
+                              ? 'Pendiente'
+                              : order.status === 'confirmed'
+                              ? 'Confirmado'
+                              : order.status === 'preparing'
+                              ? 'Preparando'
+                              : order.status === 'ready'
+                              ? 'Listo'
+                              : order.status === 'delivered'
+                              ? 'Entregado'
+                              : 'Cancelado'}
+                          </span>
+                        </td>
+                        <td className="px-4 md:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {order.createdAt
+                            ? new Date(order.createdAt).toLocaleDateString('es-EC', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: '2-digit',
+                              })
+                            : 'Sin fecha'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1120,6 +1386,13 @@ export default function AdminDashboard() {
             <i className="bi bi-chat-left-text md:hidden me-1.5"></i>
             Plantillas
           </button>
+          <button
+            onClick={() => setActiveTab('orders')}
+            className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'orders' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <i className="bi bi-receipt md:hidden me-1.5"></i>
+            Historial
+          </button>
         </div>
       </div>
 
@@ -1620,6 +1893,8 @@ export default function AdminDashboard() {
         <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
           <TelegramTemplateEditor />
         </Suspense>
+      ) : activeTab === 'orders' ? (
+        renderOrdersHistoryTab()
       ) : (
         renderRecommendersTab()
       )}
