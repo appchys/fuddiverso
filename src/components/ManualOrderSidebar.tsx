@@ -25,6 +25,7 @@ interface ClientLocation {
   sector: string
   tarifa: string
   photo?: string
+  isFavorite?: boolean
 }
 
 interface OrderItem {

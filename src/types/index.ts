@@ -94,6 +94,7 @@ export interface ClientLocation {
   tarifa: string
   latlong: string
   photo?: string
+  isFavorite?: boolean
 }
 
 export interface CoverageZone {

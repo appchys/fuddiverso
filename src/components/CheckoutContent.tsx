@@ -476,7 +476,7 @@ export function CheckoutContent({
     const loadUserLocations = async () => {
       setLoadingLocations(true)
       try {
-        const locations = await getClientLocations(user.id, 'client')
+        const locations = await getClientLocations(user.id)
         setClientLocations(locations)
 
       } catch (error) {
@@ -2563,6 +2563,18 @@ export function CheckoutContent({
           businessId={business?.id}
           initialAddingState={isAddingNewLocation}
           selectedLocationId={selectedLocation?.id}
+          onLocationDeleted={(id) => {
+            setClientLocations(prev => prev.filter(l => l.id !== id));
+            if (selectedLocation?.id === id) {
+              setSelectedLocation(null);
+            }
+          }}
+          onLocationUpdated={(updatedLoc) => {
+            setClientLocations(prev => prev.map(l => l.id === updatedLoc.id ? updatedLoc : l));
+            if (selectedLocation?.id === updatedLoc.id) {
+              setSelectedLocation(updatedLoc);
+            }
+          }}
         />
 
         {/* Modal para ver la foto del local a pantalla completa */}

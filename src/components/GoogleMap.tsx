@@ -12,6 +12,7 @@ interface GoogleMapProps {
   zoom?: number
   marker?: boolean
   draggable?: boolean
+  fixedCenterMarker?: boolean
   onLocationChange?: (lat: number, lng: number) => void
 }
 
@@ -72,7 +73,7 @@ const loadGoogleMapsAPI = (): Promise<void> => {
     script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places`
     script.async = true
     script.defer = true
-    
+
     script.onload = () => {
       isGoogleMapsLoaded = true
       isGoogleMapsLoading = false
@@ -80,13 +81,13 @@ const loadGoogleMapsAPI = (): Promise<void> => {
       loadingCallbacks.forEach(callback => callback())
       loadingCallbacks.length = 0
     }
-    
+
     script.onerror = () => {
       isGoogleMapsLoading = false
       console.error('Error loading Google Maps API')
       resolve() // Resolver de todas formas para evitar bloqueos
     }
-    
+
     document.head.appendChild(script)
   })
 }
@@ -99,6 +100,7 @@ export function GoogleMap({
   zoom = 15,
   marker = true,
   draggable = false,
+  fixedCenterMarker = false,
   onLocationChange
 }: GoogleMapProps) {
   const mapRef = useRef<HTMLDivElement>(null)
@@ -113,9 +115,14 @@ export function GoogleMap({
     })
   }, [])
 
+  const onLocationChangeRef = useRef(onLocationChange)
+  useEffect(() => {
+    onLocationChangeRef.current = onLocationChange
+  }, [onLocationChange])
+
   // Inicializar mapa
   useEffect(() => {
-    if (!isLoaded || !mapRef.current || !window.google) return
+    if (!isLoaded || !mapRef.current || !window.google || map) return
 
     const mapInstance = new window.google.maps.Map(mapRef.current, {
       center: { lat: latitude, lng: longitude },
@@ -123,57 +130,75 @@ export function GoogleMap({
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: false,
+      gestureHandling: fixedCenterMarker ? 'cooperative' : 'auto',
     })
 
     setMap(mapInstance)
 
-    if (marker) {
-      const markerInstance = new window.google.maps.Marker({
+    if (marker && !fixedCenterMarker) {
+      const newMarkerInstance = new window.google.maps.Marker({
         position: { lat: latitude, lng: longitude },
         map: mapInstance,
         draggable: draggable,
         title: 'Ubicación'
       })
 
-      if (draggable && onLocationChange) {
-        markerInstance.addListener('dragend', () => {
-          const position = markerInstance.getPosition()
-          onLocationChange(position.lat(), position.lng())
+      if (draggable) {
+        newMarkerInstance.addListener('dragend', () => {
+          const position = newMarkerInstance.getPosition()
+          if (onLocationChangeRef.current) onLocationChangeRef.current(position.lat(), position.lng())
         })
       }
 
-      setMarkerInstance(markerInstance)
+      setMarkerInstance(newMarkerInstance)
     }
 
     // Click en el mapa para mover marcador (solo si es draggable)
-    if (draggable && onLocationChange) {
+    if (draggable) {
       mapInstance.addListener('click', (e: any) => {
         const lat = e.latLng.lat()
         const lng = e.latLng.lng()
-        
-        if (markerInstance) {
-          markerInstance.setPosition({ lat, lng })
-        }
-        
-        onLocationChange(lat, lng)
+
+        // we can't reliably update markerInstance here directly in closure, 
+        // but it will be updated by the outer tracking if we call onLocationChangeRef.
+        if (onLocationChangeRef.current) onLocationChangeRef.current(lat, lng)
       })
     }
 
-  }, [isLoaded, latitude, longitude, zoom, marker, draggable, onLocationChange])
+    if (fixedCenterMarker) {
+      mapInstance.addListener('dragend', () => {
+        const center = mapInstance.getCenter()
+        if (onLocationChangeRef.current) onLocationChangeRef.current(center.lat(), center.lng())
+      })
+      mapInstance.addListener('idle', () => {
+        const center = mapInstance.getCenter()
+        if (onLocationChangeRef.current) onLocationChangeRef.current(center.lat(), center.lng())
+      })
+    }
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded])
 
   // Actualizar posición cuando cambien las props
   useEffect(() => {
-    if (map && markerInstance) {
-      const newPosition = { lat: latitude, lng: longitude }
-      map.setCenter(newPosition)
-      markerInstance.setPosition(newPosition)
+    if (map) {
+      const currentCenter = map.getCenter();
+      // Only set center if we don't have a fixedCenterMarker or if the new position is significantly different 
+      // (meaning it comes from an external update, not from the map panning itself)
+      if (!fixedCenterMarker || (currentCenter && (Math.abs(currentCenter.lat() - latitude) > 0.0001 || Math.abs(currentCenter.lng() - longitude) > 0.0001))) {
+        const newPosition = { lat: latitude, lng: longitude }
+        map.panTo(newPosition)
+        if (markerInstance && !fixedCenterMarker) {
+          markerInstance.setPosition(newPosition)
+        }
+      }
     }
-  }, [latitude, longitude, map, markerInstance])
+  }, [latitude, longitude, map, markerInstance, fixedCenterMarker])
 
   if (!isLoaded) {
     return (
-      <div 
-        style={{ height, width }} 
+      <div
+        style={{ height, width }}
         className="bg-gray-100 rounded-lg flex items-center justify-center"
       >
         <div className="text-center">
@@ -185,17 +210,26 @@ export function GoogleMap({
   }
 
   return (
-    <div 
-      ref={mapRef} 
-      style={{ height, width }} 
-      className="rounded-lg border border-gray-300"
-    />
+    <div className="relative" style={{ height, width }}>
+      <div
+        ref={mapRef}
+        style={{ height: '100%', width: '100%' }}
+        className="rounded-lg border border-gray-300"
+      />
+      {fixedCenterMarker && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[100%] pointer-events-none drop-shadow-md z-10 transition-transform">
+          <svg className="w-10 h-10 text-red-600 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+          </svg>
+        </div>
+      )}
+    </div>
   )
 }
 
 // Hook para obtener ubicación actual
 export function useCurrentLocation() {
-  const [location, setLocation] = useState<{lat: number, lng: number} | null>(null)
+  const [location, setLocation] = useState<{ lat: number, lng: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 

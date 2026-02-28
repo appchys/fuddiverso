@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { GoogleMap } from './GoogleMap'
 import LocationMap from './LocationMap'
-import { ClientLocation, createClientLocation, getDeliveryFeeForLocation } from '@/lib/database'
+import { ClientLocation, createClientLocation, getDeliveryFeeForLocation, deleteLocation, updateLocation } from '@/lib/database'
 import { isInstagramBrowser, getDeviceType, openInExternalBrowser } from '@/lib/instagram-detect'
 
 interface NewLocationData {
@@ -20,6 +20,8 @@ interface LocationSelectionModalProps {
     businessId?: string
     initialAddingState?: boolean
     selectedLocationId?: string
+    onLocationDeleted?: (locationId: string) => void
+    onLocationUpdated?: (location: ClientLocation) => void
 }
 
 export default function LocationSelectionModal({
@@ -31,12 +33,20 @@ export default function LocationSelectionModal({
     clientId,
     businessId,
     initialAddingState = false,
-    selectedLocationId
+    selectedLocationId,
+    onLocationDeleted,
+    onLocationUpdated
 }: LocationSelectionModalProps) {
     // Estado local para controlar si estamos seleccionando o agregando
     const [isAddingNewLocation, setIsAddingNewLocation] = useState(initialAddingState)
     const [isInInstagram, setIsInInstagram] = useState(false)
     const [deviceType, setDeviceType] = useState<'android' | 'ios' | 'desktop'>('desktop')
+    const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+    const [newLocationData, setNewLocationData] = useState<NewLocationData>({ latlong: '', referencia: '', tarifa: '1' })
+    const [isRequestingLocation, setIsRequestingLocation] = useState(false)
+    const [locationPermissionError, setLocationPermissionError] = useState<string | null>(null)
+    const [gpsAttempts, setGpsAttempts] = useState(0)
+    const [isManualMode, setIsManualMode] = useState(false)
 
     useEffect(() => {
         setIsInInstagram(isInstagramBrowser())
@@ -48,18 +58,27 @@ export default function LocationSelectionModal({
             document.body.style.overflow = 'hidden'
         } else {
             document.body.style.overflow = ''
+            setIsManualMode(false)
+            setGpsAttempts(0)
+            setLocationPermissionError(null)
+            setNewLocationData({ latlong: '', referencia: '', tarifa: '1' })
         }
         return () => {
             document.body.style.overflow = ''
         }
     }, [isOpen])
 
+    useEffect(() => {
+        if (!isAddingNewLocation) {
+            setIsManualMode(false)
+            setGpsAttempts(0)
+            setLocationPermissionError(null)
+            setNewLocationData({ latlong: '', referencia: '', tarifa: '1' })
+        }
+    }, [isAddingNewLocation])
+
     // Si entramos con initialAddingState true, nos aseguramos de que el estado lo refleje
     // Pero solo si el modal se acaba de abrir (esto podría requerir un useEffect si el prop cambia)
-
-    const [newLocationData, setNewLocationData] = useState<NewLocationData>({ latlong: '', referencia: '', tarifa: '1' })
-    const [isRequestingLocation, setIsRequestingLocation] = useState(false)
-    const [locationPermissionError, setLocationPermissionError] = useState<string | null>(null)
 
     // Helper para calcular tarifa
     const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
@@ -101,6 +120,7 @@ export default function LocationSelectionModal({
                 (error) => {
                     console.error('Error getting location:', error);
                     setIsRequestingLocation(false)
+                    setGpsAttempts(prev => prev + 1)
                     if (error.code === error.PERMISSION_DENIED) {
                         setLocationPermissionError('Permiso de ubicación denegado.')
                     } else if (error.code === error.POSITION_UNAVAILABLE) {
@@ -114,12 +134,22 @@ export default function LocationSelectionModal({
             );
         } else {
             // Coordenadas por defecto si no hay geolocalización
+            setIsManualMode(true)
             setNewLocationData(prev => ({
                 ...prev,
-                latlong: '-2.1894, -79.8890'
+                latlong: '-1.861971, -79.978529'
             }));
             setLocationPermissionError('Geolocalización no soportada por el navegador.')
         }
+    }
+
+    const handleManualLocation = () => {
+        setIsManualMode(true)
+        setNewLocationData(prev => ({
+            ...prev,
+            latlong: '-1.861971, -79.978529'
+        }))
+        setLocationPermissionError(null)
     }
 
     // Función para manejar cambio de ubicación en el mapa
@@ -188,6 +218,57 @@ export default function LocationSelectionModal({
         }
     }
 
+    const handleDeleteLocation = async (e: React.MouseEvent, locationId: string) => {
+        e.stopPropagation();
+        if (confirm('¿Estás seguro de eliminar esta ubicación?')) {
+            try {
+                await deleteLocation(locationId);
+                if (onLocationDeleted) {
+                    onLocationDeleted(locationId);
+                }
+                setOpenMenuId(null);
+            } catch (error) {
+                console.error('Error deleting location:', error);
+                alert('Hubo un error al eliminar la ubicación');
+            }
+        }
+    }
+
+    const handleToggleFavorite = async (e: React.MouseEvent, location: ClientLocation) => {
+        e.stopPropagation();
+        try {
+            const isFavorite = !location.isFavorite;
+
+            // If we are setting a new favorite, remove favorite from any existing favorite
+            if (isFavorite) {
+                const currentFavorite = clientLocations.find(l => l.isFavorite && l.id !== location.id);
+                if (currentFavorite) {
+                    await updateLocation(currentFavorite.id, { isFavorite: false });
+                    if (onLocationUpdated) {
+                        onLocationUpdated({ ...currentFavorite, isFavorite: false });
+                    }
+                }
+            }
+
+            await updateLocation(location.id, { isFavorite });
+            if (onLocationUpdated) {
+                onLocationUpdated({ ...location, isFavorite });
+            }
+            setOpenMenuId(null);
+        } catch (error) {
+            console.error('Error toggling favorite:', error);
+            alert('Hubo un error al actualizar la ubicación');
+        }
+    }
+
+    const sortedLocations = useMemo(() => {
+        return [...clientLocations].sort((a, b) => {
+            if (a.isFavorite && !b.isFavorite) return -1;
+            if (!a.isFavorite && b.isFavorite) return 1;
+            return 0;
+        });
+    }, [clientLocations]);
+
     if (!isOpen) return null
 
     return (
@@ -234,7 +315,7 @@ export default function LocationSelectionModal({
                                 </div>
                             ) : (
                                 <div className="space-y-4">
-                                    {clientLocations.map((location) => (
+                                    {sortedLocations.map((location) => (
                                         <div
                                             key={location.id}
                                             onClick={() => onSelect(location)}
@@ -253,8 +334,11 @@ export default function LocationSelectionModal({
                                             </div>
 
                                             <div className="flex-1 min-w-0">
-                                                <div className="font-bold text-gray-900 mb-1 leading-snug">
+                                                <div className="font-bold text-gray-900 mb-1 leading-snug flex items-center gap-2">
                                                     {location.referencia}
+                                                    {location.isFavorite && (
+                                                        <i className="bi bi-star-fill text-yellow-400 text-sm"></i>
+                                                    )}
                                                 </div>
                                                 <div className="flex items-center gap-2 text-xs text-gray-500 font-medium">
                                                     <span className="px-2 py-0.5 bg-gray-100 rounded-md border border-gray-200">
@@ -270,6 +354,37 @@ export default function LocationSelectionModal({
 
                                             <div className="flex-shrink-0 self-center w-16 h-16 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
                                                 <LocationMap latlong={location.latlong} height="100%" />
+                                            </div>
+
+                                            <div className="absolute top-2 right-2 flex flex-col items-end">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setOpenMenuId(openMenuId === location.id ? null : location.id);
+                                                    }}
+                                                    className="p-1 text-gray-400 hover:text-gray-900 bg-white rounded-full hover:bg-gray-100 transition-colors shadow-sm"
+                                                >
+                                                    <i className="bi bi-three-dots-vertical"></i>
+                                                </button>
+
+                                                {openMenuId === location.id && (
+                                                    <div className="absolute top-8 right-0 bg-white rounded-xl shadow-lg border border-gray-100 py-2 w-36 z-20">
+                                                        <button
+                                                            onClick={(e) => handleToggleFavorite(e, location)}
+                                                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors"
+                                                        >
+                                                            <i className={`bi ${location.isFavorite ? 'bi-star-fill text-yellow-400' : 'bi-star'}`}></i>
+                                                            {location.isFavorite ? 'Quitar Fav.' : 'Favorito'}
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => handleDeleteLocation(e, location.id)}
+                                                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
+                                                        >
+                                                            <i className="bi bi-trash"></i>
+                                                            Eliminar
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
@@ -327,8 +442,9 @@ export default function LocationSelectionModal({
                                             height="100%"
                                             width="100%"
                                             zoom={16}
-                                            marker={true}
-                                            draggable={true}
+                                            marker={!isManualMode}
+                                            draggable={!isManualMode}
+                                            fixedCenterMarker={isManualMode}
                                             onLocationChange={handleLocationChange}
                                         />
                                     ) : (
@@ -353,13 +469,30 @@ export default function LocationSelectionModal({
                                                     Obteniendo ubicación...
                                                 </span>
                                             )}
+                                            {gpsAttempts >= 2 && !isRequestingLocation && (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        e.preventDefault();
+                                                        handleManualLocation()
+                                                    }}
+                                                    className="mt-6 font-bold text-sm bg-gray-900 text-white py-3 px-6 rounded-xl shadow hover:bg-black transition-all shadow-black/20 transform active:scale-95"
+                                                >
+                                                    <i className="bi bi-map mr-2"></i>
+                                                    Buscar manualmente
+                                                </button>
+                                            )}
                                         </button>
                                     )}
                                 </div>
-                                {locationPermissionError && (
-                                    <p className="mt-2 text-xs text-red-500 flex items-center gap-1 font-medium">
-                                        <i className="bi bi-exclamation-circle-fill"></i>
-                                        {locationPermissionError}
+                                {locationPermissionError && !isManualMode && (
+                                    <p className="mt-4 text-xs text-red-500 font-medium px-2 py-3 bg-red-50 rounded-lg flex items-start gap-2 border border-red-100">
+                                        <i className="bi bi-exclamation-circle-fill text-red-500 mt-0.5"></i>
+                                        <span>
+                                            {locationPermissionError}
+                                            <span className="block mt-1 text-gray-700">Asegúrate de conceder permisos de GPS en tu navegador o intenta buscar manualmente.</span>
+                                        </span>
                                     </p>
                                 )}
                             </div>
@@ -392,7 +525,7 @@ export default function LocationSelectionModal({
                             {/* Reference Textarea */}
                             <div>
                                 <label className="block text-sm font-bold text-gray-900 mb-2">
-                                    Referencia / Dirección Exacta *
+                                    Referencia / Descripción del lugar *
                                 </label>
                                 <textarea
                                     value={newLocationData.referencia}

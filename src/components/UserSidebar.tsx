@@ -248,7 +248,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     // Cuando el usuario inicia sesión, cargar sus ubicaciones guardadas
     useEffect(() => {
         if (user?.id) {
-            getClientLocations(user.id, 'client').then(locs => {
+            getClientLocations(user.id).then(locs => {
                 setUserLocations(locs)
 
                 // Persistence Logic: Try to restore last selected location
@@ -638,6 +638,18 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                     onLocationCreated={handleLocationCreated}
                                     clientId={user.id}
                                     initialAddingState={isAddingNewLocation}
+                                    onLocationDeleted={(id) => {
+                                        setUserLocations(prev => {
+                                            const deleting = prev.find(l => l.id === id);
+                                            if (deleting && savedLocation?.referencia === deleting.referencia) {
+                                                setSavedLocation(null);
+                                            }
+                                            return prev.filter(l => l.id !== id);
+                                        });
+                                    }}
+                                    onLocationUpdated={(updatedLoc) => {
+                                        setUserLocations(prev => prev.map(l => l.id === updatedLoc.id ? updatedLoc : l));
+                                    }}
                                 />
                             </div>
                         )}

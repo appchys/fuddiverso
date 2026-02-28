@@ -1492,6 +1492,7 @@ export interface ClientLocation {
   tarifa: string;
   latlong: string;
   photo?: string;
+  isFavorite?: boolean;
   createdBy?: 'client' | 'admin';
 }
 
@@ -1573,6 +1574,7 @@ export async function getClientLocations(clientId: string, createdBy?: 'client' 
         tarifa: locationData.tarifa || '',
         latlong: locationData.latlong || '',
         photo: locationData.photo || '',
+        isFavorite: locationData.isFavorite,
         createdBy: locationData.createdBy || undefined
       });
     });
