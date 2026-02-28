@@ -194,7 +194,15 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
     const deliveryAddress = orderData.delivery?.type === 'pickup'
         ? '🏪 Retiro en tienda'
         : (orderData.delivery?.references || 'Dirección no especificada');
-    const deliveryType = orderData.delivery?.type || 'delivery';
+
+    let deliveryTypeText = 'A Domicilio';
+    if (orderData.delivery?.type === 'pickup') {
+        deliveryTypeText = 'Retiro en tienda';
+    } else if (orderData.delivery?.type) {
+        deliveryTypeText = orderData.delivery.type === 'delivery' ? 'A Domicilio' : orderData.delivery.type;
+    }
+
+    const deliveryTypeRaw = orderData.delivery?.type || 'delivery';
 
     // Timing
     const { scheduledTimeStr, scheduledDateTimeStr } = getFormattedScheduledTime(orderData);
@@ -269,7 +277,8 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
         deliveryCost: `$${deliveryCost.toFixed(2)}`,
         paymentMethod: paymentMethodText,
         deliveryAddress,
-        deliveryType,
+        deliveryType: deliveryTypeText,
+        deliveryTypeRaw: deliveryTypeRaw,
         scheduledTime: scheduledTimeStr,
         scheduledDateTime: scheduledDateTimeStr,
         items: itemsText.trim(),

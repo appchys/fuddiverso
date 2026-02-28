@@ -200,6 +200,11 @@ const AVAILABLE_FIELDS: FieldDef[] = [
     {
         key: 'deliveryType',
         label: 'Tipo Entrega',
+        example: 'A Domicilio'
+    },
+    {
+        key: 'deliveryTypeRaw',
+        label: 'Tipo Entrega (Raw)',
         example: 'delivery',
         options: [
             { value: 'delivery', label: 'A Domicilio' },
@@ -803,23 +808,21 @@ export default function TelegramTemplateEditor() {
         preview = preview.replace(ifRegex, (match, variable, operator, val1, val2, content, alternative) => {
             const varValue = exampleVars[variable];
             const compareValue = val1 || val2;
-            let show = false;
+            let html = '';
 
-            if (operator === '==') {
-                show = String(varValue) === String(compareValue);
-            } else if (operator === '!=') {
-                show = String(varValue) !== String(compareValue);
-            } else if (operator === 'contains') {
-                show = String(varValue).toLowerCase().includes(String(compareValue).toLowerCase());
-            } else {
-                show = !!varValue;
+            // Render True block
+            if (content && content.trim()) {
+                let badgeTrue = `<span style="font-size: 10px; font-weight: bold; background: #22c55e; color: white; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-bottom: 4px;">SI CUMPLE: ${variable} ${operator ? operator : ''} ${compareValue ? compareValue : ''}</span><br/>`;
+                html += `<div style="border-left: 3px solid #22c55e; padding-left: 8px; display: block; margin: 6px 0; background: rgba(34, 197, 94, 0.05); padding-top: 6px; padding-bottom: 6px;">${badgeTrue}${content}</div>`;
             }
 
-            const activeContent = show ? content : (alternative || '');
-            if (!activeContent) return '';
+            // Render False block
+            if (alternative && alternative.trim()) {
+                let badgeFalse = `<span style="font-size: 10px; font-weight: bold; background: #ef4444; color: white; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-bottom: 4px;">SINO</span><br/>`;
+                html += `<div style="border-left: 3px solid #ef4444; padding-left: 8px; display: block; margin: 6px 0; background: rgba(239, 68, 68, 0.05); padding-top: 6px; padding-bottom: 6px;">${badgeFalse}${alternative}</div>`;
+            }
 
-            // Return content wrapped in a subtle visual indicator
-            return `<span style="border-left: 2px solid ${show ? '#3b82f6' : '#94a3b8'}; padding-left: 8px; display: block; margin: 4px 0; background: ${show ? 'rgba(59, 130, 246, 0.03)' : 'transparent'};">${activeContent}</span>`;
+            return html;
         });
 
         // 2. Replace field placeholders with example values
