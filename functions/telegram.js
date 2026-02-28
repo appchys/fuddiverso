@@ -758,7 +758,21 @@ async function handleStoreWebhook(req, res) {
                             }).then(response => {
                                 console.log(`✅ [Store Webhook] Mensaje editado en chat ${msg.chatId}: ok=${response.data.ok}`);
                                 return response;
-                            }).catch(err => {
+                            }).catch(async err => {
+                                const errorDesc = err.response?.data?.description || '';
+                                if (err.response?.status === 400 && errorDesc.includes("can't parse entities")) {
+                                    console.warn(`⚠️ [Store Webhook] HTML malformado detectado. Reintentando sin parse_mode...`);
+                                    try {
+                                        return await axios.post(editUrl, {
+                                            chat_id: msg.chatId,
+                                            message_id: msg.messageId,
+                                            text: syncText.replace(/<[^>]+>/g, ''),
+                                            link_preview_options: { is_disabled: true }
+                                        });
+                                    } catch (retryErr) {
+                                        console.error(`❌ [Store Webhook] Fallback falló en ${msg.chatId}:`, retryErr.message);
+                                    }
+                                }
                                 console.error(`❌ [Store Webhook] Error editando en ${msg.chatId}:`, {
                                     messageId: msg.messageId,
                                     errorCode: err.response?.data?.error_code,
@@ -865,7 +879,21 @@ async function updateBusinessTelegramMessage(orderData, orderId) {
             }).then(response => {
                 console.log(`✅ [updateBusinessTelegramMessage] Mensaje actualizado en chat ${msg.chatId}: ${response.data.ok}`);
                 return response;
-            }).catch(err => {
+            }).catch(async err => {
+                const errorDesc = err.response?.data?.description || '';
+                if (err.response?.status === 400 && errorDesc.includes("can't parse entities")) {
+                    console.warn(`⚠️ [updateBusinessTelegramMessage] HTML malformado. Reintentando sin parse_mode...`);
+                    try {
+                        return await axios.post(editUrl, {
+                            chat_id: msg.chatId,
+                            message_id: msg.messageId,
+                            text: syncText.replace(/<[^>]+>/g, ''),
+                            link_preview_options: { is_disabled: true }
+                        });
+                    } catch (retryErr) {
+                        console.error(`❌ [updateBusinessTelegramMessage] Fallback falló en ${msg.chatId}:`, retryErr.message);
+                    }
+                }
                 console.error(`❌ [updateBusinessTelegramMessage] Error actualizando mensaje en ${msg.chatId}:`, {
                     messageId: msg.messageId,
                     errorCode: err.response?.data?.error_code,

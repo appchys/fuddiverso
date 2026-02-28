@@ -760,6 +760,24 @@ export default function TelegramTemplateEditor() {
         setSaved(false)
     }
 
+    // --- Validación de HTML ---
+    let templateError: string | null = null;
+    if (templateText) {
+        const cleanedText = templateText.replace(/\{\{[\s\S]*?\}\}/g, '');
+        const tags = ['b', 'strong', 'i', 'em', 'u', 'ins', 's', 'strike', 'del', 'a', 'code', 'pre'];
+        for (const tag of tags) {
+            const openMatches = cleanedText.match(new RegExp(`<${tag}(?: [^>]*)?>`, 'gi')) || [];
+            const closeMatches = cleanedText.match(new RegExp(`</${tag}>`, 'gi')) || [];
+            if (openMatches.length !== closeMatches.length) {
+                templateError = `Etiqueta HTML <${tag}> desbalanceada (Abiertas: ${openMatches.length}, Cerradas: ${closeMatches.length})`;
+                break;
+            }
+        }
+        if (!templateError && /<a\s+href=(["'])\s*\1\s*>/i.test(cleanedText)) {
+            templateError = "Un enlace <a> no tiene destino (href vacío)";
+        }
+    }
+
     const handleSave = async () => {
         setSaving(true)
         try {
@@ -843,6 +861,16 @@ export default function TelegramTemplateEditor() {
     // ─── Render ──────────────────────────────────────────────
     const currentEventsList = getEventsByType(templateType)
     const currentEventDef = currentEventsList.find(e => e.key === selectedEvent)
+
+    // Compare with current saved/default data
+    const originalText = templates[templateKey] !== undefined ? templates[templateKey] : (DEFAULT_TEMPLATES[templateKey] || '');
+    const originalButtons = templateButtons[templateKey] !== undefined ? templateButtons[templateKey] : (DEFAULT_BUTTONS[templateKey] || []);
+    const cleanCurrentButtons = actionButtons
+        .map(row => row.filter(b => b.text.trim()))
+        .filter(row => row.length > 0);
+    const hasTextChanges = templateText !== originalText;
+    const hasButtonChanges = JSON.stringify(cleanCurrentButtons) !== JSON.stringify(originalButtons);
+    const hasChanges = hasTextChanges || hasButtonChanges;
 
     if (loading) {
         return (
@@ -1273,20 +1301,32 @@ export default function TelegramTemplateEditor() {
                                 <div className="w-px h-6 bg-gray-200 mx-1"></div>
 
                                 {/* Save */}
-                                <button
-                                    onClick={handleSave}
-                                    disabled={saving}
-                                    className={`ml-auto flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-bold transition-all border ${saving
-                                        ? 'bg-gray-100 text-gray-400 border-gray-200'
-                                        : saved
-                                            ? 'bg-green-100 text-green-700 border-green-200'
-                                            : 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200'
-                                        }`}
-                                >
-                                    {saving && <span className="animate-spin">⚙️</span>}
-                                    {saving ? 'Guardando...' : saved ? '✓ Guardada' : 'Guardar'}
-                                </button>
+                                {hasChanges && (
+                                    <button
+                                        onClick={handleSave}
+                                        disabled={saving || !!templateError}
+                                        className={`ml-auto flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-bold transition-all border ${saving
+                                            ? 'bg-gray-100 text-gray-400 border-gray-200'
+                                            : templateError
+                                                ? 'bg-red-50 text-red-500 border-red-200 opacity-60 cursor-not-allowed'
+                                                : saved
+                                                    ? 'bg-green-100 text-green-700 border-green-200'
+                                                    : 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200'
+                                            }`}
+                                    >
+                                        {saving && <span className="animate-spin">⚙️</span>}
+                                        {saving ? 'Guardando...' : saved ? '✓ Guardada' : 'Guardar'}
+                                    </button>
+                                )}
                             </div>
+
+                            {/* Mensaje de Error (Validación HTML) */}
+                            {templateError && (
+                                <div className="bg-red-50 text-red-600 px-4 py-2 text-xs font-bold border-b border-red-200 flex items-center gap-2">
+                                    <i className="bi bi-exclamation-triangle-fill text-red-500"></i>
+                                    {templateError} - Corrige esto antes de guardar para evitar errores en Telegram.
+                                </div>
+                            )}
 
                             {/* Textarea */}
                             <div className="relative flex-1 rounded-b-xl overflow-hidden">
