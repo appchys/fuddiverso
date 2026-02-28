@@ -95,7 +95,82 @@ function renderTemplate(templateString, variables) {
         result = result.replace(regex, value != null ? String(value) : '');
     }
 
+    // 3. Limpieza de tags <a> vacíos o rotos que causan crasheos de parseo en Telegram
+    // Si queda un <a href="">Texto</a>, remueve la a y su cierre, dejando "Texto"
+    result = result.replace(/<a\s+href=["']\s*["'][^>]*>(.*?)<\/a>/gi, '$1');
+
     return result;
+}
+
+/**
+ * Helper para obtener fechas formateadas
+ */
+function getFormattedScheduledTime(orderData) {
+    let scheduledTimeStr = 'Inmediato';
+    let scheduledDateTimeStr = 'Inmediato';
+    let timingType = 'Inmediato';
+
+    if (orderData.timing?.type === 'scheduled') {
+        const scheduledTime = orderData.timing.scheduledTime || '';
+        timingType = 'Programado';
+        scheduledTimeStr = scheduledTime;
+        scheduledDateTimeStr = scheduledTime;
+
+        // Intentar parsear la fecha programada
+        let dateObj = null;
+        if (orderData.timing.scheduledDate) {
+            const sd = orderData.timing.scheduledDate;
+            // Manejar Timestamp de Firestore (objeto con seconds) o Date nativo
+            if (sd.toDate && typeof sd.toDate === 'function') {
+                dateObj = sd.toDate();
+            } else if (sd.seconds) {
+                dateObj = new Date(sd.seconds * 1000);
+            } else if (sd._seconds) {
+                dateObj = new Date(sd._seconds * 1000);
+            } else {
+                dateObj = new Date(sd);
+            }
+        }
+
+        if (dateObj && !isNaN(dateObj.getTime())) {
+            // Configuración para Zona Horaria de Ecuador
+            const timeZone = 'America/Guayaquil';
+            const now = new Date();
+
+            // Formateadores
+            const isoDateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+
+            const todayStr = isoDateFormatter.format(now);
+            const scheduledStr = isoDateFormatter.format(dateObj);
+
+            // Calcular mañana
+            const tomorrow = new Date(now);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowStr = isoDateFormatter.format(tomorrow);
+
+            if (scheduledStr === todayStr) {
+                scheduledDateTimeStr = `Hoy a las ${scheduledTime}`;
+            } else if (scheduledStr === tomorrowStr) {
+                scheduledDateTimeStr = `Mañana a las ${scheduledTime}`;
+            } else {
+                // Formato: "Sábado 21 de febrero"
+                const fullDateFormatter = new Intl.DateTimeFormat('es-EC', {
+                    timeZone,
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long'
+                });
+
+                let datePart = fullDateFormatter.format(dateObj);
+                // Capitalizar primera letra
+                datePart = datePart.charAt(0).toUpperCase() + datePart.slice(1);
+
+                scheduledDateTimeStr = `${datePart} a las ${scheduledTime}`;
+            }
+        }
+    }
+
+    return { scheduledTimeStr, scheduledDateTimeStr, timingType };
 }
 
 /**
@@ -122,10 +197,7 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
     const deliveryType = orderData.delivery?.type || 'delivery';
 
     // Timing
-    let scheduledTimeStr = 'Inmediato';
-    if (orderData.timing?.type === 'scheduled') {
-        scheduledTimeStr = orderData.timing.scheduledTime || 'Programado';
-    }
+    const { scheduledTimeStr, scheduledDateTimeStr } = getFormattedScheduledTime(orderData);
 
     // Maps link
     let mapsLink = '';
@@ -167,9 +239,9 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
     if (phone && phone.trim().length > 0) {
         const formattedPhone = phone.replace(/^0/, '').trim();
         if (formattedPhone.length > 0) {
+            whatsappLink = `https://wa.me/593${formattedPhone}`;
             const waMessage = encodeURIComponent(`Hola, soy delivery de ${businessName}.`);
-            whatsappLink = `https://wa.me/593${formattedPhone}?text=${waMessage}`;
-            whatsappLinkHtml = `<a href="${whatsappLink}">${phone}</a>`;
+            whatsappLinkHtml = `<a href="${whatsappLink}?text=${waMessage}">${phone}</a>`;
         }
     }
 
@@ -199,6 +271,7 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
         deliveryAddress,
         deliveryType,
         scheduledTime: scheduledTimeStr,
+        scheduledDateTime: scheduledDateTimeStr,
         items: itemsText.trim(),
         // URLs (para templates que quieran envolver manualmente)
         mapsLink: mapsLink,
@@ -272,69 +345,8 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
     const orderId = orderData.id || '';
 
     // Información de entrega
-    let scheduledTimeStr = 'Inmediato';
-    let timingType = 'Inmediato';
-
-    if (orderData.timing?.type === 'scheduled') {
-        const scheduledTime = orderData.timing.scheduledTime || '';
-        timingType = 'Programado';
-
-        // Intentar parsear la fecha programada
-        let dateObj = null;
-        if (orderData.timing.scheduledDate) {
-            const sd = orderData.timing.scheduledDate;
-            // Manejar Timestamp de Firestore (objeto con seconds) o Date nativo
-            if (sd.toDate && typeof sd.toDate === 'function') {
-                dateObj = sd.toDate();
-            } else if (sd.seconds) {
-                dateObj = new Date(sd.seconds * 1000);
-            } else if (sd._seconds) {
-                dateObj = new Date(sd._seconds * 1000);
-            } else {
-                dateObj = new Date(sd);
-            }
-        }
-
-        if (dateObj && !isNaN(dateObj.getTime())) {
-            // Configuración para Zona Horaria de Ecuador
-            const timeZone = 'America/Guayaquil';
-            const now = new Date();
-
-            // Formateadores
-            const isoDateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
-
-            const todayStr = isoDateFormatter.format(now);
-            const scheduledStr = isoDateFormatter.format(dateObj);
-
-            // Calcular mañana
-            const tomorrow = new Date(now);
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            const tomorrowStr = isoDateFormatter.format(tomorrow);
-
-            if (scheduledStr === todayStr) {
-                scheduledTimeStr = `Hoy a las ${scheduledTime}`;
-            } else if (scheduledStr === tomorrowStr) {
-                scheduledTimeStr = `Mañana a las ${scheduledTime}`;
-            } else {
-                // Formato: "Sábado 21 de febrero"
-                const fullDateFormatter = new Intl.DateTimeFormat('es-EC', {
-                    timeZone,
-                    weekday: 'long',
-                    day: 'numeric',
-                    month: 'long'
-                });
-
-                let datePart = fullDateFormatter.format(dateObj);
-                // Capitalizar primera letra
-                datePart = datePart.charAt(0).toUpperCase() + datePart.slice(1);
-
-                scheduledTimeStr = `${datePart} a las ${scheduledTime}`;
-            }
-        } else {
-            // Fallback si no hay fecha válida
-            scheduledTimeStr = scheduledTime;
-        }
-    }
+    const { scheduledDateTimeStr, timingType } = getFormattedScheduledTime(orderData);
+    let scheduledTimeStr = scheduledDateTimeStr;
 
     let deliveryInfo = orderData.delivery?.references || 'Dirección no especificada';
     if (orderData.delivery?.type === 'pickup') {
@@ -563,8 +575,7 @@ async function sendTelegramMessageGeneric(token, chatId, text, replyMarkup = nul
                 botId: botId,
                 ok: responseData.ok,
                 errorCode: responseData.error_code,
-                description: responseData.description,
-                fullResponse: responseData
+                description: responseData.description
             });
             return responseData; // Retornar igual para análisis downstream
         }
@@ -573,6 +584,25 @@ async function sendTelegramMessageGeneric(token, chatId, text, replyMarkup = nul
         console.log(`✅ [Telegram] Mensaje enviado exitosamente. Bot: ${botId} | Chat: ${numericChatId} | Message ID: ${messageId}`);
         return responseData;
     } catch (error) {
+        // Fallback: Si el error es HTML mal formado, reintentar sin HTML
+        const errorDesc = error.response?.data?.description || '';
+        if (error.response?.status === 400 && errorDesc.includes("can't parse entities")) {
+            console.warn(`⚠️ [Telegram] Error parseando HTML detectado: "${errorDesc}". Reintentando sin parse_mode...`);
+            try {
+                const dataNoHtml = {
+                    chat_id: error.config.data ? JSON.parse(error.config.data).chat_id : text,
+                    text: text.replace(/<[^>]+>/g, ''), // Strip raw HTML tags for readable plain text
+                };
+                if (replyMarkup) dataNoHtml.reply_markup = replyMarkup;
+
+                const retryResponse = await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, dataNoHtml, { timeout: 10000 });
+                console.log(`✅ [Telegram] Mensaje fallback enviado exitosamente sin HTML.`);
+                return retryResponse.data;
+            } catch (retryError) {
+                console.error(`❌ [Telegram] Fallback sin HTML también falló:`, retryError.response?.data || retryError.message);
+            }
+        }
+
         console.error('❌ [Telegram] Error enviando mensaje:', {
             chatId: chatId,
             token: token ? `${token.substring(0, 10)}...` : 'null',

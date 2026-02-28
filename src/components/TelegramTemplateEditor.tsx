@@ -206,7 +206,8 @@ const AVAILABLE_FIELDS: FieldDef[] = [
             { value: 'pickup', label: 'Retiro en Tienda' },
         ]
     },
-    { key: 'scheduledTime', label: 'Hora Programada', example: 'Hoy a las 3:00 PM' },
+    { key: 'scheduledTime', label: 'Hora Programada (Solo Hora)', example: '3:00 PM' },
+    { key: 'scheduledDateTime', label: 'Hora Programada (con día)', example: 'Hoy a las 3:00 PM' },
     { key: 'items', label: 'Lista de Productos', example: '(2) Pizza Grande\n(1) Coca Cola' },
     { key: 'mapsLink', label: 'Link Google Maps', example: 'https://maps.google.com/...' },
     { key: 'deliveryName', label: 'Nombre Repartidor', example: 'Carlos' },
@@ -270,7 +271,7 @@ const EMOJI_GROUPS = [
 const DEFAULT_TEMPLATES: Record<string, string> = {
     // ── Tienda ──
     store_new_order: `🛵 <b>{{businessName}}!</b>
-Hora estimada: {{scheduledTime}}
+Hora estimada: {{scheduledDateTime}}
 
 <b>Datos del cliente</b>
 👤 Nombres: {{customerName}}
@@ -315,7 +316,7 @@ Envío: {{deliveryCost}}
 👤 {{customerName}}`,
 
     delivery_accepted: `🛵 <b>{{businessName}}!</b>
-Hora estimada: {{scheduledTime}}
+Hora estimada: {{scheduledDateTime}}
 
 <b>Datos del cliente</b>
 👤 Nombres: {{customerName}}
@@ -487,6 +488,7 @@ export default function TelegramTemplateEditor() {
     const [showCondBuilder, setShowCondBuilder] = useState(false)
     const [linkUrl, setLinkUrl] = useState('')
     const [linkText, setLinkText] = useState('')
+    const [waMessage, setWaMessage] = useState('')
 
     // Conditional Builder State
     const [condField, setCondField] = useState('paymentMethodRaw')
@@ -661,12 +663,20 @@ export default function TelegramTemplateEditor() {
 
     const insertLink = useCallback(() => {
         if (!linkUrl.trim()) return
+        let finalUrl = linkUrl.trim()
+
+        if (finalUrl === '{{whatsappLink}}' && waMessage.trim()) {
+            const encoded = encodeURIComponent(waMessage.trim()).replace(/%7B/g, '{').replace(/%7D/g, '}')
+            finalUrl = `${finalUrl}?text=${encoded}`
+        }
+
         const displayText = linkText.trim() || linkUrl.trim()
-        insertAtCursor(`<a href="${linkUrl.trim()}">${displayText}</a>`)
+        insertAtCursor(`<a href="${finalUrl}">${displayText}</a>`)
         setLinkUrl('')
         setLinkText('')
+        setWaMessage('')
         setShowLinkCreator(false)
-    }, [linkUrl, linkText, insertAtCursor])
+    }, [linkUrl, linkText, waMessage, insertAtCursor])
 
     const insertCondition = useCallback(() => {
         if (!condField) return
@@ -1117,6 +1127,15 @@ export default function TelegramTemplateEditor() {
                                                     placeholder="URL o {{campo}}..."
                                                     className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                                                 />
+                                                {linkUrl === '{{whatsappLink}}' && (
+                                                    <input
+                                                        type="text"
+                                                        value={waMessage}
+                                                        onChange={e => setWaMessage(e.target.value)}
+                                                        placeholder="Mensaje WA (ej: Hola {{businessName}})"
+                                                        className="w-full px-3 py-2 text-xs border border-green-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-green-50"
+                                                    />
+                                                )}
                                                 <input
                                                     type="text"
                                                     value={linkText}
