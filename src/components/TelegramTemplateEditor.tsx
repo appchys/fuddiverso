@@ -3,6 +3,145 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { saveTelegramTemplate, getTelegramTemplates } from '@/lib/database'
 
+// ─── Visual Editor: Tokenizer + DOM Builder + Extractor ──────
+type VisualToken =
+    | { type: 'text'; raw: string }
+    | { type: 'field'; raw: string; key: string }
+    | { type: 'conditional'; raw: string; field: string; operator?: string; value?: string; contentTrue: string; contentFalse: string }
+
+function visualTokenize(template: string): VisualToken[] {
+    const tokens: VisualToken[] = []
+    let lastIndex = 0
+    let counter = 0
+    const regex = /\{\{#if\s+([\w.]+)(?:\s*(==|!=|contains)\s*['"]([^'"]*?)['"])?\}\}([\s\S]*?)(?:\{\{else\}\}([\s\S]*?))?\{\{\/if\}\}|\{\{([\w.]+)\}\}/g
+    let m: RegExpExecArray | null
+    while ((m = regex.exec(template)) !== null) {
+        if (m.index > lastIndex) tokens.push({ type: 'text', raw: template.substring(lastIndex, m.index) })
+        if (m[1]) {
+            tokens.push({
+                type: 'conditional', raw: m[0],
+                field: m[1], operator: m[2] || undefined, value: m[3] || undefined,
+                contentTrue: m[4] || '', contentFalse: m[5] || '',
+            })
+        } else if (m[6]) {
+            tokens.push({ type: 'field', raw: m[0], key: m[6] })
+        }
+        lastIndex = m.index + m[0].length
+        counter++
+    }
+    if (lastIndex < template.length) tokens.push({ type: 'text', raw: template.substring(lastIndex) })
+    return tokens
+}
+
+function buildVisualFragment(
+    tokens: VisualToken[],
+    onCondClick: (tok: Extract<VisualToken, { type: 'conditional' }>) => void
+): DocumentFragment {
+    const frag = document.createDocumentFragment()
+    for (const tok of tokens) {
+        if (tok.type === 'text') {
+            tok.raw.split('\n').forEach((line, i) => {
+                if (i > 0) frag.appendChild(document.createElement('br'))
+                if (line) frag.appendChild(document.createTextNode(line))
+            })
+        } else if (tok.type === 'field') {
+            const el = document.createElement('span')
+            el.setAttribute('contenteditable', 'false')
+            el.setAttribute('data-raw', tok.raw)
+            el.className = 'inline-block align-baseline mx-0.5 px-1.5 rounded text-[11px] font-semibold ' +
+                'bg-sky-950 border border-sky-700 text-sky-300 select-none cursor-default leading-5'
+            el.textContent = `{${tok.key}}`
+            frag.appendChild(el)
+        } else if (tok.type === 'conditional') {
+            const b = tok
+            const label = b.contentTrue.trim().substring(0, 20) || b.field
+            const el = document.createElement('button')
+            el.setAttribute('contenteditable', 'false')
+            el.setAttribute('data-raw', tok.raw)
+            el.type = 'button'
+            el.className = 'inline-block align-baseline mx-0.5 px-1.5 rounded text-[11px] font-semibold ' +
+                'bg-amber-950 border border-amber-700 text-amber-300 hover:bg-amber-900 ' +
+                'select-none cursor-pointer leading-5 transition-colors'
+            el.title = `Condición: ${b.field} ${b.operator ?? ''} ${b.value ? `'${b.value}'` : ''}\nClick para editar`
+            el.innerHTML = `<i class="bi bi-question-diamond text-[9px] mr-0.5"></i>${label}${b.contentFalse ? ' <i class="bi bi-arrow-left-right text-[9px]"></i>' : ''}`
+            el.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); onCondClick(b) })
+            frag.appendChild(el)
+        }
+    }
+    return frag
+}
+
+function extractVisualTemplate(container: HTMLElement): string {
+    let out = ''
+    let isFirst = true
+    function walk(node: Node) {
+        if (node.nodeType === Node.TEXT_NODE) { out += node.textContent ?? ''; return }
+        if (node.nodeType !== Node.ELEMENT_NODE) return
+        const el = node as HTMLElement
+        const raw = el.getAttribute('data-raw')
+        if (raw !== null) { out += raw; return }
+        if (el.tagName === 'BR') { out += '\n'; return }
+        if (el.tagName === 'DIV' || el.tagName === 'P') {
+            if (!isFirst) out += '\n'
+            isFirst = false
+            Array.from(el.childNodes).forEach(walk)
+            return
+        }
+        Array.from(el.childNodes).forEach(walk)
+    }
+    Array.from(container.childNodes).forEach(walk)
+    return out
+}
+
+// Insert plain text at the contentEditable cursor position
+function ceInsertText(text: string) {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return
+    const range = sel.getRangeAt(0)
+    range.deleteContents()
+    range.insertNode(document.createTextNode(text))
+    range.collapse(false)
+    sel.removeAllRanges()
+    sel.addRange(range)
+}
+
+// Insert an atomic token (or DocumentFragment) at the contentEditable cursor.
+// Accepts the saved range explicitly so it works after the editor loses focus.
+function ceInsertNodeAt(node: Node, range: Range): Range {
+    range.deleteContents()
+    // Track the last node BEFORE inserting (fragment children move after insert)
+    const lastChild = node.nodeType === Node.DOCUMENT_FRAGMENT_NODE
+        ? node.lastChild
+        : node
+    range.insertNode(node)
+    const newRange = range.cloneRange()
+    if (lastChild) {
+        newRange.setStartAfter(lastChild)
+        newRange.setEndAfter(lastChild)
+    } else {
+        newRange.collapse(false)
+    }
+    return newRange
+}
+
+// Insert plain text at a given range
+function ceInsertTextAt(text: string, range: Range): Range {
+    range.deleteContents()
+    const tn = document.createTextNode(text)
+    range.insertNode(tn)
+    const newRange = range.cloneRange()
+    newRange.setStartAfter(tn)
+    newRange.setEndAfter(tn)
+    return newRange
+}
+
+// Wrap selected text with an HTML tag at a given range
+function ceWrapSelectionAt(tag: string, range: Range): Range {
+    const selectedText = range.toString()
+    const wrapped = selectedText ? `<${tag}>${selectedText}</${tag}>` : `<${tag}></${tag}>`
+    return ceInsertTextAt(wrapped, range)
+}
+
 // ─── Types ───────────────────────────────────────────────────
 type Recipient = 'store' | 'delivery' | 'customer'
 type TemplateType = 'entry' | 'update'
@@ -491,6 +630,7 @@ export default function TelegramTemplateEditor() {
     const [showFields, setShowFields] = useState(false)
     const [showLinkCreator, setShowLinkCreator] = useState(false)
     const [showCondBuilder, setShowCondBuilder] = useState(false)
+    const [useVisualEditor, setUseVisualEditor] = useState(true) // ← Editor visual por defecto
     const [linkUrl, setLinkUrl] = useState('')
     const [linkText, setLinkText] = useState('')
     const [waMessage, setWaMessage] = useState('')
@@ -504,7 +644,11 @@ export default function TelegramTemplateEditor() {
 
     const [actionButtons, setActionButtons] = useState<ActionButton[][]>([])
     const [copied, setCopied] = useState(false)
-    const textareaRef = useRef<HTMLTextAreaElement>(null)
+    const textareaRef = useRef<HTMLTextAreaElement>(null)  // used only in raw mode
+    const visualEditorRef = useRef<HTMLDivElement>(null)   // contentEditable visual editor
+    const lastEmittedRef = useRef<string>('')             // prevents rebuild loop
+    const onCondClickRef = useRef<(tok: any) => void>(() => { }) // kept fresh
+    const savedRangeRef = useRef<Range | null>(null)      // saves cursor when editor loses focus
     const emojiRef = useRef<HTMLDivElement>(null)
     const fieldsRef = useRef<HTMLDivElement>(null)
     const linkRef = useRef<HTMLDivElement>(null)
@@ -517,6 +661,34 @@ export default function TelegramTemplateEditor() {
 
     // Current template key
     const templateKey = `${selectedRecipient}_${selectedEvent}`
+
+    // ─── Visual Editor: rebuild DOM when value changes externally ──
+    const rebuildVisualDOM = useCallback((template: string) => {
+        const el = visualEditorRef.current
+        if (!el) return
+        el.innerHTML = ''
+        const tokens = visualTokenize(template)
+        el.appendChild(buildVisualFragment(tokens, (tok) => onCondClickRef.current(tok)))
+    }, [])
+
+    useEffect(() => {
+        if (!visualEditorRef.current) return
+        if (templateText === lastEmittedRef.current) return // came from us, skip
+        lastEmittedRef.current = templateText
+        rebuildVisualDOM(templateText)
+    }, [templateText, rebuildVisualDOM])
+
+    // When switching TO visual mode the div remounts empty — force rebuild
+    useEffect(() => {
+        if (!useVisualEditor) return
+        // Wait one frame for React to mount the contentEditable div before populating it
+        requestAnimationFrame(() => {
+            lastEmittedRef.current = '\x00__force_rebuild__'
+            rebuildVisualDOM(templateText)
+            savedRangeRef.current = null
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [useVisualEditor])
 
     // Load templates from Firestore
     useEffect(() => {
@@ -587,84 +759,124 @@ export default function TelegramTemplateEditor() {
         return () => document.removeEventListener('mousedown', handler)
     }, [])
 
-    // ─── Actions ─────────────────────────────────────────────
-    const getActiveInputRef = useCallback(() => {
-        if (lastFocusedInput === 'condTrue') return condTrueRef.current
-        if (lastFocusedInput === 'condFalse') return condFalseRef.current
-        return textareaRef.current
-    }, [lastFocusedInput])
+    // Helper: get the active range for visual editor (restores savedRange if needed)
+    const getVisualRange = useCallback((): Range | null => {
+        const el = visualEditorRef.current
+        if (!el) return null
+        const sel = window.getSelection()
+        // Try current selection first
+        if (sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+            return sel.getRangeAt(0).cloneRange()
+        }
+        // Fall back to saved range
+        if (savedRangeRef.current) return savedRangeRef.current.cloneRange()
+        // Otherwise: collapse to end of editor
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        range.collapse(false)
+        return range
+    }, [])
 
-    const insertAtCursor = useCallback((before: string, after: string = '') => {
-        const ta = getActiveInputRef()
+    // Apply a new range (after insertion) to the selection
+    const applyRange = useCallback((range: Range) => {
+        savedRangeRef.current = range
+        const el = visualEditorRef.current
+        if (!el) return
+        el.focus()
+        const sel = window.getSelection()
+        if (sel) { sel.removeAllRanges(); sel.addRange(range) }
+    }, [])
+
+    // insertAtCursor: works for both visual (contentEditable) and raw (textarea) modes
+    const insertAtCursor = useCallback((text: string) => {
+        if (useVisualEditor) {
+            const el = visualEditorRef.current
+            if (!el) return
+            const range = getVisualRange()
+            if (!range) return
+            const newRange = ceInsertTextAt(text, range)
+            applyRange(newRange)
+            // Extract and emit
+            const raw = extractVisualTemplate(el)
+            lastEmittedRef.current = raw
+            setTemplateText(raw)
+            setSaved(false)
+            return
+        }
+        // Raw textarea fallback
+        const ta = lastFocusedInput === 'condTrue' ? condTrueRef.current
+            : lastFocusedInput === 'condFalse' ? condFalseRef.current
+                : textareaRef.current
         if (!ta) return
         ta.focus()
-
         const start = ta.selectionStart
         const end = ta.selectionEnd
-        const currentVal = ta.value
-        const replacement = before + currentVal.substring(start, end) + after
-        const newVal = currentVal.substring(0, start) + replacement + currentVal.substring(end)
-
+        const newVal = ta.value.substring(0, start) + text + ta.value.substring(end)
         if (lastFocusedInput === 'condTrue') setCondTrueText(newVal)
         else if (lastFocusedInput === 'condFalse') setCondFalseText(newVal)
-        else {
-            setTemplateText(newVal)
-            setSaved(false)
-        }
-
+        else { setTemplateText(newVal); setSaved(false) }
         requestAnimationFrame(() => {
             ta.focus()
-            const newPos = start + before.length + (currentVal.substring(start, end).length) + after.length
-            ta.setSelectionRange(newPos, newPos)
+            ta.setSelectionRange(start + text.length, start + text.length)
         })
-    }, [lastFocusedInput, getActiveInputRef])
+    }, [useVisualEditor, lastFocusedInput, getVisualRange, applyRange])
 
     const wrapSelection = useCallback((tag: string) => {
-        const ta = getActiveInputRef()
+        if (useVisualEditor) {
+            const el = visualEditorRef.current
+            if (!el) return
+            const range = getVisualRange()
+            if (!range) return
+            const newRange = ceWrapSelectionAt(tag, range)
+            applyRange(newRange)
+            const raw = extractVisualTemplate(el)
+            lastEmittedRef.current = raw
+            setTemplateText(raw)
+            setSaved(false)
+            return
+        }
+        const ta = lastFocusedInput === 'condTrue' ? condTrueRef.current
+            : lastFocusedInput === 'condFalse' ? condFalseRef.current
+                : textareaRef.current
         if (!ta) return
         ta.focus()
-
         const start = ta.selectionStart
         const end = ta.selectionEnd
-        const currentVal = ta.value
-        const selected = currentVal.substring(start, end)
-
-        let wrapped = ''
-        let newPosStart = start
-        let newPosEnd = start
-
-        if (selected) {
-            wrapped = `<${tag}>${selected}</${tag}>`
-            newPosEnd = start + wrapped.length
-        } else {
-            wrapped = `<${tag}></${tag}>`
-            newPosStart = start + tag.length + 2
-            newPosEnd = newPosStart
-        }
-
-        const newVal = currentVal.substring(0, start) + wrapped + currentVal.substring(end)
-
+        const selected = ta.value.substring(start, end)
+        const wrapped = selected ? `<${tag}>${selected}</${tag}>` : `<${tag}></${tag}>`
+        const newVal = ta.value.substring(0, start) + wrapped + ta.value.substring(end)
         if (lastFocusedInput === 'condTrue') setCondTrueText(newVal)
         else if (lastFocusedInput === 'condFalse') setCondFalseText(newVal)
-        else {
-            setTemplateText(newVal)
-            setSaved(false)
-        }
-
+        else { setTemplateText(newVal); setSaved(false) }
         requestAnimationFrame(() => {
             ta.focus()
-            ta.setSelectionRange(newPosStart, newPosEnd)
+            ta.setSelectionRange(start + (tag.length + 2), start + wrapped.length - (tag.length + 3))
         })
-    }, [lastFocusedInput, getActiveInputRef])
+    }, [useVisualEditor, lastFocusedInput])
 
     const insertEmoji = useCallback((emoji: string) => {
         insertAtCursor(emoji)
     }, [insertAtCursor])
 
     const insertField = useCallback((fieldKey: string) => {
-        insertAtCursor(`{{${fieldKey}}}`)
+        if (useVisualEditor) {
+            const el = visualEditorRef.current
+            if (!el) return
+            const range = getVisualRange()
+            if (!range) return
+            const tok: VisualToken = { type: 'field', raw: `{{${fieldKey}}}`, key: fieldKey }
+            const frag = buildVisualFragment([tok], () => { })
+            const newRange = ceInsertNodeAt(frag, range)
+            applyRange(newRange)
+            const raw = extractVisualTemplate(el)
+            lastEmittedRef.current = raw
+            setTemplateText(raw)
+            setSaved(false)
+        } else {
+            insertAtCursor(`{{${fieldKey}}}`)
+        }
         setShowFields(false)
-    }, [insertAtCursor])
+    }, [useVisualEditor, insertAtCursor, getVisualRange, applyRange])
 
     const insertLink = useCallback(() => {
         if (!linkUrl.trim()) return
@@ -685,43 +897,51 @@ export default function TelegramTemplateEditor() {
 
     const insertCondition = useCallback(() => {
         if (!condField) return
-
         let condition = `{{#if ${condField}`
-        if (condOperator !== 'exists') {
-            condition += ` ${condOperator} '${condValue}'`
-        }
+        if (condOperator !== 'exists') condition += ` ${condOperator} '${condValue}'`
         condition += `}}${condTrueText}`
-        if (condFalseText) {
-            condition += `{{else}}${condFalseText}`
-        }
+        if (condFalseText) condition += `{{else}}${condFalseText}`
         condition += `{{/if}}`
 
-        // Siempre insertar en el editor principal
-        const ta = textareaRef.current
-        if (ta) {
+        if (useVisualEditor) {
+            const el = visualEditorRef.current
+            if (!el) return
+            const range = getVisualRange()
+            if (!range) return
+            const b: VisualToken = { type: 'conditional', raw: condition, field: condField, operator: condOperator !== 'exists' ? condOperator : undefined, value: condOperator !== 'exists' ? condValue : undefined, contentTrue: condTrueText, contentFalse: condFalseText }
+            const frag = buildVisualFragment([b], (tok) => onCondClickRef.current(tok))
+            const newRange = ceInsertNodeAt(frag, range)
+            applyRange(newRange)
+            const raw = extractVisualTemplate(el)
+            lastEmittedRef.current = raw
+            setTemplateText(raw)
+            setSaved(false)
+        } else {
+            const ta = textareaRef.current
+            if (!ta) return
             ta.focus()
             const start = ta.selectionStart
-            const end = ta.selectionEnd
-            const currentVal = templateText
-            const newVal = currentVal.substring(0, start) + condition + currentVal.substring(end)
-
+            const newVal = templateText.substring(0, start) + condition + templateText.substring(ta.selectionEnd)
             setTemplateText(newVal)
             setSaved(false)
-            setLastFocusedInput('main')
-
-            // Usar requestAnimationFrame para asegurar que el DOM se actualice antes de mover el cursor
-            requestAnimationFrame(() => {
-                ta.focus()
-                const newPos = start + condition.length
-                ta.setSelectionRange(newPos, newPos)
-            })
+            requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(start + condition.length, start + condition.length) })
         }
 
-        setCondTrueText('')
-        setCondFalseText('')
-        setCondValue('')
-        setShowCondBuilder(false)
-    }, [condField, condOperator, condValue, condTrueText, condFalseText, templateText])
+        setCondTrueText(''); setCondFalseText(''); setCondValue(''); setShowCondBuilder(false)
+    }, [condField, condOperator, condValue, condTrueText, condFalseText, templateText, useVisualEditor, getVisualRange, applyRange])
+
+    // When a conditional tag is clicked in the visual editor
+    const handleConditionalClick = useCallback((tok: any) => {
+        setCondField(tok.field)
+        setCondOperator(tok.operator || '==')
+        setCondValue(tok.value || '')
+        setCondTrueText(tok.contentTrue)
+        setCondFalseText(tok.contentFalse)
+        setShowCondBuilder(true)
+    }, [])
+
+    // Keep onCondClickRef fresh
+    onCondClickRef.current = handleConditionalClick
 
     // ─── Action Buttons ──────────────────────────────────────
     const addButtonRow = () => {
@@ -1328,16 +1548,116 @@ export default function TelegramTemplateEditor() {
                                 </div>
                             )}
 
-                            {/* Textarea */}
-                            <div className="relative flex-1 rounded-b-xl overflow-hidden">
-                                <textarea
-                                    ref={textareaRef}
-                                    value={templateText}
-                                    onFocus={() => setLastFocusedInput('main')}
-                                    onChange={e => { setTemplateText(e.target.value); setSaved(false) }}
-                                    placeholder="Escribe tu plantilla aquí..."
-                                    className="w-full h-full px-4 py-3 text-sm text-gray-700 border-none focus:outline-none resize-none font-mono"
-                                />
+                            {/* Editor: Visual o Raw */}
+                            <div className="relative flex-1 rounded-b-xl overflow-hidden flex flex-col">
+                                {/* Toggle Visual/Raw */}
+                                <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50/50">
+                                    <div className="flex items-center gap-2">
+                                        {useVisualEditor ? (
+                                            <span className="text-xs font-semibold text-blue-600 flex items-center gap-1.5">
+                                                <i className="bi bi-eye"></i> Editor Visual
+                                            </span>
+                                        ) : (
+                                            <span className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
+                                                <i className="bi bi-code"></i> Vista Código
+                                            </span>
+                                        )}
+                                    </div>
+                                    <button
+                                        onClick={() => setUseVisualEditor(!useVisualEditor)}
+                                        className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"
+                                        title="Cambiar vista"
+                                    >
+                                        <i className={`bi bi-arrow-left-right`}></i>
+                                    </button>
+                                </div>
+
+                                {/* Visual Editor or Raw Textarea */}
+                                {useVisualEditor ? (
+                                    <div
+                                        ref={visualEditorRef}
+                                        contentEditable
+                                        suppressContentEditableWarning
+                                        onInput={() => {
+                                            const el = visualEditorRef.current
+                                            if (!el) return
+                                            const raw = extractVisualTemplate(el)
+                                            lastEmittedRef.current = raw
+                                            setTemplateText(raw)
+                                            setSaved(false)
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault()
+                                                const sel = window.getSelection()
+                                                if (!sel || sel.rangeCount === 0) return
+                                                const range = sel.getRangeAt(0)
+                                                range.deleteContents()
+                                                const br = document.createElement('br')
+                                                range.insertNode(br)
+                                                const br2 = document.createElement('br')
+                                                br.after(br2)
+                                                range.setStartAfter(br)
+                                                range.setEndAfter(br)
+                                                sel.removeAllRanges()
+                                                sel.addRange(range)
+                                                const el = visualEditorRef.current
+                                                if (el) {
+                                                    const raw = extractVisualTemplate(el)
+                                                    lastEmittedRef.current = raw
+                                                    setTemplateText(raw)
+                                                    setSaved(false)
+                                                }
+                                            }
+                                        }}
+                                        onPaste={(e) => {
+                                            e.preventDefault()
+                                            const text = e.clipboardData.getData('text/plain')
+                                            if (!text) return
+                                            const sel = window.getSelection()
+                                            if (!sel || sel.rangeCount === 0) return
+                                            const range = sel.getRangeAt(0)
+                                            range.deleteContents()
+                                            text.split('\n').forEach((line, idx) => {
+                                                if (idx > 0) { const br = document.createElement('br'); range.insertNode(br); range.setStartAfter(br); range.setEndAfter(br) }
+                                                if (line) { const tn = document.createTextNode(line); range.insertNode(tn); range.setStartAfter(tn); range.setEndAfter(tn) }
+                                            })
+                                            sel.removeAllRanges(); sel.addRange(range)
+                                            const el = visualEditorRef.current
+                                            if (el) {
+                                                const raw = extractVisualTemplate(el)
+                                                lastEmittedRef.current = raw
+                                                setTemplateText(raw)
+                                                setSaved(false)
+                                            }
+                                        }}
+                                        onFocus={() => setLastFocusedInput('main')}
+                                        onSelect={() => {
+                                            // Save selection so toolbar buttons can restore it
+                                            const sel = window.getSelection()
+                                            if (sel && sel.rangeCount > 0) {
+                                                savedRangeRef.current = sel.getRangeAt(0).cloneRange()
+                                            }
+                                        }}
+                                        onBlur={() => {
+                                            // Save selection before focus leaves the editor
+                                            const sel = window.getSelection()
+                                            if (sel && sel.rangeCount > 0) {
+                                                savedRangeRef.current = sel.getRangeAt(0).cloneRange()
+                                            }
+                                        }}
+                                        className="flex-1 min-h-[200px] w-full px-4 py-3 font-mono text-sm leading-loose text-gray-100 bg-gray-900 outline-none cursor-text whitespace-pre-wrap break-words"
+                                    />
+                                ) : (
+                                    <textarea
+                                        ref={textareaRef}
+                                        value={templateText}
+                                        onFocus={() => setLastFocusedInput('main')}
+                                        onChange={e => { setTemplateText(e.target.value); setSaved(false) }}
+                                        placeholder="Escribe tu plantilla aquí..."
+                                        className="flex-1 w-full px-4 py-3 text-sm text-gray-700 border-none focus:outline-none resize-none font-mono bg-white"
+                                    />
+                                )}
 
                                 {/* Copy Button */}
                                 <button
