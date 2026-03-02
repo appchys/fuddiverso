@@ -3,6 +3,7 @@
 import { useState, useEffect, Fragment, lazy, Suspense } from 'react'
 
 const TelegramTemplateEditor = lazy(() => import('@/components/TelegramTemplateEditor'))
+const ProductsList = lazy(() => import('@/components/ProductsList'))
 import {
   getAllOrders,
   getAllBusinesses,
@@ -40,7 +41,7 @@ export default function AdminDashboard() {
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'settlements' | 'templates' | 'orders'>('home')
+  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'settlements' | 'templates' | 'products' | 'orders'>('home')
   
   // Estados para filtros del historial de órdenes
   const [filterOrdersBusiness, setFilterOrdersBusiness] = useState<string>('all')
@@ -1387,6 +1388,13 @@ export default function AdminDashboard() {
             Plantillas
           </button>
           <button
+            onClick={() => setActiveTab('products')}
+            className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'products' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <i className="bi bi-box-seam md:hidden me-1.5"></i>
+            Productos
+          </button>
+          <button
             onClick={() => setActiveTab('orders')}
             className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'orders' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
@@ -1577,6 +1585,18 @@ export default function AdminDashboard() {
                   <p className="text-[11px] text-blue-600 mt-0.5">Administrar</p>
                 </div>
                 <i className="bi bi-shop text-xl md:text-2xl text-blue-600"></i>
+              </div>
+            </a>
+            <a
+              href="/admin/products"
+              className="flex-shrink-0 w-36 md:w-auto bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-xl shadow-sm p-4 md:p-6 border border-indigo-200 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-indigo-700">Productos</p>
+                  <p className="text-[11px] text-indigo-600 mt-0.5">Comisiones</p>
+                </div>
+                <i className="bi bi-box-seam text-xl md:text-2xl text-indigo-600"></i>
               </div>
             </a>
           </div>
@@ -1892,6 +1912,10 @@ export default function AdminDashboard() {
       ) : activeTab === 'templates' ? (
         <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
           <TelegramTemplateEditor />
+        </Suspense>
+      ) : activeTab === 'products' ? (
+        <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
+          <ProductsList />
         </Suspense>
       ) : activeTab === 'orders' ? (
         renderOrdersHistoryTab()

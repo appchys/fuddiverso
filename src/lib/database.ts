@@ -711,6 +711,29 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
   }
 }
 
+/**
+ * Obtener TODOS los productos de todas las tiendas
+ * Para administración y vista de inventario global
+ */
+export async function getAllProducts(): Promise<Product[]> {
+  try {
+    const q = query(
+      collection(db, 'products'),
+      orderBy('createdAt', 'desc')
+    )
+    const querySnapshot = await getDocs(q)
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: toSafeDate(doc.data().createdAt),
+      updatedAt: toSafeDate(doc.data().updatedAt)
+    })) as Product[]
+  } catch (error) {
+    console.error('Error getting all products:', error)
+    return []
+  }
+}
+
 export async function updateProduct(productId: string, data: Partial<Product>) {
   try {
     // Filtrar valores undefined antes de enviar a Firestore
