@@ -272,6 +272,7 @@ export interface Delivery {
   fechaRegistro: string
   uid?: string // UID de Firebase Auth para autenticación
   telegramChatId?: string // ID de chat de Telegram para notificaciones
+  manualStatus?: 'active' | 'inactive' | null // Override manual: null = usar horario automático
   scheduleAvailability?: {
     enabled: boolean
     schedules: {

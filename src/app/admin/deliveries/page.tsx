@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { uploadImage, createDelivery, getAllDeliveries, toggleDeliveryStatus, updateDelivery, deleteDelivery } from '@/lib/database'
+import { uploadImage, createDelivery, getAllDeliveries, updateDelivery, deleteDelivery } from '@/lib/database'
 import { Delivery } from '@/types'
+import { isDeliveryAvailable, getDeliveryStatusDescription } from '@/lib/store-utils'
 
 // Función para normalizar números de teléfono
 const normalizePhone = (phone: string): string => {
@@ -48,6 +49,7 @@ export default function DeliveriesAdmin() {
   const [uploadingImage, setUploadingImage] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -195,13 +197,29 @@ export default function DeliveriesAdmin() {
     }
   }
 
-  const handleToggleDeliveryStatus = async (deliveryId: string) => {
+
+  const handleToggleManualStatus = async (delivery: Delivery) => {
+    if (!delivery.id) return
+    setTogglingId(delivery.id)
     try {
-      await toggleDeliveryStatus(deliveryId)
-      // Recargar la lista para reflejar los cambios
-      await loadDeliveries()
+      const current = delivery.manualStatus
+      // Ciclo: null (Auto) → inactive (Forzar No disponible) → active (Forzar Disponible) → null
+      let next: 'active' | 'inactive' | null
+      if (current === null || current === undefined) {
+        next = 'inactive'
+      } else if (current === 'inactive') {
+        next = 'active'
+      } else {
+        next = null
+      }
+      await updateDelivery(delivery.id, { manualStatus: next } as any)
+      setDeliveries(prev => prev.map(d =>
+        d.id === delivery.id ? { ...d, manualStatus: next } : d
+      ))
     } catch (error) {
-      console.error('Error updating delivery status:', error)
+      console.error('Error toggling delivery manual status:', error)
+    } finally {
+      setTogglingId(null)
     }
   }
 
@@ -433,6 +451,18 @@ export default function DeliveriesAdmin() {
     </div>
   )
 
+  const sortedDeliveries = [...deliveries].sort((a, b) => {
+    const getScore = (d: Delivery) => {
+      if (d.estado === 'inactivo') return 0;
+      if (!isDeliveryAvailable(d)) return 1;
+      return 2; // Disponible
+    };
+    const scoreA = getScore(a);
+    const scoreB = getScore(b);
+    if (scoreA !== scoreB) return scoreB - scoreA;
+    return a.nombres.localeCompare(b.nombres);
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -485,7 +515,7 @@ export default function DeliveriesAdmin() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {deliveries.map((delivery) => (
+              {sortedDeliveries.map((delivery) => (
                 <tr key={delivery.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
@@ -514,22 +544,28 @@ export default function DeliveriesAdmin() {
                     <div className="text-sm text-gray-500">{delivery.email}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${delivery.estado === 'activo'
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-red-100 text-red-800'
-                      }`}>
-                      {delivery.estado === 'activo' ? (
-                        <>
-                          <i className="bi bi-check-circle me-1"></i>
-                          Activo
-                        </>
-                      ) : (
-                        <>
-                          <i className="bi bi-x-circle me-1"></i>
-                          Inactivo
-                        </>
-                      )}
-                    </span>
+                    {/* Smart status badge */}
+                    <div className="flex flex-col gap-1">
+                      <span className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs font-semibold rounded-full ${delivery.estado === 'inactivo'
+                        ? 'bg-gray-100 text-gray-500'
+                        : isDeliveryAvailable(delivery)
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-red-100 text-red-700'
+                        }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${delivery.estado === 'inactivo'
+                          ? 'bg-gray-400'
+                          : isDeliveryAvailable(delivery)
+                            ? 'bg-green-500 animate-pulse'
+                            : 'bg-red-500'
+                          }`} />
+                        {delivery.estado === 'inactivo'
+                          ? 'Inactivo'
+                          : isDeliveryAvailable(delivery)
+                            ? 'Disponible'
+                            : 'No disponible'}
+                      </span>
+                      <span className="text-[10px] text-gray-400">{getDeliveryStatusDescription(delivery)}</span>
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {new Date(delivery.fechaRegistro).toLocaleDateString('es-ES')}
@@ -554,7 +590,7 @@ export default function DeliveriesAdmin() {
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex space-x-2">
+                    <div className="flex items-center space-x-2">
                       <button
                         onClick={() => handleEditDelivery(delivery)}
                         className="text-blue-600 hover:text-blue-900"
@@ -563,21 +599,33 @@ export default function DeliveriesAdmin() {
                         <i className="bi bi-pencil"></i>
                       </button>
 
-                      <button
-                        onClick={() => delivery.id && handleToggleDeliveryStatus(delivery.id)}
-                        disabled={!delivery.id}
-                        className={`${delivery.estado === 'activo'
-                          ? 'text-red-600 hover:text-red-900'
-                          : 'text-green-600 hover:text-green-900'
-                          } disabled:opacity-50`}
-                        title={delivery.estado === 'activo' ? 'Desactivar' : 'Activar'}
-                      >
-                        {delivery.estado === 'activo' ? (
-                          <i className="bi bi-pause-circle"></i>
-                        ) : (
-                          <i className="bi bi-play-circle"></i>
-                        )}
-                      </button>
+                      {/* Tri-state manual availability toggle */}
+                      {delivery.estado === 'activo' && (
+                        <button
+                          onClick={() => handleToggleManualStatus(delivery)}
+                          disabled={togglingId === delivery.id}
+                          title={
+                            delivery.manualStatus === null || delivery.manualStatus === undefined
+                              ? 'Modo automático (según horario) — click para forzar No disponible'
+                              : delivery.manualStatus === 'inactive'
+                                ? 'Forzado: No disponible — click para forzar Disponible'
+                                : 'Forzado: Disponible — click para volver a automático'
+                          }
+                          className={`p-1 rounded transition-colors disabled:opacity-50 ${delivery.manualStatus === 'active'
+                            ? 'text-green-600 hover:text-green-800'
+                            : delivery.manualStatus === 'inactive'
+                              ? 'text-red-500 hover:text-red-700'
+                              : 'text-gray-400 hover:text-gray-600'
+                            }`}
+                        >
+                          <i className={`bi ${delivery.manualStatus === 'active'
+                            ? 'bi-unlock-fill'
+                            : delivery.manualStatus === 'inactive'
+                              ? 'bi-lock-fill'
+                              : 'bi-clock-fill'
+                            }`} />
+                        </button>
+                      )}
 
                       <button
                         onClick={() => handleDeleteDelivery(delivery)}

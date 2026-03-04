@@ -1,4 +1,4 @@
-import { Business } from '@/types'
+import { Business, Delivery } from '@/types'
 
 /**
  * Determina si la tienda está abierta considerando:
@@ -230,4 +230,66 @@ export function getNextOpeningMessage(business: Business | null): string | null 
         }
     }
     return null
+}
+
+// ─── Delivery Availability Utilities ─────────────────────────────────────────
+
+/**
+ * Determina si un repartidor está disponible considerando:
+ * 1. Control manual (prioridad máxima)
+ * 2. Si tiene horarios configurados y activados, verifica si el momento
+ *    actual está dentro de alguno de esos bloques.
+ * 3. Si no hay horario configurado/activado y está en estado 'activo', disponible.
+ *
+ * @param delivery - Objeto repartidor
+ * @returns true si el delivery está disponible ahora
+ */
+export function isDeliveryAvailable(delivery: Delivery | null): boolean {
+    if (!delivery) return false
+
+    // Si está marcado como inactivo (global), nunca disponible
+    if (delivery.estado === 'inactivo') return false
+
+    // 1. Override manual tiene prioridad sobre horario
+    if (delivery.manualStatus === 'active') return true
+    if (delivery.manualStatus === 'inactive') return false
+
+    // 2. Verificar horario automático si está habilitado
+    const sched = delivery.scheduleAvailability
+    if (sched?.enabled && sched.schedules.length > 0) {
+        const now = new Date()
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+        const currentDay = dayNames[now.getDay()]
+        const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+
+        // Está disponible si hay al menos un bloque de horario que cubra ahora
+        return sched.schedules.some(block =>
+            block.days.includes(currentDay) &&
+            currentTime >= block.startTime &&
+            currentTime <= block.endTime
+        )
+    }
+
+    // 3. Sin horario configurado: disponible si estado es 'activo'
+    return delivery.estado === 'activo'
+}
+
+/**
+ * Obtiene una descripción del estado actual del repartidor.
+ * Ej: "Disponible (Manual)", "No disponible (Horario)", "Disponible (Auto)"
+ */
+export function getDeliveryStatusDescription(delivery: Delivery | null): string {
+    if (!delivery) return 'Desconocido'
+
+    if (delivery.estado === 'inactivo') return 'Inactivo'
+
+    if (delivery.manualStatus === 'active') return 'Disponible (Manual)'
+    if (delivery.manualStatus === 'inactive') return 'No disponible (Manual)'
+
+    const available = isDeliveryAvailable(delivery)
+    const hasSchedule = delivery.scheduleAvailability?.enabled && (delivery.scheduleAvailability.schedules.length ?? 0) > 0
+    if (hasSchedule) {
+        return available ? 'Disponible (Horario)' : 'No disponible (Horario)'
+    }
+    return 'Disponible (Auto)'
 }

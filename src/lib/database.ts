@@ -2499,7 +2499,9 @@ export async function getAllDeliveries(): Promise<Delivery[]> {
         fotoUrl: data.fotoUrl,
         estado: data.estado || 'activo',
         fechaRegistro: data.fechaRegistro || new Date().toISOString(),
-        uid: data.uid
+        uid: data.uid,
+        manualStatus: data.manualStatus ?? null,
+        scheduleAvailability: data.scheduleAvailability
       })
     })
 
@@ -2528,7 +2530,9 @@ export async function getDeliveryById(deliveryId: string): Promise<Delivery | nu
         fotoUrl: data.fotoUrl,
         estado: data.estado || 'activo',
         fechaRegistro: data.fechaRegistro || new Date().toISOString(),
-        uid: data.uid
+        uid: data.uid,
+        manualStatus: data.manualStatus ?? null,
+        scheduleAvailability: data.scheduleAvailability
       }
     }
 
@@ -2615,7 +2619,9 @@ export async function getDeliveriesByStatus(estado: 'activo' | 'inactivo'): Prom
         fotoUrl: data.fotoUrl,
         estado: data.estado || 'activo',
         fechaRegistro: data.fechaRegistro || new Date().toISOString(),
-        uid: data.uid
+        uid: data.uid,
+        manualStatus: data.manualStatus ?? null,
+        scheduleAvailability: data.scheduleAvailability
       })
     })
 
@@ -2656,7 +2662,9 @@ export async function getDeliveryByEmail(email: string): Promise<Delivery | null
       fotoUrl: data.fotoUrl,
       estado: data.estado || 'activo',
       fechaRegistro: data.fechaRegistro || new Date().toISOString(),
-      uid: data.uid
+      uid: data.uid,
+      manualStatus: data.manualStatus ?? null,
+      scheduleAvailability: data.scheduleAvailability
     }
   } catch (error) {
     console.error('Error getting delivery by email:', error)
