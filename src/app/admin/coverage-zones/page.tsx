@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { GoogleMap, useJsApiLoader, Polygon, Marker } from '@react-google-maps/api'
 import { getCoverageZones, createCoverageZone, updateCoverageZone, deleteCoverageZone, getAllDeliveries, getActiveOrdersWithLocations, getBusiness, updateOrder } from '@/lib/database'
 import { CoverageZone, Delivery, Order, Business } from '@/types'
+import { isDeliveryAvailable } from '@/lib/store-utils'
 
 // Define libraries as a constant outside the component to prevent reloading
 const GOOGLE_MAPS_LIBRARIES: ("drawing" | "geometry" | "places" | "visualization")[] = ["drawing", "geometry"]
@@ -677,102 +678,125 @@ export default function CoverageZonesPage() {
                 </div>
               ) : (
                 <div className="p-2 space-y-1">
-                  {zones.map((zone) => (
-                    <div
-                      key={zone.id}
-                      className={`group p-3 rounded-lg cursor-pointer transition-all ${selectedZone?.id === zone.id
-                        ? 'bg-red-500/20 border border-red-500/50'
-                        : 'hover:bg-gray-700/50 border border-transparent'
-                        }`}
-                      onClick={() => editZone(zone)}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-3 h-3 rounded-full ${zone.isActive ? 'bg-green-500' : 'bg-gray-500'}`}></div>
-                            <h3 className="font-medium text-white truncate">{zone.name}</h3>
-                          </div>
-                          <div className="mt-1 flex items-center gap-3 text-sm text-gray-400">
-                            <span>${zone.deliveryFee.toFixed(2)}</span>
-                            <span>•</span>
-                            <span>{zone.polygon.length} puntos</span>
-                          </div>
-                          {/* Deliveries asignados */}
-                          {zone.assignedDeliveryIds && zone.assignedDeliveryIds.length > 0 ? (
-                            <div className="mt-2 space-y-1">
-                              {zone.assignedDeliveryIds.length > 1 && (
-                                <span className="inline-flex items-center text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full border border-blue-500/50 mb-1">
-                                  <i className="bi bi-arrow-repeat mr-1"></i>
-                                  Round Robin
+                  {zones.map((zone) => {
+                    const assignedIds = zone.assignedDeliveryIds || (zone.assignedDeliveryId ? [zone.assignedDeliveryId] : []);
+                    const availableDeliveries = assignedIds.filter(id => {
+                      const d = deliveries.find(del => del.id === id);
+                      return d && isDeliveryAvailable(d);
+                    });
+                    const noAvailable = zone.isActive && availableDeliveries.length === 0;
+
+                    return (
+                      <div
+                        key={zone.id}
+                        className={`group p-3 rounded-lg cursor-pointer transition-all ${selectedZone?.id === zone.id
+                          ? 'bg-red-500/20 border border-red-500/50'
+                          : 'hover:bg-gray-700/50 border border-transparent'
+                          } ${noAvailable ? 'ring-1 ring-amber-500/30' : ''}`}
+                        onClick={() => editZone(zone)}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <div className="flex items-center gap-2 truncate">
+                                <div className={`w-3 h-3 rounded-full shrink-0 ${zone.isActive ? 'bg-green-500' : 'bg-gray-500'}`}></div>
+                                <h3 className="font-medium text-white truncate">{zone.name}</h3>
+                              </div>
+                              {noAvailable && (
+                                <span className="flex items-center gap-1 bg-amber-500/20 text-amber-500 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full border border-amber-500/30 shrink-0">
+                                  <i className="bi bi-exclamation-triangle-fill"></i>
+                                  Sin Repartidores
                                 </span>
                               )}
-                              <div className="flex items-center gap-1 flex-wrap">
-                                {zone.assignedDeliveryIds.slice(0, 2).map((deliveryId) => {
-                                  const delivery = deliveries.find(d => d.id === deliveryId);
-                                  if (!delivery) return null;
-                                  return (
-                                    <div key={deliveryId} className="flex items-center gap-1 bg-gray-700/50 rounded px-1.5 py-0.5">
-                                      {delivery.fotoUrl ? (
-                                        <img
-                                          src={delivery.fotoUrl}
-                                          alt=""
-                                          className="w-4 h-4 rounded-full object-cover"
-                                        />
-                                      ) : (
-                                        <div className="w-4 h-4 rounded-full bg-gray-600 flex items-center justify-center">
-                                          <i className="bi bi-person text-gray-400 text-xs"></i>
-                                        </div>
-                                      )}
-                                      <span className="text-xs text-gray-400 truncate max-w-[80px]">
-                                        {delivery.nombres.split(' ')[0]}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                                {zone.assignedDeliveryIds.length > 2 && (
-                                  <span className="text-xs text-gray-500">
-                                    +{zone.assignedDeliveryIds.length - 2}
+                            </div>
+                            <div className="mt-1 flex items-center gap-3 text-sm text-gray-400">
+                              <span>${zone.deliveryFee.toFixed(2)}</span>
+                              <span>•</span>
+                              <span>{zone.polygon.length} puntos</span>
+                            </div>
+                            {/* Deliveries asignados */}
+                            {zone.assignedDeliveryIds && zone.assignedDeliveryIds.length > 0 ? (
+                              <div className="mt-2 space-y-1">
+                                {zone.assignedDeliveryIds.length > 1 && (
+                                  <span className="inline-flex items-center text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full border border-blue-500/50 mb-1">
+                                    <i className="bi bi-arrow-repeat mr-1"></i>
+                                    Round Robin
                                   </span>
                                 )}
-                              </div>
-                            </div>
-                          ) : zone.assignedDeliveryId ? (
-                            <div className="mt-2 flex items-center gap-2">
-                              {deliveries.find(d => d.id === zone.assignedDeliveryId)?.fotoUrl ? (
-                                <img
-                                  src={deliveries.find(d => d.id === zone.assignedDeliveryId)?.fotoUrl}
-                                  alt=""
-                                  className="w-5 h-5 rounded-full object-cover"
-                                />
-                              ) : (
-                                <div className="w-5 h-5 rounded-full bg-gray-600 flex items-center justify-center">
-                                  <i className="bi bi-person text-gray-400 text-xs"></i>
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  {zone.assignedDeliveryIds.slice(0, 2).map((deliveryId) => {
+                                    const delivery = deliveries.find(d => d.id === deliveryId);
+                                    if (!delivery) return null;
+                                    const available = isDeliveryAvailable(delivery);
+                                    return (
+                                      <div
+                                        key={deliveryId}
+                                        className={`flex items-center gap-1 bg-gray-700/50 rounded px-1.5 py-0.5 border ${available ? 'border-green-500/30' : 'border-red-500/30'
+                                          }`}
+                                        title={available ? 'Disponible' : 'No disponible'}
+                                      >
+                                        {delivery.fotoUrl ? (
+                                          <img
+                                            src={delivery.fotoUrl}
+                                            alt=""
+                                            className={`w-4 h-4 rounded-full object-cover ${!available ? 'grayscale opacity-60' : ''}`}
+                                          />
+                                        ) : (
+                                          <div className="w-4 h-4 rounded-full bg-gray-600 flex items-center justify-center">
+                                            <i className={`bi bi-person text-xs ${available ? 'text-green-400' : 'text-gray-400'}`}></i>
+                                          </div>
+                                        )}
+                                        <span className={`text-[10px] truncate max-w-[60px] ${available ? 'text-gray-200' : 'text-gray-500'}`}>
+                                          {delivery.nombres.split(' ')[0]}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                  {zone.assignedDeliveryIds.length > 2 && (
+                                    <span className="text-xs text-gray-500">
+                                      +{zone.assignedDeliveryIds.length - 2}
+                                    </span>
+                                  )}
                                 </div>
-                              )}
-                              <span className="text-xs text-gray-400 truncate">
-                                {deliveries.find(d => d.id === zone.assignedDeliveryId)?.nombres || 'Delivery'}
-                              </span>
-                            </div>
-                          ) : (
-                            <div className="mt-2 flex items-center gap-1 text-xs text-gray-500">
-                              <i className="bi bi-person-dash"></i>
-                              <span>Sin delivery</span>
-                            </div>
-                          )}
+                              </div>
+                            ) : zone.assignedDeliveryId ? (
+                              <div className="mt-2 flex items-center gap-2">
+                                {deliveries.find(d => d.id === zone.assignedDeliveryId)?.fotoUrl ? (
+                                  <img
+                                    src={deliveries.find(d => d.id === zone.assignedDeliveryId)?.fotoUrl}
+                                    alt=""
+                                    className="w-5 h-5 rounded-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-5 h-5 rounded-full bg-gray-600 flex items-center justify-center">
+                                    <i className="bi bi-person text-gray-400 text-xs"></i>
+                                  </div>
+                                )}
+                                <span className="text-xs text-gray-400 truncate">
+                                  {deliveries.find(d => d.id === zone.assignedDeliveryId)?.nombres || 'Delivery'}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="mt-2 flex items-center gap-1 text-xs text-gray-500">
+                                <i className="bi bi-person-dash"></i>
+                                <span>Sin delivery</span>
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteZone(zone.id)
+                            }}
+                            className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-400 transition-all"
+                            title="Eliminar zona"
+                          >
+                            <i className="bi bi-trash"></i>
+                          </button>
                         </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDeleteZone(zone.id)
-                          }}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-400 transition-all"
-                          title="Eliminar zona"
-                        >
-                          <i className="bi bi-trash"></i>
-                        </button>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -814,19 +838,28 @@ export default function CoverageZonesPage() {
               }}
             >
               {/* Mostrar todas las zonas existentes */}
-              {zones.map((zone) => (
-                <Polygon
-                  key={zone.id}
-                  paths={zone.polygon}
-                  options={{
-                    fillColor: selectedZone?.id === zone.id ? '#ef4444' : '#3b82f6',
-                    fillOpacity: selectedZone?.id === zone.id ? 0.4 : 0.2,
-                    strokeColor: selectedZone?.id === zone.id ? '#ef4444' : '#3b82f6',
-                    strokeOpacity: 1,
-                    strokeWeight: selectedZone?.id === zone.id ? 3 : 2
-                  }}
-                />
-              ))}
+              {zones.map((zone) => {
+                const assignedIds = zone.assignedDeliveryIds || (zone.assignedDeliveryId ? [zone.assignedDeliveryId] : []);
+                const isAvailable = assignedIds.some(id => {
+                  const d = deliveries.find(del => del.id === id);
+                  return d && isDeliveryAvailable(d);
+                });
+                const noAvailable = zone.isActive && !isAvailable;
+
+                return (
+                  <Polygon
+                    key={zone.id}
+                    paths={zone.polygon}
+                    options={{
+                      fillColor: selectedZone?.id === zone.id ? '#ef4444' : (noAvailable ? '#f59e0b' : '#3b82f6'),
+                      fillOpacity: selectedZone?.id === zone.id ? 0.4 : (noAvailable ? 0.35 : 0.2),
+                      strokeColor: selectedZone?.id === zone.id ? '#ef4444' : (noAvailable ? '#f59e0b' : '#3b82f6'),
+                      strokeOpacity: 1,
+                      strokeWeight: selectedZone?.id === zone.id ? 3 : 2
+                    }}
+                  />
+                );
+              })}
 
               {/* Mostrar marcadores del polígono en edición */}
               {modalOpen && markers.map((marker, index) => (
@@ -1088,271 +1121,283 @@ export default function CoverageZonesPage() {
             </div>
           )}
         </div>
-      </div>
+      </div >
 
       {/* Modal for creating/editing zones */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-end p-4 pointer-events-none">
-          {/* Modal panel - positioned on the right */}
-          <div className="bg-gray-800 rounded-xl shadow-2xl border border-gray-700 w-96 max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col pointer-events-auto animate-in slide-in-from-right-4 fade-in">
-            {/* Modal header */}
-            <div className="p-4 border-b border-gray-700 flex items-center justify-between shrink-0">
-              <h3 className="text-lg font-semibold text-white">
-                {selectedZone ? 'Editar Zona' : 'Nueva Zona'}
-              </h3>
-              <button
-                onClick={closeModal}
-                className="p-1 hover:bg-gray-700 rounded-lg transition-colors text-gray-400 hover:text-white"
-              >
-                <i className="bi bi-x-lg"></i>
-              </button>
-            </div>
-
-            {/* Modal body */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {/* Zone name */}
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Nombre de la zona *
-                </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500"
-                  placeholder="Ej: Centro Norte, Samborondón..."
-                />
-              </div>
-
-              {/* Delivery fee */}
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Tarifa de envío ($)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={formData.deliveryFee}
-                  onChange={(e) => setFormData({ ...formData, deliveryFee: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500"
-                  placeholder="0.00"
-                />
-              </div>
-
-              {/* Active toggle */}
-              <div className="flex items-center justify-between py-2">
-                <span className="text-sm font-medium text-gray-300">Zona activa</span>
+      {
+        modalOpen && (
+          <div className="fixed inset-0 z-50 flex items-start justify-end p-4 pointer-events-none">
+            {/* Modal panel - positioned on the right */}
+            <div className="bg-gray-800 rounded-xl shadow-2xl border border-gray-700 w-96 max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col pointer-events-auto animate-in slide-in-from-right-4 fade-in">
+              {/* Modal header */}
+              <div className="p-4 border-b border-gray-700 flex items-center justify-between shrink-0">
+                <h3 className="text-lg font-semibold text-white">
+                  {selectedZone ? 'Editar Zona' : 'Nueva Zona'}
+                </h3>
                 <button
-                  onClick={() => setFormData({ ...formData, isActive: !formData.isActive })}
-                  className={`relative w-12 h-6 rounded-full transition-colors ${formData.isActive ? 'bg-green-500' : 'bg-gray-600'
-                    }`}
+                  onClick={closeModal}
+                  className="p-1 hover:bg-gray-700 rounded-lg transition-colors text-gray-400 hover:text-white"
                 >
-                  <span
-                    className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${formData.isActive ? 'translate-x-6' : ''
-                      }`}
-                  ></span>
+                  <i className="bi bi-x-lg"></i>
                 </button>
               </div>
 
-              {/* Delivery assignment - Multiple selection */}
-              <div className="border-t border-gray-700 pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <label className="block text-sm font-medium text-gray-300">
-                    <i className="bi bi-scooter mr-2"></i>
-                    Deliveries asignados
+              {/* Modal body */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* Zone name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Nombre de la zona *
                   </label>
-                  {formData.assignedDeliveryIds.length > 1 && (
-                    <span className="text-xs px-2 py-1 bg-blue-500/20 text-blue-400 rounded-full border border-blue-500/50">
-                      <i className="bi bi-arrow-repeat mr-1"></i>
-                      Round Robin
-                    </span>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500"
+                    placeholder="Ej: Centro Norte, Samborondón..."
+                  />
+                </div>
+
+                {/* Delivery fee */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Tarifa de envío ($)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.deliveryFee}
+                    onChange={(e) => setFormData({ ...formData, deliveryFee: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500"
+                    placeholder="0.00"
+                  />
+                </div>
+
+                {/* Active toggle */}
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-sm font-medium text-gray-300">Zona activa</span>
+                  <button
+                    onClick={() => setFormData({ ...formData, isActive: !formData.isActive })}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${formData.isActive ? 'bg-green-500' : 'bg-gray-600'
+                      }`}
+                  >
+                    <span
+                      className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${formData.isActive ? 'translate-x-6' : ''
+                        }`}
+                    ></span>
+                  </button>
+                </div>
+
+                {/* Delivery assignment - Multiple selection */}
+                <div className="border-t border-gray-700 pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-sm font-medium text-gray-300">
+                      <i className="bi bi-scooter mr-2"></i>
+                      Deliveries asignados
+                    </label>
+                    {formData.assignedDeliveryIds.length > 1 && (
+                      <span className="text-xs px-2 py-1 bg-blue-500/20 text-blue-400 rounded-full border border-blue-500/50">
+                        <i className="bi bi-arrow-repeat mr-1"></i>
+                        Round Robin
+                      </span>
+                    )}
+                  </div>
+
+                  {deliveries.length === 0 ? (
+                    <div className="p-3 bg-gray-700/30 rounded-lg text-center text-sm text-gray-400">
+                      No hay deliveries activos disponibles
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {deliveries.map((delivery) => {
+                        const isSelected = formData.assignedDeliveryIds.includes(delivery.id);
+                        return (
+                          <label
+                            key={delivery.id}
+                            className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${isSelected
+                              ? 'bg-red-500/20 border border-red-500/50'
+                              : 'bg-gray-700/30 border border-gray-600 hover:bg-gray-700/50'
+                              }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFormData({
+                                    ...formData,
+                                    assignedDeliveryIds: [...formData.assignedDeliveryIds, delivery.id]
+                                  });
+                                } else {
+                                  setFormData({
+                                    ...formData,
+                                    assignedDeliveryIds: formData.assignedDeliveryIds.filter(id => id !== delivery.id)
+                                  });
+                                }
+                              }}
+                              className="w-4 h-4 text-red-500 bg-gray-700 border-gray-600 rounded focus:ring-red-500 focus:ring-2"
+                            />
+                            {delivery.fotoUrl ? (
+                              <img
+                                src={delivery.fotoUrl}
+                                alt={delivery.nombres}
+                                className="w-8 h-8 rounded-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center">
+                                <i className="bi bi-person text-gray-400"></i>
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-white truncate">{delivery.nombres}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-xs text-gray-400">{delivery.celular}</p>
+                                <div className="flex items-center gap-1">
+                                  <div className={`w-1.5 h-1.5 rounded-full ${isDeliveryAvailable(delivery) ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                                  <span className="text-[10px] text-gray-500 uppercase font-bold tracking-tighter">
+                                    {isDeliveryAvailable(delivery) ? 'Disponible' : 'No disponible'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            {isSelected && (
+                              <i className="bi bi-check-circle-fill text-red-400"></i>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {formData.assignedDeliveryIds.length > 0 && (
+                    <div className="mt-3 p-3 bg-gray-700/30 rounded-lg">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-400">
+                          {formData.assignedDeliveryIds.length} delivery{formData.assignedDeliveryIds.length !== 1 ? 's' : ''} seleccionado{formData.assignedDeliveryIds.length !== 1 ? 's' : ''}
+                        </span>
+                        {formData.assignedDeliveryIds.length > 1 && (
+                          <span className="text-blue-400 text-xs">
+                            Los pedidos se asignarán por turnos
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
 
-                {deliveries.length === 0 ? (
-                  <div className="p-3 bg-gray-700/30 rounded-lg text-center text-sm text-gray-400">
-                    No hay deliveries activos disponibles
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {deliveries.map((delivery) => {
-                      const isSelected = formData.assignedDeliveryIds.includes(delivery.id);
-                      return (
-                        <label
-                          key={delivery.id}
-                          className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${isSelected
-                            ? 'bg-red-500/20 border border-red-500/50'
-                            : 'bg-gray-700/30 border border-gray-600 hover:bg-gray-700/50'
-                            }`}
+                {/* Drawing controls */}
+                <div className="border-t border-gray-700 pt-4">
+                  <label className="block text-sm font-medium text-gray-300 mb-3">
+                    Área de cobertura
+                  </label>
+                  <div className="flex gap-2">
+                    {!isDrawingMode ? (
+                      <button
+                        onClick={startDrawing}
+                        className="flex-1 bg-blue-500/20 text-blue-400 border border-blue-500/50 px-3 py-2 text-sm rounded-lg hover:bg-blue-500/30 transition-colors"
+                      >
+                        <i className="bi bi-pencil mr-2"></i>
+                        {currentPolygon.length > 0 ? 'Redibujar' : 'Dibujar'}
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={finishDrawing}
+                          disabled={markers.length < 3}
+                          className="flex-1 bg-green-500/20 text-green-400 border border-green-500/50 px-3 py-2 text-sm rounded-lg hover:bg-green-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setFormData({
-                                  ...formData,
-                                  assignedDeliveryIds: [...formData.assignedDeliveryIds, delivery.id]
-                                });
-                              } else {
-                                setFormData({
-                                  ...formData,
-                                  assignedDeliveryIds: formData.assignedDeliveryIds.filter(id => id !== delivery.id)
-                                });
-                              }
-                            }}
-                            className="w-4 h-4 text-red-500 bg-gray-700 border-gray-600 rounded focus:ring-red-500 focus:ring-2"
-                          />
-                          {delivery.fotoUrl ? (
-                            <img
-                              src={delivery.fotoUrl}
-                              alt={delivery.nombres}
-                              className="w-8 h-8 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center">
-                              <i className="bi bi-person text-gray-400"></i>
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-white truncate">{delivery.nombres}</p>
-                            <p className="text-xs text-gray-400">{delivery.celular}</p>
-                          </div>
-                          {isSelected && (
-                            <i className="bi bi-check-circle-fill text-red-400"></i>
-                          )}
-                        </label>
-                      );
-                    })}
+                          <i className="bi bi-check-circle mr-1"></i>
+                          Terminar
+                        </button>
+                        <button
+                          onClick={clearDrawing}
+                          className="bg-red-500/20 text-red-400 border border-red-500/50 px-3 py-2 text-sm rounded-lg hover:bg-red-500/30 transition-colors"
+                        >
+                          <i className="bi bi-x-circle"></i>
+                        </button>
+                      </>
+                    )}
                   </div>
-                )}
+                </div>
 
-                {formData.assignedDeliveryIds.length > 0 && (
-                  <div className="mt-3 p-3 bg-gray-700/30 rounded-lg">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-400">
-                        {formData.assignedDeliveryIds.length} delivery{formData.assignedDeliveryIds.length !== 1 ? 's' : ''} seleccionado{formData.assignedDeliveryIds.length !== 1 ? 's' : ''}
+                {/* Points list */}
+                {currentPolygon.length > 0 && (
+                  <div className="bg-gray-700/50 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-300">
+                        <i className="bi bi-geo-alt mr-1"></i>
+                        {currentPolygon.length} puntos
                       </span>
-                      {formData.assignedDeliveryIds.length > 1 && (
-                        <span className="text-blue-400 text-xs">
-                          Los pedidos se asignarán por turnos
-                        </span>
-                      )}
+                      <span className="text-xs text-green-400">
+                        <i className="bi bi-check-circle mr-1"></i>Polígono válido
+                      </span>
+                    </div>
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {currentPolygon.map((point, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center justify-between text-xs py-1 px-2 rounded bg-gray-700/50 group"
+                        >
+                          <span className="text-gray-400">
+                            <span className="text-white font-medium">{index + 1}.</span>{' '}
+                            {point.lat.toFixed(5)}, {point.lng.toFixed(5)}
+                          </span>
+                          <button
+                            onClick={() => removePoint(index)}
+                            className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all"
+                          >
+                            <i className="bi bi-trash"></i>
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
+
+                {currentPolygon.length === 0 && !isDrawingMode && (
+                  <div className="bg-gray-700/30 rounded-lg p-4 text-center">
+                    <i className="bi bi-geo text-2xl text-gray-500 mb-2"></i>
+                    <p className="text-sm text-gray-400">
+                      Usa el botón "Dibujar" para definir el área de cobertura en el mapa
+                    </p>
+                  </div>
+                )}
               </div>
 
-              {/* Drawing controls */}
-              <div className="border-t border-gray-700 pt-4">
-                <label className="block text-sm font-medium text-gray-300 mb-3">
-                  Área de cobertura
-                </label>
-                <div className="flex gap-2">
-                  {!isDrawingMode ? (
-                    <button
-                      onClick={startDrawing}
-                      className="flex-1 bg-blue-500/20 text-blue-400 border border-blue-500/50 px-3 py-2 text-sm rounded-lg hover:bg-blue-500/30 transition-colors"
-                    >
-                      <i className="bi bi-pencil mr-2"></i>
-                      {currentPolygon.length > 0 ? 'Redibujar' : 'Dibujar'}
-                    </button>
-                  ) : (
-                    <>
-                      <button
-                        onClick={finishDrawing}
-                        disabled={markers.length < 3}
-                        className="flex-1 bg-green-500/20 text-green-400 border border-green-500/50 px-3 py-2 text-sm rounded-lg hover:bg-green-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <i className="bi bi-check-circle mr-1"></i>
-                        Terminar
-                      </button>
-                      <button
-                        onClick={clearDrawing}
-                        className="bg-red-500/20 text-red-400 border border-red-500/50 px-3 py-2 text-sm rounded-lg hover:bg-red-500/30 transition-colors"
-                      >
-                        <i className="bi bi-x-circle"></i>
-                      </button>
-                    </>
-                  )}
-                </div>
+              {/* Modal footer */}
+              <div className="p-4 border-t border-gray-700 flex gap-3 shrink-0">
+                <button
+                  onClick={closeModal}
+                  className="flex-1 px-4 py-2 text-gray-300 border border-gray-600 rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveZone}
+                  disabled={!formData.name.trim() || currentPolygon.length < 3}
+                  className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
+                >
+                  {selectedZone ? 'Actualizar' : 'Guardar'}
+                </button>
               </div>
-
-              {/* Points list */}
-              {currentPolygon.length > 0 && (
-                <div className="bg-gray-700/50 rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-300">
-                      <i className="bi bi-geo-alt mr-1"></i>
-                      {currentPolygon.length} puntos
-                    </span>
-                    <span className="text-xs text-green-400">
-                      <i className="bi bi-check-circle mr-1"></i>Polígono válido
-                    </span>
-                  </div>
-                  <div className="max-h-32 overflow-y-auto space-y-1">
-                    {currentPolygon.map((point, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between text-xs py-1 px-2 rounded bg-gray-700/50 group"
-                      >
-                        <span className="text-gray-400">
-                          <span className="text-white font-medium">{index + 1}.</span>{' '}
-                          {point.lat.toFixed(5)}, {point.lng.toFixed(5)}
-                        </span>
-                        <button
-                          onClick={() => removePoint(index)}
-                          className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all"
-                        >
-                          <i className="bi bi-trash"></i>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {currentPolygon.length === 0 && !isDrawingMode && (
-                <div className="bg-gray-700/30 rounded-lg p-4 text-center">
-                  <i className="bi bi-geo text-2xl text-gray-500 mb-2"></i>
-                  <p className="text-sm text-gray-400">
-                    Usa el botón "Dibujar" para definir el área de cobertura en el mapa
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Modal footer */}
-            <div className="p-4 border-t border-gray-700 flex gap-3 shrink-0">
-              <button
-                onClick={closeModal}
-                className="flex-1 px-4 py-2 text-gray-300 border border-gray-600 rounded-lg hover:bg-gray-700 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSaveZone}
-                disabled={!formData.name.trim() || currentPolygon.length < 3}
-                className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
-              >
-                {selectedZone ? 'Actualizar' : 'Guardar'}
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Notifications */}
-      {notification.show && (
-        <div className={`fixed bottom-4 right-4 z-50 p-4 rounded-lg shadow-lg ${notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
-          } text-white animate-in slide-in-from-bottom-4 fade-in`}>
-          <div className="flex items-center gap-2">
-            <i className={`bi ${notification.type === 'success' ? 'bi-check-circle' : 'bi-exclamation-circle'}`}></i>
-            {notification.message}
+      {
+        notification.show && (
+          <div className={`fixed bottom-4 right-4 z-50 p-4 rounded-lg shadow-lg ${notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+            } text-white animate-in slide-in-from-bottom-4 fade-in`}>
+            <div className="flex items-center gap-2">
+              <i className={`bi ${notification.type === 'success' ? 'bi-check-circle' : 'bi-exclamation-circle'}`}></i>
+              {notification.message}
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   )
 }

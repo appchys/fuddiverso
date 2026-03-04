@@ -31,3 +31,7 @@ next-env.d.ts
 multitienda-69778-firebase-adminsdk-fbsvc-496524456f.json
 sa_key.json
 .firebaserc
+
+# Google Drive and other temp files
+.tmp.driveupload/
+Icon?

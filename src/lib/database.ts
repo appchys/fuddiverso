@@ -41,6 +41,7 @@ import {
   QRCode,
   UserQRProgress
 } from '../types'
+import { isDeliveryAvailable } from './store-utils'
 
 // Interfaz para egresos (expenses)
 export interface ExpenseEntry {
@@ -2360,26 +2361,60 @@ export async function getDeliveryForLocation(
       return null;
     }
 
-    // Si solo hay un delivery, retornarlo directamente
-    if (assignedDeliveryIds.length === 1) {
-      return assignedDeliveryIds[0];
-    }
+    // --- INTEGRACIÓN: Disponibilidad de Delivery ---
+    // Obtener todos los objetos delivery para verificar disponibilidad
+    const allAssignedDeliveries = await Promise.all(
+      assignedDeliveryIds.map(id => getDeliveryById(id))
+    );
 
-    // Round Robin: obtener el siguiente delivery en la rotación
-    const currentIndex = matchingZone.lastAssignedIndex || 0;
-    const nextIndex = (currentIndex + 1) % assignedDeliveryIds.length;
-    const selectedDeliveryId = assignedDeliveryIds[nextIndex];
-
-    // Actualizar el índice para la próxima asignación
-    await updateCoverageZone(matchingZone.id, {
-      lastAssignedIndex: nextIndex
+    // Filtrar IDs por disponibilidad real (horario + manual)
+    const availableDeliveryIds = assignedDeliveryIds.filter((id, index) => {
+      const d = allAssignedDeliveries[index];
+      return d && isDeliveryAvailable(d);
     });
 
-    console.log('[getDeliveryForLocation] Round Robin assignment:', {
+    if (availableDeliveryIds.length === 0) {
+      console.log('[getDeliveryForLocation] No available deliveries for zone:', matchingZone.name);
+      return null;
+    }
+
+    // Si solo hay uno disponible, retornarlo directamente
+    if (availableDeliveryIds.length === 1) {
+      return availableDeliveryIds[0];
+    }
+
+    // Round Robin: Buscar el siguiente disponible a partir del último índice asignado
+    const previousIndex = matchingZone.lastAssignedIndex ?? -1;
+    let selectedDeliveryId = null;
+    let nextIndexToSave = previousIndex;
+
+    // Recorremos los deliveries asignados en orden circular buscando el primero disponible
+    for (let i = 1; i <= assignedDeliveryIds.length; i++) {
+      const checkIndex = (previousIndex + i) % assignedDeliveryIds.length;
+      const deliveryId = assignedDeliveryIds[checkIndex];
+
+      if (availableDeliveryIds.includes(deliveryId)) {
+        selectedDeliveryId = deliveryId;
+        nextIndexToSave = checkIndex;
+        break;
+      }
+    }
+
+    if (!selectedDeliveryId) {
+      return null; // Caso improbable si availableDeliveryIds no está vacío
+    }
+
+    // Actualizar el índice para la próxima asignación (persistir progreso del Round Robin)
+    await updateCoverageZone(matchingZone.id, {
+      lastAssignedIndex: nextIndexToSave
+    });
+
+    console.log('[getDeliveryForLocation] Round Robin assignment (Available subset):', {
       zone: matchingZone.name,
-      totalDeliveries: assignedDeliveryIds.length,
-      previousIndex: currentIndex,
-      nextIndex,
+      totalAssigned: assignedDeliveryIds.length,
+      availableCount: availableDeliveryIds.length,
+      previousIndex,
+      nextIndexToSave,
       selectedDeliveryId
     });
 
