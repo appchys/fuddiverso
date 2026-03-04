@@ -304,6 +304,10 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
             borrador: 'Borrador'
         })[orderData.status || 'pending'] || (orderData.status || 'Pendiente'),
         paymentMethodRaw: paymentMethod,
+        // Timing: 'immediate' | 'scheduled'
+        orderTimingType: orderData.timing?.type || 'immediate',
+        // Delivery acceptance status: 'accepted' | 'pending'
+        deliveryAcceptanceStatus: options.deliveryAcceptanceStatus || '',
     };
 }
 

@@ -983,7 +983,9 @@ export default function TelegramTemplateEditor() {
     // --- Validación de HTML ---
     let templateError: string | null = null;
     if (templateText) {
-        const cleanedText = templateText.replace(/\{\{[\s\S]*?\}\}/g, '');
+        // Replace {{...}} with a placeholder so dynamic hrefs (e.g. href="{{mapsLink}}")
+        // are not falsely flagged as empty. Only truly static empty hrefs are caught.
+        const cleanedText = templateText.replace(/\{\{[\s\S]*?\}\}/g, 'VALUE');
         const tags = ['b', 'strong', 'i', 'em', 'u', 'ins', 's', 'strike', 'del', 'a', 'code', 'pre'];
         for (const tag of tags) {
             const openMatches = cleanedText.match(new RegExp(`<${tag}(?: [^>]*)?>`, 'gi')) || [];
