@@ -76,9 +76,12 @@ export default function ProductsList() {
       // Inicializar estados de precios
       const initialPriceStates: Record<string, PriceState> = {}
       productsWithBusiness.forEach(product => {
-        const commissionType = product.commissionType || 'fuddi_assumed_by_customer'
+        const commissionType = product.commissionType || 'no_commission'
         const basePrice = product.basePrice !== undefined ? product.basePrice : product.price
-        const commission = product.commission !== undefined ? product.commission : 0
+        const commission = commissionType === 'no_commission' ? 0 : (product.commission !== undefined ? product.commission : 0)
+
+        // Si es no_commission, el precio público es igual al precio de tienda (basePrice)
+        const publicPrice = commissionType === 'no_commission' ? basePrice : product.price
 
         // Calcular "Tienda Recibe" basado en el tipo guardado
         let storeReceives = basePrice
@@ -90,7 +93,7 @@ export default function ProductsList() {
         initialPriceStates[getPriceKey(product.id)] = {
           storePrice: basePrice,
           commission: commission,
-          publicPrice: product.price,
+          publicPrice: publicPrice,
           commissionType: commissionType,
           storeReceives: storeReceives
         }
@@ -98,9 +101,10 @@ export default function ProductsList() {
         // Estado para cada variante
         if (product.variants && product.variants.length > 0) {
           product.variants.forEach(variant => {
-            const vCommissionType = variant.commissionType || 'fuddi_assumed_by_customer'
+            const vCommissionType = variant.commissionType || 'no_commission'
             const vBasePrice = variant.basePrice !== undefined ? variant.basePrice : variant.price
-            const vCommission = variant.commission !== undefined ? variant.commission : 0
+            const vCommission = vCommissionType === 'no_commission' ? 0 : (variant.commission !== undefined ? variant.commission : 0)
+            const vPublicPrice = vCommissionType === 'no_commission' ? vBasePrice : variant.price
 
             let vStoreReceives = vBasePrice
             if (vCommissionType === 'fuddi_assumed_by_store') {
@@ -110,7 +114,7 @@ export default function ProductsList() {
             initialPriceStates[getPriceKey(product.id, variant.id)] = {
               storePrice: vBasePrice,
               commission: vCommission,
-              publicPrice: variant.price,
+              publicPrice: vPublicPrice,
               commissionType: vCommissionType,
               storeReceives: vStoreReceives
             }
@@ -363,9 +367,9 @@ export default function ProductsList() {
                   const mainKey = getPriceKey(product.id)
                   const mainPriceState = priceStates[mainKey] || {
                     storePrice: product.basePrice !== undefined ? product.basePrice : product.price,
-                    commission: product.commission !== undefined ? product.commission : 0,
-                    publicPrice: product.price,
-                    commissionType: product.commissionType || 'no_commission',
+                    commission: 0,
+                    publicPrice: product.basePrice !== undefined ? product.basePrice : product.price,
+                    commissionType: 'no_commission',
                     storeReceives: product.basePrice !== undefined ? product.basePrice : product.price
                   }
                   const isMainUpdating = updatingPrices.has(mainKey)
@@ -417,7 +421,7 @@ export default function ProductsList() {
                             disabled={isMainUpdating}
                             className="text-xs border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-transparent py-1"
                           >
-                            <option value="no_commission">Sin trato</option>
+                            <option value="no_commission">Pendiente</option>
                             <option value="fuddi_assumed_by_customer">Cliente asume</option>
                             <option value="fuddi_assumed_by_store">Tienda asume</option>
                           </select>
@@ -457,9 +461,9 @@ export default function ProductsList() {
                         const variantKey = getPriceKey(product.id, variant.id)
                         const variantPriceState = priceStates[variantKey] || {
                           storePrice: variant.basePrice !== undefined ? variant.basePrice : variant.price,
-                          commission: variant.commission !== undefined ? variant.commission : 0,
-                          publicPrice: variant.price,
-                          commissionType: variant.commissionType || 'no_commission',
+                          commission: 0,
+                          publicPrice: variant.basePrice !== undefined ? variant.basePrice : variant.price,
+                          commissionType: 'no_commission',
                           storeReceives: variant.basePrice !== undefined ? variant.basePrice : variant.price
                         }
                         const isVariantUpdating = updatingPrices.has(variantKey)
@@ -479,7 +483,7 @@ export default function ProductsList() {
                                 disabled={isVariantUpdating}
                                 className="text-[10px] border-gray-200 rounded py-0.5 bg-transparent"
                               >
-                                <option value="no_commission">Sin trato</option>
+                                <option value="no_commission">Pendiente</option>
                                 <option value="fuddi_assumed_by_customer">Cliente asume</option>
                                 <option value="fuddi_assumed_by_store">Tienda asume</option>
                               </select>
