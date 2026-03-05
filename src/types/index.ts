@@ -1,5 +1,8 @@
 import { Timestamp } from 'firebase/firestore'
 
+export type CommissionType = 'fuddi_assumed_by_store' | 'fuddi_assumed_by_customer' | 'no_commission'
+
+
 export interface Business {
   id: string
   name: string
@@ -129,6 +132,9 @@ export interface ProductVariant {
   name: string
   description?: string
   price: number
+  basePrice?: number // Precio base original antes de comisión
+  commission?: number // Comisión aplicada
+  commissionType?: CommissionType // Tipo de gestión de comisión
   isAvailable: boolean
   ingredients?: Ingredient[]
 }
@@ -151,6 +157,9 @@ export interface Product {
   name: string
   description: string
   price: number // Precio base del producto
+  basePrice?: number // Precio base original antes de comisión
+  commission?: number // Comisión aplicada
+  commissionType?: CommissionType // Tipo de gestión de comisión
   category: string
   image?: string
   slug?: string // Slug amigable (ej: "munRJd")

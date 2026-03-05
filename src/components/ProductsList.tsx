@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { Product, Business, ProductVariant } from '@/types'
+import { Product, Business, ProductVariant, CommissionType } from '@/types'
 import { getAllProducts, getAllBusinesses, updateProduct } from '@/lib/database'
 
 const COMMISSION_RATE = 0.05 // 5% de comisión
@@ -19,6 +19,8 @@ interface PriceState {
   storePrice: number
   commission: number
   publicPrice: number
+  commissionType: CommissionType
+  storeReceives: number
 }
 
 interface VariantPriceKey {
@@ -41,6 +43,7 @@ export default function ProductsList() {
   const [priceStates, setPriceStates] = useState<Record<string, PriceState>>({})
   const [updatingPrices, setUpdatingPrices] = useState<Set<string>>(new Set())
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
+  const [lastSavedKey, setLastSavedKey] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
@@ -73,20 +76,43 @@ export default function ProductsList() {
       // Inicializar estados de precios
       const initialPriceStates: Record<string, PriceState> = {}
       productsWithBusiness.forEach(product => {
+        const commissionType = product.commissionType || 'fuddi_assumed_by_customer'
+        const basePrice = product.basePrice !== undefined ? product.basePrice : product.price
+        const commission = product.commission !== undefined ? product.commission : 0
+
+        // Calcular "Tienda Recibe" basado en el tipo guardado
+        let storeReceives = basePrice
+        if (commissionType === 'fuddi_assumed_by_store') {
+          storeReceives = product.price - (product.commission || 0)
+        }
+
         // Estado para el producto principal
         initialPriceStates[getPriceKey(product.id)] = {
-          storePrice: product.price,
-          commission: 0,
-          publicPrice: product.price
+          storePrice: basePrice,
+          commission: commission,
+          publicPrice: product.price,
+          commissionType: commissionType,
+          storeReceives: storeReceives
         }
 
         // Estado para cada variante
         if (product.variants && product.variants.length > 0) {
           product.variants.forEach(variant => {
+            const vCommissionType = variant.commissionType || 'fuddi_assumed_by_customer'
+            const vBasePrice = variant.basePrice !== undefined ? variant.basePrice : variant.price
+            const vCommission = variant.commission !== undefined ? variant.commission : 0
+
+            let vStoreReceives = vBasePrice
+            if (vCommissionType === 'fuddi_assumed_by_store') {
+              vStoreReceives = variant.price - (variant.commission || 0)
+            }
+
             initialPriceStates[getPriceKey(product.id, variant.id)] = {
-              storePrice: variant.price,
-              commission: 0,
-              publicPrice: variant.price
+              storePrice: vBasePrice,
+              commission: vCommission,
+              publicPrice: variant.price,
+              commissionType: vCommissionType,
+              storeReceives: vStoreReceives
             }
           })
         }
@@ -124,14 +150,51 @@ export default function ProductsList() {
     return roundToNearest005(storePrice * COMMISSION_RATE)
   }
 
-  const handleOfficalizePrice = async (productId: string, variantId?: string) => {
+  const handleCommissionTypeChange = async (productId: string, variantId: string | undefined, type: CommissionType) => {
     const key = getPriceKey(productId, variantId)
     const currentState = priceStates[key]
     if (!currentState) return
 
-    // Calcular nueva comisión al 5%
-    const newCommission = calculateCommission(currentState.storePrice)
-    const newPublicPrice = roundToNearest005(currentState.storePrice + newCommission)
+    let newCommission = 0
+    let newPublicPrice = currentState.storePrice
+    let newStoreReceives = currentState.storePrice
+
+    if (type === 'fuddi_assumed_by_customer') {
+      newCommission = calculateCommission(currentState.storePrice)
+      newPublicPrice = roundToNearest005(currentState.storePrice + newCommission)
+      newStoreReceives = currentState.storePrice
+    } else if (type === 'fuddi_assumed_by_store') {
+      newCommission = calculateCommission(currentState.storePrice)
+      newPublicPrice = currentState.storePrice
+      newStoreReceives = roundToNearest005(currentState.storePrice - newCommission)
+    } else {
+      // no_commission
+      newCommission = 0
+      newPublicPrice = currentState.storePrice
+      newStoreReceives = currentState.storePrice
+    }
+
+    const newState = {
+      ...currentState,
+      commissionType: type,
+      commission: newCommission,
+      publicPrice: newPublicPrice,
+      storeReceives: newStoreReceives
+    }
+
+    setPriceStates(prev => ({
+      ...prev,
+      [key]: newState
+    }))
+
+    // Auto-save logic
+    await handleOfficalizePrice(productId, variantId, newState)
+  }
+
+  const handleOfficalizePrice = async (productId: string, variantId?: string, overrideState?: PriceState) => {
+    const key = getPriceKey(productId, variantId)
+    const currentState = overrideState || priceStates[key]
+    if (!currentState) return
 
     setUpdatingPrices(prev => new Set(prev).add(key))
 
@@ -139,16 +202,31 @@ export default function ProductsList() {
       const product = products.find(p => p.id === productId)
       if (!product) return
 
+      const updateData = {
+        price: currentState.publicPrice,
+        basePrice: currentState.storePrice,
+        commission: currentState.commission,
+        commissionType: currentState.commissionType,
+        updatedAt: new Date()
+      }
+
       if (variantId) {
         // Actualizar variante
         const updatedVariants = product.variants?.map(v =>
           v.id === variantId
-            ? { ...v, price: newPublicPrice }
+            ? {
+              ...v,
+              price: currentState.publicPrice,
+              basePrice: currentState.storePrice,
+              commission: currentState.commission,
+              commissionType: currentState.commissionType
+            }
             : v
         ) || []
 
         await updateProduct(productId, {
-          variants: updatedVariants
+          variants: updatedVariants,
+          updatedAt: new Date()
         } as Partial<Product>)
 
         // Actualizar estado local de productos
@@ -159,32 +237,24 @@ export default function ProductsList() {
         ))
       } else {
         // Actualizar producto principal
-        await updateProduct(productId, {
-          price: newPublicPrice
-        })
+        await updateProduct(productId, updateData)
 
         // Actualizar estado local
         setProducts(prev => prev.map(p =>
           p.id === productId
-            ? { ...p, price: newPublicPrice }
+            ? {
+              ...p,
+              ...updateData
+            }
             : p
         ))
       }
 
-      // Actualizar estado de precios
-      setPriceStates(prev => ({
-        ...prev,
-        [key]: {
-          storePrice: currentState.storePrice,
-          commission: newCommission,
-          publicPrice: newPublicPrice
-        }
-      }))
-
-      alert('Precio oficializado correctamente')
+      // Feedback sutil
+      setLastSavedKey(key)
+      setTimeout(() => setLastSavedKey(null), 2000)
     } catch (error) {
-      console.error('Error updating price:', error)
-      alert('Error al oficializar el precio')
+      console.error('Error auto-saving:', error)
     } finally {
       setUpdatingPrices(prev => {
         const newSet = new Set(prev)
@@ -263,193 +333,179 @@ export default function ProductsList() {
         </div>
       </div>
 
-      {/* Lista de Productos */}
-      <div className="space-y-4">
-        {filteredProducts.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-10 text-center">
-            <div className="flex flex-col items-center">
-              <i className="bi bi-inbox text-4xl text-gray-300 mb-3"></i>
-              <p className="text-gray-500 font-medium">No hay productos que coincidan con los filtros</p>
-            </div>
-          </div>
-        ) : (
-          filteredProducts.map((product) => {
-            const isExpanded = expandedProducts.has(product.id)
-            const hasVariants = product.variants && product.variants.length > 0
-            const mainKey = getPriceKey(product.id)
-            const mainPriceState = priceStates[mainKey] || {
-              storePrice: product.price,
-              commission: 0,
-              publicPrice: product.price
-            }
-            const isMainUpdating = updatingPrices.has(mainKey)
+      {/* Lista de Productos Table Mode */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Producto</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Tienda</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">P. Tienda</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Trato Comisión</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Comisión</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">P. Público</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Recibe</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider w-10"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {filteredProducts.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-6 py-10 text-center text-gray-500">
+                    No hay productos que coincidan con los filtros
+                  </td>
+                </tr>
+              ) : (
+                filteredProducts.map((product) => {
+                  const isExpanded = expandedProducts.has(product.id)
+                  const hasVariants = product.variants && product.variants.length > 0
+                  const mainKey = getPriceKey(product.id)
+                  const mainPriceState = priceStates[mainKey] || {
+                    storePrice: product.basePrice !== undefined ? product.basePrice : product.price,
+                    commission: product.commission !== undefined ? product.commission : 0,
+                    publicPrice: product.price,
+                    commissionType: product.commissionType || 'no_commission',
+                    storeReceives: product.basePrice !== undefined ? product.basePrice : product.price
+                  }
+                  const isMainUpdating = updatingPrices.has(mainKey)
+                  const isMainSaved = lastSavedKey === mainKey
 
-            return (
-              <div key={product.id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                {/* Producto Principal */}
-                <div className="p-6 border-b border-gray-200 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-4 flex-1">
-                      {product.image && (
-                        <img
-                          src={product.image}
-                          alt={product.name}
-                          className="w-16 h-16 rounded object-cover"
-                        />
-                      )}
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="text-lg font-semibold text-gray-900">{product.name}</h3>
-                          {hasVariants && (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                              Con variantes
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-sm text-gray-600 mb-2">{product.businessName}</p>
-                        <p className="text-xs text-gray-500">{product.category}</p>
-                      </div>
-                    </div>
-
-                    {/* Estado disponibilidad */}
-                    <div className="flex flex-col items-end gap-2">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          product.isAvailable
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}
-                      >
-                        {product.isAvailable ? 'Disponible' : 'No disponible'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Precios producto principal */}
-                  <div className="mt-6 grid grid-cols-3 md:grid-cols-4 gap-3">
-                    <div className="bg-blue-50 rounded p-3 border border-blue-200">
-                      <p className="text-xs font-medium text-blue-700 mb-1">Precio Tienda</p>
-                      <p className="text-lg font-bold text-blue-900">${mainPriceState.storePrice.toFixed(2)}</p>
-                    </div>
-                    <div className="bg-orange-50 rounded p-3 border border-orange-200">
-                      <p className="text-xs font-medium text-orange-700 mb-1">Comisión</p>
-                      <p className="text-lg font-bold text-orange-900">${mainPriceState.commission.toFixed(2)}</p>
-                      <p className="text-xs text-orange-600 mt-1">({(COMMISSION_RATE * 100).toFixed(0)}%)</p>
-                    </div>
-                    <div className="bg-green-50 rounded p-3 border border-green-200">
-                      <p className="text-xs font-medium text-green-700 mb-1">Precio Público</p>
-                      <p className="text-lg font-bold text-green-900">${mainPriceState.publicPrice.toFixed(2)}</p>
-                    </div>
-                    <div className="col-span-3 md:col-span-1">
-                      <button
-                        onClick={() => handleOfficalizePrice(product.id)}
-                        disabled={isMainUpdating}
-                        className="w-full px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                      >
-                        {isMainUpdating ? (
-                          <>
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                            Guardando...
-                          </>
-                        ) : (
-                          <>
-                            <i className="bi bi-check-circle"></i>
-                            Oficializar
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Variantes */}
-                {hasVariants && (
-                  <>
-                    {/* Botón expandir/contraer */}
-                    <button
-                      onClick={() => toggleProductExpanded(product.id)}
-                      className="w-full px-6 py-3 text-left text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors border-t border-gray-200 flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-2">
-                        <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-500`}></i>
-                        <span>{isExpanded ? 'Ocultar' : 'Mostrar'} variantes ({product.variants!.length})</span>
-                      </div>
-                    </button>
-
-                    {/* Lista de variantes */}
-                    {isExpanded && (
-                      <div className="bg-gray-50 divide-y divide-gray-200">
-                        {product.variants!.map((variant) => {
-                          const variantKey = getPriceKey(product.id, variant.id)
-                          const variantPriceState = priceStates[variantKey] || {
-                            storePrice: variant.price,
-                            commission: 0,
-                            publicPrice: variant.price
-                          }
-                          const isVariantUpdating = updatingPrices.has(variantKey)
-
-                          return (
-                            <div key={variant.id} className="p-6 hover:bg-gray-100 transition-colors">
-                              <div className="flex items-start justify-between gap-4">
-                                <div className="flex-1">
-                                  <h4 className="font-medium text-gray-900 mb-1">{variant.name}</h4>
-                                  {variant.description && (
-                                    <p className="text-sm text-gray-600 mb-2">{variant.description}</p>
-                                  )}
-                                  <span
-                                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                      variant.isAvailable
-                                        ? 'bg-green-100 text-green-800'
-                                        : 'bg-gray-100 text-gray-800'
-                                    }`}
-                                  >
-                                    {variant.isAvailable ? 'Disponible' : 'No disponible'}
-                                  </span>
-                                </div>
-
-                                {/* Precios variante */}
-                                <div className="grid grid-cols-3 md:grid-cols-4 gap-3 flex-1 ml-4">
-                                  <div className="bg-blue-50 rounded p-3 border border-blue-200">
-                                    <p className="text-xs font-medium text-blue-700 mb-1">Precio Tienda</p>
-                                    <p className="text-lg font-bold text-blue-900">${variantPriceState.storePrice.toFixed(2)}</p>
-                                  </div>
-                                  <div className="bg-orange-50 rounded p-3 border border-orange-200">
-                                    <p className="text-xs font-medium text-orange-700 mb-1">Comisión</p>
-                                    <p className="text-lg font-bold text-orange-900">${variantPriceState.commission.toFixed(2)}</p>
-                                    <p className="text-xs text-orange-600 mt-1">({(COMMISSION_RATE * 100).toFixed(0)}%)</p>
-                                  </div>
-                                  <div className="bg-green-50 rounded p-3 border border-green-200">
-                                    <p className="text-xs font-medium text-green-700 mb-1">Precio Público</p>
-                                    <p className="text-lg font-bold text-green-900">${variantPriceState.publicPrice.toFixed(2)}</p>
-                                  </div>
-                                  <div>
-                                    <button
-                                      onClick={() => handleOfficalizePrice(product.id, variant.id)}
-                                      disabled={isVariantUpdating}
-                                      className="w-full px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                    >
-                                      {isVariantUpdating ? (
-                                        <>
-                                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                        </>
-                                      ) : (
-                                        <i className="bi bi-check-circle"></i>
-                                      )}
-                                    </button>
-                                  </div>
-                                </div>
+                  return (
+                    <React.Fragment key={product.id}>
+                      <tr className={`${isExpanded ? 'bg-blue-50/30' : 'hover:bg-gray-50'} transition-colors group`}>
+                        {/* Producto */}
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            {product.image ? (
+                              <img src={product.image} alt={product.name} className="w-10 h-10 rounded object-cover border border-gray-100" />
+                            ) : (
+                              <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-gray-400">
+                                <i className="bi bi-box"></i>
                               </div>
+                            )}
+                            <div>
+                              <p className="font-semibold text-gray-900 text-sm">{product.name}</p>
+                              {hasVariants && (
+                                <button
+                                  onClick={() => toggleProductExpanded(product.id)}
+                                  className="text-[10px] text-blue-600 font-bold uppercase hover:underline flex items-center gap-1 mt-0.5"
+                                >
+                                  {product.variants!.length} Variantes
+                                  <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'}`}></i>
+                                </button>
+                              )}
                             </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )
-          })
-        )}
+                          </div>
+                        </td>
+
+                        {/* Tienda */}
+                        <td className="px-6 py-4 text-sm text-gray-600">
+                          {product.businessName}
+                        </td>
+
+                        {/* P. Tienda */}
+                        <td className="px-6 py-4 font-medium text-gray-900 text-sm">
+                          ${mainPriceState.storePrice.toFixed(2)}
+                        </td>
+
+                        {/* Trato */}
+                        <td className="px-6 py-4">
+                          <select
+                            value={mainPriceState.commissionType}
+                            onChange={(e) => handleCommissionTypeChange(product.id, undefined, e.target.value as CommissionType)}
+                            disabled={isMainUpdating}
+                            className="text-xs border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-transparent py-1"
+                          >
+                            <option value="no_commission">Sin trato</option>
+                            <option value="fuddi_assumed_by_customer">Cliente asume</option>
+                            <option value="fuddi_assumed_by_store">Tienda asume</option>
+                          </select>
+                        </td>
+
+                        {/* Comisión */}
+                        <td className="px-6 py-4 text-sm">
+                          <span className={`${mainPriceState.commission > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                            ${mainPriceState.commission.toFixed(2)}
+                          </span>
+                        </td>
+
+                        {/* P. Público */}
+                        <td className="px-6 py-4 font-bold text-gray-900 text-sm">
+                          ${mainPriceState.publicPrice.toFixed(2)}
+                        </td>
+
+                        {/* Recibe */}
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-bold bg-green-50 text-green-700">
+                            ${mainPriceState.storeReceives.toFixed(2)}
+                          </span>
+                        </td>
+
+                        {/* Status / Auto-save feedback */}
+                        <td className="px-6 py-4 text-right">
+                          {isMainUpdating ? (
+                            <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                          ) : isMainSaved ? (
+                            <i className="bi bi-check-circle-fill text-green-500 text-lg animate-pulse"></i>
+                          ) : null}
+                        </td>
+                      </tr>
+
+                      {/* Variantes en la tabla */}
+                      {isExpanded && product.variants?.map((variant) => {
+                        const variantKey = getPriceKey(product.id, variant.id)
+                        const variantPriceState = priceStates[variantKey] || {
+                          storePrice: variant.basePrice !== undefined ? variant.basePrice : variant.price,
+                          commission: variant.commission !== undefined ? variant.commission : 0,
+                          publicPrice: variant.price,
+                          commissionType: variant.commissionType || 'no_commission',
+                          storeReceives: variant.basePrice !== undefined ? variant.basePrice : variant.price
+                        }
+                        const isVariantUpdating = updatingPrices.has(variantKey)
+                        const isVariantSaved = lastSavedKey === variantKey
+
+                        return (
+                          <tr key={variant.id} className="bg-gray-50/50 border-l-4 border-blue-200">
+                            <td className="px-6 py-3 pl-14">
+                              <p className="text-gray-700 text-xs font-medium">{variant.name}</p>
+                            </td>
+                            <td className="px-6 py-3 text-xs text-gray-400 italic">Variante</td>
+                            <td className="px-6 py-3 text-xs text-gray-700">${variantPriceState.storePrice.toFixed(2)}</td>
+                            <td className="px-6 py-3">
+                              <select
+                                value={variantPriceState.commissionType}
+                                onChange={(e) => handleCommissionTypeChange(product.id, variant.id, e.target.value as CommissionType)}
+                                disabled={isVariantUpdating}
+                                className="text-[10px] border-gray-200 rounded py-0.5 bg-transparent"
+                              >
+                                <option value="no_commission">Sin trato</option>
+                                <option value="fuddi_assumed_by_customer">Cliente asume</option>
+                                <option value="fuddi_assumed_by_store">Tienda asume</option>
+                              </select>
+                            </td>
+                            <td className="px-6 py-3 text-xs text-gray-500">${variantPriceState.commission.toFixed(2)}</td>
+                            <td className="px-6 py-3 text-xs font-bold text-gray-800">${variantPriceState.publicPrice.toFixed(2)}</td>
+                            <td className="px-6 py-3">
+                              <span className="text-[10px] font-bold text-green-600">${variantPriceState.storeReceives.toFixed(2)}</span>
+                            </td>
+                            <td className="px-6 py-3 text-right">
+                              {isVariantUpdating ? (
+                                <div className="w-3 h-3 border border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                              ) : isVariantSaved ? (
+                                <i className="bi bi-check-circle-fill text-green-500 text-sm"></i>
+                              ) : null}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </React.Fragment>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Información de Comisión */}
