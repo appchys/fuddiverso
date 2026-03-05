@@ -1437,8 +1437,11 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
 /**
  * Enviar notificación de Telegram a la tienda cuando se crea una orden
  */
-async function sendBusinessTelegramNotification(businessData, orderData, orderId) {
-    console.log(`🔍 [sendBusinessTelegramNotification] Iniciando para orden ${orderId}`);
+/**
+ * Notificar a la tienda sobre un pedido (Nuevo, Recordatorio, etc.)
+ */
+async function sendBusinessTelegramNotification(businessData, orderData, orderId, templateKey = 'store_new_order') {
+    console.log(`🔍 [sendBusinessTelegramNotification] Iniciando para orden ${orderId} con template ${templateKey}`);
 
     if (!businessData) {
         console.warn(`⚠️ [Telegram] No se encontró datos del negocio para orden ${orderId}`);
@@ -1474,7 +1477,7 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     console.log(`✅ [Telegram] STORE_BOT_TOKEN está configurado: ${STORE_BOT_TOKEN.substring(0, 10)}...${STORE_BOT_TOKEN.substring(STORE_BOT_TOKEN.length - 10)}`);
 
     const businessName = businessData.name || 'Tienda';
-    const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, true);
+    const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, templateKey);
     console.log(`📝 [Telegram] Mensaje formateado. Longitud: ${telegramText.length}`);
     console.log(`🔍 [Telegram-DEBUG] Primeros 200 caracteres del HTML: ${telegramText.substring(0, 200)}`);
     console.log(`🔍 [Telegram-DEBUG] Buscando tags <a> en el mensaje...`);
@@ -1490,7 +1493,9 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     const confirmToken = Buffer.from(`${orderId}|biz_confirm`).toString('base64');
     const discardToken = Buffer.from(`${orderId}|biz_discard`).toString('base64');
 
-    const replyMarkup = {
+    // Los recordatorios no llevan botones de aceptar/descartar (usualmente)
+    const isReminder = templateKey === 'store_reminder';
+    const replyMarkup = isReminder ? null : {
         inline_keyboard: [
             [
                 { text: "✅ Aceptar Pedido", callback_data: `biz_confirm|${confirmToken}` },
@@ -1552,6 +1557,13 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     }
 }
 
+/**
+ * Enviar un recordatorio de pedido programado a la tienda
+ */
+async function sendBusinessReminderNotification(businessData, orderData, orderId) {
+    return sendBusinessTelegramNotification(businessData, orderData, orderId, 'store_reminder');
+}
+
 
 module.exports = {
     formatTelegramMessage,
@@ -1562,6 +1574,7 @@ module.exports = {
     handleCustomerWebhook,
     sendDeliveryTelegramNotification,
     sendBusinessTelegramNotification,
+    sendBusinessReminderNotification,
     updateBusinessTelegramMessage,
     sendCustomerTelegramNotification
 };

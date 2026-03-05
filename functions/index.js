@@ -200,6 +200,12 @@ async function notifyBusinessTelegramOnOrderCreation(orderData, orderId) {
     return;
   }
 
+  // No notificar si el pedido es un borrador
+  if (orderData.status === 'borrador') {
+    console.log(`ℹ️ Orden ${orderId} es un borrador, omitiendo notificación a la tienda.`);
+    return;
+  }
+
   try {
     console.log(`📬 [Telegram] Obteniendo datos de negocio ${orderData.businessId} para notificación...`);
     // Obtener datos del negocio
@@ -210,7 +216,7 @@ async function notifyBusinessTelegramOnOrderCreation(orderData, orderId) {
     }
 
     const businessData = businessDoc.data();
-    
+
     // Solo notificar si la orden NO fue creada por un admin (es decir, fue creada por un cliente)
     // O si fue creada por admin pero la tienda tiene habilitada la configuración de notificaciones para pedidos manuales por Telegram
     const notifyManual = businessData.notificationSettings?.telegramOrderManual === true;
@@ -237,7 +243,7 @@ async function notifyDeliveryAssignmentLogic(beforeData, afterData, orderId) {
     console.log(`ℹ️ Orden ${orderId} no tiene delivery asignado`);
     return;
   }
-  
+
   if (beforeDeliveryId === afterDeliveryId) {
     console.log(`ℹ️ Orden ${orderId} delivery no cambió`);
     return;
@@ -507,6 +513,25 @@ exports.sendScheduledOrderReminders = onSchedule({
         await emailServices.sendReminderEmail(
           order, orderId, recipients, scheduledTime, scheduledDateStr, customerName, customerPhone, deliveryInfo, previewItems.join(', '), productsHtml
         );
+
+        // Recordatorio por Telegram a la Tienda
+        if (order.businessId) {
+          try {
+            const businessDoc = await admin.firestore().collection('businesses').doc(order.businessId).get();
+            if (businessDoc.exists) {
+              const businessData = businessDoc.data();
+              // Usar un nuevo método que definiremos en telegramServices
+              if (typeof telegramServices.sendBusinessReminderNotification === 'function') {
+                await telegramServices.sendBusinessReminderNotification(businessData, order, orderId);
+              } else {
+                // Fallback si el método aún no está definido, usar el estándar con la clave 'store_reminder'
+                await telegramServices.sendBusinessTelegramNotification(businessData, order, orderId, 'store_reminder');
+              }
+            }
+          } catch (telError) {
+            console.error(`❌ Error enviando recordatorio por Telegram para orden ${orderId}:`, telError);
+          }
+        }
 
         await orderDoc.ref.update({
           reminderSent: true,

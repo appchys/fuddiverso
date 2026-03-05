@@ -196,6 +196,13 @@ const ENTRY_EVENTS: EventWithRecipients[] = [
         ],
     },
     {
+        key: 'reminder',
+        label: 'Recordatorio (Programado)',
+        recipients: [
+            { recipient: 'store', label: 'Tienda' },
+        ],
+    },
+    {
         key: 'assigned',
         label: 'Pedido Asignado',
         recipients: [
@@ -295,6 +302,7 @@ const EVENTS_BY_RECIPIENT: Record<Recipient, Record<TemplateType, TemplateEvent[
     store: {
         entry: [
             { key: 'new_order', label: 'Nuevo Pedido' },
+            { key: 'reminder', label: 'Recordatorio (Programado)' },
         ],
         update: [
             { key: 'confirmed', label: 'Pedido Confirmado' },
@@ -434,6 +442,14 @@ Envío: {{deliveryCost}}
 
 {{paymentMethod}}
 💰 Valor a cobrar: {{total}}`,
+    store_reminder: `⏰ <b>¡Recordatorio de Pedido!</b>
+El pedido de <b>{{customerName}}</b> está programado para dentro de 30 minutos.
+
+<b>Hora:</b> {{scheduledDateTime}}
+<b>Productos:</b>
+{{items}}
+
+<b>Entrega:</b> {{deliveryAddress}}`,
 
     store_confirmed: `✅ <b>Pedido confirmado</b>
 
