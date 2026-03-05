@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
@@ -177,6 +177,7 @@ export default function TodayOrdersPage() {
     const [showTimeDropdown, setShowTimeDropdown] = useState(false)
     const [updatingStoreStatus, setUpdatingStoreStatus] = useState(false)
     const [updatingDeliveryTime, setUpdatingDeliveryTime] = useState(false)
+    const [checkoutCount, setCheckoutCount] = useState(0)
     const { queueStatus, retryFailed } = useOfflineQueue()
 
     // Notifications Hook
@@ -248,6 +249,10 @@ export default function TodayOrdersPage() {
             setCategories(business.categories)
         }
     }, [business])
+
+    const showCol1 = useMemo(() => orders.some(o => ['borrador', 'pending'].includes(o.status)) || checkoutCount > 0, [orders, checkoutCount]);
+    const showCol2 = useMemo(() => orders.some(o => o.status === 'confirmed'), [orders]);
+    const showCol3 = useMemo(() => orders.some(o => ['preparing', 'ready', 'on_way', 'delivered', 'cancelled'].includes(o.status)), [orders]);
 
     const handleProductsChange = (newProducts: Product[]) => {
         setProducts(newProducts)
@@ -1155,52 +1160,90 @@ export default function TodayOrdersPage() {
                                                 historicalOrders={historicalOrders}
                                             />
                                         ) : (
-                                            <div className="space-y-6">
-                                                {['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way', 'delivered', 'cancelled'].map(status => {
-                                                    const statusOrders = orders.filter(o => o.status === status);
-                                                    if (statusOrders.length === 0) return null;
+                                            <div className="flex flex-col lg:flex-row gap-6 items-start">
+                                                {/* Columna 1: Borrador, Pendiente y Live Checkouts */}
+                                                {showCol1 && (
+                                                    <div className="flex-1 min-w-0 space-y-6">
+                                                        {businessId && (
+                                                            <LiveCheckoutsPanel
+                                                                businessId={businessId}
+                                                                orders={orders}
+                                                                onCountChange={setCheckoutCount}
+                                                            />
+                                                        )}
+                                                        <OrderStatusColumn
+                                                            statuses={['borrador', 'pending']}
+                                                            orders={orders}
+                                                            availableDeliveries={availableDeliveries}
+                                                            handleStatusChange={handleStatusChange}
+                                                            handleDeliveryAssignment={handleDeliveryAssignment}
+                                                            handlePaymentClick={handlePaymentClick}
+                                                            handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                                                            handlePrint={handlePrint}
+                                                            setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
+                                                            setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
+                                                            setSelectedOrderForEdit={setSelectedOrderForEdit}
+                                                            setManualSidebarMode={setManualSidebarMode}
+                                                            setManualOrderSidebarOpen={setManualOrderSidebarOpen}
+                                                            handleDeleteOrder={handleDeleteOrder}
+                                                            setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
+                                                            setCustomerContactModalOpen={setCustomerContactModalOpen}
+                                                            business={business}
+                                                        />
+                                                    </div>
+                                                )}
 
-                                                    return (
-                                                        <CollapsibleSection
-                                                            key={status}
-                                                            title={getStatusText(status)}
-                                                            count={statusOrders.length}
-                                                            status={status}
-                                                            defaultExpanded={!['delivered', 'cancelled'].includes(status)}
-                                                        >
-                                                            {statusOrders.map(order => (
-                                                                <OrderCard
-                                                                    key={order.id}
-                                                                    order={order}
-                                                                    availableDeliveries={availableDeliveries}
-                                                                    onStatusChange={handleStatusChange}
-                                                                    onDeliveryAssign={handleDeliveryAssignment}
-                                                                    onPaymentEdit={() => handlePaymentClick(order)}
-                                                                    onWhatsAppDelivery={() => handleSendWhatsAppToDelivery(order)}
-                                                                    onPrint={() => handlePrint(order)}
-                                                                    onDeliveryStatusClick={(order) => {
-                                                                        setSelectedOrderForStatusModal(order)
-                                                                        setDeliveryStatusModalOpen(true)
-                                                                    }}
-                                                                    onEdit={() => {
-                                                                        setSelectedOrderForEdit(order)
-                                                                        setManualSidebarMode('edit')
-                                                                        setManualOrderSidebarOpen(true)
-                                                                    }}
-                                                                    onDelete={() => handleDeleteOrder(order.id)}
-                                                                    onCustomerClick={() => {
-                                                                        setSelectedOrderForCustomerContact(order)
-                                                                        setCustomerContactModalOpen(true)
-                                                                    }}
-                                                                    businessPhone={business?.phone}
-                                                                />
-                                                            ))}
-                                                        </CollapsibleSection>
-                                                    )
-                                                })}
+                                                {/* Columna 2: Confirmados */}
+                                                {showCol2 && (
+                                                    <div className="flex-1 min-w-0 space-y-6">
+                                                        <OrderStatusColumn
+                                                            statuses={['confirmed']}
+                                                            orders={orders}
+                                                            availableDeliveries={availableDeliveries}
+                                                            handleStatusChange={handleStatusChange}
+                                                            handleDeliveryAssignment={handleDeliveryAssignment}
+                                                            handlePaymentClick={handlePaymentClick}
+                                                            handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                                                            handlePrint={handlePrint}
+                                                            setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
+                                                            setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
+                                                            setSelectedOrderForEdit={setSelectedOrderForEdit}
+                                                            setManualSidebarMode={setManualSidebarMode}
+                                                            setManualOrderSidebarOpen={setManualOrderSidebarOpen}
+                                                            handleDeleteOrder={handleDeleteOrder}
+                                                            setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
+                                                            setCustomerContactModalOpen={setCustomerContactModalOpen}
+                                                            business={business}
+                                                        />
+                                                    </div>
+                                                )}
+
+                                                {/* Columna 3: El resto */}
+                                                {showCol3 && (
+                                                    <div className="flex-1 min-w-0 space-y-6">
+                                                        <OrderStatusColumn
+                                                            statuses={['preparing', 'ready', 'on_way', 'delivered', 'cancelled']}
+                                                            orders={orders}
+                                                            availableDeliveries={availableDeliveries}
+                                                            handleStatusChange={handleStatusChange}
+                                                            handleDeliveryAssignment={handleDeliveryAssignment}
+                                                            handlePaymentClick={handlePaymentClick}
+                                                            handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                                                            handlePrint={handlePrint}
+                                                            setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
+                                                            setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
+                                                            setSelectedOrderForEdit={setSelectedOrderForEdit}
+                                                            setManualSidebarMode={setManualSidebarMode}
+                                                            setManualOrderSidebarOpen={setManualOrderSidebarOpen}
+                                                            handleDeleteOrder={handleDeleteOrder}
+                                                            setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
+                                                            setCustomerContactModalOpen={setCustomerContactModalOpen}
+                                                            business={business}
+                                                        />
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
-                                        {businessId && <LiveCheckoutsPanel businessId={businessId} orders={orders} />}
                                     </div>
                                 </>
                             )}
@@ -1425,6 +1468,73 @@ const getActionEmoji = (status: string) => {
         case 'delivered': return '🎉'
         default: return '➡️'
     }
+}
+
+function OrderStatusColumn({
+    statuses,
+    orders,
+    availableDeliveries,
+    handleStatusChange,
+    handleDeliveryAssignment,
+    handlePaymentClick,
+    handleSendWhatsAppToDelivery,
+    handlePrint,
+    setSelectedOrderForStatusModal,
+    setDeliveryStatusModalOpen,
+    setSelectedOrderForEdit,
+    setManualSidebarMode,
+    setManualOrderSidebarOpen,
+    handleDeleteOrder,
+    setSelectedOrderForCustomerContact,
+    setCustomerContactModalOpen,
+    business
+}: any) {
+    return (
+        <>
+            {statuses.map((status: string) => {
+                const statusOrders = orders.filter((o: any) => o.status === status);
+                if (statusOrders.length === 0) return null;
+
+                return (
+                    <CollapsibleSection
+                        key={status}
+                        title={getStatusText(status)}
+                        count={statusOrders.length}
+                        status={status}
+                        defaultExpanded={!['delivered', 'cancelled'].includes(status)}
+                    >
+                        {statusOrders.map((order: any) => (
+                            <OrderCard
+                                key={order.id}
+                                order={order}
+                                availableDeliveries={availableDeliveries}
+                                onStatusChange={handleStatusChange}
+                                onDeliveryAssign={handleDeliveryAssignment}
+                                onPaymentEdit={() => handlePaymentClick(order)}
+                                onWhatsAppDelivery={() => handleSendWhatsAppToDelivery(order)}
+                                onPrint={() => handlePrint(order)}
+                                onDeliveryStatusClick={(o: any) => {
+                                    setSelectedOrderForStatusModal(o)
+                                    setDeliveryStatusModalOpen(true)
+                                }}
+                                onEdit={() => {
+                                    setSelectedOrderForEdit(order)
+                                    setManualSidebarMode('edit')
+                                    setManualOrderSidebarOpen(true)
+                                }}
+                                onDelete={() => handleDeleteOrder(order.id)}
+                                onCustomerClick={() => {
+                                    setSelectedOrderForCustomerContact(order)
+                                    setCustomerContactModalOpen(true)
+                                }}
+                                businessPhone={business?.phone}
+                            />
+                        ))}
+                    </CollapsibleSection>
+                );
+            })}
+        </>
+    );
 }
 
 function CollapsibleSection({
