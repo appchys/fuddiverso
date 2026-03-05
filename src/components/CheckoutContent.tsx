@@ -1110,16 +1110,6 @@ export function CheckoutContent({
     }
 
     if (step === 2) {
-      if (!deliveryData.type) {
-        newErrors.deliveryType = 'Selecciona un tipo de entrega'
-      } else if (deliveryData.type === 'delivery') {
-        if (!deliveryData.address.trim()) {
-          newErrors.address = 'La dirección es requerida para delivery'
-        }
-      }
-    }
-
-    if (step === 3) {
       if (!timingData.type) {
         newErrors.timing = 'Selecciona cuándo prefieres recibir tu pedido'
       } else if (timingData.type === 'scheduled') {
@@ -1129,6 +1119,16 @@ export function CheckoutContent({
           newErrors.timing = 'La tienda está cerrada en el horario seleccionado'
         } else if (!cartAvailability.available) {
           newErrors.timing = 'Algunos productos de tu carrito no están disponibles para esta fecha'
+        }
+      }
+    }
+
+    if (step === 3) {
+      if (!deliveryData.type) {
+        newErrors.deliveryType = 'Selecciona un tipo de entrega'
+      } else if (deliveryData.type === 'delivery') {
+        if (!deliveryData.address.trim()) {
+          newErrors.address = 'La dirección es requerida para delivery'
         }
       }
     }
@@ -1164,21 +1164,21 @@ export function CheckoutContent({
       }
     }
 
-    // Paso 2: Validar datos de entrega
-    if (maxStep >= 2 && deliveryData.type) {
-      if (deliveryData.type === 'pickup' || (deliveryData.type === 'delivery' && (deliveryData.address.trim() || selectedLocation))) {
+    // Paso 2: Validar timing (requiere selección explícita)
+    if (maxStep >= 2 && timingData.type) {
+      if (timingData.type === 'immediate') {
         maxStep = 3;
+      } else if (timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime) {
+        if (isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) && cartAvailability.available) {
+          maxStep = 3;
+        }
       }
     }
 
-    // Paso 3: Validar timing (requiere selección explícita)
-    if (maxStep >= 3 && timingData.type) {
-      if (timingData.type === 'immediate') {
+    // Paso 3: Validar datos de entrega
+    if (maxStep >= 3 && deliveryData.type) {
+      if (deliveryData.type === 'pickup' || (deliveryData.type === 'delivery' && (deliveryData.address.trim() || selectedLocation))) {
         maxStep = 4;
-      } else if (timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime) {
-        if (isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) && cartAvailability.available) {
-          maxStep = 4;
-        }
       }
     }
 
@@ -1205,19 +1205,19 @@ export function CheckoutContent({
   })();
 
   const step2Complete = (() => {
-    if (!deliveryData.type) return false;
-    if (deliveryData.type === 'pickup') return true;
-    if (deliveryData.type === 'delivery') {
-      return Boolean(selectedLocation || deliveryData.address.trim());
+    if (!timingData.type) return false;
+    if (timingData.type === 'immediate') return true;
+    if (timingData.type === 'scheduled') {
+      return Boolean(timingData.scheduledDate && timingData.scheduledTime && isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) && cartAvailability.available);
     }
     return false;
   })();
 
   const step3Complete = (() => {
-    if (!timingData.type) return false;
-    if (timingData.type === 'immediate') return true;
-    if (timingData.type === 'scheduled') {
-      return Boolean(timingData.scheduledDate && timingData.scheduledTime && isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) && cartAvailability.available);
+    if (!deliveryData.type) return false;
+    if (deliveryData.type === 'pickup') return true;
+    if (deliveryData.type === 'delivery') {
+      return Boolean(selectedLocation || deliveryData.address.trim());
     }
     return false;
   })();
@@ -1244,20 +1244,20 @@ export function CheckoutContent({
     }
     if (!user) return false;
 
-    // Paso 2: entrega
-    if (!deliveryData.type) return false;
-    if (deliveryData.type === 'delivery') {
-      if (!deliveryData.address.trim() && !selectedLocation) return false;
-      // Si la ubicación seleccionada está fuera de cobertura, no permitir confirmar
-      if (!calculatingTariff && selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0)) return false;
-    }
-
-    // Paso 3: timing
+    // Paso 2: timing
     if (!timingData.type) return false; // requiere seleccionar inmediato o programado
     if (timingData.type === 'scheduled') {
       if (!timingData.scheduledDate || !timingData.scheduledTime) return false;
       if (!isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)) return false;
       if (!cartAvailability.available) return false;
+    }
+
+    // Paso 3: entrega
+    if (!deliveryData.type) return false;
+    if (deliveryData.type === 'delivery') {
+      if (!deliveryData.address.trim() && !selectedLocation) return false;
+      // Si la ubicación seleccionada está fuera de cobertura, no permitir confirmar
+      if (!calculatingTariff && selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0)) return false;
     }
 
     // Paso 4: pago
@@ -1780,11 +1780,175 @@ export function CheckoutContent({
               </div>
             </div>
 
-            {/* Step 2: Delivery */}
-            {/* Step 2: Delivery */}
+            {/* Step 2: Timing */}
             <div id="step-2" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
               <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
                 <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">2</span>
+                Horario
+              </h2>
+              <div className="space-y-6">
+                {/* Mensaje informativo cuando la tienda está cerrada */}
+                {!isStoreOpen(business) && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 animate-fadeIn">
+                    <i className="bi bi-info-circle-fill text-amber-600 text-xl flex-shrink-0 mt-0.5"></i>
+                    <div className="flex-1">
+                      <p className="font-medium text-amber-900">Tienda actualmente cerrada</p>
+                      <p className="text-sm text-amber-700 mt-1">
+                        Solo puedes programar pedidos para cuando la tienda esté abierta.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setTimingData({ type: 'immediate', scheduledDate: '', scheduledTime: '' })}
+                    disabled={!canOrderNow}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${!canOrderNow
+                      ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                      : timingData.type === 'immediate'
+                        ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                        : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                      }`}
+                  >
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${!canOrderNow
+                      ? 'bg-gray-200 text-gray-400'
+                      : timingData.type === 'immediate'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-white text-gray-400'
+                      }`}>
+                      <i className="bi bi-lightning-charge-fill"></i>
+                    </div>
+                    <span className="font-bold text-center leading-tight">Lo antes posible</span>
+                    <span className={`text-xs mt-1 text-center ${timingData.type === 'immediate' ? 'text-white/80' : 'text-gray-500'}`}>
+                      {!isStoreOpen(business)
+                        ? 'Tienda cerrada'
+                        : !canOrderNow
+                          ? 'Productos no disponibles hoy'
+                          : `Aprox ${business?.deliveryTime || 30} minutos`}
+                    </span>
+                    {timingData.type === 'immediate' && isStoreOpen(business) && (
+                      <div className="absolute top-2 right-2 text-white text-xs">
+                        <i className="bi bi-check-circle-fill"></i>
+                      </div>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Si ya tiene datos, solo cambiar tipo (o mantenerlos)
+                      // Si no tiene datos, calcular el próximo slot disponible
+                      if (timingData.scheduledDate && timingData.scheduledTime) {
+                        setTimingData({ ...timingData, type: 'scheduled' })
+                      } else {
+                        const nextSlot = getNextAvailableSlotForCart(cartItems, business)
+                        setTimingData({
+                          type: 'scheduled',
+                          scheduledDate: nextSlot?.date || '',
+                          scheduledTime: nextSlot?.time || ''
+                        })
+                      }
+                    }}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${timingData.type === 'scheduled'
+                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                      }`}
+                  >
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${timingData.type === 'scheduled' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
+                      <i className="bi bi-clock-fill"></i>
+                    </div>
+                    <span className="font-bold">Programar</span>
+                    {timingData.type === 'scheduled' && (
+                      <div className="absolute top-2 right-2 text-white text-xs">
+                        <i className="bi bi-check-circle-fill"></i>
+                      </div>
+                    )}
+                  </button>
+                </div>
+
+                {timingData.type === 'scheduled' && (
+                  <div className="grid grid-cols-2 gap-4 animate-fadeIn">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">{getDateLabel()}</label>
+                      <input
+                        type="date"
+                        min={getMinScheduledDate()}
+                        value={timingData.scheduledDate}
+                        onChange={(e) => setTimingData({ ...timingData, scheduledDate: e.target.value })}
+                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 ${timingData.scheduledDate && timingData.scheduledTime && !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)
+                          ? 'border-red-300'
+                          : 'border-gray-200'
+                          }`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Hora</label>
+                      <input
+                        type="time"
+                        value={timingData.scheduledTime}
+                        onChange={(e) => setTimingData({ ...timingData, scheduledTime: e.target.value })}
+                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 ${timingData.scheduledDate && timingData.scheduledTime && !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)
+                          ? 'border-red-300'
+                          : 'border-gray-200'
+                          }`}
+                      />
+                    </div>
+
+                    {timingData.scheduledDate && timingData.scheduledTime && !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) && (
+                      <div className="col-span-2 mt-2 p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 animate-fadeIn">
+                        <i className="bi bi-exclamation-circle-fill text-red-500 mt-0.5"></i>
+                        <div className="text-sm text-red-700">
+                          <p className="font-bold">Fuera de horario</p>
+                          <p>La tienda no recibe pedidos en el horario seleccionado.</p>
+                          {(() => {
+                            const info = getStoreScheduleForDate(business, timingData.scheduledDate);
+                            if (info?.schedule && info.schedule.isOpen) {
+                              return (
+                                <p className="mt-1 font-medium">
+                                  El {info.dayName} atendemos de {info.schedule.open} a {info.schedule.close}.
+                                </p>
+                              );
+                            } else if (info) {
+                              return <p className="mt-1 font-medium text-red-800">El {info.dayName} la tienda permanece cerrada.</p>;
+                            }
+                            return null;
+                          })()}
+                        </div>
+                      </div>
+                    )}
+
+                    {timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime && !cartAvailability.available && (
+                      <div className="col-span-2 mt-2 p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 animate-fadeIn">
+                        <i className="bi bi-calendar-x-fill text-red-500 mt-0.5"></i>
+                        <div className="text-sm text-red-700 w-full">
+                          <p className="font-bold mb-1">Estos productos no están disponibles para el día u hora seleccionada.</p>
+                          <div className="mt-2 space-y-3">
+                            {cartAvailability.unavailableProducts.map((item: any, i: number) => (
+                              <div key={i} className="border-l-2 border-red-200 pl-3 py-0.5">
+                                <p className="font-black text-red-900">{item.name}</p>
+                                <p className="text-xs mt-0.5 font-medium">
+                                  <span className="opacity-70">Disponible pronto:</span> {item.scheduleText}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="mt-3 text-xs opacity-80 italic">Cambia la fecha o retira estos productos de tu pedido para continuar.</p>
+                        </div>
+                      </div>
+                    )}
+
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Step 3: Delivery */}
+            {/* Step 3: Delivery */}
+            <div id="step-3" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
+              <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">3</span>
                 Entrega
               </h2>
               <div className="space-y-6">
@@ -1942,170 +2106,6 @@ export function CheckoutContent({
                         </div>
                       )}
                     </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Step 3: Timing */}
-            <div id="step-3" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
-              <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">3</span>
-                Horario
-              </h2>
-              <div className="space-y-6">
-                {/* Mensaje informativo cuando la tienda está cerrada */}
-                {!isStoreOpen(business) && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 animate-fadeIn">
-                    <i className="bi bi-info-circle-fill text-amber-600 text-xl flex-shrink-0 mt-0.5"></i>
-                    <div className="flex-1">
-                      <p className="font-medium text-amber-900">Tienda actualmente cerrada</p>
-                      <p className="text-sm text-amber-700 mt-1">
-                        Solo puedes programar pedidos para cuando la tienda esté abierta.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setTimingData({ type: 'immediate', scheduledDate: '', scheduledTime: '' })}
-                    disabled={!canOrderNow}
-                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${!canOrderNow
-                      ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
-                      : timingData.type === 'immediate'
-                        ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
-                        : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
-                      }`}
-                  >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${!canOrderNow
-                      ? 'bg-gray-200 text-gray-400'
-                      : timingData.type === 'immediate'
-                        ? 'bg-white/20 text-white'
-                        : 'bg-white text-gray-400'
-                      }`}>
-                      <i className="bi bi-lightning-charge-fill"></i>
-                    </div>
-                    <span className="font-bold text-center leading-tight">Lo antes posible</span>
-                    <span className={`text-xs mt-1 text-center ${timingData.type === 'immediate' ? 'text-white/80' : 'text-gray-500'}`}>
-                      {!isStoreOpen(business)
-                        ? 'Tienda cerrada'
-                        : !canOrderNow
-                          ? 'Productos no disponibles hoy'
-                          : `Aprox ${business?.deliveryTime || 30} minutos`}
-                    </span>
-                    {timingData.type === 'immediate' && isStoreOpen(business) && (
-                      <div className="absolute top-2 right-2 text-white text-xs">
-                        <i className="bi bi-check-circle-fill"></i>
-                      </div>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // Si ya tiene datos, solo cambiar tipo (o mantenerlos)
-                      // Si no tiene datos, calcular el próximo slot disponible
-                      if (timingData.scheduledDate && timingData.scheduledTime) {
-                        setTimingData({ ...timingData, type: 'scheduled' })
-                      } else {
-                        const nextSlot = getNextAvailableSlotForCart(cartItems, business)
-                        setTimingData({
-                          type: 'scheduled',
-                          scheduledDate: nextSlot?.date || '',
-                          scheduledTime: nextSlot?.time || ''
-                        })
-                      }
-                    }}
-                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${timingData.type === 'scheduled'
-                      ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
-                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
-                      }`}
-                  >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${timingData.type === 'scheduled' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
-                      <i className="bi bi-clock-fill"></i>
-                    </div>
-                    <span className="font-bold">Programar</span>
-                    {timingData.type === 'scheduled' && (
-                      <div className="absolute top-2 right-2 text-white text-xs">
-                        <i className="bi bi-check-circle-fill"></i>
-                      </div>
-                    )}
-                  </button>
-                </div>
-
-                {timingData.type === 'scheduled' && (
-                  <div className="grid grid-cols-2 gap-4 animate-fadeIn">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">{getDateLabel()}</label>
-                      <input
-                        type="date"
-                        min={getMinScheduledDate()}
-                        value={timingData.scheduledDate}
-                        onChange={(e) => setTimingData({ ...timingData, scheduledDate: e.target.value })}
-                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 ${timingData.scheduledDate && timingData.scheduledTime && !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)
-                          ? 'border-red-300'
-                          : 'border-gray-200'
-                          }`}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Hora</label>
-                      <input
-                        type="time"
-                        value={timingData.scheduledTime}
-                        onChange={(e) => setTimingData({ ...timingData, scheduledTime: e.target.value })}
-                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 ${timingData.scheduledDate && timingData.scheduledTime && !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime)
-                          ? 'border-red-300'
-                          : 'border-gray-200'
-                          }`}
-                      />
-                    </div>
-
-                    {timingData.scheduledDate && timingData.scheduledTime && !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) && (
-                      <div className="col-span-2 mt-2 p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 animate-fadeIn">
-                        <i className="bi bi-exclamation-circle-fill text-red-500 mt-0.5"></i>
-                        <div className="text-sm text-red-700">
-                          <p className="font-bold">Fuera de horario</p>
-                          <p>La tienda no recibe pedidos en el horario seleccionado.</p>
-                          {(() => {
-                            const info = getStoreScheduleForDate(business, timingData.scheduledDate);
-                            if (info?.schedule && info.schedule.isOpen) {
-                              return (
-                                <p className="mt-1 font-medium">
-                                  El {info.dayName} atendemos de {info.schedule.open} a {info.schedule.close}.
-                                </p>
-                              );
-                            } else if (info) {
-                              return <p className="mt-1 font-medium text-red-800">El {info.dayName} la tienda permanece cerrada.</p>;
-                            }
-                            return null;
-                          })()}
-                        </div>
-                      </div>
-                    )}
-
-                    {timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime && !cartAvailability.available && (
-                      <div className="col-span-2 mt-2 p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 animate-fadeIn">
-                        <i className="bi bi-calendar-x-fill text-red-500 mt-0.5"></i>
-                        <div className="text-sm text-red-700 w-full">
-                          <p className="font-bold mb-1">Estos productos no están disponibles para el día u hora seleccionada.</p>
-                          <div className="mt-2 space-y-3">
-                            {cartAvailability.unavailableProducts.map((item: any, i: number) => (
-                              <div key={i} className="border-l-2 border-red-200 pl-3 py-0.5">
-                                <p className="font-black text-red-900">{item.name}</p>
-                                <p className="text-xs mt-0.5 font-medium">
-                                  <span className="opacity-70">Disponible pronto:</span> {item.scheduleText}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                          <p className="mt-3 text-xs opacity-80 italic">Cambia la fecha o retira estos productos de tu pedido para continuar.</p>
-                        </div>
-                      </div>
-                    )}
-
                   </div>
                 )}
               </div>
