@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
 import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation } from '@/lib/database'
 import { searchClients } from '@/lib/client-search'
+import { getProductPublicPrice, getPriceMetadata } from '@/lib/price-utils'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -35,6 +36,11 @@ interface OrderItem {
   productId: string
   quantity: number
   variant?: string
+  // Metadatos de precios para liquidaciones
+  basePrice?: number
+  commission?: number
+  commissionType?: string
+  storeReceives?: number
 }
 
 interface ManualOrderData {
@@ -1018,15 +1024,17 @@ export default function ManualOrderSidebar({
 
   // Agregar producto a la orden
   const addProductToOrder = (product: Product, variant?: ProductVariant) => {
-    const price = variant ? variant.price : product.price
-    const variantName = variant ? variant.name : undefined
+    const item = variant || product
+    const pubPrice = getProductPublicPrice(item)
+    const metadata = getPriceMetadata(item)
 
     const newItem: OrderItem = {
-      name: product.name,
-      price: price,
+      name: variant ? `${product.name} - ${variant.name}` : product.name,
+      price: pubPrice,
       productId: product.id,
       quantity: 1,
-      variant: variantName
+      variant: variant?.name || '',
+      ...metadata
     }
 
     setManualOrderData(prev => ({

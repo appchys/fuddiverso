@@ -42,7 +42,7 @@ export default function AdminDashboard() {
   const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'settlements' | 'templates' | 'products' | 'orders'>('home')
-  
+
   // Estados para filtros del historial de órdenes
   const [filterOrdersBusiness, setFilterOrdersBusiness] = useState<string>('all')
   const [filterOrdersDeliveryType, setFilterOrdersDeliveryType] = useState<'all' | 'delivery' | 'pickup'>('all')
@@ -54,7 +54,7 @@ export default function AdminDashboard() {
     })(),
     end: new Date().toISOString().split('T')[0]
   })
-  
+
   // Estado para liquidaciones
   const [selectedSettlementBusiness, setSelectedSettlementBusiness] = useState<string | null>(null)
   const [processingSettlement, setProcessingSettlement] = useState(false)
@@ -474,10 +474,10 @@ export default function AdminDashboard() {
           const orderDate = new Date(order.createdAt);
           const startDate = new Date(filterOrdersDateRange.start);
           const endDate = new Date(filterOrdersDateRange.end);
-          
+
           startDate.setHours(0, 0, 0, 0);
           endDate.setHours(23, 59, 59, 999);
-          
+
           if (orderDate < startDate || orderDate > endDate) {
             return false;
           }
@@ -648,16 +648,14 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-4 md:px-6 py-4 whitespace-nowrap">
                           <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium ${
-                              deliveryType === 'Delivery'
-                                ? 'bg-blue-50 text-blue-700'
-                                : 'bg-purple-50 text-purple-700'
-                            }`}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium ${deliveryType === 'Delivery'
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'bg-purple-50 text-purple-700'
+                              }`}
                           >
                             <i
-                              className={`bi ${
-                                deliveryType === 'Delivery' ? 'bi-scooter' : 'bi-house-door'
-                              }`}
+                              className={`bi ${deliveryType === 'Delivery' ? 'bi-scooter' : 'bi-house-door'
+                                }`}
                             ></i>
                             {deliveryType}
                           </span>
@@ -671,23 +669,23 @@ export default function AdminDashboard() {
                             {order.status === 'pending'
                               ? 'Pendiente'
                               : order.status === 'confirmed'
-                              ? 'Confirmado'
-                              : order.status === 'preparing'
-                              ? 'Preparando'
-                              : order.status === 'ready'
-                              ? 'Listo'
-                              : order.status === 'delivered'
-                              ? 'Entregado'
-                              : 'Cancelado'}
+                                ? 'Confirmado'
+                                : order.status === 'preparing'
+                                  ? 'Preparando'
+                                  : order.status === 'ready'
+                                    ? 'Listo'
+                                    : order.status === 'delivered'
+                                      ? 'Entregado'
+                                      : 'Cancelado'}
                           </span>
                         </td>
                         <td className="px-4 md:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {order.createdAt
                             ? new Date(order.createdAt).toLocaleDateString('es-EC', {
-                                day: '2-digit',
-                                month: '2-digit',
-                                year: '2-digit',
-                              })
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: '2-digit',
+                            })
                             : 'Sin fecha'}
                         </td>
                       </tr>
@@ -775,11 +773,35 @@ export default function AdminDashboard() {
 
 
   const renderSettlementsTab = () => {
-    // 1. Filtrar órdenes pendientes de liquidación y entregadas
-    const pendingOrders = orders.filter(o =>
-      o.status === 'delivered' &&
-      (!o.settlementStatus || o.settlementStatus === 'pending')
-    )
+    // 1. Filtrar órdenes programadas para hoy, pendientes de liquidación
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+
+    const pendingOrders = orders.filter(o => {
+      // Debe estar programada para hoy
+      if (o.timing?.scheduledDate) {
+        let scheduledDate: Date | null = null
+        const dateVal = o.timing.scheduledDate
+        
+        if (dateVal instanceof Date) {
+          scheduledDate = dateVal
+        } else if (typeof dateVal === 'object' && 'seconds' in dateVal) {
+          scheduledDate = new Date((dateVal.seconds as number) * 1000)
+        }
+        
+        if (scheduledDate) {
+          scheduledDate.setHours(0, 0, 0, 0)
+          if (scheduledDate.getTime() !== today.getTime()) return false
+        }
+      }
+      // Excluir órdenes en estado borrador, pendiente o canceladas
+      if (['borrador', 'pending', 'cancelled'].includes(o.status)) return false
+      // Must be pending settlement
+      if (o.settlementStatus && o.settlementStatus !== 'pending') return false
+      return true
+    })
 
     // 2. Agrupar por negocio
     const settlementsByBusiness = businesses.reduce((acc, business) => {
@@ -797,38 +819,45 @@ export default function AdminDashboard() {
       let collectedByStoreSubtotal = 0
 
       businessOrders.forEach(order => {
-        // Subtotal de productos: Priorizar el campo subtotal de la orden, si no existe calcularlo
-        const subtotal = order.subtotal || order.items?.reduce((sum, item: any) => {
-          const itemPrice = item.price || item.product?.price || 0
-          const itemTotal = item.subtotal || (itemPrice * item.quantity)
-          return sum + itemTotal
-        }, 0) || (order.total - (order.delivery?.deliveryCost || 0))
+        // Obtener datos de comisión desde los items guardados
+        let orderCommission = 0
+        let orderSubtotal = 0
+        
+        if (order.items && order.items.length > 0) {
+          order.items.forEach((item: any) => {
+            const qty = item.quantity || 1
+            // Usar comisión guardada en el item
+            orderCommission += (item.commission || 0) * qty
+            orderSubtotal += (item.price || 0) * qty
+          })
+        } else {
+          // Si no hay items con datos, usar subtotal de la orden
+          orderSubtotal = order.subtotal || (order.total - (order.delivery?.deliveryCost || 0))
+        }
 
-        // Delivery cost: Campo directo o diferencia
-        const deliveryCost = order.delivery?.deliveryCost || (order.total - subtotal) || 0
-        const commission = subtotal * 0.04
+        const deliveryCost = order.delivery?.deliveryCost || 0
 
         console.log(`[Settlement Debug] Order: ${order.id}`, {
           orderTotal: order.total,
-          subtotal,
+          subtotal: orderSubtotal,
           deliveryCost,
-          commission,
+          commission: orderCommission,
           collector: order.paymentCollector
         });
 
         totalSales += (order.total || 0)
-        totalSubtotal += subtotal
-        totalCommission += commission
+        totalSubtotal += orderSubtotal
+        totalCommission += orderCommission
         totalDelivery += deliveryCost
 
         // Determinamos quién cobró
         const currentOrderTotal = order.total || 0
         if (order.paymentCollector === 'store') {
           collectedByStore += currentOrderTotal
-          collectedByStoreSubtotal += subtotal
+          collectedByStoreSubtotal += orderSubtotal
         } else {
           collectedByFuddi += currentOrderTotal
-          collectedByFuddiSubtotal += subtotal
+          collectedByFuddiSubtotal += orderSubtotal
         }
       })
 
@@ -937,191 +966,232 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Resumen Financiero del Corte */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-xs font-semibold text-gray-500 uppercase">Ventas Totales</p>
-                <div className="group relative">
-                  <i className="bi bi-info-circle text-gray-400 cursor-help"></i>
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-gray-800 text-white text-[10px] p-2 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                    Monto total de productos vendidos (Subtotal sin envío).
+          {/* Tabla y Resumen de Órdenes */}
+          {(() => {
+            // Helper para calcular info de liquidación por orden
+            const getSettlementOrderInfo = (order: Order) => {
+              let orderBasePrice = 0
+              let orderCommission = 0
+              let orderStoreReceives = 0
+
+              if (order.items && order.items.length > 0) {
+                order.items.forEach((item: any) => {
+                  const qty = item.quantity || 1
+
+                  // Usar datos guardados del item (commission, storeReceives, basePrice)
+                  orderBasePrice += (item.basePrice || item.price || 0) * qty
+                  orderCommission += (item.commission || 0) * qty
+                  orderStoreReceives += (item.storeReceives || (item.price || 0)) * qty
+                })
+              } else {
+                // Caso sin items: usar subtotal de la orden (sin cálculo de porcentajes)
+                const subtotal = order.subtotal || (order.total - (order.delivery?.deliveryCost || 0))
+                orderBasePrice = subtotal
+                orderCommission = 0  // Sin datos, no calculamos
+                orderStoreReceives = subtotal
+              }
+
+              return {
+                basePrice: orderBasePrice,
+                commission: orderCommission,
+                storeReceives: orderStoreReceives
+              }
+            }
+
+            const summary = selectedData.orders.reduce((acc: any, order: Order) => {
+              const info = getSettlementOrderInfo(order)
+              const isStoreCollector = order.paymentCollector === 'store'
+
+              acc.totalOrders++
+              acc.totalAmount += (order.total || 0)
+              acc.totalCommission += info.commission
+
+              if (isStoreCollector) {
+                // Tienda tiene el dinero -> Debe commission a Fuddi
+                acc.collectedByStore += (order.total || 0)
+                acc.fuddiReceives += info.commission
+              } else {
+                // Fuddi tiene el dinero -> Debe storeReceives a Tienda
+                acc.collectedByFuddi += (order.total || 0)
+                acc.storeReceives += info.storeReceives
+              }
+
+              return acc
+            }, {
+              totalOrders: 0,
+              totalAmount: 0,
+              totalCommission: 0,
+              collectedByStore: 0,
+              collectedByFuddi: 0,
+              storeReceives: 0, // Lo que Fuddi le debe a la tienda
+              fuddiReceives: 0  // Lo que la tienda le debe a Fuddi
+            })
+
+            const netSettlement = summary.storeReceives - summary.fuddiReceives
+
+            return (
+              <div className="space-y-6">
+                {/* Resumen de Liquidación */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                    <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Ventas Totales</div>
+                    <div className="text-2xl font-black text-gray-900">${summary.totalAmount.toFixed(2)}</div>
+                    <div className="text-[10px] text-gray-400 mt-1">{summary.totalOrders} pedidos finalizados</div>
+                  </div>
+                  <div className="bg-blue-50 p-5 rounded-2xl border border-blue-100">
+                    <div className="text-xs font-black text-blue-400 uppercase tracking-widest mb-1">Tienda Recauda</div>
+                    <div className="text-2xl font-black text-blue-700">${summary.collectedByStore.toFixed(2)}</div>
+                    <div className="text-[10px] text-blue-500 mt-1">Debe comisión: ${summary.fuddiReceives.toFixed(2)}</div>
+                  </div>
+                  <div className="bg-green-50 p-5 rounded-2xl border border-green-100">
+                    <div className="text-xs font-black text-green-400 uppercase tracking-widest mb-1">Fuddi Recauda</div>
+                    <div className="text-2xl font-black text-green-700">${summary.collectedByFuddi.toFixed(2)}</div>
+                    <div className="text-[10px] text-green-500 mt-1">Debe producto: ${summary.storeReceives.toFixed(2)}</div>
+                  </div>
+                  <div className={`p-5 rounded-2xl border ${netSettlement >= 0 ? 'bg-amber-50 border-amber-100' : 'bg-red-50 border-red-100'}`}>
+                    <div className="text-xs font-black uppercase tracking-widest mb-1">{netSettlement >= 0 ? 'Fuddi paga a Tienda' : 'Tienda paga a Fuddi'}</div>
+                    <div className={`text-2xl font-black ${netSettlement >= 0 ? 'text-amber-700' : 'text-red-700'}`}>
+                      ${Math.abs(netSettlement).toFixed(2)}
+                    </div>
+                    <div className="text-[10px] text-gray-500 mt-1">Liquidación Neta</div>
                   </div>
                 </div>
-              </div>
-              <p className="text-2xl font-bold text-gray-900">${selectedData.financials.totalSubtotal.toFixed(2)}</p>
-              <div className="mt-1 space-y-0.5">
-                <p className="text-[10px] text-gray-500 flex justify-between" title="Ventas netas cobradas (Sin envío)">
-                  <span>Tienda (Rec):</span>
-                  <span className="font-medium text-gray-700">${selectedData.financials.collectedByStoreSubtotal.toFixed(2)}</span>
-                </p>
-                <p className="text-[10px] text-gray-500 flex justify-between" title="Ventas netas cobradas (Sin envío)">
-                  <span>Fuddi (Rec):</span>
-                  <span className="font-medium text-gray-700">${selectedData.financials.collectedByFuddiSubtotal.toFixed(2)}</span>
-                </p>
-                <p className="text-[10px] text-gray-900 flex justify-between pt-1 border-t border-gray-100 mt-1" title="Subtotal de productos ya recaudado por la tienda">
-                  <span className="font-semibold">Cobrado por tienda:</span>
-                  <span className="font-bold">-${selectedData.financials.collectedByStoreSubtotal.toFixed(2)}</span>
-                </p>
-              </div>
-              <p className="text-[10px] text-gray-400 mt-2 border-t pt-1">{selectedData.financials.count} órdenes</p>
-            </div>
-            <div className="bg-red-50 p-4 rounded-xl border border-red-100">
-              <p className="text-xs font-semibold text-red-700 uppercase">Comisiones Fuddi (4%)</p>
-              <p className="text-2xl font-bold text-red-700">-${selectedData.financials.totalCommission.toFixed(2)}</p>
-            </div>
-            <div className={`p-4 rounded-xl border ${selectedData.financials.netAmount >= 0 ? 'bg-green-50 border-green-100' : 'bg-orange-50 border-orange-100'}`}>
-              <p className={`text-xs font-semibold uppercase ${selectedData.financials.netAmount >= 0 ? 'text-green-700' : 'text-orange-700'}`}>
-                {selectedData.financials.netAmount >= 0 ? 'Transferir a Tienda' : 'Cobrar a Tienda'}
-              </p>
-              <p className={`text-2xl font-bold ${selectedData.financials.netAmount >= 0 ? 'text-green-700' : 'text-orange-700'}`}>
-                ${Math.abs(selectedData.financials.netAmount).toFixed(2)}
-              </p>
-              {selectedData.financials.netAmount < 0 && <p className="text-xs text-orange-600 mt-1">La tienda recaudó más de lo que le corresponde</p>}
-            </div>
-          </div>
 
-          <div className="flex justify-end mb-4">
-            <button
-              onClick={() => handleCreateSettlement(selectedData.business.id, selectedData.orders, selectedData.financials)}
-              disabled={processingSettlement}
-              className="bg-green-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2"
-            >
-              {processingSettlement ? <i className="bi bi-arrow-clockwise animate-spin"></i> : <i className="bi bi-check-circle"></i>}
-              Generar Corte y Marcar Pagado
-            </button>
-          </div>
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-100">
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Fecha</th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Monto</th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Cliente</th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Pago</th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-center">Recaudado</th>
+                        <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-center">Detalle Liq.</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {(() => {
+                        const groups = selectedData.orders.reduce((acc: any, order: Order) => {
+                          const assignedId = order.delivery?.type === 'pickup' ? 'pickup' : (order.delivery?.assignedDelivery || 'unassigned')
+                          if (!acc[assignedId]) acc[assignedId] = []
+                          acc[assignedId].push(order)
+                          return acc
+                        }, {} as Record<string, Order[]>)
 
-          {/* Tabla de Órdenes */}
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <tbody className="bg-white divide-y divide-gray-200">
-                {(() => {
-                  const groups = selectedData.orders.reduce((acc: any, order: Order) => {
-                    const assignedId = order.delivery?.type === 'pickup' ? 'pickup' : (order.delivery?.assignedDelivery || 'unassigned')
-                    if (!acc[assignedId]) acc[assignedId] = []
-                    acc[assignedId].push(order)
-                    return acc
-                  }, {} as Record<string, Order[]>)
-
-                  return Object.entries(groups)
-                    .sort(([idA], [idB]) => {
-                      if (idA === 'pickup') return 1
-                      if (idB === 'pickup') return -1
-                      return 0
-                    })
-                    .map(([groupId, groupOrders]: [string, any]) => {
-                      const delivery = deliveries.find(d => d.id === groupId || d.uid === groupId)
-                      const groupTitle = groupId === 'pickup' ? 'Retiros en Tienda' : (delivery ? `Delivery: ${delivery.nombres}` : 'Delivery: Sin asignar')
-                      const groupIcon = groupId === 'pickup' ? 'bi-person-fill' : 'bi-scooter'
-                      const isCollapsed = collapsedGroups[groupId] !== false
-
-                      return (
-                        <Fragment key={groupId}>
-                          {/* Header de Grupo */}
-                          {(() => {
-                            const groupTotal = groupOrders.reduce((sum: number, o: Order) => sum + (o.total || 0), 0)
-                            const groupSubtotal = groupOrders.reduce((sum: number, o: Order) => {
-                              const s = o.subtotal || o.items?.reduce((isum, item: any) => {
-                                const itemPrice = item.price || item.product?.price || 0
-                                return isum + (item.subtotal || (itemPrice * item.quantity))
-                              }, 0) || (o.total - (o.delivery?.deliveryCost || 0))
-                              return sum + s
-                            }, 0)
-                            const groupDelivery = groupTotal - groupSubtotal
+                        return Object.entries(groups)
+                          .sort(([idA], [idB]) => {
+                            if (idA === 'pickup') return 1
+                            if (idB === 'pickup') return -1
+                            return 0
+                          })
+                          .map(([groupId, groupOrders]: [string, any]) => {
+                            const delivery = deliveries.find(d => d.id === groupId || d.uid === groupId)
+                            const groupTitle = groupId === 'pickup' ? 'Retiros en Tienda' : (delivery ? `Delivery: ${delivery.nombres}` : 'Delivery: Sin asignar')
+                            const groupIcon = groupId === 'pickup' ? 'bi-person-fill' : 'bi-scooter'
+                            const isCollapsed = collapsedGroups[groupId] !== false
 
                             return (
-                              <tr
-                                className="bg-gray-50/50 cursor-pointer hover:bg-gray-100 transition-colors"
-                                onClick={() => setCollapsedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }))}
-                              >
-                                <td colSpan={6} className="px-6 py-2">
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                      <i className={`bi ${groupIcon}`}></i>
-                                      {groupTitle}
+                              <Fragment key={groupId}>
+                                {/* Header de Grupo */}
+                                {(() => {
+                                  const gTotal = groupOrders.reduce((sum: number, o: Order) => sum + (o.total || 0), 0)
+                                  const gInfo = groupOrders.reduce((acc: any, o: Order) => {
+                                    const info = getSettlementOrderInfo(o)
+                                    acc.commission += info.commission
+                                    acc.storeReceives += info.storeReceives
+                                    return acc
+                                  }, { commission: 0, storeReceives: 0 })
 
-                                      <div className="flex items-center gap-1.5 ml-4">
-                                        <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-[10px] font-bold" title="Total Recaudado">
-                                          ${groupTotal.toFixed(2)}
-                                        </span>
-                                        <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1" title="Monto Delivery">
-                                          <i className="bi bi-scooter"></i> ${groupDelivery.toFixed(2)}
-                                        </span>
-                                        <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1" title="Ventas Netas (Sin delivery)">
-                                          <i className="bi bi-cash-coin"></i> ${groupSubtotal.toFixed(2)}
-                                        </span>
-                                      </div>
-                                    </div>
-                                    <i className={`bi bi-chevron-${isCollapsed ? 'down' : 'up'} text-gray-400`}></i>
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                          })()}
-                          {!isCollapsed && groupOrders.map((order: Order) => {
-                            const subtotal = order.subtotal || order.items?.reduce((sum: number, item: any) => {
-                              const itemPrice = item.price || item.product?.price || 0
-                              const itemTotal = item.subtotal || (itemPrice * item.quantity)
-                              return sum + itemTotal
-                            }, 0) || (order.total - (order.delivery?.deliveryCost || 0))
-                            const commission = subtotal * 0.04
-                            const isStoreCollector = order.paymentCollector === 'store'
+                                  return (
+                                    <tr
+                                      className="bg-gray-50/50 cursor-pointer hover:bg-gray-100 transition-colors"
+                                      onClick={() => setCollapsedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }))}
+                                    >
+                                      <td colSpan={6} className="px-6 py-2">
+                                        <div className="flex items-center justify-between">
+                                          <div className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                            <i className={`bi ${groupIcon}`}></i>
+                                            {groupTitle}
 
-                            return (
-                              <tr key={order.id} className="hover:bg-gray-50">
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                  <div className="flex items-center gap-2">
-                                    <div
-                                      className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}
-                                      title={order.createdByAdmin ? 'Pedido Manual (Tienda)' : 'Pedido Automático (Cliente)'}
-                                    >
-                                      <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[10px]`}></i>
-                                    </div>
-                                    {new Date(order.createdAt).toLocaleDateString()}
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                                  ${order.total.toFixed(2)}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                  <div className="text-gray-900 font-medium">{order.customer.name}</div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                  {order.payment.method === 'cash' ? 'Efectivo' : (
-                                    <button
-                                      onClick={() => setSelectedOrderForProof(order)}
-                                      className="text-blue-600 hover:text-blue-800 underline flex items-center gap-1 group"
-                                    >
-                                      Transferencia
-                                      {order.payment.receiptImageUrl && <i className="bi bi-image group-hover:scale-110 transition-transform"></i>}
-                                    </button>
-                                  )}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-center">
-                                  <button
-                                    onClick={() => handleToggleCollector(order)}
-                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${isStoreCollector
-                                      ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                                      : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                                      }`}
-                                  >
-                                    {isStoreCollector ? '🏢 Tienda' : '🦅 Fuddi'}
-                                  </button>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-red-600 font-medium">
-                                  -${commission.toFixed(2)}
-                                </td>
-                              </tr>
+                                            <div className="flex items-center gap-1.5 ml-4">
+                                              <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-[10px] font-bold" title="Total Grupo">
+                                                ${gTotal.toFixed(2)}
+                                              </span>
+                                              <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-[10px] font-bold" title="Comisión Total Grupo">
+                                                Liq: -${gInfo.commission.toFixed(2)}
+                                              </span>
+                                            </div>
+                                          </div>
+                                          <i className={`bi bi-chevron-${isCollapsed ? 'down' : 'up'} text-gray-400`}></i>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )
+                                })()}
+                                {!isCollapsed && groupOrders.map((order: Order) => {
+                                  const info = getSettlementOrderInfo(order)
+                                  const isStoreCollector = order.paymentCollector === 'store'
+
+                                  return (
+                                    <tr key={order.id} className="hover:bg-gray-50 border-b border-gray-50">
+                                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <div className="flex items-center gap-2">
+                                          <div
+                                            className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}
+                                            title={order.createdByAdmin ? 'Pedido Manual (Tienda)' : 'Pedido Automático (Cliente)'}
+                                          >
+                                            <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[10px]`}></i>
+                                          </div>
+                                          {new Date(order.createdAt).toLocaleDateString()}
+                                        </div>
+                                      </td>
+                                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                                        ${(order.total || 0).toFixed(2)}
+                                      </td>
+                                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <div className="text-gray-900 font-medium">{order.customer.name}</div>
+                                      </td>
+                                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        {order.payment.method === 'cash' ? 'Efectivo' : (
+                                          <button
+                                            onClick={() => setSelectedOrderForProof(order)}
+                                            className="text-blue-600 hover:text-blue-800 underline flex items-center gap-1 group"
+                                          >
+                                            {order.payment.method === 'transfer' ? 'Transf.' : 'Mixto'}
+                                            {order.payment.receiptImageUrl && <i className="bi bi-image group-hover:scale-110 transition-transform"></i>}
+                                          </button>
+                                        )}
+                                      </td>
+                                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                                        <button
+                                          onClick={() => handleToggleCollector(order)}
+                                          className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${isStoreCollector
+                                            ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                                            : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                            }`}
+                                        >
+                                          {isStoreCollector ? '🏢 Tienda' : '🦅 Fuddi'}
+                                        </button>
+                                      </td>
+                                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                                        <div className="flex flex-col items-center">
+                                          <div className="text-[10px] font-bold text-red-500">Comi: -${info.commission.toFixed(2)}</div>
+                                          <div className="text-[10px] font-bold text-green-600">Tienda: ${info.storeReceives.toFixed(2)}</div>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </Fragment>
                             )
-                          })}
-                        </Fragment>
-                      )
-                    })
-                })()}
-              </tbody>
-            </table>
-          </div>
+                          })
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Modal de Comprobante */}
           {selectedOrderForProof && (

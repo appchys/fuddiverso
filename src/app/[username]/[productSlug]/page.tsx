@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { getProduct, getProductBySlug, getBusinessByProduct, getProductsByBusiness, unredeemQRCodePrize, trackReferralClick } from '@/lib/database'
+import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import type { Product, Business } from '@/types/index'
 import CartSidebar from '@/components/CartSidebar'
@@ -142,10 +143,10 @@ export default function ProductPageByUsername() {
       // Format description based on variants
       let descriptionPrefix = ''
       if (product.variants && product.variants.length > 0) {
-        const minPrice = Math.min(...product.variants.map(v => v.price))
-        descriptionPrefix = `Desde $${minPrice.toFixed(2)} - `
+        const minPrice = Math.min(...product.variants.map(v => getProductPublicPrice(v)))
+        descriptionPrefix = `Desde ${formatPrice(minPrice)} - `
       } else {
-        descriptionPrefix = `$${product.price.toFixed(2)} - `
+        descriptionPrefix = `${formatPrice(getProductPublicPrice(product))} - `
       }
 
       const description = `${descriptionPrefix}${product.description || `Descubre ${product.name} en ${storeName}`}`
@@ -367,7 +368,7 @@ export default function ProductPageByUsername() {
   return (
     <div className="min-h-screen bg-white">
       <InstagramBrowserBanner />
-      
+
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {business && (
           <div className="mb-8">
@@ -476,7 +477,7 @@ export default function ProductPageByUsername() {
                             {variant.name}
                           </span>
                           <span className="text-lg font-black text-red-600">
-                            ${variant.price.toFixed(2)}
+                            {formatPrice(getProductPublicPrice(variant))}
                           </span>
                         </div>
 
@@ -507,7 +508,7 @@ export default function ProductPageByUsername() {
                                   name: `${product.name} - ${variant.name}`,
                                   variantName: variant.name,
                                   productName: product.name,
-                                  price: variant.price,
+                                  price: getProductPublicPrice(variant),
                                   image: product.image,
                                   description: variant.description || product.description,
                                   businessId: business?.id || product.businessId,
@@ -545,7 +546,7 @@ export default function ProductPageByUsername() {
                   <div className="inline-flex flex-col">
                     <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Precio</span>
                     <p className="text-4xl font-black text-red-600 tracking-tight">
-                      ${product.price.toFixed(2)}
+                      {formatPrice(getProductPublicPrice(product))}
                     </p>
                   </div>
 
@@ -581,7 +582,7 @@ export default function ProductPageByUsername() {
                                 name: product.name,
                                 variantName: null,
                                 productName: product.name,
-                                price: product.price,
+                                price: getProductPublicPrice(product),
                                 image: product.image,
                                 description: product.description,
                                 businessId: business?.id || product.businessId,
@@ -668,7 +669,7 @@ export default function ProductPageByUsername() {
                           {prod.name}
                         </h3>
                         <p className="text-red-500 font-black text-lg tracking-tight">
-                          ${prod.price.toFixed(2)}
+                          {formatPrice(getProductPublicPrice(prod))}
                         </p>
                       </div>
                     </div>
@@ -707,7 +708,7 @@ export default function ProductPageByUsername() {
               </div>
               <div className="text-left">
                 <div className="text-xs text-gray-400 font-bold uppercase tracking-widest leading-none mb-1 text-[8px]">Total</div>
-                <div className="text-lg font-black leading-none">${cartTotal.toFixed(2)}</div>
+                <div className="text-lg font-black leading-none">{formatPrice(cartTotal)}</div>
               </div>
               <div className="pl-2 border-l border-white/10 group-hover:translate-x-1 transition-transform">
                 <i className="bi bi-chevron-right text-gray-400"></i>

@@ -3,14 +3,15 @@
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { onCheckoutProgressChange } from '@/lib/database'
+import { formatPrice } from '@/lib/price-utils'
 
 export default function CheckoutMonitorPage() {
   const params = useParams()
   const searchParams = useSearchParams()
-  
+
   const clientId = Array.isArray(params?.clientId) ? params.clientId[0] : (params?.clientId as string)
   const businessId = searchParams.get('businessId')
-  
+
   const [progressData, setProgressData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
@@ -18,7 +19,7 @@ export default function CheckoutMonitorPage() {
   useEffect(() => {
     console.log('🔍 Monitor Debug - clientId:', clientId)
     console.log('🔍 Monitor Debug - businessId:', businessId)
-    
+
     // Solo suscribirse si tenemos ambos IDs
     if (!clientId || !businessId) {
       console.log('❌ Monitor Debug - Faltan parámetros, no se puede suscribir')
@@ -142,25 +143,25 @@ export default function CheckoutMonitorPage() {
                   <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded">
                     <div>
                       <p className="font-medium text-gray-900">{item.name}</p>
-                      <p className="text-sm text-gray-600">{item.quantity}x ${item.price.toFixed(2)}</p>
+                      <p className="text-sm text-gray-600">{item.quantity}x {formatPrice(item.price)}</p>
                     </div>
-                    <p className="font-semibold text-gray-900">${(item.price * item.quantity).toFixed(2)}</p>
+                    <p className="font-semibold text-gray-900">{formatPrice(item.price * item.quantity)}</p>
                   </div>
                 ))}
                 <div className="pt-3 border-t border-gray-200">
                   <div className="flex justify-between text-sm mb-2">
                     <span>Subtotal:</span>
-                    <span className="font-medium">${subtotal.toFixed(2)}</span>
+                    <span className="font-medium">{formatPrice(subtotal)}</span>
                   </div>
                   {deliveryCost > 0 && (
                     <div className="flex justify-between text-sm mb-2">
                       <span>Envío:</span>
-                      <span className="font-medium">${deliveryCost.toFixed(2)}</span>
+                      <span className="font-medium">{formatPrice(deliveryCost)}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-lg font-bold text-red-600">
                     <span>Total:</span>
-                    <span>${total.toFixed(2)}</span>
+                    <span>{formatPrice(total)}</span>
                   </div>
                 </div>
               </div>
@@ -189,7 +190,7 @@ export default function CheckoutMonitorPage() {
                     {deliveryData.tarifa && (
                       <div className="bg-green-50 p-3 rounded">
                         <p className="text-sm text-gray-600">Tarifa</p>
-                        <p className="text-lg font-medium text-gray-900">${parseFloat(deliveryData.tarifa).toFixed(2)}</p>
+                        <p className="text-lg font-medium text-gray-900">{formatPrice(parseFloat(deliveryData.tarifa))}</p>
                       </div>
                     )}
                   </>
@@ -250,11 +251,11 @@ export default function CheckoutMonitorPage() {
                   <>
                     <div className="bg-yellow-50 p-3 rounded">
                       <p className="text-sm text-gray-600">Efectivo</p>
-                      <p className="text-gray-900">${(paymentData.cashAmount || 0).toFixed(2)}</p>
+                      <p className="text-gray-900">{formatPrice(paymentData.cashAmount || 0)}</p>
                     </div>
                     <div className="bg-yellow-50 p-3 rounded">
                       <p className="text-sm text-gray-600">Transferencia</p>
-                      <p className="text-gray-900">${(paymentData.transferAmount || 0).toFixed(2)}</p>
+                      <p className="text-gray-900">{formatPrice(paymentData.transferAmount || 0)}</p>
                     </div>
                   </>
                 )}
@@ -270,7 +271,7 @@ export default function CheckoutMonitorPage() {
           {/* Resumen de Estado */}
           <div className="bg-white rounded-lg shadow p-6 sticky top-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">📋 Resumen</h3>
-            
+
             <div className="space-y-3">
               {/* Cliente */}
               <div className="flex items-center gap-3">
@@ -306,7 +307,7 @@ export default function CheckoutMonitorPage() {
 
             {/* Información útil */}
             <div className="mt-6 pt-6 border-t border-gray-200 text-xs text-gray-600 space-y-2">
-              <p><strong>Total a pagar:</strong> ${total.toFixed(2)}</p>
+              <p><strong>Total a pagar:</strong> {formatPrice(total)}</p>
               <p><strong>Artículos:</strong> {cartItems.length}</p>
               {lastUpdate && (
                 <p><strong>Actualizado:</strong> hace {Math.round((new Date().getTime() - lastUpdate.getTime()) / 1000)}s</p>

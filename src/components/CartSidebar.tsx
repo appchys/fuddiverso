@@ -18,6 +18,7 @@ import {
     updateClient
 } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
+import { formatPrice } from '@/lib/price-utils'
 import { CheckoutContent } from '@/components/CheckoutContent'
 import OrderSidebar from '@/components/OrderSidebar'
 
@@ -724,7 +725,7 @@ export default function CartSidebar({
                                                             </div>
                                                             <div className="flex items-center justify-between mt-1">
                                                                 <span className="font-medium text-gray-600 text-sm">
-                                                                    {item.price === 0 ? 'Gratis' : `$${(item.price * item.quantity).toFixed(2)}`}
+                                                                    {item.price === 0 ? 'Gratis' : formatPrice(item.price * item.quantity)}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -778,7 +779,7 @@ export default function CartSidebar({
                                 <div className="space-y-3">
                                     <div className="flex justify-between text-gray-600">
                                         <span>Subtotal</span>
-                                        <span className="font-medium text-gray-900">${cartTotal.toFixed(2)}</span>
+                                        <span className="font-medium text-gray-900">{formatPrice(cartTotal)}</span>
                                     </div>
                                     <div className="flex justify-between text-gray-600">
                                         <span>Envío</span>
@@ -787,7 +788,7 @@ export default function CartSidebar({
                                     <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
                                         <div>
                                             <span className="block text-sm text-gray-500 mb-1">Total a pagar</span>
-                                            <span className="text-3xl font-bold text-gray-900 tracking-tight">${cartTotal.toFixed(2)}</span>
+                                            <span className="text-3xl font-bold text-gray-900 tracking-tight">{formatPrice(cartTotal)}</span>
                                         </div>
                                     </div>
                                 </div>

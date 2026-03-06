@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { validateEcuadorianPhone, normalizeEcuadorianPhone } from '@/lib/validation'
+import { formatPrice } from '@/lib/price-utils'
 import {
   createOrder,
   getBusiness,
@@ -1392,7 +1393,12 @@ export function CheckoutContent({
           name: item.productName || item.name,
           price: item.price,
           quantity: item.quantity,
-          variant: item.variantName || ''
+          variant: item.variantName || '',
+          // Persistir metadatos de precios
+          basePrice: item.basePrice,
+          commission: item.commission,
+          commissionType: item.commissionType,
+          storeReceives: item.storeReceives
         })),
         customer: {
           name: customerData.name,
@@ -2040,7 +2046,7 @@ export function CheckoutContent({
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-gray-900">{selectedLocation.referencia}</p>
                           <p className="text-xs text-gray-500 mt-1 truncate">
-                            Tarifa: ${Number(selectedLocation.tarifa || '0').toFixed(2)}
+                            Tarifa: {formatPrice(Number(selectedLocation.tarifa || '0'))}
                           </p>
                         </div>
                         <button
@@ -2177,7 +2183,7 @@ export function CheckoutContent({
 
                             <div className="flex items-center gap-3">
                               <p className={`text-sm font-medium whitespace-nowrap ${isTarjeta ? 'text-blue-700' : isRegalo ? 'text-amber-700' : 'text-gray-600'}`}>
-                                {item.price > 0 ? `$${(item.price * item.quantity).toFixed(2)}` : '¡Gratis!'}
+                                {item.price > 0 ? formatPrice(item.price * item.quantity) : '¡Gratis!'}
                               </p>
                               <button
                                 onClick={() => handleRemoveItem(index)}
@@ -2209,7 +2215,7 @@ export function CheckoutContent({
                     <i className="bi bi-tag"></i>
                     <span>Subtotal</span>
                   </div>
-                  <span className="font-bold text-gray-900">${subtotal.toFixed(2)}</span>
+                  <span className="font-bold text-gray-900">{formatPrice(subtotal)}</span>
                 </div>
 
                 {/* Tarifa de envío */}
@@ -2221,7 +2227,7 @@ export function CheckoutContent({
                   <span className={`font-bold ${deliveryCost > 0 ? 'text-gray-900' : 'text-amber-600'}`}>
                     {deliveryData.type === 'delivery' && deliveryCost === 0
                       ? 'Por calcular'
-                      : (deliveryData.type === 'pickup' ? '$0' : (deliveryCost > 0 ? `$${deliveryCost.toFixed(2)}` : 'Por calcular'))}
+                      : (deliveryData.type === 'pickup' ? '$0' : (deliveryCost > 0 ? formatPrice(deliveryCost) : 'Por calcular'))}
                   </span>
                 </div>
 
@@ -2231,7 +2237,7 @@ export function CheckoutContent({
                     <i className="bi bi-wallet2 text-lg"></i>
                     <span className="text-base font-bold">Total a pagar</span>
                   </div>
-                  <p className="text-2xl font-black text-red-600 tracking-tight">${total.toFixed(2)}</p>
+                  <p className="text-2xl font-black text-red-600 tracking-tight">{formatPrice(total)}</p>
                 </div>
               </div>
             </div>
@@ -2479,14 +2485,14 @@ export function CheckoutContent({
                               <div className="flex-1">
                                 {!deliveryData.type ? (
                                   <>
-                                    <p className="font-medium text-amber-900">Estimado: ${subtotal.toFixed(2)}</p>
+                                    <p className="font-medium text-amber-900">Estimado: {formatPrice(subtotal)}</p>
                                     <p className="text-sm text-amber-700 mt-1">
                                       Completa el paso 2 para poder subir tu comprobante de transferencia.
                                     </p>
                                   </>
                                 ) : (
                                   <>
-                                    <p className="font-bold text-lg mb-1">Total a transferir: ${total.toFixed(2)}</p>
+                                    <p className="font-bold text-lg mb-1">Total a transferir: {formatPrice(total)}</p>
                                     <p className="text-sm text-gray-300 leading-snug">
                                       Transfiere el monto exacto y sube tu comprobante a continuación para confirmar tu pedido.
                                     </p>

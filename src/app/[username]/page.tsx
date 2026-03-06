@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Head from 'next/head'
+import { getProductPublicPrice, formatPrice, getPriceMetadata } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
 import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick } from '@/lib/database'
 import CartSidebar from '@/components/CartSidebar'
@@ -148,6 +149,7 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
 
   const quantity = getCartItemQuantity(product.id, null)
   const hasVariants = product.variants && product.variants.length > 0
+  const publicPrice = getProductPublicPrice(product)
 
   return (
     <div
@@ -244,9 +246,9 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Desde</span>
               )}
               <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
-                ${(hasVariants
-                  ? Math.min(...product.variants.filter((v: any) => v.isAvailable !== false).map((v: any) => v.price))
-                  : product.price).toFixed(2)}
+                {formatPrice(hasVariants
+                  ? Math.min(...product.variants.filter((v: any) => v.isAvailable !== false).map((v: any) => getProductPublicPrice(v)))
+                  : publicPrice)}
               </span>
             </div>
 
@@ -271,7 +273,22 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
                 </button>
               </div>
             ) : (
-              <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-lg transform md:group-hover:scale-110 md:group-hover:bg-red-600 transition-all duration-300">
+              <div
+                className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-lg transform md:group-hover:scale-110 md:group-hover:bg-red-600 transition-all duration-300"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!hasVariants) {
+                    onAddToCart({
+                      ...product,
+                      price: publicPrice,
+                      variantName: null,
+                      productName: product.name
+                    });
+                  } else {
+                    onShowDetails(product);
+                  }
+                }}
+              >
                 <i className="bi bi-plus-lg text-sm"></i>
               </div>
             )}
@@ -401,7 +418,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
                 <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group transition-all hover:border-red-100">
                   <div className="flex-1 min-w-0">
                     <h5 className="font-bold text-gray-900 text-sm">{product.name}</h5>
-                    <div className="text-red-500 font-black mt-1">${(product.price || 0).toFixed(2)}</div>
+                    <div className="text-red-500 font-black mt-1">{formatPrice(getProductPublicPrice(product))}</div>
                   </div>
 
                   <div className="flex-shrink-0 ml-4">
@@ -426,12 +443,14 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
                     ) : (
                       <button
                         onClick={() => {
+                          const pubPrice = getProductPublicPrice(product);
                           onAddToCart({
                             id: product.id,
                             name: product.name,
                             variantName: null,
                             productName: product.name,
-                            price: product.price,
+                            price: pubPrice,
+                            ...getPriceMetadata(product),
                             image: product.image,
                             description: product.description,
                             isAvailable: product.isAvailable, // Incluir
@@ -451,6 +470,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
                 /* Lista de variantes - Estilo Premium */
                 product?.variants?.filter((v: any) => v.isAvailable !== false).map((variant: any, i: number) => {
                   const qty = getCartItemQuantity(product.id, variant.name)
+                  const variantPubPrice = getProductPublicPrice(variant)
 
                   return (
                     <div
@@ -466,7 +486,7 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
                         {variant.description && (
                           <p className="text-xs text-gray-400 line-clamp-1 mb-1">{variant.description}</p>
                         )}
-                        <div className="text-red-500 font-black text-base">${variant.price.toFixed(2)}</div>
+                        <div className="text-red-500 font-black text-base">{formatPrice(variantPubPrice)}</div>
                       </div>
 
                       <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -496,7 +516,8 @@ function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, bu
                                 name: `${product.name} - ${variant.name}`,
                                 variantName: variant.name,
                                 productName: product.name,
-                                price: variant.price,
+                                price: variantPubPrice,
+                                ...getPriceMetadata(variant),
                                 image: product.image,
                                 description: variant.description || product.description,
                                 isAvailable: product.isAvailable, // Incluir
@@ -964,7 +985,8 @@ function RestaurantContent() {
       name: product.name,
       variantName: null,
       productName: product.name,
-      price: product.price,
+      price: getProductPublicPrice(product),
+      ...getPriceMetadata(product),
       image: product.image,
       description: product.description,
       isAvailable: product.isAvailable, // Incluir disponibilidad

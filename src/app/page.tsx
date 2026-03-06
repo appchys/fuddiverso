@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts } from '@/lib/database'
 import { Business, Product } from '@/types'
+import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
 import ProductDetailSidebar from '@/components/ProductDetailSidebar'
@@ -371,7 +372,7 @@ function HomePageContent() {
                       )}
                       {product.price > 0 && (
                         <div className="absolute top-3 right-3 bg-[#aa1918] text-white px-2 py-1 rounded-full text-xs font-bold">
-                          ${product.price}
+                          {formatPrice(getProductPublicPrice(product))}
                         </div>
                       )}
                     </div>
@@ -671,7 +672,7 @@ function HomePageContent() {
                                 )}
                                 {product.price > 0 && (
                                   <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-md text-gray-900 px-3 py-1 rounded-full text-[10px] font-black shadow-sm ring-1 ring-black/5">
-                                    ${product.price}
+                                    {formatPrice(getProductPublicPrice(product))}
                                   </div>
                                 )}
                               </div>

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { getProduct, getProductBySlug, getBusinessByProduct } from '@/lib/database'
+import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
 
 type ProductPageParams = {
   params: Promise<{
@@ -35,10 +36,10 @@ export async function generateMetadata({ params }: ProductPageParams): Promise<M
     // Format description based on variants
     let descriptionPrefix = ''
     if (product.variants && product.variants.length > 0) {
-      const minPrice = Math.min(...product.variants.map(v => v.price))
-      descriptionPrefix = `Desde $${minPrice.toFixed(2)} - `
+      const minPrice = Math.min(...product.variants.map(v => getProductPublicPrice(v)))
+      descriptionPrefix = `Desde ${formatPrice(minPrice)} - `
     } else {
-      descriptionPrefix = `$${product.price.toFixed(2)} - `
+      descriptionPrefix = `${formatPrice(getProductPublicPrice(product))} - `
     }
 
     const description = `${descriptionPrefix}${product.description || `Descubre ${product.name} en ${storeName}`}`

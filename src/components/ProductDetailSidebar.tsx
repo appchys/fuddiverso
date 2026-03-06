@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Product, Business } from '@/types'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import { unredeemQRCodePrize, getProductsByBusiness } from '@/lib/database'
+import { getProductPublicPrice, formatPrice, getPriceMetadata } from '@/lib/price-utils'
 
 interface ProductDetailSidebarProps {
     isOpen: boolean
@@ -282,7 +283,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                 <div key={variant.name} className={`flex items-center justify-between p-3 rounded-xl border transition-all ${qty > 0 ? 'border-red-500 bg-red-50' : 'border-gray-100 bg-white'}`}>
                                                     <div>
                                                         <span className="block font-bold text-gray-900 text-sm">{variant.name}</span>
-                                                        <span className="text-sm font-black text-red-600">${variant.price.toFixed(2)}</span>
+                                                        <span className="text-sm font-black text-red-600">{formatPrice(getProductPublicPrice(variant))}</span>
                                                     </div>
                                                     <div>
                                                         {qty > 0 ? (
@@ -299,7 +300,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                                         name: `${product.name} - ${variant.name}`,
                                                                         variantName: variant.name,
                                                                         productName: product.name,
-                                                                        price: variant.price,
+                                                                        price: getProductPublicPrice(variant),
+                                                                        ...getPriceMetadata(variant),
                                                                         image: product.image,
                                                                         description: variant.description || product.description,
                                                                         businessId: business.id,
@@ -330,7 +332,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                 <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
                                     <div>
                                         <span className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Precio</span>
-                                        <span className="text-3xl font-black text-red-600 tracking-tight">${product.price.toFixed(2)}</span>
+                                        <span className="text-3xl font-black text-red-600 tracking-tight">{formatPrice(getProductPublicPrice(product))}</span>
                                     </div>
                                     <div>
                                         {(() => {
@@ -354,7 +356,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                                 name: product.name,
                                                                 variantName: null,
                                                                 productName: product.name,
-                                                                price: product.price,
+                                                                price: getProductPublicPrice(product),
+                                                                ...getPriceMetadata(product),
                                                                 image: product.image,
                                                                 description: product.description,
                                                                 businessId: business.id,
@@ -418,7 +421,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                     )}
                                                     {otherProduct.price > 0 && (
                                                         <div className="absolute top-1 right-1 bg-white/90 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm">
-                                                            ${otherProduct.price}
+                                                            {formatPrice(getProductPublicPrice(otherProduct))}
                                                         </div>
                                                     )}
                                                 </div>
@@ -475,7 +478,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                         </div>
                                         <div className="text-left">
                                             <div className="text-xs text-gray-400 font-bold uppercase tracking-widest leading-none mb-1 text-[8px]">Total</div>
-                                            <div className="text-lg font-black leading-none">${cartTotal.toFixed(2)}</div>
+                                            <div className="text-lg font-black leading-none">{formatPrice(cartTotal)}</div>
                                         </div>
                                         <div className="pl-2 border-l border-white/10 group-hover:translate-x-1 transition-transform">
                                             <i className="bi bi-chevron-right text-gray-400"></i>
