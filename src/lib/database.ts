@@ -2450,26 +2450,32 @@ export async function getActiveOrdersWithLocations(): Promise<Order[]> {
       if (data.delivery?.type === 'delivery' && data.delivery?.latlong) {
         // Verificar que no sea un Plus Code
         if (!data.delivery.latlong.startsWith('pluscode:')) {
-          const order: Order = {
+          const order: any = {
             id: docSnapshot.id,
-            businessId: data.businessId || '',
-            customer: data.customer || { name: '', phone: '' },
-            items: data.items || [],
-            delivery: data.delivery,
-            timing: data.timing || { type: 'immediate' },
-            payment: data.payment || { method: 'cash' },
-            total: data.total || 0,
-            subtotal: data.subtotal || 0,
-            status: data.status || 'pending',
-            createdAt: data.createdAt?.toDate?.() || new Date(),
-            updatedAt: data.updatedAt?.toDate?.() || new Date(),
-            deliveredAt: data.deliveredAt?.toDate?.(),
-            createdByAdmin: data.createdByAdmin,
-            statusHistory: data.statusHistory,
+            ...data,
+            createdAt: toSafeDate(data.createdAt),
+            updatedAt: toSafeDate(data.updatedAt),
+            deliveredAt: toSafeDate(data.deliveredAt),
+            timing: {
+              ...(data.timing || {}),
+              scheduledDate: toSafeDate((data.timing || {}).scheduledDate)
+            },
+            statusHistory: {
+              ...(data.statusHistory || {}),
+              pendingAt: toSafeDate((data.statusHistory || {}).pendingAt),
+              confirmedAt: toSafeDate((data.statusHistory || {}).confirmedAt),
+              preparingAt: toSafeDate((data.statusHistory || {}).preparingAt),
+              readyAt: toSafeDate((data.statusHistory || {}).readyAt),
+              on_wayAt: toSafeDate((data.statusHistory || {}).on_wayAt),
+              deliveredAt: toSafeDate((data.statusHistory || {}).deliveredAt),
+              cancelledAt: toSafeDate((data.statusHistory || {}).cancelledAt)
+            },
             waSentToDelivery: data.waSentToDelivery,
             paymentCollector: data.paymentCollector,
             settlementStatus: data.settlementStatus,
-            settlementId: data.settlementId
+            settlementId: data.settlementId,
+            deliverySettlementStatus: data.deliverySettlementStatus,
+            deliverySettlementId: data.deliverySettlementId
           };
 
           orders.push(order);
@@ -4880,6 +4886,7 @@ export async function updateOrderSettlementStatus(
   orderId: string,
   data: {
     paymentCollector?: 'fuddi' | 'store',
+    paymentReceiver?: 'fuddi' | 'store',
     settlementStatus?: 'pending' | 'settled',
     settlementId?: string
   }
@@ -4925,6 +4932,45 @@ export async function createSettlement(
     return settlementRef.id
   } catch (error) {
     console.error('Error creating settlement:', error)
+    throw error
+  }
+}
+
+export async function createDeliverySettlement(
+  deliverySettlementData: {
+    deliveryId: string
+    startDate: Date
+    endDate: Date
+    totalOrders: number
+    cashCollected: number
+    deliveryEarnings: number
+    netAmount: number
+    status: 'pending' | 'completed'
+    createdBy: string
+  },
+  orderIds: string[]
+): Promise<string> {
+  try {
+    const batch = writeBatch(db)
+
+    const settlementRef = doc(collection(db, 'deliverySettlements'))
+    batch.set(settlementRef, {
+      ...deliverySettlementData,
+      createdAt: serverTimestamp()
+    })
+
+    orderIds.forEach(orderId => {
+      const orderRef = doc(db, 'orders', orderId)
+      batch.update(orderRef, {
+        deliverySettlementStatus: 'settled',
+        deliverySettlementId: settlementRef.id
+      })
+    })
+
+    await batch.commit()
+    return settlementRef.id
+  } catch (error) {
+    console.error('Error creating delivery settlement:', error)
     throw error
   }
 }

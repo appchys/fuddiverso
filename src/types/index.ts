@@ -251,8 +251,11 @@ export interface Order {
   }
   waSentToDelivery?: boolean
   paymentCollector?: 'fuddi' | 'store' // Quién cobró el dinero
+  paymentReceiver?: 'fuddi' | 'store' // A qué cuenta llegó la transferencia
   settlementStatus?: 'pending' | 'settled' // Estado de liquidación
   settlementId?: string // ID de la liquidación si ya fue procesada
+  deliverySettlementStatus?: 'pending' | 'settled' // Estado de liquidación para delivery
+  deliverySettlementId?: string // ID del corte de delivery
   telegramBusinessMessages?: { chatId: string, messageId: number }[] // Rastreo de mensajes enviados a la tienda
 }
 
