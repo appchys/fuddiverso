@@ -22,13 +22,26 @@ export default function AdminSettlementsTab({
   settlementsHistory,
   reloadData
 }: Props) {
-  const [mode, setMode] = useState<'stores' | 'deliveries'>('stores')
+  const [mode, setMode] = useState<'review' | 'stores' | 'deliveries'>('review')
   const [selectedSettlementBusiness, setSelectedSettlementBusiness] = useState<string | null>(null)
   const [processingSettlement, setProcessingSettlement] = useState(false)
   const [selectedOrderForProof, setSelectedOrderForProof] = useState<Order | null>(null)
   const [settlementsView, setSettlementsView] = useState<'pending' | 'history'>('pending')
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
-  const [showOrdersReview, setShowOrdersReview] = useState(false)
+  const [showOrdersReviewFilters, setShowOrdersReviewFilters] = useState(false)
+  const [ordersReviewFilters, setOrdersReviewFilters] = useState<{
+    businessId: string
+    paymentMethod: 'all' | 'cash' | 'transfer' | 'mixed'
+    collector: 'all' | 'fuddi' | 'store'
+    fulfillment: 'all' | 'delivery' | 'pickup'
+    deliveryId: string
+  }>({
+    businessId: 'all',
+    paymentMethod: 'all',
+    collector: 'all',
+    fulfillment: 'all',
+    deliveryId: 'all'
+  })
 
   const getSettlementOrderInfo = (order: Order) => {
     let orderBasePrice = 0
@@ -114,6 +127,280 @@ export default function AdminSettlementsTab({
                 </p>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const renderOrdersReview = () => {
+    const selectedDelivery = ordersReviewFilters.deliveryId !== 'all' && ordersReviewFilters.deliveryId !== 'unassigned'
+      ? deliveries.find(d => d.id === ordersReviewFilters.deliveryId)
+      : undefined
+
+    const filteredOrders = pendingOrders
+      .filter(order => {
+        if (ordersReviewFilters.businessId !== 'all' && order.businessId !== ordersReviewFilters.businessId) return false
+        if (ordersReviewFilters.paymentMethod !== 'all' && order.payment?.method !== ordersReviewFilters.paymentMethod) return false
+
+        const isPickup = order.delivery?.type === 'pickup'
+        const fulfillment = isPickup ? 'pickup' : 'delivery'
+        if (ordersReviewFilters.fulfillment !== 'all' && fulfillment !== ordersReviewFilters.fulfillment) return false
+
+        if (ordersReviewFilters.deliveryId !== 'all') {
+          if (isPickup) return false
+          const assignedId = order.delivery?.assignedDelivery || 'unassigned'
+          if (ordersReviewFilters.deliveryId === 'unassigned') {
+            if (assignedId !== 'unassigned' && assignedId !== '' && assignedId !== null) return false
+          } else {
+            const matchesDocId = assignedId === ordersReviewFilters.deliveryId
+            const matchesUid = Boolean(selectedDelivery?.uid) && assignedId === selectedDelivery?.uid
+            if (!matchesDocId && !matchesUid) return false
+          }
+        }
+
+        const collector = (order.paymentCollector || 'fuddi') as 'fuddi' | 'store'
+        if (ordersReviewFilters.collector !== 'all' && collector !== ordersReviewFilters.collector) return false
+        return true
+      })
+
+    const totals = filteredOrders.reduce((acc, order) => {
+      const info = getSettlementOrderInfo(order)
+      const deliveryCost = order.delivery?.deliveryCost || 0
+      const parts = allocatePaymentParts(order)
+
+      acc.cashCollected += parts.cashCollected
+      acc.transferCollected += parts.transferCollected
+      acc.storeTotal += info.storeReceives
+      acc.deliveryTotal += deliveryCost
+      acc.commissionTotal += info.commission
+
+      return acc
+    }, {
+      cashCollected: 0,
+      transferCollected: 0,
+      storeTotal: 0,
+      deliveryTotal: 0,
+      commissionTotal: 0
+    })
+
+    const totalCollected = totals.cashCollected + totals.transferCollected
+
+    return (
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <button
+            onClick={() => setShowOrdersReviewFilters(v => !v)}
+            className="px-4 py-2 rounded-lg text-sm font-bold bg-gray-100 hover:bg-gray-200 text-gray-700"
+          >
+            {showOrdersReviewFilters ? 'Ocultar filtros' : 'Filtrar'}
+          </button>
+
+          <div className="text-sm text-gray-500 text-right">
+            Mostrando <span className="font-bold text-gray-900">{filteredOrders.length}</span> de{' '}
+            <span className="font-bold text-gray-900">{pendingOrders.length}</span>
+          </div>
+        </div>
+
+        {showOrdersReviewFilters && (
+          <div className="mb-4 grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+            <div>
+              <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Tienda</div>
+              <select
+                value={ordersReviewFilters.businessId}
+                onChange={e => setOrdersReviewFilters(prev => ({ ...prev, businessId: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
+              >
+                <option value="all">Todas</option>
+                {businesses
+                  .slice()
+                  .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                  .map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+              </select>
+            </div>
+
+            <div>
+              <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Tipo</div>
+              <select
+                value={ordersReviewFilters.fulfillment}
+                onChange={e => setOrdersReviewFilters(prev => ({ ...prev, fulfillment: e.target.value as any }))}
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
+              >
+                <option value="all">Todos</option>
+                <option value="delivery">Delivery</option>
+                <option value="pickup">Retiro</option>
+              </select>
+            </div>
+
+            <div>
+              <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Delivery</div>
+              <select
+                value={ordersReviewFilters.deliveryId}
+                onChange={e => setOrdersReviewFilters(prev => ({ ...prev, deliveryId: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
+              >
+                <option value="all">Todos</option>
+                <option value="unassigned">Sin asignar</option>
+                {deliveries
+                  .slice()
+                  .sort((a, b) => (a.nombres || '').localeCompare(b.nombres || ''))
+                  .map(d => (
+                    <option key={d.id} value={d.id}>{d.nombres || 'Delivery'}</option>
+                  ))}
+              </select>
+            </div>
+
+            <div>
+              <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Tipo de pago</div>
+              <select
+                value={ordersReviewFilters.paymentMethod}
+                onChange={e => setOrdersReviewFilters(prev => ({ ...prev, paymentMethod: e.target.value as any }))}
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
+              >
+                <option value="all">Todos</option>
+                <option value="cash">Efectivo</option>
+                <option value="transfer">Transferencia</option>
+                <option value="mixed">Mixto</option>
+              </select>
+            </div>
+
+            <div>
+              <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Recaudado por</div>
+              <select
+                value={ordersReviewFilters.collector}
+                onChange={e => setOrdersReviewFilters(prev => ({ ...prev, collector: e.target.value as any }))}
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
+              >
+                <option value="all">Todos</option>
+                <option value="fuddi">🦅 Fuddi</option>
+                <option value="store">🏢 Tienda</option>
+              </select>
+            </div>
+
+            <div />
+          </div>
+        )}
+
+        <div className="mb-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4">
+            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total recaudado</div>
+            <div className="text-2xl font-black text-gray-900">${totalCollected.toFixed(2)}</div>
+          </div>
+          <div className="bg-white border border-gray-100 rounded-2xl p-4">
+            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Efectivo</div>
+            <div className="text-2xl font-black text-gray-900">${totals.cashCollected.toFixed(2)}</div>
+          </div>
+          <div className="bg-white border border-gray-100 rounded-2xl p-4">
+            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Transferencia</div>
+            <div className="text-2xl font-black text-gray-900">${totals.transferCollected.toFixed(2)}</div>
+          </div>
+          <div className="bg-green-50 border border-green-100 rounded-2xl p-4">
+            <div className="text-xs font-black text-green-700 uppercase tracking-widest mb-1">Para tienda</div>
+            <div className="text-2xl font-black text-green-800">${totals.storeTotal.toFixed(2)}</div>
+          </div>
+          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
+            <div className="text-xs font-black text-blue-700 uppercase tracking-widest mb-1">Para delivery</div>
+            <div className="text-2xl font-black text-blue-800">${totals.deliveryTotal.toFixed(2)}</div>
+          </div>
+          <div className="bg-red-50 border border-red-100 rounded-2xl p-4">
+            <div className="text-xs font-black text-red-700 uppercase tracking-widest mb-1">Comisión Fuddi</div>
+            <div className="text-2xl font-black text-red-800">${totals.commissionTotal.toFixed(2)}</div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-white border-b border-gray-100">
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Fecha</th>
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Tienda</th>
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Monto</th>
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Cliente</th>
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Pago</th>
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-center">Recaudado</th>
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-center">Detalle Liq.</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 bg-white">
+                {filteredOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-10 text-center text-gray-500">
+                      No hay órdenes que coincidan con el filtro.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredOrders
+                    .slice()
+                    .sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime())
+                    .map((order) => {
+                      const business = businesses.find(b => b.id === order.businessId)
+                      const isStoreCollector = order.paymentCollector === 'store'
+                      const collector = order.paymentCollector || 'fuddi'
+                      const isPickup = order.delivery?.type === 'pickup'
+                      const orderTypeLabel = isPickup ? 'Retiro en tienda' : 'Delivery'
+                      const info = getSettlementOrderInfo(order)
+                      const hasReceipt = Boolean((order.payment as any).receiptImageUrl)
+
+                      return (
+                        <tr key={order.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-500">{new Date(order.createdAt as any).toLocaleDateString()}</span>
+                              <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${isPickup ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-700'}`}>
+                                {orderTypeLabel}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {business?.name || order.businessId}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                            ${(order.total || 0).toFixed(2)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <div className="text-gray-900 font-medium">{order.customer?.name || '-'}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {order.payment.method === 'cash' ? 'Efectivo' : (
+                              hasReceipt ? (
+                                <button
+                                  onClick={() => setSelectedOrderForProof(order)}
+                                  className="text-blue-600 hover:text-blue-800 underline flex items-center gap-1 group"
+                                >
+                                  {order.payment.method === 'transfer' ? 'Transf.' : 'Mixto'}
+                                  <i className="bi bi-image group-hover:scale-110 transition-transform"></i>
+                                </button>
+                              ) : (
+                                <span>{order.payment.method === 'transfer' ? 'Transf.' : 'Mixto'}</span>
+                              )
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-center">
+                            <button
+                              onClick={() => handleToggleCollector(order)}
+                              className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${isStoreCollector
+                                ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                                : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                }`}
+                            >
+                              {collector === 'store' ? '🏢 Tienda' : '🦅 Fuddi'}
+                            </button>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-center">
+                            <div className="flex flex-col items-center">
+                              <div className="text-[10px] font-bold text-red-500">Comi: -${info.commission.toFixed(2)}</div>
+                              <div className="text-[10px] font-bold text-green-600">Tienda: ${info.storeReceives.toFixed(2)}</div>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -749,6 +1036,12 @@ export default function AdminSettlementsTab({
       <div className="flex justify-center">
         <div className="bg-gray-100 p-1 rounded-lg inline-flex">
           <button
+            onClick={() => setMode('review')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${mode === 'review' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Revisar órdenes
+          </button>
+          <button
             onClick={() => setMode('stores')}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${mode === 'stores' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
           >
@@ -763,7 +1056,9 @@ export default function AdminSettlementsTab({
         </div>
       </div>
 
-      {mode === 'deliveries' ? (
+      {mode === 'review' ? (
+        renderOrdersReview()
+      ) : mode === 'deliveries' ? (
         renderDeliverySettlements()
       ) : (
         <>
@@ -788,112 +1083,9 @@ export default function AdminSettlementsTab({
 
           {settlementsView === 'pending' ? (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex items-start justify-between gap-4 mb-4">
+              <div className="mb-4">
                 <h3 className="text-lg font-bold text-gray-900">Resumen de Pendientes por Tienda</h3>
-                <button
-                  onClick={() => setShowOrdersReview(v => !v)}
-                  className="px-4 py-2 rounded-lg text-sm font-bold bg-gray-100 hover:bg-gray-200 text-gray-700"
-                >
-                  {showOrdersReview ? 'Ocultar revisión de órdenes' : 'Revisar órdenes (tabla)'}
-                </button>
               </div>
-
-              {showOrdersReview && (
-                <div className="mb-6 rounded-2xl border border-gray-100 overflow-hidden">
-                  <div className="bg-gray-50 px-6 py-4 border-b border-gray-100">
-                    <div className="font-bold text-gray-900">Revisión de Órdenes</div>
-                    <div className="text-xs text-gray-500">
-                      Revisa método de pago, comprobantes y quién recaudó (Fuddi/Tienda). Incluye retiros en tienda y delivery.
-                    </div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-white border-b border-gray-100">
-                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Fecha</th>
-                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Tienda</th>
-                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Monto</th>
-                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Cliente</th>
-                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Pago</th>
-                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-center">Recaudado</th>
-                          <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-center">Detalle Liq.</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-50 bg-white">
-                        {pendingOrders.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} className="px-6 py-10 text-center text-gray-500">
-                              No hay órdenes pendientes.
-                            </td>
-                          </tr>
-                        ) : (
-                          pendingOrders
-                            .slice()
-                            .sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime())
-                            .map((order) => {
-                              const business = businesses.find(b => b.id === order.businessId)
-                              const isStoreCollector = order.paymentCollector === 'store'
-                              const collector = order.paymentCollector || 'fuddi'
-                              const isPickup = order.delivery?.type === 'pickup'
-                              const orderTypeLabel = isPickup ? 'Retiro en tienda' : 'Delivery'
-                              const info = getSettlementOrderInfo(order)
-
-                              return (
-                                <tr key={order.id} className="hover:bg-gray-50">
-                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-gray-500">{new Date(order.createdAt as any).toLocaleDateString()}</span>
-                                      <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${isPickup ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-700'}`}>
-                                        {orderTypeLabel}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                    {business?.name || order.businessId}
-                                  </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                                    ${(order.total || 0).toFixed(2)}
-                                  </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    <div className="text-gray-900 font-medium">{order.customer?.name || '-'}</div>
-                                  </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {order.payment.method === 'cash' ? 'Efectivo' : (
-                                      <button
-                                        onClick={() => setSelectedOrderForProof(order)}
-                                        className="text-blue-600 hover:text-blue-800 underline flex items-center gap-1 group"
-                                      >
-                                        {order.payment.method === 'transfer' ? 'Transf.' : 'Mixto'}
-                                        {(order.payment as any).receiptImageUrl && <i className="bi bi-image group-hover:scale-110 transition-transform"></i>}
-                                      </button>
-                                    )}
-                                  </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-center">
-                                    <button
-                                      onClick={() => handleToggleCollector(order)}
-                                      className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${isStoreCollector
-                                        ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                                        }`}
-                                    >
-                                      {collector === 'store' ? '🏢 Tienda' : '🦅 Fuddi'}
-                                    </button>
-                                  </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-center">
-                                    <div className="flex flex-col items-center">
-                                      <div className="text-[10px] font-bold text-red-500">Comi: -${info.commission.toFixed(2)}</div>
-                                      <div className="text-[10px] font-bold text-green-600">Tienda: ${info.storeReceives.toFixed(2)}</div>
-                                    </div>
-                                  </td>
-                                </tr>
-                              )
-                            })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
 
               {settlementsByBusiness.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">

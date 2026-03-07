@@ -4,7 +4,6 @@ import { useState, useEffect, Fragment, lazy, Suspense } from 'react'
 
 const TelegramTemplateEditor = lazy(() => import('@/components/TelegramTemplateEditor'))
 const ProductsList = lazy(() => import('@/components/ProductsList'))
-const AdminSettlementsTab = lazy(() => import('@/components/AdminSettlements'))
 import {
   getAllOrders,
   getAllBusinesses,
@@ -12,11 +11,10 @@ import {
   getAllUserCreditsGlobal,
   getAllReferralLinksGlobal,
   getAllClientsGlobal,
-  getAllSettlements,
   getAllDeliveries
 } from '@/lib/database'
 import { isStoreOpen } from '@/lib/store-utils'
-import { Order, Business, Settlement, Delivery } from '@/types'
+import { Order, Business, Delivery } from '@/types'
 import {
   BarChart,
   Bar,
@@ -40,7 +38,7 @@ export default function AdminDashboard() {
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'settlements' | 'templates' | 'products' | 'orders'>('home')
+  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'templates' | 'products' | 'orders'>('home')
 
   // Estados para filtros del historial de órdenes
   const [filterOrdersBusiness, setFilterOrdersBusiness] = useState<string>('all')
@@ -53,9 +51,6 @@ export default function AdminDashboard() {
     })(),
     end: new Date().toISOString().split('T')[0]
   })
-
-  // Estado para liquidaciones
-  const [settlementsHistory, setSettlementsHistory] = useState<Settlement[]>([])
 
   const [customers, setCustomers] = useState<any[]>([])
   const [recommenders, setRecommenders] = useState<any[]>([])
@@ -349,14 +344,12 @@ export default function AdminDashboard() {
       setCustomers(Array.from(customerMap.values()).sort((a, b) => b.spent - a.spent))
 
       // Cargar Datos de Recomendadores y Clientes (Paralelo)
-      const [allCredits, allLinks, allGlobalClients, allSettlements, allDeliveries] = await Promise.all([
+      const [allCredits, allLinks, allGlobalClients, allDeliveries] = await Promise.all([
         getAllUserCreditsGlobal(),
         getAllReferralLinksGlobal(),
         getAllClientsGlobal(),
-        getAllSettlements(),
         getAllDeliveries()
       ])
-      setSettlementsHistory(allSettlements)
       setDeliveries(allDeliveries)
 
       const processedCustomers = Array.from(customerMap.values())
@@ -799,13 +792,6 @@ export default function AdminDashboard() {
           >
             <i className="bi bi-share md:hidden me-1.5"></i>
             Recomendadores
-          </button>
-          <button
-            onClick={() => setActiveTab('settlements')}
-            className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'settlements' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            <i className="bi bi-cash-coin md:hidden me-1.5"></i>
-            Liquidaciones
           </button>
           <button
             onClick={() => setActiveTab('templates')}
@@ -1334,17 +1320,6 @@ export default function AdminDashboard() {
         </>
       ) : activeTab === 'customers' ? (
         renderCustomersTab()
-      ) : activeTab === 'settlements' ? (
-        <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
-          <AdminSettlementsTab
-            orders={orders}
-            setOrders={setOrders}
-            businesses={businesses}
-            deliveries={deliveries}
-            settlementsHistory={settlementsHistory}
-            reloadData={loadData}
-          />
-        </Suspense>
       ) : activeTab === 'templates' ? (
         <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
           <TelegramTemplateEditor />

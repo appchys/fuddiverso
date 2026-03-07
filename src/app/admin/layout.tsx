@@ -18,6 +18,7 @@ export default function AdminLayout({
   const navLinks = [
     { href: '/admin', label: 'Dashboard', icon: 'bi-grid-1x2-fill' },
     { href: '/admin/orders', label: 'Gestión de Pedidos', icon: 'bi-cart-fill' },
+    { href: '/admin/settlements', label: 'Liquidaciones', icon: 'bi-cash-coin' },
     { href: '/admin/deliveries', label: 'Deliveries', icon: 'bi-scooter' },
     { href: '/admin/coverage-zones', label: 'Zonas de Cobertura', icon: 'bi-geo-alt-fill' },
   ]
