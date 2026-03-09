@@ -4,9 +4,9 @@ import React, { useState, useEffect } from 'react'
 import { Product, Business, ProductVariant, CommissionType } from '@/types'
 import { getAllProducts, getAllBusinesses, updateProduct } from '@/lib/database'
 
-const COMMISSION_RATE = 0.05 // 5% de comisión
+const COMMISSION_RATE = 0.05 // 5% de comisión base
 
-// Redondear al 0.05 más cercano (para evitar centavos raros)
+// Redondear al 0.05 más cercano (para evitar centavos raros en el precio al cliente)
 const roundToNearest005 = (value: number): number => {
   return Math.round(value * 20) / 20
 }
@@ -150,10 +150,6 @@ export default function ProductsList() {
     setFilteredProducts(filtered)
   }
 
-  const calculateCommission = (storePrice: number): number => {
-    return roundToNearest005(storePrice * COMMISSION_RATE)
-  }
-
   const handleCommissionTypeChange = async (productId: string, variantId: string | undefined, type: CommissionType) => {
     const key = getPriceKey(productId, variantId)
     const currentState = priceStates[key]
@@ -163,14 +159,18 @@ export default function ProductsList() {
     let newPublicPrice = currentState.storePrice
     let newStoreReceives = currentState.storePrice
 
+    const rawCommission = currentState.storePrice * COMMISSION_RATE
+
     if (type === 'fuddi_assumed_by_customer') {
-      newCommission = calculateCommission(currentState.storePrice)
+      // Cliente asume: comisión redondeada al 0.05 más cercano
+      newCommission = roundToNearest005(rawCommission)
       newPublicPrice = roundToNearest005(currentState.storePrice + newCommission)
       newStoreReceives = currentState.storePrice
     } else if (type === 'fuddi_assumed_by_store') {
-      newCommission = calculateCommission(currentState.storePrice)
+      // Tienda asume: comisión exacta (sin redondeo) y tienda recibe precio tienda menos comisión exacta
+      newCommission = rawCommission
       newPublicPrice = currentState.storePrice
-      newStoreReceives = roundToNearest005(currentState.storePrice - newCommission)
+      newStoreReceives = currentState.storePrice - newCommission
     } else {
       // no_commission
       newCommission = 0

@@ -205,12 +205,13 @@ export default function ProductPageByUsername() {
         ? product.variants.find((v: any) => v.name === selectedVariant)
         : null
 
-      const cartItem = {
+      const baseItem: any = {
         id: product.id,
         name: `${product.name}${selectedVariant ? ` - ${selectedVariant}` : ''}`,
         variantName: selectedVariant || null,
         productName: product.name,
-        price: variantData ? variantData.price : product.price,
+        // Siempre usar precio público calculado (con comisión aplicada si corresponde)
+        price: variantData ? getProductPublicPrice(variantData) : getProductPublicPrice(product),
         image: product.image,
         description: variantData?.description || product.description,
         businessId: businessIdForCart,
@@ -218,6 +219,19 @@ export default function ProductPageByUsername() {
         businessImage: business?.image || product.businessImage,
         category: product.category
       }
+
+      // Adjuntar metadatos de precios desde el producto/variante original
+      if (variantData) {
+        baseItem.basePrice = variantData.basePrice
+        baseItem.commission = variantData.commission
+        baseItem.commissionType = variantData.commissionType
+      } else {
+        baseItem.basePrice = product.basePrice
+        baseItem.commission = product.commission
+        baseItem.commissionType = product.commissionType
+      }
+
+      const cartItem = ensureCartItemMetadata(baseItem)
 
       // Buscar si el producto con ESA VARIANTE ya existe
       const existingItemIndex = currentCart.findIndex((item: any) =>

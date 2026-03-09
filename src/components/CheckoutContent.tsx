@@ -1388,16 +1388,19 @@ export function CheckoutContent({
       // El delivery se asignará automáticamente cuando la tienda confirme el pedido en el dashboard
       const assignedDeliveryId = undefined;
 
+      // Normalizar metadatos de precios de todos los ítems del carrito
+      const normalizedItems = (cartItems || []).map((item: any) => ensureCartItemMetadata(item))
+
       // Luego crear el objeto orderData - USAR ESTRUCTURA IDÉNTICA A ÓRDENES MANUALES
       const orderData = {
         businessId: businessId,
-        items: cartItems.map((item: any) => ({
+        items: normalizedItems.map((item: any) => ({
           productId: item.id.split('-')[0],
           name: item.productName || item.name,
           price: item.price,
           quantity: item.quantity,
           variant: item.variantName || '',
-          // Persistir metadatos de precios
+          // Persistir metadatos de precios (ya asegurados arriba)
           basePrice: item.basePrice,
           commission: item.commission,
           commissionType: item.commissionType,
