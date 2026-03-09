@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { getProduct, getProductBySlug, getBusinessByProduct, getProductsByBusiness, unredeemQRCodePrize, trackReferralClick } from '@/lib/database'
-import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
+import { getProductPublicPrice, formatPrice, ensureCartItemMetadata } from '@/lib/price-utils'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import type { Product, Business } from '@/types/index'
 import CartSidebar from '@/components/CartSidebar'
@@ -502,8 +502,8 @@ export default function ProductPageByUsername() {
                             </div>
                           ) : (
                             <button
-                              onClick={() => {
-                                const itemToAdd = {
+                                onClick={() => {
+                                  const itemToAdd = {
                                   id: product.id,
                                   name: `${product.name} - ${variant.name}`,
                                   variantName: variant.name,
@@ -517,12 +517,14 @@ export default function ProductPageByUsername() {
                                   category: product.category
                                 };
 
+                                
                                 const cartsData = localStorage.getItem('carts');
+                                
                                 const allCarts = cartsData ? JSON.parse(cartsData) : {};
                                 const businessIdForCart = business?.id || product.businessId || 'unknown';
                                 const currentCart = allCarts[businessIdForCart] || [];
-
-                                currentCart.push({ ...itemToAdd, quantity: 1 });
+                                const enrichedItem = ensureCartItemMetadata(itemToAdd);
+                                currentCart.push({ ...enrichedItem, quantity: 1 });
                                 allCarts[businessIdForCart] = currentCart;
                                 localStorage.setItem('carts', JSON.stringify(allCarts));
                                 setCart([...currentCart]);
@@ -595,8 +597,7 @@ export default function ProductPageByUsername() {
                               const allCarts = cartsData ? JSON.parse(cartsData) : {};
                               const businessIdForCart = business?.id || product.businessId || 'unknown';
                               const currentCart = allCarts[businessIdForCart] || [];
-
-                              currentCart.push({ ...itemToAdd, quantity: 1 });
+                              // Enriched already applied above for this path
                               allCarts[businessIdForCart] = currentCart;
                               localStorage.setItem('carts', JSON.stringify(allCarts));
                               setCart([...currentCart]);

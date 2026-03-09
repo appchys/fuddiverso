@@ -4,6 +4,7 @@ import React, { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts } from '@/lib/database'
+import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
 import { useAuth } from '@/contexts/AuthContext'
@@ -135,8 +136,9 @@ function HomePageContent() {
     if (existingItemIndex > -1) {
       newCart = [...cart]
       newCart[existingItemIndex].quantity += 1
-    } else {
-      newCart = [...cart, { ...item, quantity: 1 }]
+  } else {
+      const enriched = ensureCartItemMetadata({ ...item })
+      newCart = [...cart, { ...enriched, quantity: 1 }]
     }
 
     setCart(newCart)

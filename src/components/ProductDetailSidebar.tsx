@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Product, Business } from '@/types'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import { unredeemQRCodePrize, getProductsByBusiness } from '@/lib/database'
-import { getProductPublicPrice, formatPrice, getPriceMetadata } from '@/lib/price-utils'
+import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata } from '@/lib/price-utils'
 
 interface ProductDetailSidebarProps {
     isOpen: boolean
@@ -294,28 +294,29 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                             </div>
                                                         ) : (
                                                             <button
-                                                                onClick={() => {
-                                                                    const itemToAdd = {
-                                                                        id: product.id,
-                                                                        name: `${product.name} - ${variant.name}`,
-                                                                        variantName: variant.name,
-                                                                        productName: product.name,
-                                                                        price: getProductPublicPrice(variant),
-                                                                        ...getPriceMetadata(variant),
-                                                                        image: product.image,
-                                                                        description: variant.description || product.description,
-                                                                        businessId: business.id,
-                                                                        businessName: business.name,
-                                                                        businessImage: business.image,
-                                                                        category: product.category
-                                                                    };
+            onClick={() => {
+              const itemToAdd = {
+                id: product.id,
+                name: `${product.name} - ${variant.name}`,
+                variantName: variant.name,
+                productName: product.name,
+                price: getProductPublicPrice(variant),
+                ...getPriceMetadata(variant),
+                image: product.image,
+                description: variant.description || product.description,
+                businessId: business.id,
+                businessName: business.name,
+                businessImage: business.image,
+                category: product.category
+              };
 
-                                                                    const currentCart = [...cart];
-                                                                    currentCart.push({ ...itemToAdd, quantity: 1 });
-                                                                    setCart(currentCart);
-                                                                    updateCartInStorage(business.id, currentCart);
-                                                                    showNotification(`${product.name} - ${variant.name} agregado`);
-                                                                }}
+              const enriched = ensureCartItemMetadata(itemToAdd)
+              const currentCart = [...cart];
+              currentCart.push({ ...enriched, quantity: 1 });
+              setCart(currentCart);
+              updateCartInStorage(business.id, currentCart);
+              showNotification(`${product.name} - ${variant.name} agregado`);
+            }}
                                                                 disabled={!product.isAvailable}
                                                                 className="w-8 h-8 rounded-lg bg-gray-900 text-white flex items-center justify-center hover:bg-black transition-colors disabled:opacity-50"
                                                             >

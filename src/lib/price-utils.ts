@@ -53,3 +53,16 @@ export function getPriceMetadata(item: Partial<Product | ProductVariant>) {
         storeReceives
     };
 }
+
+// Central helper to ensure a cart/order item always contains price metadata
+export function ensureCartItemMetadata(item: any): any {
+  if (!item) return item
+  const meta = getPriceMetadata(item)
+  return {
+    ...item,
+    basePrice: item.basePrice ?? meta.basePrice,
+    commission: item.commission ?? meta.commission,
+    commissionType: item.commissionType ?? meta.commissionType,
+    storeReceives: item.storeReceives ?? meta.storeReceives
+  }
+}

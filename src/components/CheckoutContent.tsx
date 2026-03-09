@@ -34,6 +34,7 @@ import { storage } from '@/lib/firebase'
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
 import { Timestamp } from 'firebase/firestore'
+import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate, getNextAvailableSlot } from '@/lib/store-utils'
 import { isProductAvailableBySchedule, checkCartAvailability, getNextAvailableSlotForCart } from '@/lib/product-availability-utils'
 
@@ -954,10 +955,12 @@ export function CheckoutContent({
       }
 
       if (onAddItem) {
-        onAddItem(newItem)
+        const enriched = ensureCartItemMetadata(newItem)
+        onAddItem(enriched)
       } else {
         // Actualizar estado local
-        const newItems = [...cartItems, newItem]
+        const enriched = ensureCartItemMetadata(newItem)
+        const newItems = [...cartItems, enriched]
         setCartItems(newItems)
 
         // Persistir en localStorage

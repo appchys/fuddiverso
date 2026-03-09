@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { Business, Product, ProductVariant, Ingredient } from '@/types'
 import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
+import { ensureCartItemMetadata } from '@/lib/price-utils'
 
 interface ProductListProps {
   business: Business | null

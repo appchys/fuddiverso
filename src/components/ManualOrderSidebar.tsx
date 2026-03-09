@@ -1127,7 +1127,11 @@ export default function ManualOrderSidebar({
           name: item.name,
           price: item.price,
           quantity: item.quantity,
-          variant: item.variant
+          variant: item.variant,
+          basePrice: (item as any).basePrice,
+          commission: (item as any).commission,
+          commissionType: (item as any).commissionType,
+          storeReceives: (item as any).storeReceives
         })),
         customer: {
           name: manualOrderData.customerName,
