@@ -561,6 +561,11 @@ const DEFAULT_BUTTONS: Record<string, ActionButton[][]> = {
             { text: '✅ Entregada', type: 'callback', value: 'order_delivered|{token}' },
         ],
     ],
+    store_reminder: [
+        [
+            { text: '👨‍🍳 Preparando', type: 'callback', value: 'store_preparing|{token}' },
+        ],
+    ],
 }
 
 // ─── Callback → Template Navigation Map ──────────────────────
@@ -621,6 +626,14 @@ const CALLBACK_TO_TEMPLATE: Record<string, CallbackMapping> = {
             'status → "delivered"',
             'deliveredAt → timestamp',
             'statusHistory.deliveredAt → timestamp',
+        ],
+    },
+    'store_preparing': {
+        recipient: 'store', event: 'preparing', templateType: 'update',
+        dbIcon: '👨‍🍳',
+        dbActions: [
+            'status → "preparing"',
+            'statusHistory.preparingAt → timestamp',
         ],
     },
 }

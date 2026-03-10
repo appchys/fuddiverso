@@ -706,9 +706,9 @@ async function handleStoreWebhook(req, res) {
             const messageId = callbackQuery.message.message_id;
 
             const [actionType, token] = data.split('|');
-            // Store Bot solo maneja confirmaciones y descartes de negocio
-            if (actionType.startsWith('biz_')) {
-                const action = actionType; // biz_confirm, biz_discard
+            // Store Bot maneja confirmaciones, descartes y preparando de negocio
+            if (actionType.startsWith('biz_') || actionType === 'store_preparing') {
+                const action = actionType; // biz_confirm, biz_discard, store_preparing
                 const result = await processOrderAction(token, action);
 
                 if (result.error) {
@@ -741,6 +741,8 @@ async function handleStoreWebhook(req, res) {
                             } else if (orderData.delivery?.type === 'delivery') {
                                 finalStatusText += `\n⚠️ (No se pudo auto-asignar repartidor)`;
                             }
+                        } else if (action === 'store_preparing') {
+                            finalStatusText = `\n\n👨‍🍳 <b>Pedido en preparación por ${handlerName}</b>`;
                         } else {
                             finalStatusText = `\n\n❌ <b>Pedido Cancelado por ${handlerName}</b>`;
                         }
@@ -799,6 +801,7 @@ async function handleStoreWebhook(req, res) {
                 let answerText = "Acción procesada";
                 if (action === 'biz_confirm') answerText = "Pedido Aceptado";
                 else if (action === 'biz_discard') answerText = "Pedido Rechazado";
+                else if (action === 'store_preparing') answerText = "Pedido en preparación";
 
                 await axios.post(answerUrl, {
                     callback_query_id: callbackQuery.id,
@@ -1492,17 +1495,30 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
     // Botones de acción para la tienda
     const confirmToken = Buffer.from(`${orderId}|biz_confirm`).toString('base64');
     const discardToken = Buffer.from(`${orderId}|biz_discard`).toString('base64');
+    const preparingToken = Buffer.from(`${orderId}|store_preparing`).toString('base64');
 
-    // Los recordatorios no llevan botones de aceptar/descartar (usualmente)
-    const isReminder = templateKey === 'store_reminder';
-    const replyMarkup = isReminder ? null : {
-        inline_keyboard: [
-            [
-                { text: "✅ Aceptar Pedido", callback_data: `biz_confirm|${confirmToken}` },
-                { text: "❌ Descartar", callback_data: `biz_discard|${discardToken}` }
+    // Configuración de botones según el template
+    let replyMarkup = null;
+    if (templateKey === 'store_reminder') {
+        // Recordatorio: solo botón de preparando
+        replyMarkup = {
+            inline_keyboard: [
+                [
+                    { text: "👨‍🍳 Preparando", callback_data: `store_preparing|${preparingToken}` }
+                ]
             ]
-        ]
-    };
+        };
+    } else {
+        // Otros templates: botones de aceptar/descartar
+        replyMarkup = {
+            inline_keyboard: [
+                [
+                    { text: "✅ Aceptar Pedido", callback_data: `biz_confirm|${confirmToken}` },
+                    { text: "❌ Descartar", callback_data: `biz_discard|${discardToken}` }
+                ]
+            ]
+        };
+    }
 
     const sentMessages = [];
 

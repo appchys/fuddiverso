@@ -17,7 +17,7 @@ async function processOrderAction(token, action) {
         }
 
         // Validar que el action sea válido
-        const validActions = ['confirm', 'discard', 'on_way', 'delivered', 'biz_confirm', 'biz_discard'];
+        const validActions = ['confirm', 'discard', 'on_way', 'delivered', 'biz_confirm', 'biz_discard', 'preparing', 'store_preparing'];
         if (!validActions.includes(action) || actionType !== action) {
             return { error: 'Acción inválida' };
         }
@@ -89,6 +89,10 @@ async function processOrderAction(token, action) {
             updateData.status = 'cancelled';
             updateData['statusHistory.cancelledAt'] = admin.firestore.FieldValue.serverTimestamp();
             console.log(`❌ Orden ${orderId} cancelada por negocio`);
+        } else if (action === 'preparing' || action === 'store_preparing') {
+            updateData.status = 'preparing';
+            updateData['statusHistory.preparingAt'] = admin.firestore.FieldValue.serverTimestamp();
+            console.log(`👨‍🍳 Orden ${orderId} marcada como preparando`);
         }
 
         // Actualizar la orden
