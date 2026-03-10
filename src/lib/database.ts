@@ -211,7 +211,9 @@ function cleanObject(obj: any): any {
         cleaned[key] = cleanObject(value)
       }
     }
-    return cleaned
+    // Si el objeto resultante está vacío o solo contiene valores null (deleteField), devolver null
+    const hasNonNullValues = Object.values(cleaned).some(v => v !== null)
+    return hasNonNullValues ? cleaned : null
   }
 
   return obj
@@ -741,9 +743,9 @@ export async function updateProduct(productId: string, data: Partial<Product>) {
     // Filtrar valores undefined antes de enviar a Firestore
     const cleanData = cleanObject(data) as Record<string, unknown>
 
-    // Campos con valor null = eliminar del documento (Firestore no los borra si los omitimos)
+    // Campos con valor null o que fueron eliminados por cleanObject = eliminar del documento
     for (const [key, value] of Object.entries(data)) {
-      if (value === null) {
+      if (value === null || value === undefined) {
         cleanData[key] = deleteField()
       }
     }

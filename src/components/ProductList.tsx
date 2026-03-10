@@ -161,7 +161,7 @@ export default function ProductList({
     }
 
     // Cargar horarios
-    if (product.scheduleAvailability?.enabled) {
+    if (product.scheduleAvailability?.enabled === true) {
       setScheduleEnabled(true)
       setSchedules(product.scheduleAvailability.schedules || [])
     } else {
@@ -572,10 +572,10 @@ export default function ProductList({
         variants: variants.length > 0 ? variantsWithIngredients : undefined,
         ingredients: ingredients.length > 0 ? ingredients : undefined,
         isAvailable: formData.isAvailable,
-        // null = eliminar campo en Firestore; undefined se omite y no actualiza
+        // undefined = eliminar campo en Firestore
         scheduleAvailability: scheduleEnabled
-          ? (schedules.length > 0 ? { enabled: true, schedules } : { enabled: true, schedules: [] })
-          : null,
+          ? { enabled: true, schedules: schedules.length > 0 ? schedules : [] }
+          : undefined,
         businessId: business.id,
         updatedAt: new Date()
       }
