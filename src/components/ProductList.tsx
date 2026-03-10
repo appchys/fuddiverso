@@ -572,10 +572,10 @@ export default function ProductList({
         variants: variants.length > 0 ? variantsWithIngredients : undefined,
         ingredients: ingredients.length > 0 ? ingredients : undefined,
         isAvailable: formData.isAvailable,
-        scheduleAvailability: scheduleEnabled && schedules.length > 0 ? {
-          enabled: true,
-          schedules: schedules
-        } : (scheduleEnabled ? { enabled: true, schedules: [] } : undefined),
+        // null = eliminar campo en Firestore; undefined se omite y no actualiza
+        scheduleAvailability: scheduleEnabled
+          ? (schedules.length > 0 ? { enabled: true, schedules } : { enabled: true, schedules: [] })
+          : null,
         businessId: business.id,
         updatedAt: new Date()
       }

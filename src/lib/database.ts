@@ -16,7 +16,8 @@ import {
   Timestamp,
   getCountFromServer,
   onSnapshot,
-  writeBatch
+  writeBatch,
+  deleteField
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
@@ -738,7 +739,14 @@ export async function getAllProducts(): Promise<Product[]> {
 export async function updateProduct(productId: string, data: Partial<Product>) {
   try {
     // Filtrar valores undefined antes de enviar a Firestore
-    const cleanData = cleanObject(data)
+    const cleanData = cleanObject(data) as Record<string, unknown>
+
+    // Campos con valor null = eliminar del documento (Firestore no los borra si los omitimos)
+    for (const [key, value] of Object.entries(data)) {
+      if (value === null) {
+        cleanData[key] = deleteField()
+      }
+    }
 
     const docRef = doc(db, 'products', productId)
     await updateDoc(docRef, cleanData)
