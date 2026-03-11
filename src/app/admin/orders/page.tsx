@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { getAllBusinesses, updateOrderStatus, updateOrder, getDeliveriesByStatus, getProductsByBusiness } from '@/lib/database'
 import { Order, Business, Product } from '@/types'
 import { db } from '@/lib/firebase'
@@ -8,6 +8,440 @@ import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
 import OrderSidebar from '@/components/OrderSidebar'
 import ManualOrderSidebar from '@/components/ManualOrderSidebar'
 import { sendWhatsAppToDelivery } from '@/components/WhatsAppUtils'
+
+// Helper functions for status grouping
+const getStatusText = (status: string) => {
+  switch (status) {
+    case 'pending': return 'Pendientes'
+    case 'confirmed': return 'Confirmados'
+    case 'preparing': return 'Preparando'
+    case 'ready': return 'Listos'
+    case 'on_way': return 'En camino'
+    case 'delivered': return 'Entregados'
+    case 'cancelled': return 'Cancelados'
+    default: return status
+  }
+}
+
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200'
+    case 'confirmed': return 'bg-blue-100 text-blue-800 border-blue-200'
+    case 'preparing': return 'bg-orange-100 text-orange-800 border-orange-200'
+    case 'ready': return 'bg-green-100 text-green-800 border-green-200'
+    case 'on_way': return 'bg-indigo-100 text-indigo-800 border-indigo-200'
+    case 'delivered': return 'bg-gray-100 text-gray-800 border-gray-200'
+    case 'cancelled': return 'bg-red-100 text-red-800 border-red-200'
+    default: return 'bg-gray-100 text-gray-800 border-gray-200'
+  }
+}
+
+function CollapsibleSection({
+  title,
+  count,
+  status,
+  children,
+  defaultExpanded = true
+}: {
+  title: string,
+  count: number,
+  status: string,
+  children: React.ReactNode,
+  defaultExpanded?: boolean
+}) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded)
+
+  const getDotColor = (s: string) => {
+    switch (s) {
+      case 'pending': return 'bg-yellow-500 shadow-yellow-200'
+      case 'confirmed': return 'bg-blue-500 shadow-blue-200'
+      case 'preparing': return 'bg-orange-500 shadow-orange-200'
+      case 'ready': return 'bg-green-500 shadow-green-200'
+      case 'on_way': return 'bg-indigo-500 shadow-indigo-200'
+      case 'delivered': return 'bg-gray-500 shadow-gray-200'
+      case 'cancelled': return 'bg-red-500 shadow-red-200'
+      default: return 'bg-gray-400'
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-4">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors rounded-t-xl"
+      >
+        <div className="flex items-center gap-3">
+          <div className={`w-3 h-3 rounded-full ${getDotColor(status)} shadow-sm`}></div>
+          <h3 className="font-bold text-gray-900">{title}</h3>
+          <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs font-semibold">
+            {count}
+          </span>
+        </div>
+        <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 transition-transform duration-200`}></i>
+      </button>
+      {isExpanded && (
+        <div className="border-t border-gray-50">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OrderStatusColumn({
+  statuses,
+  orders,
+  businesses,
+  deliveries,
+  handleStatusUpdate,
+  handleDeliveryUpdate,
+  handleSendWhatsAppToDelivery,
+  handleEditOrder,
+  handleOpenOrderSidebar,
+  handleEditPayment,
+  getTimeElapsed,
+  getTimeRemaining,
+  toggleMap,
+  expandedMaps,
+  statusMenuOrderId,
+  setStatusMenuOrderId,
+  updatingStatus,
+  updatingDelivery,
+  showEditPaymentModal,
+  setShowEditPaymentModal,
+  showReceiptPreviewModal,
+  setShowReceiptPreviewModal,
+  paymentEditingOrder,
+  setPaymentEditingOrder,
+  editPaymentData,
+  setEditPaymentData,
+  handleSavePaymentEdit,
+  handleValidatePayment,
+  handleRejectPayment
+}: any) {
+  return (
+    <>
+      {statuses.map((status: string) => {
+        const statusOrders = orders.filter((o: Order) => o.status === status);
+        if (statusOrders.length === 0) return null;
+
+        return (
+          <CollapsibleSection
+            key={status}
+            title={getStatusText(status)}
+            count={statusOrders.length}
+            status={status}
+            defaultExpanded={!['delivered', 'cancelled'].includes(status)}
+          >
+            {statusOrders.map((order: Order) => (
+              <OrderCard
+                key={order.id}
+                order={order}
+                businesses={businesses}
+                deliveries={deliveries}
+                handleStatusUpdate={handleStatusUpdate}
+                handleDeliveryUpdate={handleDeliveryUpdate}
+                handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                handleEditOrder={handleEditOrder}
+                handleOpenOrderSidebar={handleOpenOrderSidebar}
+                handleEditPayment={handleEditPayment}
+                getTimeElapsed={getTimeElapsed}
+                getTimeRemaining={getTimeRemaining}
+                toggleMap={toggleMap}
+                expandedMaps={expandedMaps}
+                statusMenuOrderId={statusMenuOrderId}
+                setStatusMenuOrderId={setStatusMenuOrderId}
+                updatingStatus={updatingStatus}
+                updatingDelivery={updatingDelivery}
+                showEditPaymentModal={showEditPaymentModal}
+                setShowEditPaymentModal={setShowEditPaymentModal}
+                showReceiptPreviewModal={showReceiptPreviewModal}
+                setShowReceiptPreviewModal={setShowReceiptPreviewModal}
+                paymentEditingOrder={paymentEditingOrder}
+                setPaymentEditingOrder={setPaymentEditingOrder}
+                editPaymentData={editPaymentData}
+                setEditPaymentData={setEditPaymentData}
+                handleSavePaymentEdit={handleSavePaymentEdit}
+                handleValidatePayment={handleValidatePayment}
+                handleRejectPayment={handleRejectPayment}
+              />
+            ))}
+          </CollapsibleSection>
+        );
+      })}
+    </>
+  );
+}
+
+function OrderCard({
+  order,
+  businesses,
+  deliveries,
+  handleStatusUpdate,
+  handleDeliveryUpdate,
+  handleSendWhatsAppToDelivery,
+  handleEditOrder,
+  handleOpenOrderSidebar,
+  handleEditPayment,
+  getTimeElapsed,
+  getTimeRemaining,
+  toggleMap,
+  expandedMaps,
+  statusMenuOrderId,
+  setStatusMenuOrderId,
+  updatingStatus,
+  updatingDelivery,
+  showEditPaymentModal,
+  setShowEditPaymentModal,
+  showReceiptPreviewModal,
+  setShowReceiptPreviewModal,
+  paymentEditingOrder,
+  setPaymentEditingOrder,
+  editPaymentData,
+  setEditPaymentData,
+  handleSavePaymentEdit,
+  handleValidatePayment,
+  handleRejectPayment
+}: any) {
+  const business = businesses.find((b: Business) => b.id === order.businessId)
+  const timeElapsed = getTimeElapsed(order)
+  const remaining = getTimeRemaining(order)
+
+  const statusConfig: Record<string, { bg: string; text: string; border: string; icon: string }> = {
+    pending: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: 'bi-clock-history' },
+    confirmed: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', icon: 'bi-check2-circle' },
+    preparing: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', icon: 'bi-fire' },
+    ready: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: 'bi-bag-check' },
+    delivered: { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200', icon: 'bi-house-check' },
+    cancelled: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', icon: 'bi-x-circle' },
+    on_way: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', icon: 'bi-bicycle' }
+  }
+  const statusStyle = statusConfig[order.status] || statusConfig.pending
+
+  return (
+    <div
+      key={order.id}
+      className={`bg-white rounded-2xl border-l-[6px] border shadow-md overflow-hidden transition-all hover:shadow-xl ${order.status === 'pending' ? 'border-l-amber-400 border-gray-100' :
+        order.status === 'confirmed' ? 'border-l-green-400 border-gray-100' :
+          order.status === 'preparing' ? 'border-l-orange-400 border-gray-100' :
+            order.status === 'ready' ? 'border-l-emerald-400 border-gray-100' :
+              order.status === 'delivered' ? 'border-l-gray-400 border-gray-100' :
+                order.status === 'cancelled' ? 'border-l-red-400 border-gray-100' :
+                  'border-l-indigo-400 border-gray-100'
+        }`}
+    >
+      {/* Header: Status & ID */}
+      <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              handleSendWhatsAppToDelivery(order)
+            }}
+            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 ${order.waSentToDelivery
+              ? 'bg-green-50 text-green-600 border-green-200'
+              : 'bg-white text-gray-400 border-gray-100'
+              }`}
+            title="Notificar WhatsApp"
+          >
+            <i className="bi bi-whatsapp text-xs"></i>
+          </button>
+
+          <button
+            onClick={() => handleEditPayment(order)}
+            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 ${order.payment?.paymentStatus === 'paid'
+              ? 'bg-green-50 text-green-600 border-green-200'
+              : 'bg-white text-gray-400 border-gray-100'
+              }`}
+            title="Gestionar Pago"
+          >
+            <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : 'bi-cash-stack'} text-xs`}></i>
+          </button>
+
+          <div className="relative shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setStatusMenuOrderId(statusMenuOrderId === order.id ? null : order.id!)
+              }}
+              className={`w-8 h-8 flex items-center justify-center rounded-lg border shadow-sm transition-all active:scale-90 ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}
+            >
+              <i className={`bi ${statusStyle.icon} text-xs`}></i>
+            </button>
+
+            {/* Dropdown de Estados Minimal */}
+            {statusMenuOrderId === order.id && !['delivered', 'cancelled'].includes(order.status) && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setStatusMenuOrderId(null)
+                  }}
+                />
+                <div
+                  className="absolute left-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() => {
+                      handleStatusUpdate(order.id!, 'delivered')
+                      setStatusMenuOrderId(null)
+                    }}
+                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 transition-colors"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                      <i className="bi bi-check2-circle text-lg"></i>
+                    </div>
+                    <span>MARCAR ENTREGADO</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleStatusUpdate(order.id!, 'cancelled')
+                      setStatusMenuOrderId(null)
+                    }}
+                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors mt-1"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
+                      <i className="bi bi-x-lg"></i>
+                    </div>
+                    <span>CANCELAR PEDIDO</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="text-right">
+          {remaining ? (
+            <div className={`text-[10px] font-black uppercase tracking-widest ${remaining.color}`}>
+              {remaining.text}
+            </div>
+          ) : (
+            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+              Hace {timeElapsed}
+            </div>
+          )}
+          <div className="text-[10px] font-black text-gray-900 mt-1 uppercase">
+            {order.timing?.scheduledTime || 'Inmediato'}
+          </div>
+        </div>
+      </div>
+
+      <div className="p-4">
+        {/* Business & Customer */}
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-12 h-12 rounded-xl bg-gray-50 overflow-hidden border border-gray-100 flex-shrink-0">
+            {business?.image ? (
+              <img src={business.image} alt={business.name || ''} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-gray-50 text-gray-200 text-xl">
+                <i className="bi bi-shop"></i>
+              </div>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 mb-1">
+              <h3 className="text-sm font-bold text-gray-900 leading-tight truncate">
+                {order.customer?.name || 'Sin nombre'}
+              </h3>
+              <span
+                className={`inline-flex items-center justify-center w-4 h-4 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
+                  }`}
+                title={order.createdByAdmin ? 'Pedido creado por la tienda (manual)' : 'Pedido creado por el cliente (automático)'}
+              >
+                <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[8px]`}></i>
+              </span>
+            </div>
+            <p className="text-xs text-gray-600 line-clamp-1">
+              {business?.name || 'Sin tienda'}
+            </p>
+          </div>
+        </div>
+
+        {/* Dirección & Mapa */}
+        {order.delivery?.type === 'delivery' && (
+          <div className="mb-4">
+            <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+              <div
+                className="p-3 cursor-pointer active:bg-gray-50 flex items-center justify-between gap-2"
+                onClick={() => toggleMap(order.id!)}
+              >
+                <div className="flex items-start gap-2 min-w-0">
+                  <i className="bi bi-geo-alt-fill text-red-500 mt-0.5"></i>
+                  <p className="text-xs text-gray-600 line-clamp-1 italic">
+                    {order.delivery.references || 'Sin dirección registrada'}
+                  </p>
+                </div>
+                <div className={`w-6 h-6 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400 transition-transform duration-300 ${expandedMaps[order.id!] ? 'rotate-180 text-blue-600 bg-blue-50' : ''}`}>
+                  <i className="bi bi-chevron-down text-[10px]"></i>
+                </div>
+              </div>
+
+              {expandedMaps[order.id!] && order.delivery.latlong && (
+                <div
+                  className="h-48 w-full bg-cover bg-center border-t border-gray-50 animate-in slide-in-from-top-2 duration-300"
+                  style={{
+                    backgroundImage: `url('https://maps.googleapis.com/maps/api/staticmap?center=${order.delivery.latlong}&zoom=15&size=400x200&scale=2&maptype=roadmap&markers=color:red%7C${order.delivery.latlong}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs')`
+                  }}
+                ></div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Delivery Select & Total */}
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            {order.delivery?.type === 'delivery' && (
+              <>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 block">
+                  Repartidor Asignado
+                </label>
+                <div className="relative">
+                  <select
+                    value={order.delivery?.assignedDelivery || ''}
+                    onChange={(e) => handleDeliveryUpdate(order.id!, e.target.value || null)}
+                    disabled={updatingDelivery === order.id}
+                    className={`w-full appearance-none pl-3 pr-8 py-2.5 text-xs font-bold rounded-xl border-2 transition-all outline-none ${order.delivery?.assignedDelivery
+                      ? 'bg-green-50/50 border-green-200 text-green-700'
+                      : 'bg-orange-50/50 border-orange-200 text-orange-700'
+                      } ${updatingDelivery === order.id ? 'opacity-50' : ''}`}
+                  >
+                    <option value="">Sin asignar</option>
+                    {deliveries.map((d: any) => (
+                      <option key={d.id} value={d.id}>
+                        {d.nombres || d.name || 'Repartidor'}
+                      </option>
+                    ))}
+                  </select>
+                  <i className="bi bi-chevron-down absolute right-3 top-2.5 text-current opacity-50"></i>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="shrink-0 pb-0.5">
+            <button
+              onClick={() => handleEditOrder(order)}
+              className="w-10 h-10 flex items-center justify-center bg-white text-gray-400 rounded-xl hover:text-purple-600 active:bg-purple-50 transition-all border border-gray-100 shadow-sm"
+              title="Editar Pedido"
+            >
+              <i className="bi bi-pencil-square text-lg"></i>
+            </button>
+            <button
+              onClick={() => handleOpenOrderSidebar(order.id!)}
+              className="w-10 h-10 flex items-center justify-center bg-white text-gray-400 rounded-xl hover:text-blue-600 active:bg-blue-50 transition-all border border-gray-100 shadow-sm"
+              title="Ver Detalle"
+            >
+              <i className="bi bi-arrows-angle-expand text-lg"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function OrderManagement() {
   const [orders, setOrders] = useState<Order[]>([])
@@ -444,9 +878,8 @@ export default function OrderManagement() {
 
     const business = businesses.find(b => b?.id === order?.businessId)
 
-    // Por defecto, excluir órdenes entregadas (mostrar solo activas)
-    // Las canceladas SÍ se muestran para monitoreo
-    if (filters.status === 'all' && order.status === 'delivered') return false
+    // Mostrar todas las órdenes del día sin importar el estado
+    // Incluyendo entregadas y canceladas para tener vista completa del día
 
     // Filtro por estado específico
     if (filters.status !== 'all' && order.status !== filters.status) return false
@@ -514,6 +947,32 @@ export default function OrderManagement() {
         return 0
     }
   })
+
+  // Agrupar órdenes por estado
+  const ordersByStatus = useMemo(() => {
+    const statusGroups: Record<string, Order[]> = {
+      'pending': [],
+      'confirmed': [],
+      'preparing': [],
+      'ready': [],
+      'on_way': [],
+      'delivered': [],
+      'cancelled': []
+    }
+
+    filteredOrders.forEach(order => {
+      if (statusGroups[order.status]) {
+        statusGroups[order.status].push(order)
+      }
+    })
+
+    return statusGroups
+  }, [filteredOrders])
+
+  // Determinar qué columnas mostrar
+  const showCol1 = useMemo(() => ordersByStatus['pending'].length > 0, [ordersByStatus])
+  const showCol2 = useMemo(() => ordersByStatus['confirmed'].length > 0, [ordersByStatus])
+  const showCol3 = useMemo(() => ['preparing', 'ready', 'on_way', 'delivered', 'cancelled'].some(status => ordersByStatus[status].length > 0), [ordersByStatus])
 
   const pendingOrdersCount = orders.filter(order => order.status === 'pending').length
   const activeDeliveryOrders = orders.filter(order =>
@@ -664,730 +1123,268 @@ export default function OrderManagement() {
       )}
 
 
-      {/* Vista Móvil - Cards Rediseñadas */}
+      {/* Vista Móvil - Agrupada por Estado */}
       <div className="md:hidden space-y-4 p-4 bg-gray-50/50">
-        {deliveryOrders.map((order) => {
-          const business = businesses.find(b => b.id === order.businessId)
-          const timeElapsed = getTimeElapsed(order)
-          const remaining = getTimeRemaining(order)
-
-          const statusConfig: Record<string, { bg: string; text: string; border: string; icon: string }> = {
-            pending: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: 'bi-clock-history' },
-            confirmed: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', icon: 'bi-check2-circle' },
-            preparing: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', icon: 'bi-fire' },
-            ready: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: 'bi-bag-check' },
-            delivered: { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200', icon: 'bi-house-check' },
-            cancelled: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', icon: 'bi-x-circle' },
-            on_way: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', icon: 'bi-bicycle' }
-          }
-          const statusStyle = statusConfig[order.status] || statusConfig.pending
-
-          return (
-            <div
-              key={order.id}
-              className={`bg-white rounded-2xl border-l-[6px] border shadow-md overflow-hidden transition-all hover:shadow-xl ${order.status === 'pending' ? 'border-l-amber-400 border-gray-100' :
-                order.status === 'confirmed' ? 'border-l-green-400 border-gray-100' :
-                  order.status === 'preparing' ? 'border-l-orange-400 border-gray-100' :
-                    order.status === 'ready' ? 'border-l-emerald-400 border-gray-100' :
-                      order.status === 'delivered' ? 'border-l-gray-400 border-gray-100' :
-                        order.status === 'cancelled' ? 'border-l-red-400 border-gray-100' :
-                          'border-l-indigo-400 border-gray-100'
-                }`}
-            >
-              {/* Header: Status & ID */}
-              <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleSendWhatsAppToDelivery(order)
-                    }}
-                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 ${order.waSentToDelivery
-                      ? 'bg-green-50 text-green-600 border-green-200'
-                      : 'bg-white text-gray-400 border-gray-100'
-                      }`}
-                    title="Notificar WhatsApp"
-                  >
-                    <i className="bi bi-whatsapp text-xs"></i>
-                  </button>
-
-                  <button
-                    onClick={() => handleEditPayment(order)}
-                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 ${order.payment?.paymentStatus === 'paid'
-                      ? 'bg-green-50 text-green-600 border-green-200'
-                      : 'bg-white text-gray-400 border-gray-100'
-                      }`}
-                    title="Gestionar Pago"
-                  >
-                    <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : 'bi-cash-stack'} text-xs`}></i>
-                  </button>
-
-                  <div className="relative shrink-0">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setStatusMenuOrderId(statusMenuOrderId === order.id ? null : order.id!)
-                      }}
-                      className={`w-8 h-8 flex items-center justify-center rounded-lg border shadow-sm transition-all active:scale-90 ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}
-                    >
-                      <i className={`bi ${statusStyle.icon} text-xs`}></i>
-                    </button>
-
-                    {/* Dropdown de Estados Minimal */}
-                    {statusMenuOrderId === order.id && !['delivered', 'cancelled'].includes(order.status) && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-40"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setStatusMenuOrderId(null)
-                          }}
-                        />
-                        <div
-                          className="absolute left-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={() => {
-                              handleStatusUpdate(order.id!, 'delivered')
-                              setStatusMenuOrderId(null)
-                            }}
-                            className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 transition-colors"
-                          >
-                            <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
-                              <i className="bi bi-check2-circle text-lg"></i>
-                            </div>
-                            <span>MARCAR ENTREGADO</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              handleStatusUpdate(order.id!, 'cancelled')
-                              setStatusMenuOrderId(null)
-                            }}
-                            className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors mt-1"
-                          >
-                            <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-                              <i className="bi bi-x-lg"></i>
-                            </div>
-                            <span>CANCELAR PEDIDO</span>
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {order.delivery?.type === 'delivery' && (
-                    <button
-                      className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 cursor-default ${!order.delivery?.assignedDelivery
-                        ? 'bg-white text-gray-400 border-gray-100'
-                        : order.delivery?.acceptanceStatus === 'accepted'
-                          ? 'bg-green-50 text-green-600 border-green-200'
-                          : 'bg-orange-50 text-orange-600 border-orange-200'
-                        }`}
-                      title={
-                        !order.delivery?.assignedDelivery
-                          ? 'Delivery sin asignar'
-                          : order.delivery?.acceptanceStatus === 'accepted'
-                            ? 'Delivery confirmado'
-                            : 'Delivery asignado (pendiente)'
-                      }
-                    >
-                      <i className="bi bi-scooter text-xs"></i>
-                    </button>
-                  )}
-                </div>
-                <div className="text-right">
-                  {remaining ? (
-                    <div className={`text-[10px] font-black uppercase tracking-widest ${remaining.color}`}>
-                      {remaining.text}
-                    </div>
-                  ) : (
-                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                      Hace {timeElapsed}
-                    </div>
-                  )}
-                  <div className="text-[10px] font-black text-gray-900 mt-1 uppercase">
-                    {order.timing?.scheduledTime || 'Inmediato'}
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-4">
-                {/* Business & Customer */}
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-xl bg-gray-50 overflow-hidden border border-gray-100 flex-shrink-0">
-                    {business?.image ? (
-                      <img src={business.image} alt={business.name || ''} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gray-50 text-gray-200 text-xl">
-                        <i className="bi bi-shop"></i>
-                      </div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <h3 className="text-sm font-bold text-gray-900 leading-tight truncate">
-                        {order.customer?.name || 'Sin nombre'}
-                      </h3>
-                      <span
-                        className={`inline-flex items-center justify-center w-4 h-4 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
-                          }`}
-                        title={order.createdByAdmin ? 'Pedido creado por la tienda (manual)' : 'Pedido creado por el cliente (automático)'}
-                      >
-                        <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[8px]`}></i>
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-600 line-clamp-1">
-                      {business?.name || 'Sin tienda'}
-                    </p>
-                  </div>
-
-                </div>
-
-
-                {/* Dirección & Mapa */}
-                {order.delivery?.type === 'delivery' && (
-                  <div className="mb-4">
-                    <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-                      <div
-                        className="p-3 cursor-pointer active:bg-gray-50 flex items-center justify-between gap-2"
-                        onClick={() => toggleMap(order.id!)}
-                      >
-                        <div className="flex items-start gap-2 min-w-0">
-                          <i className="bi bi-geo-alt-fill text-red-500 mt-0.5"></i>
-                          <p className="text-xs text-gray-600 line-clamp-1 italic">
-                            {order.delivery.references || 'Sin dirección registrada'}
-                          </p>
-                        </div>
-                        <div className={`w-6 h-6 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400 transition-transform duration-300 ${expandedMaps[order.id!] ? 'rotate-180 text-blue-600 bg-blue-50' : ''}`}>
-                          <i className="bi bi-chevron-down text-[10px]"></i>
-                        </div>
-                      </div>
-
-                      {expandedMaps[order.id!] && order.delivery.latlong && (
-                        <div
-                          className="h-48 w-full bg-cover bg-center border-t border-gray-50 animate-in slide-in-from-top-2 duration-300"
-                          style={{
-                            backgroundImage: `url('https://maps.googleapis.com/maps/api/staticmap?center=${order.delivery.latlong}&zoom=15&size=400x200&scale=2&maptype=roadmap&markers=color:red%7C${order.delivery.latlong}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs')`
-                          }}
-                        ></div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Delivery Select & Total */}
-                <div className="flex items-end gap-3">
-                  <div className="flex-1">
-                    {order.delivery?.type === 'delivery' && (
-                      <>
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 block">
-                          Repartidor Asignado
-                        </label>
-                        <div className="relative">
-                          <select
-                            value={order.delivery?.assignedDelivery || ''}
-                            onChange={(e) => handleDeliveryUpdate(order.id!, e.target.value || null)}
-                            disabled={updatingDelivery === order.id}
-                            className={`w-full appearance-none pl-3 pr-8 py-2.5 text-xs font-bold rounded-xl border-2 transition-all outline-none ${order.delivery?.assignedDelivery
-                              ? 'bg-green-50/50 border-green-200 text-green-700'
-                              : 'bg-orange-50/50 border-orange-200 text-orange-700'
-                              } ${updatingDelivery === order.id ? 'opacity-50' : ''}`}
-                          >
-                            <option value="">Sin asignar</option>
-                            {deliveries.map(d => (
-                              <option key={d.id} value={d.id}>
-                                {d.nombres || d.name || 'Repartidor'}
-                              </option>
-                            ))}
-                          </select>
-                          <i className="bi bi-chevron-down absolute right-3 top-2.5 text-current opacity-50"></i>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  <div className="shrink-0 pb-0.5">
-                    <button
-                      onClick={() => handleEditOrder(order)}
-                      className="w-10 h-10 flex items-center justify-center bg-white text-gray-400 rounded-xl hover:text-purple-600 active:bg-purple-50 transition-all border border-gray-100 shadow-sm"
-                      title="Editar Pedido"
-                    >
-                      <i className="bi bi-pencil-square text-lg"></i>
-                    </button>
-                    <button
-                      onClick={() => handleOpenOrderSidebar(order.id!)}
-                      className="w-10 h-10 flex items-center justify-center bg-white text-gray-400 rounded-xl hover:text-blue-600 active:bg-blue-50 transition-all border border-gray-100 shadow-sm"
-                      title="Ver Detalle"
-                    >
-                      <i className="bi bi-arrows-angle-expand text-lg"></i>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
+        <div className="flex flex-col gap-6">
+          {/* Columna 1: Pendientes */}
+          {showCol1 && (
+            <div className="w-full space-y-4">
+              <OrderStatusColumn
+                statuses={['pending']}
+                orders={filteredOrders}
+                businesses={businesses}
+                deliveries={deliveries}
+                handleStatusUpdate={handleStatusUpdate}
+                handleDeliveryUpdate={handleDeliveryUpdate}
+                handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                handleEditOrder={handleEditOrder}
+                handleOpenOrderSidebar={handleOpenOrderSidebar}
+                handleEditPayment={handleEditPayment}
+                getTimeElapsed={getTimeElapsed}
+                getTimeRemaining={getTimeRemaining}
+                toggleMap={toggleMap}
+                expandedMaps={expandedMaps}
+                statusMenuOrderId={statusMenuOrderId}
+                setStatusMenuOrderId={setStatusMenuOrderId}
+                updatingStatus={updatingStatus}
+                updatingDelivery={updatingDelivery}
+                showEditPaymentModal={showEditPaymentModal}
+                setShowEditPaymentModal={setShowEditPaymentModal}
+                showReceiptPreviewModal={showReceiptPreviewModal}
+                setShowReceiptPreviewModal={setShowReceiptPreviewModal}
+                paymentEditingOrder={paymentEditingOrder}
+                setPaymentEditingOrder={setPaymentEditingOrder}
+                editPaymentData={editPaymentData}
+                setEditPaymentData={setEditPaymentData}
+                handleSavePaymentEdit={handleSavePaymentEdit}
+                handleValidatePayment={handleValidatePayment}
+                handleRejectPayment={handleRejectPayment}
+              />
             </div>
-          )
-        })}
+          )}
 
-        {/* Sección de Retiros en Tienda */}
-        {pickupOrders.length > 0 && (
-          <div className="mt-8">
-            <button
-              onClick={() => setIsPickupExpanded(!isPickupExpanded)}
-              className="w-full flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-100 shadow-sm active:scale-[0.99] transition-all mb-4"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-                  <i className="bi bi-shop text-xl"></i>
-                </div>
-                <div className="text-left">
-                  <h3 className="text-sm font-black text-gray-900 uppercase tracking-tight">Retiros en tienda</h3>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{pickupOrders.length} pedidos listos para retiro</p>
-                </div>
-              </div>
-              <div className={`w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400 transition-transform duration-300 ${isPickupExpanded ? 'rotate-180 text-blue-600 bg-blue-50' : ''}`}>
-                <i className="bi bi-chevron-down"></i>
-              </div>
-            </button>
+          {/* Columna 2: Confirmados */}
+          {showCol2 && (
+            <div className="w-full space-y-4">
+              <OrderStatusColumn
+                statuses={['confirmed']}
+                orders={filteredOrders}
+                businesses={businesses}
+                deliveries={deliveries}
+                handleStatusUpdate={handleStatusUpdate}
+                handleDeliveryUpdate={handleDeliveryUpdate}
+                handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                handleEditOrder={handleEditOrder}
+                handleOpenOrderSidebar={handleOpenOrderSidebar}
+                handleEditPayment={handleEditPayment}
+                getTimeElapsed={getTimeElapsed}
+                getTimeRemaining={getTimeRemaining}
+                toggleMap={toggleMap}
+                expandedMaps={expandedMaps}
+                statusMenuOrderId={statusMenuOrderId}
+                setStatusMenuOrderId={setStatusMenuOrderId}
+                updatingStatus={updatingStatus}
+                updatingDelivery={updatingDelivery}
+                showEditPaymentModal={showEditPaymentModal}
+                setShowEditPaymentModal={setShowEditPaymentModal}
+                showReceiptPreviewModal={showReceiptPreviewModal}
+                setShowReceiptPreviewModal={setShowReceiptPreviewModal}
+                paymentEditingOrder={paymentEditingOrder}
+                setPaymentEditingOrder={setPaymentEditingOrder}
+                editPaymentData={editPaymentData}
+                setEditPaymentData={setEditPaymentData}
+                handleSavePaymentEdit={handleSavePaymentEdit}
+                handleValidatePayment={handleValidatePayment}
+                handleRejectPayment={handleRejectPayment}
+              />
+            </div>
+          )}
 
-            {isPickupExpanded && (
-              <div className="space-y-4 animate-in slide-in-from-top-2 duration-300">
-                {pickupOrders.map((order) => {
-                  const business = businesses.find(b => b.id === order.businessId)
-                  const timeElapsed = getTimeElapsed(order)
-                  const remaining = getTimeRemaining(order)
-
-                  const statusConfig: Record<string, { bg: string; text: string; border: string; icon: string }> = {
-                    pending: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: 'bi-clock-history' },
-                    confirmed: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', icon: 'bi-check2-circle' },
-                    preparing: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', icon: 'bi-fire' },
-                    ready: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: 'bi-bag-check' },
-                    delivered: { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200', icon: 'bi-house-check' },
-                    cancelled: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', icon: 'bi-x-circle' },
-                    on_way: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', icon: 'bi-bicycle' }
-                  }
-                  const statusStyle = statusConfig[order.status] || statusConfig.pending
-
-                  return (
-                    <div
-                      key={order.id}
-                      className={`bg-white rounded-2xl border-l-[6px] border shadow-md overflow-hidden transition-all hover:shadow-xl ${order.status === 'pending' ? 'border-l-amber-400 border-gray-100' :
-                        order.status === 'confirmed' ? 'border-l-green-400 border-gray-100' :
-                          order.status === 'preparing' ? 'border-l-orange-400 border-gray-100' :
-                            order.status === 'ready' ? 'border-l-emerald-400 border-gray-100' :
-                              order.status === 'delivered' ? 'border-l-gray-400 border-gray-100' :
-                                order.status === 'cancelled' ? 'border-l-red-400 border-gray-100' :
-                                  'border-l-indigo-400 border-gray-100'
-                        }`}
-                    >
-                      {/* Header: Status & ID */}
-                      <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleSendWhatsAppToDelivery(order)
-                            }}
-                            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 ${order.waSentToDelivery
-                              ? 'bg-green-50 text-green-600 border-green-200'
-                              : 'bg-white text-gray-400 border-gray-100'
-                              }`}
-                            title="Notificar WhatsApp"
-                          >
-                            <i className="bi bi-whatsapp text-xs"></i>
-                          </button>
-
-                          <button
-                            onClick={() => handleEditPayment(order)}
-                            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 ${order.payment?.paymentStatus === 'paid'
-                              ? 'bg-green-50 text-green-600 border-green-200'
-                              : 'bg-white text-gray-400 border-gray-100'
-                              }`}
-                            title="Gestionar Pago"
-                          >
-                            <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : 'bi-cash-stack'} text-xs`}></i>
-                          </button>
-
-                          <div className="relative shrink-0">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setStatusMenuOrderId(statusMenuOrderId === order.id ? null : order.id!)
-                              }}
-                              className={`w-8 h-8 flex items-center justify-center rounded-lg border shadow-sm transition-all active:scale-90 ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}
-                            >
-                              <i className={`bi ${statusStyle.icon} text-xs`}></i>
-                            </button>
-
-                            {/* Dropdown de Estados Minimal */}
-                            {statusMenuOrderId === order.id && !['delivered', 'cancelled'].includes(order.status) && (
-                              <>
-                                <div
-                                  className="fixed inset-0 z-40"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setStatusMenuOrderId(null)
-                                  }}
-                                />
-                                <div
-                                  className="absolute left-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <button
-                                    onClick={() => {
-                                      handleStatusUpdate(order.id!, 'delivered')
-                                      setStatusMenuOrderId(null)
-                                    }}
-                                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 transition-colors"
-                                  >
-                                    <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
-                                      <i className="bi bi-check2-circle text-lg"></i>
-                                    </div>
-                                    <span>MARCAR ENTREGADO</span>
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      handleStatusUpdate(order.id!, 'cancelled')
-                                      setStatusMenuOrderId(null)
-                                    }}
-                                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors mt-1"
-                                  >
-                                    <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-                                      <i className="bi bi-x-lg"></i>
-                                    </div>
-                                    <span>CANCELAR PEDIDO</span>
-                                  </button>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          {remaining ? (
-                            <div className={`text-[10px] font-black uppercase tracking-widest ${remaining.color}`}>
-                              {remaining.text}
-                            </div>
-                          ) : (
-                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                              Hace {timeElapsed}
-                            </div>
-                          )}
-                          <div className="text-[10px] font-black text-gray-900 mt-1 uppercase">
-                            {order.timing?.scheduledTime || 'Inmediato'}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="p-4">
-                        {/* Business & Customer */}
-                        <div className="flex items-center gap-3 mb-4">
-                          <div className="w-12 h-12 rounded-xl bg-gray-50 overflow-hidden border border-gray-100 flex-shrink-0">
-                            {business?.image ? (
-                              <img src={business.image} alt={business.name || ''} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-gray-50 text-gray-200 text-xl">
-                                <i className="bi bi-shop"></i>
-                              </div>
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <h3 className="text-sm font-bold text-gray-900 leading-tight truncate">
-                                {order.customer?.name || 'Sin nombre'}
-                              </h3>
-                              <span
-                                className={`inline-flex items-center justify-center w-4 h-4 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
-                                  }`}
-                                title={order.createdByAdmin ? 'Pedido creado por la tienda (manual)' : 'Pedido creado por el cliente (automático)'}
-                              >
-                                <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[8px]`}></i>
-                              </span>
-                            </div>
-                            <p className="text-xs text-gray-600 line-clamp-1">
-                              {business?.name || 'Sin tienda'}
-                            </p>
-                          </div>
-
-                        </div>
-
-                        {/* Pickups don't show map, but can show references if any */}
-                        {order.delivery.references && (
-                          <div className="mb-4">
-                            <div className="bg-white rounded-xl border border-gray-100 overflow-hidden p-3">
-                              <div className="flex items-start gap-2">
-                                <i className="bi bi-info-circle text-blue-500 mt-0.5"></i>
-                                <p className="text-xs text-gray-600 italic">
-                                  {order.delivery.references}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="flex items-end justify-between gap-3">
-                          <div className="bg-blue-50/50 px-3 py-1.5 rounded-lg border border-blue-100">
-                            <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-1.5">
-                              <i className="bi bi-shop"></i>
-                              Retiro en tienda
-                            </span>
-                          </div>
-                          <div className="shrink-0 flex items-center gap-2">
-                            <button
-                              onClick={() => handleEditOrder(order)}
-                              className="w-10 h-10 flex items-center justify-center bg-white text-gray-400 rounded-xl hover:text-purple-600 active:bg-purple-50 transition-all border border-gray-100 shadow-sm"
-                              title="Editar Pedido"
-                            >
-                              <i className="bi bi-pencil-square text-lg"></i>
-                            </button>
-                            <button
-                              onClick={() => handleOpenOrderSidebar(order.id!)}
-                              className="w-10 h-10 flex items-center justify-center bg-white text-gray-400 rounded-xl hover:text-blue-600 active:bg-blue-50 transition-all border border-gray-100 shadow-sm"
-                              title="Ver Detalle"
-                            >
-                              <i className="bi bi-arrows-angle-expand text-lg"></i>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
+          {/* Columna 3: El resto */}
+          {showCol3 && (
+            <div className="w-full space-y-4">
+              <OrderStatusColumn
+                statuses={['preparing', 'ready', 'on_way', 'delivered', 'cancelled']}
+                orders={filteredOrders}
+                businesses={businesses}
+                deliveries={deliveries}
+                handleStatusUpdate={handleStatusUpdate}
+                handleDeliveryUpdate={handleDeliveryUpdate}
+                handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                handleEditOrder={handleEditOrder}
+                handleOpenOrderSidebar={handleOpenOrderSidebar}
+                handleEditPayment={handleEditPayment}
+                getTimeElapsed={getTimeElapsed}
+                getTimeRemaining={getTimeRemaining}
+                toggleMap={toggleMap}
+                expandedMaps={expandedMaps}
+                statusMenuOrderId={statusMenuOrderId}
+                setStatusMenuOrderId={setStatusMenuOrderId}
+                updatingStatus={updatingStatus}
+                updatingDelivery={updatingDelivery}
+                showEditPaymentModal={showEditPaymentModal}
+                setShowEditPaymentModal={setShowEditPaymentModal}
+                showReceiptPreviewModal={showReceiptPreviewModal}
+                setShowReceiptPreviewModal={setShowReceiptPreviewModal}
+                paymentEditingOrder={paymentEditingOrder}
+                setPaymentEditingOrder={setPaymentEditingOrder}
+                editPaymentData={editPaymentData}
+                setEditPaymentData={setEditPaymentData}
+                handleSavePaymentEdit={handleSavePaymentEdit}
+                handleValidatePayment={handleValidatePayment}
+                handleRejectPayment={handleRejectPayment}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Vista Desktop - Tabla */}
-      <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pedido</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tienda</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ubicación</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Monto</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pago</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tiempo</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredOrders.map((order) => {
-                const business = businesses.find(b => b.id === order.businessId)
-                const timeElapsed = getTimeElapsed(order)
-
-                return (
-                  <tr key={order.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">#{order.id?.slice(-6)}</div>
-                      <div className="text-sm text-gray-500">
-                        {order.createdAt ? new Date(order.createdAt).toLocaleDateString('es-ES', {
-                          day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-                        }) : 'Sin fecha'}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm font-medium text-gray-900">{order.customer?.name || 'Sin nombre'}</div>
-                        {/* Indicador Manual/Automático */}
-                        <span
-                          className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
-                            }`}
-                          title={order.createdByAdmin ? 'Pedido creado por la tienda (manual)' : 'Pedido creado por el cliente (automático)'}
-                        >
-                          <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[10px]`}></i>
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="w-8 h-8 bg-gray-200 rounded-lg overflow-hidden mr-3">
-                          {business?.image ? (
-                            <img src={business.image} alt={business.name || 'Negocio'} className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                              <i className="bi bi-shop text-xs text-gray-400"></i>
-                            </div>
-                          )}
-                        </div>
-                        <div className="text-sm font-medium text-gray-900">{business?.name || 'N/A'}</div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 min-w-[200px]">
-                      {order.delivery?.type === 'delivery' ? (
-                        <div className="space-y-1">
-                          <div className="text-xs font-bold text-gray-900 truncate max-w-[180px]" title={order.delivery.references}>
-                            {order.delivery.references || 'Sin dirección'}
-                          </div>
-                          {order.delivery.latlong && (
-                            <div className="w-32 h-16 rounded-lg overflow-hidden border border-gray-100 shadow-sm">
-                              <img
-                                src={`https://maps.googleapis.com/maps/api/staticmap?center=${order.delivery.latlong}&zoom=14&size=200x100&scale=2&markers=color:red%7C${order.delivery.latlong}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`}
-                                alt="Ubicación"
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-xs font-medium text-orange-600 bg-orange-50 px-2 py-1 rounded-md">
-                          Retiro en tienda
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-semibold text-gray-900">${(order.total || 0).toFixed(2)}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center space-x-2">
-                        <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${order.payment?.method === 'transfer' ? 'bg-blue-100 text-blue-800' :
-                          order.payment?.method === 'mixed' ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'
-                          }`}>
-                          <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-credit-card' :
-                            order.payment?.method === 'mixed' ? 'bi-cash-coin' : 'bi-cash'} me-1.5`}></i>
-                          {order.payment?.method === 'transfer' ? 'Transf.' :
-                            order.payment?.method === 'mixed' ? 'Mixto' : 'Efectivo'}
-                        </span>
-                        {/* Botón de pago estilo dashboard */}
-                        <button
-                          onClick={() => handleEditPayment(order)}
-                          className={`${(() => {
-                            const status = order.payment?.paymentStatus
-                            if (status === 'paid') return 'text-green-600 hover:text-green-800 hover:bg-green-50'
-                            if (status === 'validating') return 'text-orange-600 hover:text-orange-800 hover:bg-orange-50'
-                            return 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-                          })()} p-1.5 rounded transition-colors`}
-                          title={order.payment?.paymentStatus === 'paid' ? 'Pago validado' :
-                            order.payment?.paymentStatus === 'validating' ? 'Validando pago' : 'Verificar pago'}
-                        >
-                          <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' : order.payment?.method === 'cash' ? 'bi-coin' : 'bi-cash-coin'} text-lg`}></i>
-                        </button>
-                        {((order.delivery?.type === 'delivery' && order.delivery?.assignedDelivery) || (order.delivery?.type === 'pickup' && business?.phone)) && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleSendWhatsAppToDelivery(order)
-                            }}
-                            className={`${order.waSentToDelivery ? 'text-green-600 hover:text-green-800 hover:bg-green-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'} p-1 rounded-md transition-all`}
-                            title={order.waSentToDelivery ? 'Notificación enviada' : 'Notify Delivery/Store'}
-                          >
-                            <i className="bi bi-whatsapp text-lg"></i>
-                          </button>
-                        )}
-                        {order.delivery?.type === 'delivery' && (
-                          <div
-                            className={`${!order.delivery?.assignedDelivery
-                              ? 'text-gray-400'
-                              : order.delivery?.acceptanceStatus === 'accepted'
-                                ? 'text-green-600'
-                                : 'text-orange-600'
-                              } p-1 rounded-md transition-all flex items-center justify-center`}
-                            title={
-                              !order.delivery?.assignedDelivery
-                                ? 'Delivery sin asignar'
-                                : order.delivery?.acceptanceStatus === 'accepted'
-                                  ? 'Delivery confirmado'
-                                  : 'Delivery asignado (pendiente)'
-                            }
-                          >
-                            <i className="bi bi-scooter text-lg"></i>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {(() => {
-                        const remaining = getTimeRemaining(order);
-                        if (remaining) {
-                          return (
-                            <div className={`text-sm font-bold uppercase tracking-wider ${remaining.color}`}>
-                              {remaining.text}
-                            </div>
-                          );
-                        }
-                        return (
-                          <div className={`text-sm font-medium ${timeElapsed.includes('d') || parseInt(timeElapsed) > 60 ? 'text-red-600' :
-                            timeElapsed.includes('h') ? 'text-orange-600' : 'text-green-600'
-                            }`}>
-                            {timeElapsed}
-                          </div>
-                        );
-                      })()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="relative">
-                        <button
-                          onClick={() => setStatusMenuOrderId(statusMenuOrderId === order.id ? null : order.id)}
-                          className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getStatusColor(order.status)} active:scale-95 transition-all items-center gap-1`}
-                        >
-                          {getStatusText(order.status)}
-                          {!['delivered', 'cancelled'].includes(order.status) && (
-                            <i className="bi bi-chevron-down text-[10px]"></i>
-                          )}
-                        </button>
-
-                        {/* Menú Desplegable Desktop */}
-                        {statusMenuOrderId === order.id && !['delivered', 'cancelled'].includes(order.status) && (
-                          <>
-                            <div
-                              className="fixed inset-0 z-40"
-                              onClick={() => setStatusMenuOrderId(null)}
-                            ></div>
-                            <div className="absolute left-0 mt-1 w-32 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 z-50 animate-in fade-in zoom-in duration-200 origin-top-left">
-                              <button
-                                onClick={() => {
-                                  handleStatusUpdate(order.id!, 'delivered')
-                                  setStatusMenuOrderId(null)
-                                }}
-                                className="w-full text-left px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                              >
-                                <i className="bi bi-check2-circle text-green-600"></i>
-                                Entregado
-                              </button>
-                              <button
-                                onClick={() => {
-                                  handleStatusUpdate(order.id!, 'cancelled')
-                                  setStatusMenuOrderId(null)
-                                }}
-                                className="w-full text-left px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-gray-50"
-                              >
-                                <i className="bi bi-x-circle"></i>
-                                Cancelar
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleEditOrder(order)}
-                          className="p-1 text-gray-400 hover:text-purple-600 transition-colors"
-                          title="Editar Pedido"
-                        >
-                          <i className="bi bi-pencil-square text-lg"></i>
-                        </button>
-                        <button
-                          onClick={() => handleOpenOrderSidebar(order.id!)}
-                          className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-                          title="Ver Detalle"
-                        >
-                          <i className="bi bi-code text-lg"></i>
-                        </button>
-                      </div>
+      <div className="hidden md:block">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100">
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Fecha</th>
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Tienda</th>
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Cliente</th>
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Monto</th>
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Estado</th>
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Delivery</th>
+                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 bg-white">
+                {filteredOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                      No hay órdenes que coincidan con los filtros.
                     </td>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                ) : (
+                  filteredOrders.map((order) => {
+                    const business = businesses.find(b => b.id === order.businessId)
+                    const timeElapsed = getTimeElapsed(order)
+
+                    return (
+                      <tr key={order.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">#{order.id?.slice(-6)}</div>
+                          <div className="text-sm text-gray-500">
+                            {order.createdAt ? new Date(order.createdAt).toLocaleDateString('es-ES', {
+                              day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                            }) : 'Sin fecha'}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-medium text-gray-900">{order.customer?.name || 'Sin nombre'}</div>
+                            <span
+                              className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
+                                }`}
+                              title={order.createdByAdmin ? 'Pedido creado por la tienda (manual)' : 'Pedido creado por el cliente (automático)'}
+                            >
+                              <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[10px]`}></i>
+                            </span>
+                          </div>
+                          <div className="text-sm text-gray-500">{order.customer?.phone || 'Sin teléfono'}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            {business?.image ? (
+                              <img src={business.image} alt="" className="w-8 h-8 rounded-lg object-cover" />
+                            ) : (
+                              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+                                <i className="bi bi-shop text-gray-400"></i>
+                              </div>
+                            )}
+                            <div className="text-sm font-medium text-gray-900">{business?.name || 'Sin tienda'}</div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-bold text-gray-900">${(order.total || 0).toFixed(2)}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
+                            {getStatusText(order.status)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {order.delivery?.type === 'delivery' ? (
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={order.delivery?.assignedDelivery || ''}
+                                  onChange={(e) => handleDeliveryUpdate(order.id!, e.target.value || null)}
+                                  disabled={updatingDelivery === order.id}
+                                  className={`text-xs border rounded px-2 py-1 ${order.delivery?.assignedDelivery
+                                    ? 'bg-green-50 border-green-200 text-green-700'
+                                    : 'bg-orange-50 border-orange-200 text-orange-700'
+                                    } ${updatingDelivery === order.id ? 'opacity-50' : ''}`}
+                                >
+                                  <option value="">Sin asignar</option>
+                                  {deliveries.map((d: any) => (
+                                    <option key={d.id} value={d.id}>
+                                      {d.nombres || d.name || 'Repartidor'}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="text-xs text-gray-400 mt-1">
+                                {order.delivery?.references || 'Sin dirección'}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-blue-600">
+                              <i className="bi bi-shop"></i>
+                              Retiro en tienda
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleOpenOrderSidebar(order.id!)}
+                              className="text-blue-600 hover:text-blue-900"
+                              title="Ver detalles"
+                            >
+                              <i className="bi bi-eye"></i>
+                            </button>
+                            <button
+                              onClick={() => handleEditOrder(order)}
+                              className="text-purple-600 hover:text-purple-900"
+                              title="Editar pedido"
+                            >
+                              <i className="bi bi-pencil"></i>
+                            </button>
+                            <button
+                              onClick={() => handleEditPayment(order)}
+                              className="text-green-600 hover:text-green-900"
+                              title="Gestionar pago"
+                            >
+                              <i className="bi bi-credit-card"></i>
+                            </button>
+                            {order.delivery?.type === 'delivery' && (
+                              <button
+                                onClick={() => handleSendWhatsAppToDelivery(order)}
+                                className={`text-green-600 hover:text-green-900 ${order.waSentToDelivery ? 'opacity-50' : ''}`}
+                                title="Notificar WhatsApp"
+                              >
+                                <i className="bi bi-whatsapp"></i>
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div >
+      </div>
 
       {
         filteredOrders.length === 0 && (
