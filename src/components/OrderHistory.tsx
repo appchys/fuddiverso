@@ -236,7 +236,7 @@ export default function OrderHistory({
                         {/* Chevron for expand/collapse */}
                         <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 text-xs mr-2 transform transition-transform duration-200`}></i>
 
-                        <span className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                        <span className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
                             {!isDelivery && <i className="bi bi-shop text-gray-400"></i>}
                             {order.customer?.name || "Cliente"}
                         </span>
@@ -244,17 +244,16 @@ export default function OrderHistory({
 
                     <div className="flex items-center gap-2 mt-1 ml-5">
                         <i className={`bi ${order.timing?.type === 'scheduled' ? 'bi-clock' : 'bi-lightning-fill'} ${order.timing?.type === 'scheduled' ? 'text-blue-600' : 'text-yellow-500'}`}></i>
-                        <span className="font-mono font-medium text-gray-600">
+                        <span className="font-mono text-sm sm:font-medium text-gray-600">
                             {getOrderDisplayTime(order)}
                         </span>
                     </div>
 
                     {/* Items List (Small) */}
-                    <div className="flex flex-col gap-0.5 mt-1 ml-5">
+                    <div className="flex flex-col gap-0.5 mt-1 ml-5 min-w-0">
                         {sortedItems.map((item: any, idx) => {
-                            const price = (item.price || item.product?.price || 0) * item.quantity;
                             return (
-                                <div key={idx} className={`text-[10px] leading-tight truncate ${price === 0 ? 'text-gray-400 italic' : 'text-gray-600'}`}>
+                                <div key={idx} className="text-xs sm:text-[10px] leading-tight text-gray-600">
                                     {item.quantity}x {item.variant || item.product?.name || item.name}
                                 </div>
                             )
@@ -289,9 +288,10 @@ export default function OrderHistory({
                         {order.status === 'pending' && (
                             <button
                                 onClick={() => setConfirmDiscardOpen(true)}
-                                className="px-3 py-1.5 text-xs font-semibold text-gray-400 bg-gray-50 border border-gray-100 rounded-lg hover:bg-gray-100 transition-colors shadow-sm"
+                                className="p-1.5 text-lg text-gray-400 bg-gray-50 border border-gray-100 rounded-lg hover:bg-gray-100 transition-colors shadow-sm"
+                                title="Descartar pedido"
                             >
-                                Descartar
+                                <i className="bi bi-x-lg"></i>
                             </button>
                         )}
 

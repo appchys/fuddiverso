@@ -1232,7 +1232,7 @@ export default function TodayOrdersPage() {
                                             <div className="flex flex-col lg:flex-row gap-6 items-start">
                                                 {/* Columna 1: Borrador, Pendiente y Live Checkouts */}
                                                 {showCol1 && (
-                                                    <div className="flex-1 min-w-0 space-y-6">
+                                                    <div className="w-full lg:flex-1 lg:min-w-0 space-y-6">
                                                         {businessId && (
                                                             <LiveCheckoutsPanel
                                                                 businessId={businessId}
@@ -1264,7 +1264,7 @@ export default function TodayOrdersPage() {
 
                                                 {/* Columna 2: Confirmados */}
                                                 {showCol2 && (
-                                                    <div className="flex-1 min-w-0 space-y-6">
+                                                    <div className="w-full lg:flex-1 lg:min-w-0 space-y-6">
                                                         <OrderStatusColumn
                                                             statuses={['confirmed']}
                                                             orders={orders}
@@ -1289,7 +1289,7 @@ export default function TodayOrdersPage() {
 
                                                 {/* Columna 3: El resto */}
                                                 {showCol3 && (
-                                                    <div className="flex-1 min-w-0 space-y-6">
+                                                    <div className="w-full lg:flex-1 lg:min-w-0 space-y-6">
                                                         <OrderStatusColumn
                                                             statuses={['preparing', 'ready', 'on_way', 'delivered', 'cancelled']}
                                                             orders={orders}
@@ -1819,7 +1819,7 @@ function OrderCard({
                         {/* Chevron for expand/collapse */}
                         <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 text-xs mr-2 transform transition-transform duration-200`}></i>
 
-                        <span className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                        <span className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
                             {!isDelivery && <i className="bi bi-shop text-gray-400"></i>}
                             {order.customer?.name || "Cliente"}
                         </span>
@@ -1827,17 +1827,16 @@ function OrderCard({
 
                     <div className="flex items-center gap-2 mt-1 ml-5">
                         <i className={`bi ${order.timing?.type === 'scheduled' ? 'bi-clock' : 'bi-lightning-fill'} ${order.timing?.type === 'scheduled' ? 'text-blue-600' : 'text-yellow-500'}`}></i>
-                        <span className="font-mono font-medium text-gray-600">
+                        <span className="font-mono text-sm sm:font-medium text-gray-600">
                             {getOrderDisplayTime(order)}
                         </span>
                     </div>
 
                     {/* Items List (Small) */}
-                    <div className="flex flex-col gap-0.5 mt-1 ml-5">
+                    <div className="flex flex-col gap-0.5 mt-1 ml-5 min-w-0">
                         {sortedItems.map((item: any, idx) => {
-                            const price = (item.price || item.product?.price || 0) * item.quantity;
                             return (
-                                <div key={idx} className={`text-[10px] leading-tight truncate ${price === 0 ? 'text-gray-400 italic' : 'text-gray-600'}`}>
+                                <div key={idx} className="text-xs sm:text-[10px] leading-tight text-gray-600">
                                     {item.quantity}x {item.variant || item.product?.name || item.name}
                                 </div>
                             )
@@ -1872,10 +1871,38 @@ function OrderCard({
                         {order.status === 'pending' && (
                             <button
                                 onClick={() => setConfirmDiscardOpen(true)}
-                                className="px-3 py-1.5 text-xs font-semibold text-gray-400 bg-gray-50 border border-gray-100 rounded-lg hover:bg-gray-100 transition-colors shadow-sm"
+                                className="p-1.5 text-lg text-gray-400 bg-gray-50 border border-gray-100 rounded-lg hover:bg-gray-100 transition-colors shadow-sm"
+                                title="Descartar pedido"
                             >
-                                Descartar
+                                <i className="bi bi-x-lg"></i>
                             </button>
+                        )}
+
+                        
+
+                        {/* Delivery Acceptance Status */}
+                        {isDelivery && order.delivery?.assignedDelivery && (
+                            <div
+                                className="p-1.5 flex items-center cursor-pointer hover:bg-white hover:shadow-sm rounded-lg transition-all"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    onDeliveryStatusClick(order)
+                                }}
+                                title={
+                                    order.delivery?.acceptanceStatus === 'accepted' ? 'Delivery Confirmado' :
+                                        order.delivery?.acceptanceStatus === 'rejected' ? 'Delivery Rechazado' :
+                                            'Esperando confirmación del delivery'
+                                }
+                            >
+                                <span className={`material-symbols-rounded text-2xl transition-all ${order.delivery?.acceptanceStatus === 'accepted'
+                                    ? 'text-green-500'
+                                    : order.delivery?.acceptanceStatus === 'rejected'
+                                        ? 'text-red-500'
+                                        : 'text-yellow-500 animate-pulse'
+                                    }`}>
+                                    motorcycle
+                                </span>
+                            </div>
                         )}
 
                         {/* Status Select Menu */}
@@ -1935,30 +1962,7 @@ function OrderCard({
                             </div>
                         }
 
-                        {/* Delivery Acceptance Status */}
-                        {isDelivery && order.delivery?.assignedDelivery && (
-                            <div
-                                className="p-1.5 flex items-center cursor-pointer hover:bg-white hover:shadow-sm rounded-lg transition-all"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    onDeliveryStatusClick(order)
-                                }}
-                                title={
-                                    order.delivery?.acceptanceStatus === 'accepted' ? 'Delivery Confirmado' :
-                                        order.delivery?.acceptanceStatus === 'rejected' ? 'Delivery Rechazado' :
-                                            'Esperando confirmación del delivery'
-                                }
-                            >
-                                <span className={`material-symbols-rounded text-2xl transition-all ${order.delivery?.acceptanceStatus === 'accepted'
-                                    ? 'text-green-500'
-                                    : order.delivery?.acceptanceStatus === 'rejected'
-                                        ? 'text-red-500'
-                                        : 'text-yellow-500 animate-pulse'
-                                    }`}>
-                                    motorcycle
-                                </span>
-                            </div>
-                        )}
+
                     </div>
                 </div>
             </div>
