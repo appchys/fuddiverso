@@ -44,6 +44,7 @@ export default function ProductsList() {
   const [updatingPrices, setUpdatingPrices] = useState<Set<string>>(new Set())
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
   const [lastSavedKey, setLastSavedKey] = useState<string | null>(null)
+  const [isEditingPrices, setIsEditingPrices] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -195,6 +196,51 @@ export default function ProductsList() {
     await handleOfficalizePrice(productId, variantId, newState)
   }
 
+  const handleStorePriceChange = async (productId: string, variantId: string | undefined, newStorePrice: number) => {
+    const key = getPriceKey(productId, variantId)
+    const currentState = priceStates[key]
+    if (!currentState) return
+
+    let newCommission = 0
+    let newPublicPrice = newStorePrice
+    let newStoreReceives = newStorePrice
+
+    const rawCommission = newStorePrice * COMMISSION_RATE
+
+    if (currentState.commissionType === 'fuddi_assumed_by_customer') {
+      // Cliente asume: comisión redondeada al 0.05 más cercano
+      newCommission = roundToNearest005(rawCommission)
+      newPublicPrice = roundToNearest005(newStorePrice + newCommission)
+      newStoreReceives = newStorePrice
+    } else if (currentState.commissionType === 'fuddi_assumed_by_store') {
+      // Tienda asume: comisión exacta (sin redondeo) y tienda recibe precio tienda menos comisión exacta
+      newCommission = rawCommission
+      newPublicPrice = newStorePrice
+      newStoreReceives = newStorePrice - newCommission
+    } else {
+      // no_commission
+      newCommission = 0
+      newPublicPrice = newStorePrice
+      newStoreReceives = newStorePrice
+    }
+
+    const newState = {
+      ...currentState,
+      storePrice: newStorePrice,
+      commission: newCommission,
+      publicPrice: newPublicPrice,
+      storeReceives: newStoreReceives
+    }
+
+    setPriceStates(prev => ({
+      ...prev,
+      [key]: newState
+    }))
+
+    // Auto-save logic
+    await handleOfficalizePrice(productId, variantId, newState)
+  }
+
   const handleOfficalizePrice = async (productId: string, variantId?: string, overrideState?: PriceState) => {
     const key = getPriceKey(productId, variantId)
     const currentState = overrideState || priceStates[key]
@@ -296,9 +342,22 @@ export default function ProductsList() {
           <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Productos y Variantes</h1>
           <p className="text-sm text-gray-500 mt-1">Gestión de precios y comisiones por producto y variante</p>
         </div>
-        <div className="text-right">
-          <p className="text-lg font-semibold text-gray-900">{filteredProducts.length}</p>
-          <p className="text-xs text-gray-500">Productos mostrados</p>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setIsEditingPrices(!isEditingPrices)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              isEditingPrices 
+                ? 'bg-green-600 text-white hover:bg-green-700' 
+                : 'bg-blue-600 text-white hover:bg-blue-700'
+            }`}
+          >
+            <i className={`bi bi-${isEditingPrices ? 'check-lg' : 'pencil'}`}></i>
+            {isEditingPrices ? 'Guardando...' : 'Editar Precios Tienda'}
+          </button>
+          <div className="text-right">
+            <p className="text-lg font-semibold text-gray-900">{filteredProducts.length}</p>
+            <p className="text-xs text-gray-500">Productos mostrados</p>
+          </div>
         </div>
       </div>
 
@@ -409,8 +468,27 @@ export default function ProductsList() {
                         </td>
 
                         {/* P. Tienda */}
-                        <td className="px-6 py-4 font-medium text-gray-900 text-sm">
-                          ${mainPriceState.storePrice.toFixed(2)}
+                        <td className="px-6 py-4">
+                          {isEditingPrices ? (
+                            <input
+                              type="number"
+                              value={mainPriceState.storePrice}
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value)
+                                if (!isNaN(value) && value >= 0) {
+                                  handleStorePriceChange(product.id, undefined, value)
+                                }
+                              }}
+                              disabled={isMainUpdating}
+                              className="w-20 px-2 py-1 text-sm font-medium text-gray-900 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              step="0.01"
+                              min="0"
+                            />
+                          ) : (
+                            <span className="font-medium text-gray-900 text-sm">
+                              ${mainPriceState.storePrice.toFixed(2)}
+                            </span>
+                          )}
                         </td>
 
                         {/* Trato */}
@@ -475,7 +553,28 @@ export default function ProductsList() {
                               <p className="text-gray-700 text-xs font-medium">{variant.name}</p>
                             </td>
                             <td className="px-6 py-3 text-xs text-gray-400 italic">Variante</td>
-                            <td className="px-6 py-3 text-xs text-gray-700">${variantPriceState.storePrice.toFixed(2)}</td>
+                            <td className="px-6 py-3">
+                              {isEditingPrices ? (
+                                <input
+                                  type="number"
+                                  value={variantPriceState.storePrice}
+                                  onChange={(e) => {
+                                    const value = parseFloat(e.target.value)
+                                    if (!isNaN(value) && value >= 0) {
+                                      handleStorePriceChange(product.id, variant.id, value)
+                                    }
+                                  }}
+                                  disabled={isVariantUpdating}
+                                  className="w-16 px-1 py-0.5 text-xs text-gray-700 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                                  step="0.01"
+                                  min="0"
+                                />
+                              ) : (
+                                <span className="text-xs text-gray-700">
+                                  ${variantPriceState.storePrice.toFixed(2)}
+                                </span>
+                              )}
+                            </td>
                             <td className="px-6 py-3">
                               <select
                                 value={variantPriceState.commissionType}
