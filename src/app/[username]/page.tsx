@@ -7,6 +7,8 @@ import Head from 'next/head'
 import { getProductPublicPrice, formatPrice, getPriceMetadata } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
 import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick } from '@/lib/database'
+import { collection, query, where, onSnapshot, doc, limit } from 'firebase/firestore'
+import { db } from '@/lib/firebase'
 import CartSidebar from '@/components/CartSidebar'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import LocationMap from '@/components/LocationMap'
@@ -728,26 +730,28 @@ function RestaurantContent() {
 
 
   useEffect(() => {
-    const loadRestaurantData = async () => {
-      // No setLoading(true) aquí para zero-load feel, pero mantén el estado para skeletons
+    if (!username) return
+
+    // First, get initial business data
+    const loadInitialData = async () => {
       try {
         const businessData = await getBusinessByUsername(username)
         if (!businessData) {
           setError('Restaurante no encontrado')
+          setLoading(false)
           return
         }
 
         setBusiness(businessData)
-        // Asegurar incremento de visitas (Firestore) al cargar la página pública
+        
+        // Handle visit increment
         try {
-          // Usar sessionStorage para evitar duplicados por sesión
           const sessionKey = `visited:${businessData.id}`
           if (!sessionStorage.getItem(sessionKey)) {
             sessionStorage.setItem(sessionKey, '1')
             try {
               await incrementVisitFirestore(businessData.id)
             } catch (e) {
-              // Fallback: acumular en pendingVisits
               const pendingRaw = localStorage.getItem('pendingVisits')
               const pending = pendingRaw ? JSON.parse(pendingRaw) : {}
               pending[businessData.id] = (pending[businessData.id] || 0) + 1
@@ -758,12 +762,13 @@ function RestaurantContent() {
         } catch (e) {
           console.error('Error handling visit increment:', e)
         }
+
+        // Load products
         const productsData = await getProductsByBusiness(businessData.id)
-        // Filtrar solo productos disponibles
         const availableProducts = productsData.filter(product => product.isAvailable)
         setProducts(availableProducts)
 
-        // Cargar otras tiendas aleatorias
+        // Load other businesses
         try {
           const all = await getAllBusinesses()
           const others = all
@@ -780,17 +785,43 @@ function RestaurantContent() {
         } catch (e) {
           console.error('Error loading other businesses:', e)
         }
+
+        setLoading(false)
       } catch (err) {
         console.error('Error loading restaurant data:', err)
         setError('Error al cargar el restaurante')
-      } finally {
         setLoading(false)
       }
     }
 
-    if (username) {
-      loadRestaurantData()
-    }
+    loadInitialData()
+
+    // Then set up real-time listener for business updates
+    const q = query(
+      collection(db, 'businesses'),
+      where('username', '==', username),
+      limit(1)
+    )
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        const doc = snapshot.docs[0]
+        const businessData = doc.data()
+        const updatedBusiness: Business = {
+          id: doc.id,
+          ...businessData,
+          createdAt: businessData.createdAt?.toDate?.() || businessData.createdAt,
+          updatedAt: businessData.updatedAt?.toDate?.() || businessData.updatedAt
+        } as Business
+        
+        setBusiness(updatedBusiness)
+        console.log(' Business data updated in real-time:', updatedBusiness.manualStoreStatus)
+      }
+    }, (error) => {
+      console.error('Error listening to business updates:', error)
+    })
+
+    return () => unsubscribe()
   }, [username])
 
   useEffect(() => {
@@ -1344,6 +1375,16 @@ function RestaurantContent() {
               )}
 
               <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
+                {(() => {
+                    console.log('🌐 Public page checking store status:', {
+                        manualStoreStatus: business.manualStoreStatus,
+                        schedule: business.schedule,
+                        businessName: business.name
+                    })
+                    const storeOpen = isStoreOpen(business)
+                    console.log('🌐 Public page store status result:', storeOpen)
+                    return storeOpen
+                })()}
                 <span className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm transition-all ${isStoreOpen(business)
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
                   : 'bg-rose-50 text-rose-700 border border-rose-100'

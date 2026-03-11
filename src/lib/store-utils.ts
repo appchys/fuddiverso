@@ -12,22 +12,53 @@ export function isStoreOpen(business: Business | null): boolean {
     if (!business) return false
 
     // 1. Si hay control manual, tiene prioridad sobre el horario
-    if (business.manualStoreStatus === 'open') return true
-    if (business.manualStoreStatus === 'closed') return false
+    if (business.manualStoreStatus === 'open') {
+        console.log('🟢 Store OPEN (manual override)')
+        return true
+    }
+    if (business.manualStoreStatus === 'closed') {
+        console.log('🔴 Store CLOSED (manual override)')
+        return false
+    }
 
     // 2. Verificar horario automático
     const now = new Date()
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
     const currentDay = dayNames[now.getDay()]
+    
+    console.log('📍 Checking automatic schedule:')
+    console.log('  - Current time:', now.toLocaleTimeString('es-EC'))
+    console.log('  - Current day:', currentDay)
+    console.log('  - Business schedule for today:', business.schedule?.[currentDay])
 
     const todaySchedule = business.schedule?.[currentDay]
 
     // Si no hay horario definido para hoy o está marcado como cerrado
-    if (!todaySchedule || !todaySchedule.isOpen) return false
+    if (!todaySchedule || !todaySchedule.isOpen) {
+        console.log('🔴 Store CLOSED (no schedule or marked as closed)')
+        return false
+    }
 
     // Comparar hora actual con horario de apertura/cierre
-    const currentTime = now.toTimeString().slice(0, 5) // HH:MM formato
-    return currentTime >= todaySchedule.open && currentTime <= todaySchedule.close
+    const currentMinutes = now.getHours() * 60 + now.getMinutes()
+    
+    const [openH, openM] = todaySchedule.open.split(':').map(Number)
+    const [closeH, closeM] = todaySchedule.close.split(':').map(Number)
+    
+    const openMinutes = openH * 60 + openM
+    const closeMinutes = closeH * 60 + closeM
+    
+    console.log('  - Schedule:', todaySchedule.open, 'to', todaySchedule.close)
+    console.log('  - Current minutes:', currentMinutes)
+    console.log('  - Open minutes:', openMinutes)
+    console.log('  - Close minutes:', closeMinutes)
+    console.log('  - Is current >= open?', currentMinutes >= openMinutes)
+    console.log('  - Is current <= close?', currentMinutes <= closeMinutes)
+    
+    const isOpen = currentMinutes >= openMinutes && currentMinutes <= closeMinutes
+    console.log('📍 Final result:', isOpen ? '🟢 Store OPEN' : '🔴 Store CLOSED')
+    
+    return isOpen
 }
 
 /**

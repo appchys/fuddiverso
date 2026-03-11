@@ -673,11 +673,26 @@ export default function TodayOrdersPage() {
             else if (currentStatus === 'closed') newStatus = 'open'
             else newStatus = null
 
-            await updateBusiness(business.id, { manualStoreStatus: newStatus })
+            console.log('🔄 Store status toggle:', {
+                businessId: business.id,
+                currentStatus: currentStatus,
+                newStatus: newStatus
+            })
+
+            if (newStatus === null) {
+                // Remove the field entirely when switching back to automatic mode
+                console.log('📤 Sending update to Firebase: manualStoreStatus = null (delete field)')
+                await updateBusiness(business.id, { manualStoreStatus: null })
+            } else {
+                console.log('📤 Sending update to Firebase: manualStoreStatus =', newStatus)
+                await updateBusiness(business.id, { manualStoreStatus: newStatus })
+            }
+            
+            console.log('✅ Firebase update completed, updating local state')
             setBusiness(prev => prev ? { ...prev, manualStoreStatus: newStatus } : null)
         } catch (e) {
-            console.log(e);
-            alert('Error updating store status');
+            console.error('❌ Error updating store status:', e)
+            alert('Error updating store status: ' + (e as Error).message)
         } finally {
             setUpdatingStoreStatus(false)
         }
@@ -866,6 +881,16 @@ export default function TodayOrdersPage() {
                                     {business && (
                                         <div className="flex items-center gap-2">
                                             <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
+                                                {(() => {
+                                                    console.log('🔍 Dashboard checking store status:', {
+                                                        manualStoreStatus: business.manualStoreStatus,
+                                                        schedule: business.schedule,
+                                                        businessName: business.name
+                                                    })
+                                                    const storeOpen = isStoreOpen(business)
+                                                    console.log('🔍 Dashboard store status result:', storeOpen)
+                                                    return storeOpen
+                                                })()}
                                                 <div className={`w-2 h-2 rounded-full ${isStoreOpen(business) ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
                                                 <span className="text-sm font-medium text-gray-700">
                                                     {isStoreOpen(business) ? 'Abierto' : 'Cerrado'}

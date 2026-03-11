@@ -17,7 +17,7 @@ import {
   getCountFromServer,
   onSnapshot,
   writeBatch,
-  deleteField
+  deleteField,
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
@@ -211,9 +211,10 @@ function cleanObject(obj: any): any {
         cleaned[key] = cleanObject(value)
       }
     }
-    // Si el objeto resultante está vacío o solo contiene valores null (deleteField), devolver null
-    const hasNonNullValues = Object.values(cleaned).some(v => v !== null)
-    return hasNonNullValues ? cleaned : null
+    // Si el objeto resultante está vacío, devolver null
+    // PERO mantener el objeto si tiene valores null (para deleteField)
+    const hasAnyValues = Object.keys(cleaned).length > 0
+    return hasAnyValues ? cleaned : null
   }
 
   return obj
@@ -398,13 +399,37 @@ export async function getAllBusinesses(): Promise<Business[]> {
 
 export async function updateBusiness(businessId: string, data: Partial<Business>) {
   try {
+    console.log('📥 updateBusiness called:', { businessId, data })
+    
     // Filtrar valores undefined antes de enviar a Firestore
     const cleanData = cleanObject(data)
+    console.log('🧹 Cleaned data:', cleanData)
+
+    // Si cleanData es null, no hay nada que actualizar
+    if (cleanData === null) {
+      console.log('⚠️ No data to update (cleanData is null)')
+      return
+    }
 
     const docRef = doc(db, 'businesses', businessId)
-    await updateDoc(docRef, cleanData)
+    
+    // Convertir valores null a deleteField() para eliminar el campo
+    const updateData: any = {}
+    for (const [key, value] of Object.entries(cleanData)) {
+      if (value === null) {
+        updateData[key] = deleteField()
+        console.log(`🗑️ Converting ${key} to deleteField()`)
+      } else {
+        updateData[key] = value
+        console.log(`✏️ Setting ${key} =`, value)
+      }
+    }
+    
+    console.log('📤 Final update data for Firebase:', updateData)
+    await updateDoc(docRef, updateData)
+    console.log('✅ Firebase updateDoc completed successfully')
   } catch (error) {
-    console.error('Error updating business:', error)
+    console.error('❌ Error updating business:', error)
     throw error
   }
 }
