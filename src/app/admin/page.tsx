@@ -11,8 +11,10 @@ import {
   getAllUserCreditsGlobal,
   getAllReferralLinksGlobal,
   getAllClientsGlobal,
-  getAllDeliveries
+  getAllDeliveries,
+  addWalletBalance
 } from '@/lib/database'
+import { normalizeEcuadorianPhone } from '@/lib/validation'
 import { isStoreOpen } from '@/lib/store-utils'
 import { Order, Business, Delivery } from '@/types'
 import {
@@ -60,6 +62,11 @@ export default function AdminDashboard() {
   const [linkedClients, setLinkedClients] = useState<any[]>([])
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
+
+  // WALLET CREDIT FORM STATE
+  const [walletForm, setWalletForm] = useState({ phone: '', amount: '', concept: '' })
+  const [walletLoading, setWalletLoading] = useState(false)
+  const [walletMessage, setWalletMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Estados para rango de fechas del gráfico
   const [dateRange, setDateRange] = useState({
@@ -393,6 +400,53 @@ export default function AdminDashboard() {
     }
   }
 
+  // ── WALLET CREDIT HANDLER ──────────────────────────────────────────────────
+  const handleCreditWallet = async () => {
+    setWalletMessage(null)
+    const { phone, amount, concept } = walletForm
+
+    if (!phone.trim()) return setWalletMessage({ type: 'error', text: 'Ingresa un número de celular.' })
+    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0)
+      return setWalletMessage({ type: 'error', text: 'Ingresa un monto válido mayor a 0.' })
+    if (!concept.trim()) return setWalletMessage({ type: 'error', text: 'Ingresa un concepto.' })
+
+    const normalizedPhone = normalizeEcuadorianPhone(phone.trim())
+
+    setWalletLoading(true)
+    try {
+      // Buscar el cliente para obtener su ID real
+      const allClients = await getAllClientsGlobal()
+      const client = allClients.find(
+        c => normalizeEcuadorianPhone(c.celular || '') === normalizedPhone
+      )
+
+      const userId = client?.id || normalizedPhone // fallback: usar el teléfono normalizado como userId
+
+      // Usar el primer negocio disponible o 'global' si no hay negocios
+      const businessId = businesses[0]?.id || 'global'
+
+      await addWalletBalance(
+        userId,
+        businessId,
+        Number(amount),
+        concept.trim(),
+        'admin' // createdBy
+      )
+
+      setWalletMessage({
+        type: 'success',
+        text: `✅ Se acreditaron $${Number(amount).toFixed(2)} a ${client?.nombres || normalizedPhone} correctamente.`
+      })
+      setWalletForm({ phone: '', amount: '', concept: '' })
+    } catch (err) {
+      console.error('Error crediting wallet:', err)
+      setWalletMessage({ type: 'error', text: 'Ocurrió un error al acreditar el saldo.' })
+    } finally {
+      setWalletLoading(false)
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -689,69 +743,153 @@ export default function AdminDashboard() {
 
   const renderRecommendersTab = () => {
     return (
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="p-6 border-b border-gray-100">
-          <h3 className="text-lg font-semibold text-gray-900">Top Recomendadores</h3>
-          <p className="text-sm text-gray-500">Usuarios que más comparten y generan ventas</p>
+      <div className="space-y-6">
+        {/* ACREDITAR SALDO */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+              <i className="bi bi-wallet2 text-lg"></i>
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-gray-900">Acreditar Saldo</h3>
+              <p className="text-xs text-gray-500">Acredita saldo manualmente a la billetera de un usuario</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                Celular del usuario
+              </label>
+              <input
+                type="tel"
+                placeholder="0990000000 o +593 99 000 0000"
+                value={walletForm.phone}
+                onChange={e => setWalletForm(prev => ({ ...prev, phone: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                Monto ($)
+              </label>
+              <input
+                type="number"
+                placeholder="0.00"
+                min="0.01"
+                step="0.01"
+                value={walletForm.amount}
+                onChange={e => setWalletForm(prev => ({ ...prev, amount: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                Concepto
+              </label>
+              <input
+                type="text"
+                placeholder="Ej: Devolución entrega fallida"
+                value={walletForm.concept}
+                onChange={e => setWalletForm(prev => ({ ...prev, concept: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          {walletMessage && (
+            <div className={`mb-4 p-3 rounded-lg text-sm font-medium ${walletMessage.type === 'success'
+              ? 'bg-green-50 text-green-700 border border-green-200'
+              : 'bg-red-50 text-red-700 border border-red-200'
+              }`}>
+              {walletMessage.text}
+            </div>
+          )}
+
+          <button
+            onClick={handleCreditWallet}
+            disabled={walletLoading}
+            className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {walletLoading ? (
+              <>
+                <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                Acreditando...
+              </>
+            ) : (
+              <>
+                <i className="bi bi-plus-circle"></i>
+                Acreditar Saldo
+              </>
+            )}
+          </button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuario</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Créditos</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Links Creados</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Clicks</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center font-bold text-red-600">Ventas (Conv)</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {recommenders.map((r, idx) => (
-                <tr key={idx} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 bg-gray-100 rounded-full overflow-hidden border border-gray-200 flex items-center justify-center">
-                        {r.image ? (
-                          <img
-                            src={r.image}
-                            alt={r.name}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(r.name)}&background=random`
-                            }}
-                          />
-                        ) : (
-                          <i className="bi bi-person text-xl text-gray-400"></i>
-                        )}
-                      </div>
-                      <div>
-                        <div className="text-sm font-bold text-gray-900">{r.name}</div>
-                        <div className="text-xs text-gray-500">{r.phone}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-center">
-                    <div className="text-sm font-bold text-gray-900">{r.totalCredits}</div>
-                    <div className="text-xs text-gray-400">({r.credits} disp)</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-500">{r.linksCount}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-500">{r.clicks}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-center">
-                    <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800">
-                      {r.conversions} ventas
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              {recommenders.length === 0 && (
+
+        {/* TOP RECOMENDADORES */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          <div className="p-6 border-b border-gray-100">
+            <h3 className="text-lg font-semibold text-gray-900">Top Recomendadores</h3>
+            <p className="text-sm text-gray-500">Usuarios que más comparten y generan ventas</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
                 <tr>
-                  <td colSpan={5} className="px-6 py-10 text-center text-gray-500">
-                    No hay datos de recomendaciones registrados aún.
-                  </td>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuario</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Créditos</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Links Creados</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Clicks</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center font-bold text-red-600">Ventas (Conv)</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {recommenders.map((r, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 bg-gray-100 rounded-full overflow-hidden border border-gray-200 flex items-center justify-center">
+                          {r.image ? (
+                            <img
+                              src={r.image}
+                              alt={r.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(r.name)}&background=random`
+                              }}
+                            />
+                          ) : (
+                            <i className="bi bi-person text-xl text-gray-400"></i>
+                          )}
+                        </div>
+                        <div>
+                          <div className="text-sm font-bold text-gray-900">{r.name}</div>
+                          <div className="text-xs text-gray-500">{r.phone}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <div className="text-sm font-bold text-gray-900">{r.totalCredits}</div>
+                      <div className="text-xs text-gray-400">({r.credits} disp)</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-500">{r.linksCount}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-500">{r.clicks}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800">
+                        {r.conversions} ventas
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {recommenders.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-10 text-center text-gray-500">
+                      No hay datos de recomendaciones registrados aún.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     );

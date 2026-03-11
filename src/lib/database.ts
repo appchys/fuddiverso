@@ -403,7 +403,7 @@ export async function getAllBusinesses(): Promise<Business[]> {
 export async function updateBusiness(businessId: string, data: Partial<Business>) {
   try {
     console.log('📥 updateBusiness called:', { businessId, data })
-    
+
     // Filtrar valores undefined antes de enviar a Firestore
     const cleanData = cleanObject(data)
     console.log('🧹 Cleaned data:', cleanData)
@@ -415,7 +415,7 @@ export async function updateBusiness(businessId: string, data: Partial<Business>
     }
 
     const docRef = doc(db, 'businesses', businessId)
-    
+
     // Convertir valores null a deleteField() para eliminar el campo
     const updateData: any = {}
     for (const [key, value] of Object.entries(cleanData)) {
@@ -431,7 +431,7 @@ export async function updateBusiness(businessId: string, data: Partial<Business>
         console.log(`✏️ Setting ${key} =`, value)
       }
     }
-    
+
     console.log('📤 Final update data for Firebase:', updateData)
     await updateDoc(docRef, updateData)
     console.log('✅ Firebase updateDoc completed successfully')
@@ -1661,10 +1661,10 @@ export async function searchClientByPhone(phone: string): Promise<FirestoreClien
     const normalizePhoneForSearch = (phone: string): string[] => {
       const cleanPhone = phone.replace(/[\s\-\(\)]/g, '')
       const variants = new Set<string>()
-      
+
       // Añadir el formato original limpio
       variants.add(cleanPhone)
-      
+
       // Si empieza con +593, añadir versión con 0
       if (cleanPhone.startsWith('+593')) {
         variants.add('0' + cleanPhone.substring(4))
@@ -1684,7 +1684,7 @@ export async function searchClientByPhone(phone: string): Promise<FirestoreClien
         variants.add('+593' + cleanPhone)
         variants.add('593' + cleanPhone)
       }
-      
+
       return Array.from(variants)
     }
 
@@ -4951,6 +4951,161 @@ export async function creditReferral(
     }
   } catch (error) {
     console.error('Error crediting referral:', error)
+    throw error
+  }
+}
+
+
+// ============================================================================
+// BILLETERA DIGITAL (WALLET)
+// ============================================================================
+
+/**
+ * Acredita saldo manualmente a la billetera de un usuario.
+ * Usado para devoluciones por entregas fallidas, bonos, etc.
+ */
+export async function addWalletBalance(
+  userId: string,
+  businessId: string,
+  amount: number,
+  concept: string,
+  createdBy?: string,
+  referenceId?: string
+): Promise<void> {
+  try {
+    // 1. Registrar la transacción en walletTransactions
+    await addDoc(collection(db, 'walletTransactions'), {
+      userId,
+      businessId,
+      type: 'balance_credit',
+      amount,
+      concept,
+      referenceId: referenceId || null,
+      createdBy: createdBy || null,
+      createdAt: serverTimestamp()
+    })
+
+    // 2. Actualizar o crear el doc de userCredits con el nuevo campo `balance`
+    const q = query(
+      collection(db, 'userCredits'),
+      where('userId', '==', userId),
+      where('businessId', '==', businessId),
+      limit(1)
+    )
+    const snapshot = await getDocs(q)
+
+    if (!snapshot.empty) {
+      await updateDoc(snapshot.docs[0].ref, {
+        balance: firestoreIncrement(amount),
+        totalCredits: firestoreIncrement(amount),
+        updatedAt: serverTimestamp()
+      })
+    } else {
+      await addDoc(collection(db, 'userCredits'), {
+        userId,
+        businessId,
+        totalCredits: amount,
+        availableCredits: 0,
+        usedCredits: 0,
+        balance: amount,
+        referrals: [],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      })
+    }
+  } catch (error) {
+    console.error('Error adding wallet balance:', error)
+    throw error
+  }
+}
+
+/**
+ * Obtiene el historial de transacciones de la billetera de un usuario.
+ * Si no se provee businessId, retorna transacciones de todos los negocios.
+ */
+export async function getWalletTransactions(
+  userId: string,
+  businessId?: string
+): Promise<any[]> {
+  try {
+    let q
+    if (businessId) {
+      q = query(
+        collection(db, 'walletTransactions'),
+        where('userId', '==', userId),
+        where('businessId', '==', businessId)
+      )
+    } else {
+      q = query(
+        collection(db, 'walletTransactions'),
+        where('userId', '==', userId)
+      )
+    }
+    const snapshot = await getDocs(q)
+    const txs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any))
+    return txs.sort((a: any, b: any) => {
+      const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : a.createdAt ? new Date(a.createdAt) : new Date(0)
+      const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : b.createdAt ? new Date(b.createdAt) : new Date(0)
+      return dateB.getTime() - dateA.getTime()
+    })
+  } catch (error) {
+    console.error('Error getting wallet transactions:', error)
+    return []
+  }
+}
+
+/**
+ * Debita saldo de la billetera cuando se usa en un pedido.
+ * Prioriza el saldo acreditado (balance) antes que los créditos de referidos.
+ */
+export async function useWalletBalance(
+  userId: string,
+  businessId: string,
+  amount: number,
+  orderId: string
+): Promise<void> {
+  try {
+    const q = query(
+      collection(db, 'userCredits'),
+      where('userId', '==', userId),
+      where('businessId', '==', businessId),
+      limit(1)
+    )
+    const snapshot = await getDocs(q)
+    if (snapshot.empty) throw new Error('No wallet credits found')
+
+    const creditDoc = snapshot.docs[0]
+    const data = creditDoc.data()
+    const currentBalance = data.balance || 0
+    const currentAvailable = data.availableCredits || 0
+    const totalAvailable = currentBalance + currentAvailable
+
+    if (totalAvailable < amount) throw new Error('Saldo insuficiente en la billetera')
+
+    // Deducir primero del balance manual, luego de créditos de referidos
+    const deductFromBalance = Math.min(amount, currentBalance)
+    const deductFromCredits = amount - deductFromBalance
+
+    await updateDoc(creditDoc.ref, {
+      balance: firestoreIncrement(-deductFromBalance),
+      availableCredits: firestoreIncrement(-deductFromCredits),
+      usedCredits: firestoreIncrement(amount),
+      updatedAt: serverTimestamp()
+    })
+
+    // Registrar transacción de débito
+    await addDoc(collection(db, 'walletTransactions'), {
+      userId,
+      businessId,
+      type: 'debit',
+      amount,
+      concept: `Usado en pedido #${orderId}`,
+      referenceId: orderId,
+      createdBy: null,
+      createdAt: serverTimestamp()
+    })
+  } catch (error) {
+    console.error('Error using wallet balance:', error)
     throw error
   }
 }

@@ -233,9 +233,9 @@ service cloud.firestore {
       // Lectura pública (usuarios pueden ver sus créditos sin auth)
       allow read: if true;
       
-      // Crear/actualizar: solo desde backend o usuarios autenticados
-      // Los créditos se acreditan automáticamente al completar órdenes
-      allow create, update: if request.auth != null;
+      // Crear/actualizar: pública para permitir acreditación desde el admin frontend
+      // y desde flujos de checkout/referidos sin autenticación Firebase
+      allow create, update: if true;
       
       // No permitir eliminación (mantener historial de créditos)
       allow delete: if false;
@@ -252,6 +252,18 @@ service cloud.firestore {
       // No permitir actualización ni eliminación (registro inmutable)
       allow update, delete: if false;
     }
+    // Billetera Digital - Historial de transacciones de wallet
+    match /walletTransactions/{document} {
+      // Lectura pública (usuarios pueden ver sus transacciones sin auth)
+      allow read: if true;
+      
+      // Crear: pública (admin frontend, checkout, y flujos sin auth Firebase)
+      allow create: if true;
+      
+      // No permitir actualización ni eliminación (registro inmutable)
+      allow update, delete: if false;
+    }
+
     // Colección de Liquidaciones (Settlements)
     // Acceso restringido a usuarios autenticados (admin)
     match /settlements/{document} {

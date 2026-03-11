@@ -14,7 +14,8 @@ import {
   unredeemQRCodePrize,
   storage,
   getUserReferrals,
-  getAllUserCredits
+  getAllUserCredits,
+  getWalletTransactions
 } from '@/lib/database'
 import CartSidebar from '@/components/CartSidebar'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -80,6 +81,10 @@ export default function ProfilePage() {
   })
   const [loadingReferrals, setLoadingReferrals] = useState(false)
   const [copyingId, setCopyingId] = useState<string | null>(null)
+
+  // WALLET STATES
+  const [walletTransactions, setWalletTransactions] = useState<any[]>([])
+  const [walletBalance, setWalletBalance] = useState({ referralCredits: 0, manualBalance: 0 })
 
   // INIT
   useEffect(() => {
@@ -217,12 +222,26 @@ export default function ProfilePage() {
         // Combinar créditos y eliminar duplicados (por businessId)
         const combinedCredits = [...creditsById]
         creditsByPhone.forEach(credit => {
-          if (!combinedCredits.some(c => c.businessId === credit.businessId)) {
+          // Si es el MISMISIMO documento, lo ignoramos
+          if (combinedCredits.some(c => c.id === credit.id)) return
+
+          const index = combinedCredits.findIndex(c => c.businessId === credit.businessId)
+          if (index === -1) {
             combinedCredits.push(credit)
           } else {
-            const index = combinedCredits.findIndex(c => c.businessId === credit.businessId)
             combinedCredits[index].availableCredits = (combinedCredits[index].availableCredits || 0) + (credit.availableCredits || 0)
             combinedCredits[index].totalCredits = (combinedCredits[index].totalCredits || 0) + (credit.totalCredits || 0)
+            combinedCredits[index].balance = (combinedCredits[index].balance || 0) + (credit.balance || 0)
+            
+            // Combinar y deduplicar referidos para evitar keys duplicadas
+            const existingReferrals = combinedCredits[index].referrals || []
+            const newReferrals = credit.referrals || []
+            newReferrals.forEach((nr: any) => {
+              if (!existingReferrals.some((er: any) => er.orderId === nr.orderId)) {
+                existingReferrals.push(nr)
+              }
+            })
+            combinedCredits[index].referrals = existingReferrals
           }
         })
 
@@ -235,12 +254,53 @@ export default function ProfilePage() {
 
         setReferrals(combinedReferrals)
 
+        const referralCredits = combinedCredits.reduce((sum, c) => sum + (c.availableCredits || 0), 0)
+        const manualBalance = combinedCredits.reduce((sum, c) => sum + (c.balance || 0), 0)
         const stats = {
           totalClicks: combinedReferrals.reduce((sum, r) => sum + (r.clicks || 0), 0),
           totalSales: combinedReferrals.reduce((sum, r) => sum + (r.conversions || 0), 0),
-          totalCredits: combinedCredits.reduce((sum, c) => sum + (c.availableCredits || 0), 0)
+          totalCredits: referralCredits + manualBalance
         }
         setReferralStats(stats)
+        setWalletBalance({ referralCredits, manualBalance })
+
+        // Cargar transacciones de billetera (Asegurarnos de buscar también por teléfono para consistencia)
+        const txsById = await getWalletTransactions(user.id)
+        const txsByPhone = user.celular && user.celular !== user.id ? await getWalletTransactions(user.celular) : []
+        
+        // Remove duplicate txs by id
+        const uniqueTxsMap = new Map()
+        ;[...txsById, ...txsByPhone].forEach(tx => {
+           if (!uniqueTxsMap.has(tx.id)) uniqueTxsMap.set(tx.id, tx)
+        })
+        const txs = Array.from(uniqueTxsMap.values())
+
+        // Generar transacciones sintéticas desde el historial de referidos en userCredits
+        const referralTxs: any[] = []
+        combinedCredits.forEach(credit => {
+          ; (credit.referrals || []).forEach((r: any) => {
+            const txId = `ref-${r.orderId || Math.random()}`
+            referralTxs.push({
+              id: txId,
+              type: 'referral_credit',
+              amount: r.creditAmount || 0.25,
+              concept: 'Crédito por recomendación',
+              businessId: credit.businessId,
+              createdAt: r.createdAt || r.completedAt || null
+            })
+          })
+        })
+        
+        // Deduplicar referralTxs por SI ACASO hay orderId repetidos (aunque se mitigó arriba)
+        const uniqueReferralTxs = Array.from(new Map(referralTxs.map(tx => [tx.id, tx])).values())
+
+        // Combinar y ordenar por fecha desc
+        const allTxs = [...txs, ...uniqueReferralTxs].sort((a, b) => {
+          const da = a.createdAt?.toDate ? a.createdAt.toDate() : a.createdAt ? new Date(a.createdAt) : new Date(0)
+          const db2 = b.createdAt?.toDate ? b.createdAt.toDate() : b.createdAt ? new Date(b.createdAt) : new Date(0)
+          return db2.getTime() - da.getTime()
+        })
+        setWalletTransactions(allTxs)
       } catch (error) {
         console.error('Error loading referral data:', error)
       } finally {
@@ -756,15 +816,91 @@ export default function ProfilePage() {
         {/* RECOMENDACIONES */}
         {activeTab === 'recommendations' && (
           <div className="space-y-6">
-            {/* Dashboard de Impacto */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm text-center">
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center mx-auto mb-2">
-                  <i className="bi bi-wallet2 text-sm"></i>
+            {/* BILLETERA DIGITAL */}
+            <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-5 text-white shadow-lg">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center">
+                    <i className="bi bi-wallet2 text-lg"></i>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-white/50">Mi Billetera</p>
+                    <p className="text-xs text-white/70">Saldo disponible</p>
+                  </div>
                 </div>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Créditos</p>
-                <p className="text-xl font-black text-gray-900">${referralStats.totalCredits.toFixed(2)}</p>
+                <div className="text-right">
+                  <p className="text-3xl font-black tracking-tight">
+                    ${(walletBalance.referralCredits + walletBalance.manualBalance).toFixed(2)}
+                  </p>
+                  <p className="text-[10px] text-white/50">Total disponible</p>
+                </div>
               </div>
+
+              {/* Badges diferenciados */}
+              <div className="flex gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 bg-emerald-500/20 border border-emerald-400/30 rounded-lg px-3 py-1.5">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
+                  <p className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider">Recomendaciones</p>
+                  <p className="text-xs font-black text-emerald-200">${walletBalance.referralCredits.toFixed(2)}</p>
+                </div>
+                <div className="flex items-center gap-1.5 bg-blue-500/20 border border-blue-400/30 rounded-lg px-3 py-1.5">
+                  <div className="w-2 h-2 rounded-full bg-blue-400"></div>
+                  <p className="text-[10px] font-bold text-blue-300 uppercase tracking-wider">Saldo</p>
+                  <p className="text-xs font-black text-blue-200">${walletBalance.manualBalance.toFixed(2)}</p>
+                </div>
+              </div>
+
+              {/* Historial de movimientos */}
+              <div className="mt-4">
+                <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Últimos movimientos</p>
+                {loadingReferrals ? (
+                  <div className="flex justify-center py-4">
+                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-white/30 border-t-white"></div>
+                  </div>
+                ) : walletTransactions.length > 0 ? (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10">
+                    {walletTransactions.slice(0, 20).map((tx) => {
+                      const isDebit = tx.type === 'debit'
+                      const isBalance = tx.type === 'balance_credit'
+                      const txDate = tx.createdAt?.toDate ? tx.createdAt.toDate() : tx.createdAt ? new Date(tx.createdAt) : null
+                      return (
+                        <div key={tx.id} className="flex items-center gap-3 bg-white/5 rounded-lg px-3 py-2">
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${isDebit ? 'bg-red-500/20 text-red-400'
+                              : isBalance ? 'bg-blue-500/20 text-blue-400'
+                                : 'bg-emerald-500/20 text-emerald-400'
+                            }`}>
+                            <i className={`bi ${isDebit ? 'bi-arrow-up-right'
+                                : isBalance ? 'bi-plus-circle'
+                                  : 'bi-share'
+                              } text-xs`}></i>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-white/90 truncate">{tx.concept}</p>
+                            {txDate && (
+                              <p className="text-[10px] text-white/40">
+                                {txDate.toLocaleDateString('es-EC', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </p>
+                            )}
+                          </div>
+                          <p className={`text-sm font-black flex-shrink-0 ${isDebit ? 'text-red-400' : 'text-emerald-400'
+                            }`}>
+                            {isDebit ? '-' : '+'}${tx.amount.toFixed(2)}
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-xs text-white/30">Aún no hay movimientos en tu billetera.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Dashboard de Impacto */}
+            <div className="grid grid-cols-2 gap-3">
               <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm text-center">
                 <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center mx-auto mb-2">
                   <i className="bi bi-mouse2 text-sm"></i>
