@@ -473,48 +473,13 @@ export default function AdminSettlementsTab({
   }
 
   const { settlementsByBusiness, pendingOrders, pendingDeliveryOrders, deliveriesSummary } = useMemo(() => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
     const pending = orders.filter(o => {
-      if (o.timing?.scheduledDate) {
-        let scheduledDate: Date | null = null
-        const dateVal = o.timing.scheduledDate as any
-
-        if (dateVal instanceof Date) {
-          scheduledDate = dateVal
-        } else if (typeof dateVal === 'object' && dateVal && 'seconds' in dateVal) {
-          scheduledDate = new Date((dateVal.seconds as number) * 1000)
-        }
-
-        if (scheduledDate) {
-          scheduledDate.setHours(0, 0, 0, 0)
-          if (scheduledDate.getTime() !== today.getTime()) return false
-        }
-      }
-
       if (['borrador', 'pending', 'cancelled'].includes(o.status as any)) return false
       if (o.settlementStatus && o.settlementStatus !== 'pending') return false
       return true
     })
 
     const pendingDelivery = orders.filter(o => {
-      if (o.timing?.scheduledDate) {
-        let scheduledDate: Date | null = null
-        const dateVal = o.timing.scheduledDate as any
-
-        if (dateVal instanceof Date) {
-          scheduledDate = dateVal
-        } else if (typeof dateVal === 'object' && dateVal && 'seconds' in dateVal) {
-          scheduledDate = new Date((dateVal.seconds as number) * 1000)
-        }
-
-        if (scheduledDate) {
-          scheduledDate.setHours(0, 0, 0, 0)
-          if (scheduledDate.getTime() !== today.getTime()) return false
-        }
-      }
-
       if (['borrador', 'pending', 'cancelled'].includes(o.status as any)) return false
       if (o.deliverySettlementStatus && o.deliverySettlementStatus !== 'pending') return false
       return true
