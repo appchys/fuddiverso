@@ -8,17 +8,97 @@ import { Business, Delivery } from '@/types'
  * @param business - Objeto de negocio con horario y estado manual
  * @returns true si la tienda está abierta, false si está cerrada
  */
+// Función para calcular cuándo debería expirar el control manual
+export function calculateManualStatusExpiry(business: Business): Date | null {
+  if (!business.schedule) return null
+
+  const now = new Date()
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+  const currentDay = dayNames[now.getDay()]
+  const currentMinutes = now.getHours() * 60 + now.getMinutes()
+
+  const todaySchedule = business.schedule[currentDay]
+  if (!todaySchedule || !todaySchedule.isOpen) {
+    // Si hoy está cerrado, buscar próxima apertura
+    for (let i = 1; i <= 7; i++) {
+      const nextDay = dayNames[(now.getDay() + i) % 7]
+      const nextDaySchedule = business.schedule[nextDay]
+      if (nextDaySchedule && nextDaySchedule.isOpen) {
+        const expiryDate = new Date(now)
+        expiryDate.setDate(now.getDate() + i)
+        const [openH, openM] = nextDaySchedule.open.split(':').map(Number)
+        expiryDate.setHours(openH, openM, 0, 0)
+        return expiryDate
+      }
+    }
+    return null
+  }
+
+  const [openH, openM] = todaySchedule.open.split(':').map(Number)
+  const [closeH, closeM] = todaySchedule.close.split(':').map(Number)
+  const openMinutes = openH * 60 + openM
+  const closeMinutes = closeH * 60 + closeM
+
+  let expiryDate = new Date(now)
+
+  if (currentMinutes < openMinutes) {
+    // Antes de hora de apertura: expirar a la hora de apertura
+    expiryDate.setHours(openH, openM, 0, 0)
+  } else if (currentMinutes < closeMinutes) {
+    // Durante horario abierto: expirar a la hora de cierre
+    expiryDate.setHours(closeH, closeM, 0, 0)
+  } else {
+    // Después de hora de cierre: expirar mañana a la hora de apertura
+    for (let i = 1; i <= 7; i++) {
+      const nextDay = dayNames[(now.getDay() + i) % 7]
+      const nextDaySchedule = business.schedule[nextDay]
+      if (nextDaySchedule && nextDaySchedule.isOpen) {
+        expiryDate.setDate(now.getDate() + i)
+        const [nextOpenH, nextOpenM] = nextDaySchedule.open.split(':').map(Number)
+        expiryDate.setHours(nextOpenH, nextOpenM, 0, 0)
+        return expiryDate
+      }
+    }
+    return null
+  }
+
+  return expiryDate
+}
+
 export function isStoreOpen(business: Business | null): boolean {
     if (!business) return false
 
-    // 1. Si hay control manual, tiene prioridad sobre el horario
-    if (business.manualStoreStatus === 'open') {
-        console.log('🟢 Store OPEN (manual override)')
-        return true
-    }
-    if (business.manualStoreStatus === 'closed') {
-        console.log('🔴 Store CLOSED (manual override)')
-        return false
+    // 1. Verificar si el control manual ha expirado
+    if (business.manualStoreStatus && business.manualStatusExpiry) {
+        const now = new Date()
+        const expiryTime = business.manualStatusExpiry instanceof Date 
+            ? business.manualStatusExpiry 
+            : new Date(business.manualStatusExpiry)
+        
+        if (now >= expiryTime) {
+            console.log('⏰ Manual status expired, switching to automatic')
+            // El control manual ha expirado, continuar con lógica automática
+        } else {
+            // El control manual todavía está activo
+            if (business.manualStoreStatus === 'open') {
+                console.log('🟢 Store OPEN (manual override)')
+                return true
+            }
+            if (business.manualStoreStatus === 'closed') {
+                console.log('🔴 Store CLOSED (manual override)')
+                return false
+            }
+        }
+    } else if (business.manualStoreStatus && !business.manualStatusExpiry) {
+        // Caso antiguo: control manual sin expiración (para compatibilidad)
+        if (business.manualStoreStatus === 'open') {
+            console.log('🟢 Store OPEN (manual override - no expiry)')
+            return true
+        }
+        if (business.manualStoreStatus === 'closed') {
+            console.log('🔴 Store CLOSED (manual override - no expiry)')
+            return false
+        }
     }
 
     // 2. Verificar horario automático

@@ -30,7 +30,7 @@ import {
     getNextStatus
 } from '@/components/WhatsAppUtils'
 import { printOrder } from '@/lib/print-utils'
-import { isStoreOpen } from '@/lib/store-utils'
+import { isStoreOpen, getNextOpeningMessage, calculateManualStatusExpiry } from '@/lib/store-utils'
 import QueueStatusIndicator from '@/components/QueueStatusIndicator'
 import NotificationsBell from '@/components/NotificationsBell'
 import { useOfflineQueue } from '@/hooks/useOfflineQueue'
@@ -673,23 +673,41 @@ export default function TodayOrdersPage() {
             else if (currentStatus === 'closed') newStatus = 'open'
             else newStatus = null
 
+            // Calculate expiry time for manual control (if needed)
+            let expiryTime: Date | null = null
+            if (newStatus !== null) {
+                expiryTime = calculateManualStatusExpiry(business)
+            }
+
             console.log('🔄 Store status toggle:', {
                 businessId: business.id,
                 currentStatus: currentStatus,
-                newStatus: newStatus
+                newStatus: newStatus,
+                expiryTime: expiryTime?.toLocaleString('es-EC')
             })
 
             if (newStatus === null) {
                 // Remove the field entirely when switching back to automatic mode
                 console.log('📤 Sending update to Firebase: manualStoreStatus = null (delete field)')
-                await updateBusiness(business.id, { manualStoreStatus: null })
+                await updateBusiness(business.id, { 
+                    manualStoreStatus: null,
+                    manualStatusExpiry: undefined
+                } as Partial<Business>)
             } else {
                 console.log('📤 Sending update to Firebase: manualStoreStatus =', newStatus)
-                await updateBusiness(business.id, { manualStoreStatus: newStatus })
+                console.log('⏰ Manual status will expire at:', expiryTime?.toLocaleString('es-EC'))
+                await updateBusiness(business.id, { 
+                    manualStoreStatus: newStatus,
+                    manualStatusExpiry: expiryTime 
+                } as Partial<Business>)
             }
             
             console.log('✅ Firebase update completed, updating local state')
-            setBusiness(prev => prev ? { ...prev, manualStoreStatus: newStatus } : null)
+            setBusiness(prev => prev ? { 
+                ...prev, 
+                manualStoreStatus: newStatus,
+                manualStatusExpiry: expiryTime || undefined
+            } : null)
         } catch (e) {
             console.error('❌ Error updating store status:', e)
             alert('Error updating store status: ' + (e as Error).message)

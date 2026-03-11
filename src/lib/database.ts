@@ -346,10 +346,13 @@ export async function getBusiness(businessId: string): Promise<Business | null> 
     const docSnap = await getDoc(docRef)
 
     if (docSnap.exists()) {
+      const data = docSnap.data()
       return {
         id: docSnap.id,
-        ...docSnap.data(),
-        createdAt: toSafeDate(docSnap.data().createdAt)
+        ...data,
+        createdAt: toSafeDate(data.createdAt),
+        updatedAt: toSafeDate(data.updatedAt),
+        manualStatusExpiry: data.manualStatusExpiry ? toSafeDate(data.manualStatusExpiry) : undefined
       } as Business
     }
     return null
@@ -419,6 +422,10 @@ export async function updateBusiness(businessId: string, data: Partial<Business>
       if (value === null) {
         updateData[key] = deleteField()
         console.log(`🗑️ Converting ${key} to deleteField()`)
+      } else if (key === 'manualStatusExpiry' && value instanceof Date) {
+        // Convertir Date a Firestore Timestamp
+        updateData[key] = Timestamp.fromDate(value)
+        console.log(`📅 Converting ${key} to Firestore Timestamp:`, value)
       } else {
         updateData[key] = value
         console.log(`✏️ Setting ${key} =`, value)
@@ -1572,7 +1579,8 @@ export async function getBusinessByUsername(username: string): Promise<Business 
         id: doc.id,
         ...businessData,
         createdAt: toSafeDate(businessData.createdAt),
-        updatedAt: toSafeDate(businessData.updatedAt)
+        updatedAt: toSafeDate(businessData.updatedAt),
+        manualStatusExpiry: businessData.manualStatusExpiry ? toSafeDate(businessData.manualStatusExpiry) : undefined
       } as Business;
       return business;
     }
