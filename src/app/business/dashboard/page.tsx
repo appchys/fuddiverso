@@ -1135,6 +1135,7 @@ export default function TodayOrdersPage() {
                                             setManualOrderSidebarOpen(true)
                                         }}
                                         onOrderDelete={(id) => handleDeleteOrder(id)}
+                                        onOrderStatusChange={handleStatusChange}
                                         getStatusColor={getStatusColor}
                                         getStatusText={getStatusText}
                                         getOrderDateTime={(o) => {
@@ -1143,6 +1144,31 @@ export default function TodayOrdersPage() {
                                             }
                                             return toSafeDate(o.createdAt)
                                         }}
+                                        availableDeliveries={availableDeliveries}
+                                        onDeliveryAssign={handleDeliveryAssignment}
+                                        onPaymentEdit={(order) => {
+                                            setSelectedOrderForPayment(order)
+                                            // Open payment modal logic here if needed
+                                        }}
+                                        onWhatsAppDelivery={(order) => {
+                                            // WhatsApp logic here if needed
+                                        }}
+                                        onPrint={(order) => {
+                                            printOrder({
+                                                order: order as any,
+                                                businessName: business?.name || "Negocio",
+                                                businessLogo: business?.image
+                                            })
+                                        }}
+                                        onDeliveryStatusClick={(order) => {
+                                            setSelectedOrderForStatusModal(order)
+                                            setDeliveryStatusModalOpen(true)
+                                        }}
+                                        onCustomerClick={(order) => {
+                                            setSelectedOrderForCustomerContact(order)
+                                            setCustomerContactModalOpen(true)
+                                        }}
+                                        businessPhone={business?.phone}
                                     />
                                     {historyLoading && (
                                         <div className="flex justify-center py-8">
