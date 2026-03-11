@@ -60,6 +60,7 @@ export default function AdminDashboard() {
   const [chartData, setChartData] = useState<any[]>([])
   const [telegramChartData, setTelegramChartData] = useState<any[]>([])
   const [linkedClients, setLinkedClients] = useState<any[]>([])
+  const [globalClients, setGlobalClients] = useState<any[]>([])
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
 
@@ -358,6 +359,7 @@ export default function AdminDashboard() {
         getAllDeliveries()
       ])
       setDeliveries(allDeliveries)
+      setGlobalClients(allGlobalClients)
 
       const processedCustomers = Array.from(customerMap.values())
 
@@ -742,6 +744,13 @@ export default function AdminDashboard() {
   };
 
   const renderRecommendersTab = () => {
+    // Buscar nombre del cliente al vuelo si está escribiendo un celular
+    const normalizedWalletPhone = walletForm.phone ? normalizeEcuadorianPhone(walletForm.phone.trim()) : '';
+    const foundClientName = normalizedWalletPhone ? (
+      globalClients.find(c => c.celular && normalizeEcuadorianPhone(c.celular) === normalizedWalletPhone)?.nombres ||
+      customers.find(c => c.phone && normalizeEcuadorianPhone(c.phone) === normalizedWalletPhone)?.name
+    ) : null;
+
     return (
       <div className="space-y-6">
         {/* ACREDITAR SALDO */}
@@ -768,6 +777,19 @@ export default function AdminDashboard() {
                 onChange={e => setWalletForm(prev => ({ ...prev, phone: e.target.value }))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              {walletForm.phone.trim() !== '' && (
+                <div className="mt-1 text-[11px] font-semibold">
+                  {foundClientName ? (
+                    <span className="text-emerald-600 flex items-center gap-1">
+                      <i className="bi bi-person-check-fill"></i> {foundClientName}
+                    </span>
+                  ) : (
+                    <span className="text-amber-600/70 flex items-center gap-1">
+                      <i className="bi bi-info-circle"></i> Usuario no registrado
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
