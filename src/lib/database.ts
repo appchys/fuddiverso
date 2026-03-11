@@ -1657,28 +1657,68 @@ export async function getClientLocations(clientId: string, createdBy?: 'client' 
 // Nueva función para buscar clientes por teléfono
 export async function searchClientByPhone(phone: string): Promise<FirestoreClient | null> {
   try {
-    const q = query(
-      collection(db, 'clients'),
-      where('celular', '==', phone),
-      limit(1)
-    );
-
-    const querySnapshot = await getDocs(q);
-
-    if (!querySnapshot.empty) {
-      const doc = querySnapshot.docs[0];
-      const clientData = doc.data();
-      const client: FirestoreClient = {
-        id: doc.id,
-        nombres: clientData.nombres || '',
-        celular: clientData.celular || phone,
-        email: clientData.email || '',
-        photoURL: clientData.photoURL || '',
-        fecha_de_registro: clientData.fecha_de_registro || new Date().toISOString(),
-        pinHash: clientData.pinHash || null
-      };
-      return client;
+    // Función para normalizar teléfono (similar a la del componente)
+    const normalizePhoneForSearch = (phone: string): string[] => {
+      const cleanPhone = phone.replace(/[\s\-\(\)]/g, '')
+      const variants = new Set<string>()
+      
+      // Añadir el formato original limpio
+      variants.add(cleanPhone)
+      
+      // Si empieza con +593, añadir versión con 0
+      if (cleanPhone.startsWith('+593')) {
+        variants.add('0' + cleanPhone.substring(4))
+      }
+      // Si empieza con 593, añadir versión con 0
+      else if (cleanPhone.startsWith('593')) {
+        variants.add('0' + cleanPhone.substring(3))
+      }
+      // Si empieza con 0, añadir versión con +593
+      else if (cleanPhone.startsWith('0') && cleanPhone.length === 10) {
+        variants.add('+593' + cleanPhone.substring(1))
+        variants.add('593' + cleanPhone.substring(1))
+      }
+      // Si empieza con 9 y tiene 9 dígitos, añadir versión con 0
+      else if (cleanPhone.startsWith('9') && cleanPhone.length === 9) {
+        variants.add('0' + cleanPhone)
+        variants.add('+593' + cleanPhone)
+        variants.add('593' + cleanPhone)
+      }
+      
+      return Array.from(variants)
     }
+
+    const phoneVariants = normalizePhoneForSearch(phone)
+    console.log('[Database] Buscando cliente con variantes de teléfono:', phoneVariants)
+
+    // Intentar buscar con cada variante del teléfono
+    for (const phoneVariant of phoneVariants) {
+      const q = query(
+        collection(db, 'clients'),
+        where('celular', '==', phoneVariant),
+        limit(1)
+      );
+
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        const doc = querySnapshot.docs[0];
+        const clientData = doc.data();
+        const client: FirestoreClient = {
+          id: doc.id,
+          nombres: clientData.nombres || '',
+          celular: clientData.celular || phone,
+          email: clientData.email || '',
+          photoURL: clientData.photoURL || '',
+          fecha_de_registro: clientData.fecha_de_registro || new Date().toISOString(),
+          pinHash: clientData.pinHash || null
+        };
+        console.log('[Database] Cliente encontrado con variante:', phoneVariant, client)
+        return client;
+      }
+    }
+
+    console.log('[Database] No se encontró cliente con ninguna variante de teléfono')
     return null;
   } catch (error) {
     console.error('Error searching client by phone:', error);

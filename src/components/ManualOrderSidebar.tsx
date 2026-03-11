@@ -393,11 +393,33 @@ export default function ManualOrderSidebar({
     // Remover todos los espacios, guiones y paréntesis
     let cleanPhone = phone.replace(/[\s\-\(\)]/g, '')
 
-    // Si empieza con +593, convertir a formato nacional
+    // Si empieza con +593, convertir a formato nacional (09xxxxxxxx)
     if (cleanPhone.startsWith('+593')) {
       cleanPhone = '0' + cleanPhone.substring(4)
-    } else if (cleanPhone.startsWith('593')) {
+    } 
+    // Si empieza con 593 (sin +), convertir a formato nacional
+    else if (cleanPhone.startsWith('593')) {
       cleanPhone = '0' + cleanPhone.substring(3)
+    }
+    // Si empieza con 9 y tiene 9 dígitos, ya está en formato correcto
+    else if (cleanPhone.startsWith('9') && cleanPhone.length === 9) {
+      // Ya está correcto, no hacer nada
+    }
+    // Si empieza con 0 y tiene 10 dígitos, ya está en formato correcto
+    else if (cleanPhone.startsWith('0') && cleanPhone.length === 10) {
+      // Ya está correcto, no hacer nada
+    }
+    // Si tiene 8 dígitos y no empieza con 0, agregar el 0
+    else if (cleanPhone.length === 8 && !cleanPhone.startsWith('0')) {
+      cleanPhone = '0' + cleanPhone
+    }
+
+    // Validar que el resultado tenga 10 dígitos y empiece con 0
+    if (!/^0\d{9}$/.test(cleanPhone)) {
+      console.warn('[ManualOrder] Teléfono no válido después de normalización:', {
+        original: phone,
+        normalized: cleanPhone
+      })
     }
 
     return cleanPhone
@@ -448,14 +470,19 @@ export default function ManualOrderSidebar({
     const timeout = setTimeout(async () => {
       setSearchingClient(true)
       try {
-        const results = await searchClients(searchTerm, 'auto')
+        // Normalizar el término de búsqueda si parece ser un teléfono
+        const normalizedSearchTerm = /^\d/.test(searchTerm.replace(/[\s\-\(\)]/g, '')) 
+          ? normalizePhone(searchTerm) 
+          : searchTerm
+
+        const results = await searchClients(normalizedSearchTerm, 'auto')
 
         if (results.length > 0) {
           setSearchResults(results as Client[])
           setShowSearchResults(true)
 
           // Si hay solo un resultado exacto por teléfono, seleccionarlo automáticamente
-          if (results.length === 1 && /^\d{7,}$/.test(searchTerm.replace(/[\s\-\(\)]/g, ''))) {
+          if (results.length === 1 && /^\d{7,}$/.test(normalizedSearchTerm.replace(/[\s\-\(\)]/g, ''))) {
             await handleSelectClient(results[0] as Client)
           }
         } else {
@@ -478,9 +505,13 @@ export default function ManualOrderSidebar({
   const handleSelectClient = async (selectedClient: Client) => {
     setClientFound(true)
     setShowSearchResults(false)
+    
+    // Normalizar el teléfono del cliente seleccionado
+    const normalizedPhone = normalizePhone(selectedClient.celular)
+    
     setManualOrderData(prev => ({
       ...prev,
-      customerPhone: selectedClient.celular,
+      customerPhone: normalizedPhone,
       customerName: selectedClient.nombres
     }))
 
@@ -586,13 +617,36 @@ export default function ManualOrderSidebar({
 
   // Crear nuevo cliente
   const handleCreateClient = async () => {
-    if (!manualOrderData.customerName || !manualOrderData.customerPhone) return
+    if (!manualOrderData.customerName?.trim() || !manualOrderData.customerPhone?.trim()) {
+      alert('Por favor complete todos los campos obligatorios')
+      return
+    }
+
+    // Normalizar el número de teléfono
+    const celular = normalizePhone(manualOrderData.customerPhone.trim())
+    if (celular.length < 9) {
+      alert('El número de teléfono no parece válido')
+      return
+    }
+
+    // Verificar si el cliente ya existe
+    try {
+      const existingClient = await searchClientByPhone(celular)
+      if (existingClient) {
+        alert('Este cliente ya está registrado')
+        // Si el cliente ya existe, seleccionarlo automáticamente
+        await handleSelectClient(existingClient)
+        return
+      }
+    } catch (error) {
+      console.error('Error verificando cliente existente:', error)
+    }
 
     setCreatingClient(true)
     try {
       const clientData = {
-        celular: manualOrderData.customerPhone,
-        nombres: manualOrderData.customerName,
+        celular: celular, // Usar el teléfono normalizado
+        nombres: manualOrderData.customerName.trim(),
         fecha_de_registro: new Date().toISOString()
       }
 
@@ -601,14 +655,18 @@ export default function ManualOrderSidebar({
       setShowCreateClient(false)
 
       // Recargar el cliente después de crearlo para obtener el ID
-      const client = await searchClientByPhone(manualOrderData.customerPhone)
+      const client = await searchClientByPhone(celular)
       if (client) {
         const locations = await getClientLocations(client.id)
-        setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
+        setManualOrderData(prev => ({ 
+          ...prev, 
+          customerLocations: locations,
+          customerPhone: celular // Actualizar el teléfono con el formato normalizado
+        }))
       }
     } catch (error) {
       console.error('Error creating client:', error)
-      alert('Error al crear el cliente')
+      alert('Error al crear el cliente: ' + (error instanceof Error ? error.message : 'Error desconocido'))
     } finally {
       setCreatingClient(false)
     }
