@@ -1198,7 +1198,7 @@ export default function TodayOrdersPage() {
                                                                 if (typeof item.subtotal === 'number') return sum + item.subtotal
 
                                                                 // Manual calculation backup
-                                                                const price = item.product?.price || 0
+                                                                const price = item.storeReceives || item.product?.price || 0
                                                                 const quantity = item.quantity || 1
                                                                 return sum + (price * quantity)
                                                             }, 0)
@@ -1988,7 +1988,7 @@ function OrderCard({
                                 <span className="text-gray-700">
                                     <span className="font-medium text-gray-900">{item.quantity}x</span> {item.variant || item.product?.name || item.name}
                                 </span>
-                                <span className="text-gray-500">${((item.price || item.product?.price || 0) * item.quantity).toFixed(2)}</span>
+                                <span className="text-gray-500">${((item.storeReceives || item.price || item.product?.price || 0) * item.quantity).toFixed(2)}</span>
                             </div>
                         ))}
                     </div>

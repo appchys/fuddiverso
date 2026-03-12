@@ -179,6 +179,11 @@ export interface CartItem {
   product: Product
   quantity: number
   subtotal: number
+  // Metadatos de precios para liquidaciones
+  basePrice?: number
+  commission?: number
+  commissionType?: CommissionType
+  storeReceives?: number
 }
 
 export interface Customer {
