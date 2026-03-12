@@ -1261,7 +1261,10 @@ export default function ManualOrderSidebar({
         fullDeliveryObject: orderData.delivery
       });
 
-      if (mode === 'edit' && editOrder?.id) {
+      // Detectar si es un checkout (por la bandera _isFromCheckout o el ID que empieza con 'checkout-')
+      const isFromCheckout = editOrder?._isFromCheckout || editOrder?.id?.startsWith('checkout-');
+
+      if (mode === 'edit' && editOrder?.id && !isFromCheckout) {
         // For update, adapt payload to match updateOrder expectations
         const updatePayload: any = {
           items: orderData.items,
@@ -1276,7 +1279,30 @@ export default function ManualOrderSidebar({
         await updateOrder(editOrder.id, updatePayload)
         onOrderUpdated && onOrderUpdated()
       } else {
+        // Always create new order for checkouts or when not in edit mode
         const orderId = await createOrder(orderData as any)
+
+        // Si viene de un checkout, actualizar el checkout session para marcarlo como completado
+        if (isFromCheckout && editOrder?.checkoutSessionId) {
+          try {
+            const { doc, updateDoc } = await import('firebase/firestore')
+            const { db } = await import('@/lib/firebase')
+            
+            await updateDoc(doc(db, 'checkoutProgress', editOrder.checkoutSessionId), {
+              currentStep: 5, // Mark as completed
+              completedAt: new Date(),
+              convertedToOrderId: orderId
+            });
+            
+            console.log('[ManualOrder] Checkout session marked as completed:', {
+              checkoutSessionId: editOrder.checkoutSessionId,
+              orderId
+            });
+          } catch (error) {
+            console.error('[ManualOrder] Error updating checkout session:', error)
+            // No interrumpir el flujo si hay error al actualizar el checkout
+          }
+        }
 
         // Registrar consumo de ingredientes automáticamente
         try {

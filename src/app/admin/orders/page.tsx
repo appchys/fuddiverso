@@ -7,8 +7,8 @@ import { db } from '@/lib/firebase'
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
 import OrderSidebar from '@/components/OrderSidebar'
 import ManualOrderSidebar from '@/components/ManualOrderSidebar'
-import { sendWhatsAppToDelivery } from '@/components/WhatsAppUtils'
-import { LiveCheckoutsPanel } from '@/components/LiveCheckoutsPanel'
+import { sendWhatsAppToDelivery, sendOrderToStore } from '@/components/WhatsAppUtils'
+import { LiveCheckoutsPanel, CheckoutSession } from '@/components/LiveCheckoutsPanel'
 
 // Helper functions for status grouping
 const getStatusText = (status: string) => {
@@ -118,8 +118,40 @@ function OrderStatusColumn({
   setEditPaymentData,
   handleSavePaymentEdit,
   handleValidatePayment,
-  handleRejectPayment
-}: any) {
+  handleRejectPayment,
+  handleSendWhatsAppToStore
+}: {
+  statuses: Order['status'][]
+  orders: Order[]
+  businesses: Business[]
+  deliveries: any[]
+  handleStatusUpdate: (orderId: string, newStatus: Order['status']) => Promise<void>
+  handleDeliveryUpdate: (orderId: string, deliveryId: string | null) => Promise<void>
+  handleSendWhatsAppToDelivery: (order: Order) => void
+  handleEditOrder: (order: Order) => void
+  handleOpenOrderSidebar: (orderId: string) => void
+  handleEditPayment: (order: Order) => void
+  getTimeElapsed: (order: Order) => string
+  getTimeRemaining: (order: Order) => string | null
+  toggleMap: (orderId: string) => void
+  expandedMaps: Record<string, boolean>
+  statusMenuOrderId: string | null
+  setStatusMenuOrderId: (orderId: string | null) => void
+  updatingStatus: string | null
+  updatingDelivery: string | null
+  showEditPaymentModal: boolean
+  setShowEditPaymentModal: (show: boolean) => void
+  showReceiptPreviewModal: boolean
+  setShowReceiptPreviewModal: (show: boolean) => void
+  paymentEditingOrder: Order | null
+  setPaymentEditingOrder: (order: Order | null) => void
+  editPaymentData: any
+  setEditPaymentData: (data: any) => void
+  handleSavePaymentEdit: () => Promise<void>
+  handleValidatePayment: (orderId: string) => Promise<void>
+  handleRejectPayment: (orderId: string) => Promise<void>
+  handleSendWhatsAppToStore: (order: Order) => void
+}) {
   return (
     <>
       {statuses.map((status: string) => {
@@ -165,6 +197,7 @@ function OrderStatusColumn({
                 handleSavePaymentEdit={handleSavePaymentEdit}
                 handleValidatePayment={handleValidatePayment}
                 handleRejectPayment={handleRejectPayment}
+                handleSendWhatsAppToStore={handleSendWhatsAppToStore}
               />
             ))}
           </CollapsibleSection>
@@ -202,7 +235,8 @@ function OrderCard({
   setEditPaymentData,
   handleSavePaymentEdit,
   handleValidatePayment,
-  handleRejectPayment
+  handleRejectPayment,
+  handleSendWhatsAppToStore
 }: any) {
   const business = businesses.find((b: Business) => b.id === order.businessId)
   const timeElapsed = getTimeElapsed(order)
@@ -259,6 +293,14 @@ function OrderCard({
             title="Notificar WhatsApp"
           >
             <i className="bi bi-whatsapp text-xs"></i>
+          </button>
+
+          <button
+            onClick={() => handleSendWhatsAppToStore(order)}
+            className="w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 bg-purple-50 text-purple-600 border-purple-200 hover:bg-purple-100"
+            title="Enviar WhatsApp a tienda"
+          >
+            <i className="bi bi-shop text-xs"></i>
           </button>
 
           <button
@@ -628,6 +670,13 @@ export default function OrderManagement() {
     );
   }
 
+  const handleSendWhatsAppToStore = (order: Order) => {
+    const business = businesses.find(b => b.id === order.businessId)
+    if (business) {
+      sendOrderToStore(order, business)
+    }
+  }
+
   // Funciones para Pago
   const handleEditPayment = (order: Order) => {
     setPaymentEditingOrder(order)
@@ -766,6 +815,50 @@ export default function OrderManagement() {
     }
   }
 
+  const handleOpenManualOrderFromCheckout = async (checkoutSession: CheckoutSession) => {
+    try {
+      const business = businesses.find(b => b.id === checkoutSession.businessId) || null
+      setEditBusiness(business)
+      
+      if (checkoutSession.businessId) {
+        const prods = await getProductsByBusiness(checkoutSession.businessId)
+        setEditProducts(prods)
+      }
+
+      // Crear una orden temporal basada en los datos del checkout para prellenar el formulario
+      const tempOrder: any = {
+        id: `checkout-${checkoutSession.id}`, // ID temporal solo para prellenar
+        businessId: checkoutSession.businessId,
+        customer: checkoutSession.customerData,
+        delivery: {
+          type: checkoutSession.deliveryData.type,
+          address: checkoutSession.deliveryData.address,
+          references: checkoutSession.deliveryData.references,
+          deliveryCost: parseFloat(checkoutSession.deliveryData.tarifa || '0'),
+          latlong: checkoutSession.deliveryData.latlong
+        },
+        timing: checkoutSession.timingData,
+        payment: {
+          ...checkoutSession.paymentData,
+          paymentStatus: 'pending'
+        },
+        items: checkoutSession.cartItems,
+        total: checkoutSession.cartItems?.reduce((acc, item) => acc + ((item.price || item.product?.price || 0) * item.quantity), 0) + (parseFloat(checkoutSession.deliveryData?.tarifa || '0')),
+        status: 'pending',
+        createdAt: new Date(),
+        checkoutSessionId: checkoutSession.id,
+        _isFromCheckout: true // Bandera para identificar que viene de un checkout
+      }
+
+      // Usar el mismo sidebar pero en modo create con datos precargados
+      setEditOrder(tempOrder)
+      setIsEditSidebarOpen(true)
+    } catch (error) {
+      console.error('Error loading checkout data:', error)
+      alert('Error al cargar datos del checkout')
+    }
+  }
+
   const getTimeElapsed = (order: Order) => {
     try {
       const createdAt = order.createdAt
@@ -842,13 +935,13 @@ export default function OrderManagement() {
       const m = absMinutes % 60
 
       if (diffMinutes > 0) {
-        if (h > 0) return { text: `en ${h}h ${m}m`, color: 'text-blue-600' }
-        return { text: `en ${m}m`, color: 'text-green-600' }
+        if (h > 0) return `en ${h}h ${m}m`
+        return `en ${m}m`
       } else if (diffMinutes < -5) {
-        if (h > 0) return { text: `${h}h ${m}m tarde`, color: 'text-red-600' }
-        return { text: `${m}m tarde`, color: 'text-red-600' }
+        if (h > 0) return `${h}h ${m}m tarde`
+        return `${m}m tarde`
       } else {
-        return { text: 'ahora', color: 'text-orange-600' }
+        return 'ahora'
       }
     } catch (e) {
       return null
@@ -1147,6 +1240,7 @@ export default function OrderManagement() {
         businessId="" 
         orders={filteredOrders} 
         onCountChange={setLiveCheckoutCount}
+        onOpenManualOrder={handleOpenManualOrderFromCheckout}
       />
 
       {/* Vista Móvil - Agrupada por Estado */}
@@ -1185,6 +1279,7 @@ export default function OrderManagement() {
                 handleSavePaymentEdit={handleSavePaymentEdit}
                 handleValidatePayment={handleValidatePayment}
                 handleRejectPayment={handleRejectPayment}
+                handleSendWhatsAppToStore={handleSendWhatsAppToStore}
               />
             </div>
           )}
@@ -1222,6 +1317,7 @@ export default function OrderManagement() {
                 handleSavePaymentEdit={handleSavePaymentEdit}
                 handleValidatePayment={handleValidatePayment}
                 handleRejectPayment={handleRejectPayment}
+                handleSendWhatsAppToStore={handleSendWhatsAppToStore}
               />
             </div>
           )}
@@ -1259,6 +1355,7 @@ export default function OrderManagement() {
                 handleSavePaymentEdit={handleSavePaymentEdit}
                 handleValidatePayment={handleValidatePayment}
                 handleRejectPayment={handleRejectPayment}
+                handleSendWhatsAppToStore={handleSendWhatsAppToStore}
               />
             </div>
           )}
@@ -1301,6 +1398,7 @@ export default function OrderManagement() {
                 handleSavePaymentEdit={handleSavePaymentEdit}
                 handleValidatePayment={handleValidatePayment}
                 handleRejectPayment={handleRejectPayment}
+                handleSendWhatsAppToStore={handleSendWhatsAppToStore}
               />
             </div>
           )}
@@ -1338,6 +1436,7 @@ export default function OrderManagement() {
                 handleSavePaymentEdit={handleSavePaymentEdit}
                 handleValidatePayment={handleValidatePayment}
                 handleRejectPayment={handleRejectPayment}
+                handleSendWhatsAppToStore={handleSendWhatsAppToStore}
               />
             </div>
           )}
@@ -1375,6 +1474,7 @@ export default function OrderManagement() {
                 handleSavePaymentEdit={handleSavePaymentEdit}
                 handleValidatePayment={handleValidatePayment}
                 handleRejectPayment={handleRejectPayment}
+                handleSendWhatsAppToStore={handleSendWhatsAppToStore}
               />
             </div>
           )}
