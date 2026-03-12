@@ -8,6 +8,7 @@ import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
 import OrderSidebar from '@/components/OrderSidebar'
 import ManualOrderSidebar from '@/components/ManualOrderSidebar'
 import { sendWhatsAppToDelivery } from '@/components/WhatsAppUtils'
+import { LiveCheckoutsPanel } from '@/components/LiveCheckoutsPanel'
 
 // Helper functions for status grouping
 const getStatusText = (status: string) => {
@@ -233,6 +234,19 @@ function OrderCard({
       {/* Header: Status & ID */}
       <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
         <div className="flex items-center gap-2">
+          {/* Delivery Status Icon */}
+          {order.delivery?.type === 'delivery' && (
+            <div className={`w-8 h-8 flex items-center justify-center rounded-lg border-2 shadow-sm ${
+              order.status === 'confirmed' 
+                ? 'bg-green-50 text-green-600 border-green-200' 
+                : order.status === 'pending'
+                  ? 'bg-yellow-50 text-yellow-600 border-yellow-200'
+                  : 'bg-gray-50 text-gray-400 border-gray-200'
+            }`} title={`Delivery ${order.status === 'confirmed' ? 'confirmado' : order.status === 'pending' ? 'pendiente de confirmación' : 'otro estado'}`}>
+              <i className="bi bi-scooter text-lg"></i>
+            </div>
+          )}
+
           <button
             onClick={(e) => {
               e.stopPropagation()
@@ -465,6 +479,7 @@ export default function OrderManagement() {
   const [isPickupExpanded, setIsPickupExpanded] = useState(false)
   const [showSearchBar, setShowSearchBar] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
+  const [liveCheckoutCount, setLiveCheckoutCount] = useState(0)
 
   // Estados para ManualOrderSidebar (editar orden)
   const [isEditSidebarOpen, setIsEditSidebarOpen] = useState(false)
@@ -1011,6 +1026,11 @@ export default function OrderManagement() {
               }`}>
               {unassignedDeliveryCount} sin delivery
             </span>
+            {liveCheckoutCount > 0 && (
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-blue-100 text-blue-700 border border-blue-200 animate-pulse">
+                {liveCheckoutCount} en vivo
+              </span>
+            )}
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{orders.length} pedidos totales</span>
           </div>
         </div>
@@ -1122,6 +1142,12 @@ export default function OrderManagement() {
         </div>
       )}
 
+      {/* Live Checkouts Panel */}
+      <LiveCheckoutsPanel 
+        businessId="" 
+        orders={filteredOrders} 
+        onCountChange={setLiveCheckoutCount}
+      />
 
       {/* Vista Móvil - Agrupada por Estado */}
       <div className="md:hidden space-y-4 p-4 bg-gray-50/50">

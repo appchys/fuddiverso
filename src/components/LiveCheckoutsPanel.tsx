@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, doc, updateDoc, addDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -43,13 +43,18 @@ export function LiveCheckoutsPanel({ businessId, orders = [], onCountChange }: {
 
     // Fetch raw data from Firestore
     useEffect(() => {
-        if (!businessId) return;
+        if (businessId === undefined) return;
 
-        const q = query(
-            collection(db, 'checkoutProgress'),
-            where('businessId', '==', businessId),
-            orderBy('updatedAt', 'desc')
-        );
+        const q = businessId && businessId !== "" 
+            ? query(
+                collection(db, 'checkoutProgress'),
+                where('businessId', '==', businessId),
+                orderBy('updatedAt', 'desc')
+            )
+            : query(
+                collection(db, 'checkoutProgress'),
+                orderBy('updatedAt', 'desc')
+            );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const activeCheckouts = snapshot.docs.map(doc => ({
@@ -59,7 +64,7 @@ export function LiveCheckoutsPanel({ businessId, orders = [], onCountChange }: {
 
             const now = new Date();
             const filtered = activeCheckouts.filter(c => {
-                if (c.currentStep > 3) return false;
+                if (c.currentStep < 1) return false;
                 if (!c.updatedAt) return false;
                 const lastUpdate = c.updatedAt?.toDate ? c.updatedAt.toDate() : new Date(c.updatedAt);
                 const diffMins = (now.getTime() - lastUpdate.getTime()) / 60000;
@@ -125,9 +130,57 @@ export function LiveCheckoutsPanel({ businessId, orders = [], onCountChange }: {
 
 function CheckoutSessionCard({ session }: { session: CheckoutSession }) {
     const [isExpanded, setIsExpanded] = useState(false);
+    const [isCompleting, setIsCompleting] = useState(false);
 
     const lastUpdate = session.updatedAt?.toDate ? session.updatedAt.toDate() : new Date(session.updatedAt);
     const timeAgo = formatDistanceToNow(lastUpdate, { addSuffix: true, locale: es });
+
+    const handleCompleteCheckout = async () => {
+        if (!window.confirm('¿Estás seguro de completar este checkout y convertirlo en orden?')) {
+            return;
+        }
+
+        setIsCompleting(true);
+        try {
+            // Create the order from checkout session
+            const orderData = {
+                businessId: session.businessId,
+                customer: session.customerData,
+                delivery: session.deliveryData,
+                timing: session.timingData,
+                payment: {
+                    ...session.paymentData,
+                    paymentStatus: 'pending'
+                },
+                items: session.cartItems,
+                total: session.cartItems?.reduce((acc, item) => acc + ((item.price || item.product?.price || 0) * item.quantity), 0) + (parseFloat(session.deliveryData?.tarifa || '0')),
+                status: 'pending',
+                createdAt: new Date(),
+                createdByAdmin: true,
+                checkoutSessionId: session.id
+            };
+
+            // Create the order
+            const ordersRef = collection(db, 'orders');
+            const orderDoc = await addDoc(ordersRef, orderData);
+            const orderId = orderDoc.id;
+
+            // Update the checkout session to mark as completed
+            await updateDoc(doc(db, 'checkoutProgress', session.id), {
+                ...session,
+                currentStep: 5, // Mark as completed
+                completedAt: new Date(),
+                convertedToOrderId: orderId
+            });
+
+            alert('✅ Checkout completado y orden creada exitosamente');
+        } catch (error) {
+            console.error('Error completing checkout:', error);
+            alert('❌ Error al completar el checkout. Por favor intenta de nuevo.');
+        } finally {
+            setIsCompleting(false);
+        }
+    };
 
     return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden transition-all hover:border-blue-200">
@@ -171,6 +224,24 @@ function CheckoutSessionCard({ session }: { session: CheckoutSession }) {
                     <div className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-100 capitalize">
                         {session.deliveryData?.type === 'pickup' ? 'Retiro' : 'Domicilio'}
                     </div>
+                    <button
+                        onClick={handleCompleteCheckout}
+                        disabled={isCompleting}
+                        className="bg-green-500 hover:bg-green-600 disabled:bg-gray-400 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all active:scale-95 shadow-sm"
+                        title="Completar checkout y crear orden"
+                    >
+                        {isCompleting ? (
+                            <>
+                                <i className="bi bi-hourglass-split animate-spin mr-1"></i>
+                                Completando...
+                            </>
+                        ) : (
+                            <>
+                                <i className="bi bi-check-circle mr-1"></i>
+                                Completar
+                            </>
+                        )}
+                    </button>
                 </div>
             </div>
 
