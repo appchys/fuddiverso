@@ -242,7 +242,12 @@ export default function ManualOrderSidebar({
         price: it.price || it.product?.price || 0,
         productId: it.productId || it.product?.id || it.id || '',
         quantity: it.quantity || 1,
-        variant: it.variant
+        variant: it.variant,
+        // Incluir metadatos de comisión guardados en la base de datos
+        basePrice: it.basePrice,
+        commission: it.commission,
+        commissionType: it.commissionType,
+        storeReceives: it.storeReceives
       }))
 
       setManualOrderData(prev => ({

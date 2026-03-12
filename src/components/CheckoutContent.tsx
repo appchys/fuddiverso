@@ -357,9 +357,9 @@ export function CheckoutContent({
   const [userCredits, setUserCredits] = useState<{ available: number; referral: number; manual: number }>({ available: 0, referral: 0, manual: 0 })
   const [collapsedSections, setCollapsedSections] = useState<{ [key: string]: boolean }>({
     'step-1': false,
-    'step-2': false,
-    'step-3': false,
-    'step-4': false
+    'step-2': true,
+    'step-3': true,
+    'step-4': true
   })
 
   const effectiveClientId = user?.id || clientFound?.id || ''
@@ -472,6 +472,8 @@ export function CheckoutContent({
   // Indicar que estamos en cliente
   useEffect(() => { setIsClient(true); }, []);
 
+
+
   // Sincronizar estado del checkout con el usuario global
   useEffect(() => {
     if (user) {
@@ -555,14 +557,23 @@ export function CheckoutContent({
     }
   }
 
-  // Effect para avance automático de pasos basado en datos completados
+  // Effect para avance automático de pasos y expansión de secciones basado en datos completados
   useEffect(() => {
     const maxStep = getMaxVisibleStep();
     if (maxStep > currentStep) {
-      // Solo avanzar automáticamente, nunca retroceder
+      const prevStep = currentStep;
       setCurrentStep(maxStep);
+      
+      // Expandir automáticamente el nuevo paso sin colapsar el anterior
+      setCollapsedSections(prev => ({
+        ...prev,
+        [`step-${maxStep}`]: false
+      }));
+
+      // Desplazamiento suave al nuevo paso
+      setTimeout(() => scrollToStep(maxStep), 100);
     }
-  }, [customerData, deliveryData, paymentData, showNameField, selectedLocation]);
+  }, [customerData, deliveryData, paymentData, timingData, user, showNameField, selectedLocation, cartAvailability]);
 
   // Sincronizar estado del checkout en Firestore para monitoreo en tiempo real
   useEffect(() => {
@@ -1068,7 +1079,6 @@ export function CheckoutContent({
 
   // Client-only guard: render nothing until mounted on client
   if (!isClient) return null;
-
 
   const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0)
   const deliveryCost = getDeliveryCost()
@@ -1885,19 +1895,7 @@ export function CheckoutContent({
               {!collapsedSections['step-2'] && (
                 <div className="px-4 sm:px-5 pb-4 sm:pb-5">
                   <div className="space-y-6">
-                {/* Mensaje informativo cuando la tienda está cerrada */}
-                {!isStoreOpen(business) && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 animate-fadeIn">
-                    <i className="bi bi-info-circle-fill text-amber-600 text-xl flex-shrink-0 mt-0.5"></i>
-                    <div className="flex-1">
-                      <p className="font-medium text-amber-900">Tienda actualmente cerrada</p>
-                      <p className="text-sm text-amber-700 mt-1">
-                        Solo puedes programar pedidos para cuando la tienda esté abierta.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
+                
                 <div className="grid grid-cols-2 gap-4">
                   <button
                     type="button"
