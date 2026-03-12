@@ -569,9 +569,6 @@ export function CheckoutContent({
         ...prev,
         [`step-${maxStep}`]: false
       }));
-
-      // Desplazamiento suave al nuevo paso
-      setTimeout(() => scrollToStep(maxStep), 100);
     }
   }, [customerData, deliveryData, paymentData, timingData, user, showNameField, selectedLocation, cartAvailability]);
 
@@ -1351,14 +1348,7 @@ export function CheckoutContent({
     }
   }
 
-  // Función para desplazamiento suave a un paso específico
-  const scrollToStep = (stepNumber: number) => {
-    const element = document.getElementById(`step-${stepNumber}`);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  };
-
+  
   const handleSubmit = async () => {
     if (!validateStep(currentStep)) return
 
