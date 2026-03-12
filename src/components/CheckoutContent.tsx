@@ -366,6 +366,34 @@ export function CheckoutContent({
 
   // Helper function to toggle section collapse
   const toggleSection = (stepId: string) => {
+    // Validar que el paso anterior esté completo antes de permitir desplegar
+    if (stepId === 'step-2') {
+      const step1Complete = user || (customerData.name && customerData.phone && clientFound)
+      if (!step1Complete) {
+        return // No hacer nada si el paso 1 no está completo
+      }
+    }
+    
+    if (stepId === 'step-3') {
+      const step2Complete = timingData.type && (
+        (timingData.type === 'immediate' && canOrderNow) ||
+        (timingData.type === 'scheduled' && timingData.scheduledDate && timingData.scheduledTime && cartAvailability.available)
+      )
+      if (!step2Complete) {
+        return // No hacer nada si el paso 2 no está completo
+      }
+    }
+    
+    if (stepId === 'step-4') {
+      const step3Complete = deliveryData.type && (
+        (deliveryData.type === 'pickup') ||
+        (deliveryData.type === 'delivery' && selectedLocation)
+      )
+      if (!step3Complete) {
+        return // No hacer nada si el paso 3 no está completo
+      }
+    }
+    
     setCollapsedSections(prev => ({
       ...prev,
       [stepId]: !prev[stepId]
