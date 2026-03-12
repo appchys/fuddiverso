@@ -625,8 +625,13 @@ export default function AdminSettlementsTab({
       }
 
       await createDeliverySettlement(settlementData, ordersToSettle.map(o => o.id))
-      alert('Corte de delivery generado exitosamente')
-      await reloadData()
+      
+      // Update local state to remove settled orders instead of full reload
+      setOrders(prevOrders => 
+        prevOrders.filter(order => 
+          !ordersToSettle.some(settledOrder => settledOrder.id === order.id)
+        )
+      )
     } catch (e) {
       console.error(e)
       alert('Error al generar corte de delivery')
@@ -687,15 +692,13 @@ export default function AdminSettlementsTab({
                       </div>
                     </div>
 
-                    {row.deliveryId !== 'unassigned' && (
-                      <button
-                        onClick={() => handleCreateDeliverySettlement(row.deliveryId, row.orders, row.totals)}
-                        disabled={processingSettlement}
-                        className={`w-full py-2 rounded-lg font-bold text-white ${processingSettlement ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
-                      >
-                        {processingSettlement ? 'Procesando...' : 'Generar Corte'}
-                      </button>
-                    )}
+                    <button
+                      onClick={() => handleCreateDeliverySettlement(row.deliveryId, row.orders, row.totals)}
+                      disabled={processingSettlement}
+                      className={`w-full py-2 rounded-lg font-bold text-white ${processingSettlement ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
+                    >
+                      {processingSettlement ? 'Procesando...' : 'Generar Corte'}
+                    </button>
                   </div>
                 ))}
             </div>
