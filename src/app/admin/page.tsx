@@ -59,6 +59,7 @@ export default function AdminDashboard() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
   const [chartData, setChartData] = useState<any[]>([])
   const [telegramChartData, setTelegramChartData] = useState<any[]>([])
+  const [commissionChartData, setCommissionChartData] = useState<any[]>([])
   const [linkedClients, setLinkedClients] = useState<any[]>([])
   const [globalClients, setGlobalClients] = useState<any[]>([])
 
@@ -243,8 +244,59 @@ export default function AdminDashboard() {
 
     if (activeTab === 'general') {
       fetchTelegramData();
+      processCommissionData();
     }
-  }, [activeTab]);
+  }, [activeTab, orders, dateRange]);
+
+  // Effect to process commission data
+  const processCommissionData = () => {
+    if (orders.length === 0) return;
+
+    const start = new Date(dateRange.start)
+    const end = new Date(dateRange.end)
+
+    // Ajustar horas para comparación
+    start.setHours(0, 0, 0, 0)
+    end.setHours(0, 0, 0, 0)
+
+    const days: Date[] = []
+    const current = new Date(start)
+
+    // Generar array de días en el rango (max 90 días por seguridad)
+    let count = 0
+    while (current <= end && count < 90) {
+      days.push(new Date(current))
+      current.setDate(current.getDate() + 1)
+      count++
+    }
+
+    const groupedData = days.map(date => {
+      const dateStr = date.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit' })
+      const dayOrders = orders.filter((order: Order) => {
+        const orderDate = new Date(order.createdAt)
+        orderDate.setHours(0, 0, 0, 0)
+        return orderDate.getTime() === date.getTime()
+      })
+
+      let totalCommission = 0
+
+      dayOrders.forEach(order => {
+        if (order.items && order.items.length > 0) {
+          order.items.forEach((item: any) => {
+            const qty = item.quantity || 1
+            totalCommission += (item.commission || 0) * qty
+          })
+        }
+      })
+
+      return {
+        name: dateStr,
+        commission: totalCommission
+      }
+    })
+
+    setCommissionChartData(groupedData)
+  }
 
   const loadData = async () => {
     try {
@@ -1176,8 +1228,47 @@ export default function AdminDashboard() {
 
           {/* Charts Section */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Fuddi Commission Chart */}
+            <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+              <div className="mb-6">
+                <h3 className="text-lg font-bold text-gray-900">Comisión Fuddi</h3>
+                <p className="text-sm text-gray-500">Ganancias de la plataforma por comisiones</p>
+              </div>
+              <div className="h-80 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={commissionChartData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis
+                      dataKey="name"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#9ca3af', fontSize: 12 }}
+                      dy={10}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#9ca3af', fontSize: 12 }}
+                    />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      cursor={{ fill: '#f3f4f6' }}
+                      formatter={(value: any) => [`$${Number(value).toFixed(2)}`, 'Comisión']}
+                    />
+                    <Bar
+                      dataKey="commission"
+                      name="Comisión"
+                      fill="#10b981"
+                      radius={[4, 4, 0, 0]}
+                      barSize={30}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
             {/* Telegram Chart */}
-            <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200 lg:col-span-2">
+            <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
               <div className="mb-6">
                 <h3 className="text-lg font-bold text-gray-900">Vinculaciones de Telegram</h3>
                 <p className="text-sm text-gray-500">Usuarios que han activado notificaciones</p>

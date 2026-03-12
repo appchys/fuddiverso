@@ -221,7 +221,7 @@ function OrderCard({
   return (
     <div
       key={order.id}
-      className={`bg-white rounded-2xl border-l-[6px] border shadow-md overflow-hidden transition-all hover:shadow-xl ${order.status === 'pending' ? 'border-l-amber-400 border-gray-100' :
+      className={`bg-white rounded-2xl border-l-[6px] border shadow-md overflow-hidden transition-all hover:shadow-xl mb-4 ${order.status === 'pending' ? 'border-l-amber-400 border-gray-100' :
         order.status === 'confirmed' ? 'border-l-green-400 border-gray-100' :
           order.status === 'preparing' ? 'border-l-orange-400 border-gray-100' :
             order.status === 'ready' ? 'border-l-emerald-400 border-gray-100' :
@@ -1239,150 +1239,119 @@ export default function OrderManagement() {
         </div>
       </div>
 
-      {/* Vista Desktop - Tabla */}
-      <div className="hidden md:block">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100">
-                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Fecha</th>
-                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Tienda</th>
-                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Cliente</th>
-                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Monto</th>
-                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Estado</th>
-                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Delivery</th>
-                  <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50 bg-white">
-                {filteredOrders.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                      No hay órdenes que coincidan con los filtros.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredOrders.map((order) => {
-                    const business = businesses.find(b => b.id === order.businessId)
-                    const timeElapsed = getTimeElapsed(order)
+      {/* Vista Desktop - Tarjetas (igual que móvil) */}
+      <div className="hidden md:block space-y-4 p-4 bg-gray-50/50">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+          {/* Columna 1: Pendientes */}
+          {showCol1 && (
+            <div className="space-y-4">
+              <OrderStatusColumn
+                statuses={['pending']}
+                orders={filteredOrders}
+                businesses={businesses}
+                deliveries={deliveries}
+                handleStatusUpdate={handleStatusUpdate}
+                handleDeliveryUpdate={handleDeliveryUpdate}
+                handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                handleEditOrder={handleEditOrder}
+                handleOpenOrderSidebar={handleOpenOrderSidebar}
+                handleEditPayment={handleEditPayment}
+                getTimeElapsed={getTimeElapsed}
+                getTimeRemaining={getTimeRemaining}
+                toggleMap={toggleMap}
+                expandedMaps={expandedMaps}
+                statusMenuOrderId={statusMenuOrderId}
+                setStatusMenuOrderId={setStatusMenuOrderId}
+                updatingStatus={updatingStatus}
+                updatingDelivery={updatingDelivery}
+                showEditPaymentModal={showEditPaymentModal}
+                setShowEditPaymentModal={setShowEditPaymentModal}
+                showReceiptPreviewModal={showReceiptPreviewModal}
+                setShowReceiptPreviewModal={setShowReceiptPreviewModal}
+                paymentEditingOrder={paymentEditingOrder}
+                setPaymentEditingOrder={setPaymentEditingOrder}
+                editPaymentData={editPaymentData}
+                setEditPaymentData={setEditPaymentData}
+                handleSavePaymentEdit={handleSavePaymentEdit}
+                handleValidatePayment={handleValidatePayment}
+                handleRejectPayment={handleRejectPayment}
+              />
+            </div>
+          )}
 
-                    return (
-                      <tr key={order.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">#{order.id?.slice(-6)}</div>
-                          <div className="text-sm text-gray-500">
-                            {order.createdAt ? new Date(order.createdAt).toLocaleDateString('es-ES', {
-                              day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-                            }) : 'Sin fecha'}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            <div className="text-sm font-medium text-gray-900">{order.customer?.name || 'Sin nombre'}</div>
-                            <span
-                              className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
-                                }`}
-                              title={order.createdByAdmin ? 'Pedido creado por la tienda (manual)' : 'Pedido creado por el cliente (automático)'}
-                            >
-                              <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[10px]`}></i>
-                            </span>
-                          </div>
-                          <div className="text-sm text-gray-500">{order.customer?.phone || 'Sin teléfono'}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            {business?.image ? (
-                              <img src={business.image} alt="" className="w-8 h-8 rounded-lg object-cover" />
-                            ) : (
-                              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
-                                <i className="bi bi-shop text-gray-400"></i>
-                              </div>
-                            )}
-                            <div className="text-sm font-medium text-gray-900">{business?.name || 'Sin tienda'}</div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-bold text-gray-900">${(order.total || 0).toFixed(2)}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
-                            {getStatusText(order.status)}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {order.delivery?.type === 'delivery' ? (
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <select
-                                  value={order.delivery?.assignedDelivery || ''}
-                                  onChange={(e) => handleDeliveryUpdate(order.id!, e.target.value || null)}
-                                  disabled={updatingDelivery === order.id}
-                                  className={`text-xs border rounded px-2 py-1 ${order.delivery?.assignedDelivery
-                                    ? 'bg-green-50 border-green-200 text-green-700'
-                                    : 'bg-orange-50 border-orange-200 text-orange-700'
-                                    } ${updatingDelivery === order.id ? 'opacity-50' : ''}`}
-                                >
-                                  <option value="">Sin asignar</option>
-                                  {deliveries.map((d: any) => (
-                                    <option key={d.id} value={d.id}>
-                                      {d.nombres || d.name || 'Repartidor'}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div className="text-xs text-gray-400 mt-1">
-                                {order.delivery?.references || 'Sin dirección'}
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-blue-600">
-                              <i className="bi bi-shop"></i>
-                              Retiro en tienda
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleOpenOrderSidebar(order.id!)}
-                              className="text-blue-600 hover:text-blue-900"
-                              title="Ver detalles"
-                            >
-                              <i className="bi bi-eye"></i>
-                            </button>
-                            <button
-                              onClick={() => handleEditOrder(order)}
-                              className="text-purple-600 hover:text-purple-900"
-                              title="Editar pedido"
-                            >
-                              <i className="bi bi-pencil"></i>
-                            </button>
-                            <button
-                              onClick={() => handleEditPayment(order)}
-                              className="text-green-600 hover:text-green-900"
-                              title="Gestionar pago"
-                            >
-                              <i className="bi bi-credit-card"></i>
-                            </button>
-                            {order.delivery?.type === 'delivery' && (
-                              <button
-                                onClick={() => handleSendWhatsAppToDelivery(order)}
-                                className={`text-green-600 hover:text-green-900 ${order.waSentToDelivery ? 'opacity-50' : ''}`}
-                                title="Notificar WhatsApp"
-                              >
-                                <i className="bi bi-whatsapp"></i>
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+          {/* Columna 2: Confirmados */}
+          {showCol2 && (
+            <div className="space-y-4">
+              <OrderStatusColumn
+                statuses={['confirmed']}
+                orders={filteredOrders}
+                businesses={businesses}
+                deliveries={deliveries}
+                handleStatusUpdate={handleStatusUpdate}
+                handleDeliveryUpdate={handleDeliveryUpdate}
+                handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                handleEditOrder={handleEditOrder}
+                handleOpenOrderSidebar={handleOpenOrderSidebar}
+                handleEditPayment={handleEditPayment}
+                getTimeElapsed={getTimeElapsed}
+                getTimeRemaining={getTimeRemaining}
+                toggleMap={toggleMap}
+                expandedMaps={expandedMaps}
+                statusMenuOrderId={statusMenuOrderId}
+                setStatusMenuOrderId={setStatusMenuOrderId}
+                updatingStatus={updatingStatus}
+                updatingDelivery={updatingDelivery}
+                showEditPaymentModal={showEditPaymentModal}
+                setShowEditPaymentModal={setShowEditPaymentModal}
+                showReceiptPreviewModal={showReceiptPreviewModal}
+                setShowReceiptPreviewModal={setShowReceiptPreviewModal}
+                paymentEditingOrder={paymentEditingOrder}
+                setPaymentEditingOrder={setPaymentEditingOrder}
+                editPaymentData={editPaymentData}
+                setEditPaymentData={setEditPaymentData}
+                handleSavePaymentEdit={handleSavePaymentEdit}
+                handleValidatePayment={handleValidatePayment}
+                handleRejectPayment={handleRejectPayment}
+              />
+            </div>
+          )}
+
+          {/* Columna 3: El resto */}
+          {showCol3 && (
+            <div className="space-y-4">
+              <OrderStatusColumn
+                statuses={['preparing', 'ready', 'on_way', 'delivered', 'cancelled']}
+                orders={filteredOrders}
+                businesses={businesses}
+                deliveries={deliveries}
+                handleStatusUpdate={handleStatusUpdate}
+                handleDeliveryUpdate={handleDeliveryUpdate}
+                handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                handleEditOrder={handleEditOrder}
+                handleOpenOrderSidebar={handleOpenOrderSidebar}
+                handleEditPayment={handleEditPayment}
+                getTimeElapsed={getTimeElapsed}
+                getTimeRemaining={getTimeRemaining}
+                toggleMap={toggleMap}
+                expandedMaps={expandedMaps}
+                statusMenuOrderId={statusMenuOrderId}
+                setStatusMenuOrderId={setStatusMenuOrderId}
+                updatingStatus={updatingStatus}
+                updatingDelivery={updatingDelivery}
+                showEditPaymentModal={showEditPaymentModal}
+                setShowEditPaymentModal={setShowEditPaymentModal}
+                showReceiptPreviewModal={showReceiptPreviewModal}
+                setShowReceiptPreviewModal={setShowReceiptPreviewModal}
+                paymentEditingOrder={paymentEditingOrder}
+                setPaymentEditingOrder={setPaymentEditingOrder}
+                editPaymentData={editPaymentData}
+                setEditPaymentData={setEditPaymentData}
+                handleSavePaymentEdit={handleSavePaymentEdit}
+                handleValidatePayment={handleValidatePayment}
+                handleRejectPayment={handleRejectPayment}
+              />
+            </div>
+          )}
         </div>
       </div>
 
