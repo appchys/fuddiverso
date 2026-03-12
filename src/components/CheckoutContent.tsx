@@ -23,7 +23,9 @@ import {
   clearCheckoutProgress,
   getDeliveriesByStatus,
   getCoverageZones,
-  isPointInPolygon
+  isPointInPolygon,
+  getUserCredits,
+  useUserCredits
 } from '@/lib/database'
 import { Business } from '@/types'
 import LocationMap from '@/components/LocationMap'
@@ -274,6 +276,8 @@ export function CheckoutContent({
     cashAmount?: number
     transferAmount?: number
     receiptImageUrl?: string | null
+    useCredits?: boolean
+    creditsAmount?: number
   }
 
   type TimingData = {
@@ -350,8 +354,23 @@ export function CheckoutContent({
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [calculatingTariff, setCalculatingTariff] = useState(false)
   const [showStoreImageModal, setShowStoreImageModal] = useState(false)
+  const [userCredits, setUserCredits] = useState<{ available: number; referral: number; manual: number }>({ available: 0, referral: 0, manual: 0 })
+  const [collapsedSections, setCollapsedSections] = useState<{ [key: string]: boolean }>({
+    'step-1': false,
+    'step-2': false,
+    'step-3': false,
+    'step-4': false
+  })
 
   const effectiveClientId = user?.id || clientFound?.id || ''
+
+  // Helper function to toggle section collapse
+  const toggleSection = (stepId: string) => {
+    setCollapsedSections(prev => ({
+      ...prev,
+      [stepId]: !prev[stepId]
+    }))
+  }
 
   // Cargar datos del carrito específico de este negocio desde localStorage
   const getCartItems = () => {
@@ -463,9 +482,41 @@ export function CheckoutContent({
     } else {
       // Cuando no hay sesión, limpiar y permitir ingresar datos
       setShowNameField(true)
+      setUserCredits({ available: 0, referral: 0, manual: 0 })
+      setPaymentData(prev => ({ ...prev, useCredits: false, creditsAmount: 0 }))
       // No borrar customerData automáticamente para no interferir con typed phone, solo cuando explicitly logged out elsewhere
     }
   }, [user])
+
+  // Cargar créditos del usuario para este negocio
+  useEffect(() => {
+    const loadUserCredits = async () => {
+      const effectiveId = user?.id || clientFound?.id
+      const businessId = embeddedBusinessId || business?.id || searchParams.get('businessId')
+
+      if (!effectiveId || !businessId) {
+        setUserCredits({ available: 0, referral: 0, manual: 0 })
+        return
+      }
+
+      try {
+        const credits = await getUserCredits(effectiveId, businessId)
+        if (credits) {
+          const referral = credits.availableCredits || 0
+          const manual = credits.balance || 0
+          setUserCredits({
+            available: referral + manual,
+            referral,
+            manual
+          })
+        }
+      } catch (error) {
+        console.error('Error loading user credits:', error)
+      }
+    }
+
+    void loadUserCredits()
+  }, [user?.id, clientFound?.id, business?.id, embeddedBusinessId, searchParams])
 
   // Cargar ubicaciones guardadas del cliente loggeado (funciona tanto embebido como /checkout)
   useEffect(() => {
@@ -1021,7 +1072,8 @@ export function CheckoutContent({
 
   const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0)
   const deliveryCost = getDeliveryCost()
-  const total = subtotal + deliveryCost
+  const creditToApply = paymentData.useCredits ? (paymentData.creditsAmount || 0) : 0
+  const total = Math.max(0, subtotal + deliveryCost - creditToApply)
 
   // Calcular fecha mínima para programación
   const getMinScheduledDate = () => {
@@ -1138,13 +1190,13 @@ export function CheckoutContent({
     }
 
     if (step === 4) {
-      if (!paymentData.method) {
+      if (total > 0 && !paymentData.method) {
         newErrors.paymentMethod = 'Selecciona un método de pago'
       } else if (paymentData.method === 'transfer') {
         if (!paymentData.selectedBank) {
           newErrors.selectedBank = 'Selecciona un banco para la transferencia'
         }
-        if (!paymentData.receiptImageUrl) {
+        if (total > 0 && !paymentData.receiptImageUrl) {
           newErrors.receiptImage = 'Sube el comprobante de transferencia para continuar'
         }
       }
@@ -1265,9 +1317,11 @@ export function CheckoutContent({
     }
 
     // Paso 4: pago
-    if (!paymentData.method) return false;
-    if (paymentData.method === 'transfer') {
-      if (!paymentData.selectedBank || !paymentData.receiptImageUrl) return false;
+    if (total > 0) {
+      if (!paymentData.method) return false;
+      if (paymentData.method === 'transfer') {
+        if (!paymentData.selectedBank || !paymentData.receiptImageUrl) return false;
+      }
     }
 
     return true;
@@ -1382,7 +1436,8 @@ export function CheckoutContent({
       // Calcular todos los valores necesarios primero
       const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
       const deliveryCost = selectedLocation?.tarifa ? parseFloat(selectedLocation.tarifa) : 0;
-      const total = subtotal + deliveryCost;
+      const creditToApply = paymentData.useCredits ? (paymentData.creditsAmount || 0) : 0;
+      const total = Math.max(0, subtotal + deliveryCost - creditToApply);
       const businessId = (isEmbedded ? embeddedBusinessId : (searchParams.get('businessId') || ''))
 
       // El delivery se asignará automáticamente cuando la tienda confirme el pedido en el dashboard
@@ -1436,6 +1491,7 @@ export function CheckoutContent({
         },
         total,
         subtotal,
+        creditUsed: creditToApply,
         status: 'pending' as const,
         createdByAdmin: false,
         createdAt: new Date(),
@@ -1452,6 +1508,15 @@ export function CheckoutContent({
       });
 
       const orderId = await createOrder(orderData);
+
+      // Descontar créditos si se usaron
+      if (creditToApply > 0 && effectiveClientId) {
+        try {
+          await useUserCredits(effectiveClientId, businessId, creditToApply, orderId)
+        } catch (creditError) {
+          console.error('Error deducting credits:', creditError)
+        }
+      }
 
       // === LIMPIAR checkout progress INMEDIATAMENTE después de crear la orden ===
       // Esto debe hacerse ANTES de navegar/redirigir, porque el useEffect de limpieza
@@ -1622,13 +1687,22 @@ export function CheckoutContent({
           <div className="py-1 w-full space-y-3">
 
             {/* Step 1: Customer Info */}
-            <div id="step-1" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
-              <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">1</span>
-                Tus Datos
-              </h2>
-
-              <div className="space-y-4">
+            <div id="step-1" className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => toggleSection('step-1')}
+                className="w-full p-4 sm:p-5 flex items-center justify-between hover:bg-gray-50 transition-colors"
+              >
+                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">1</span>
+                  Tus Datos
+                </h2>
+                <i className={`bi bi-chevron-${collapsedSections['step-1'] ? 'down' : 'up'} text-gray-400 transition-transform duration-200`}></i>
+              </button>
+              
+              {!collapsedSections['step-1'] && (
+                <div className="px-4 sm:px-5 pb-4 sm:pb-5">
+                  <div className="space-y-4">
                 {user ? (
                   <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 relative group animate-fadeIn w-full">
                     <div className="w-12 h-12 rounded-full overflow-hidden bg-white border border-gray-200 flex-shrink-0 flex items-center justify-center shadow-sm">
@@ -1790,15 +1864,27 @@ export function CheckoutContent({
                   </div>
                 )}
               </div>
+                </div>
+              )}
             </div>
 
             {/* Step 2: Timing */}
-            <div id="step-2" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
-              <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">2</span>
-                Horario
-              </h2>
-              <div className="space-y-6">
+            <div id="step-2" className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => toggleSection('step-2')}
+                className="w-full p-4 sm:p-5 flex items-center justify-between hover:bg-gray-50 transition-colors"
+              >
+                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">2</span>
+                  Horario
+                </h2>
+                <i className={`bi bi-chevron-${collapsedSections['step-2'] ? 'down' : 'up'} text-gray-400 transition-transform duration-200`}></i>
+              </button>
+              
+              {!collapsedSections['step-2'] && (
+                <div className="px-4 sm:px-5 pb-4 sm:pb-5">
+                  <div className="space-y-6">
                 {/* Mensaje informativo cuando la tienda está cerrada */}
                 {!isStoreOpen(business) && (
                   <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 animate-fadeIn">
@@ -1953,17 +2039,29 @@ export function CheckoutContent({
 
                   </div>
                 )}
-              </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Step 3: Delivery */}
             {/* Step 3: Delivery */}
-            <div id="step-3" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
-              <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">3</span>
-                Entrega
-              </h2>
-              <div className="space-y-6">
+            <div id="step-3" className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => toggleSection('step-3')}
+                className="w-full p-4 sm:p-5 flex items-center justify-between hover:bg-gray-50 transition-colors"
+              >
+                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">3</span>
+                  Entrega
+                </h2>
+                <i className={`bi bi-chevron-${collapsedSections['step-3'] ? 'down' : 'up'} text-gray-400 transition-transform duration-200`}></i>
+              </button>
+              
+              {!collapsedSections['step-3'] && (
+                <div className="px-4 sm:px-5 pb-4 sm:pb-5">
+                  <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
                   <button
                     type="button"
@@ -2121,229 +2219,163 @@ export function CheckoutContent({
                   </div>
                 )}
               </div>
+                </div>
+              )}
             </div>
 
           </div>
 
-          {/* Sidebar - Responsive Order Summary */}
-          <div className="space-y-3 h-fit">
-            {/* Order Summary */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center justify-between">
-                Resumen del Pedido
-                <span className="text-xs font-medium px-2.5 py-1 bg-gray-100 text-gray-600 rounded-full">
-                  {cartItems.length} {cartItems.length === 1 ? 'ítem' : 'ítems'}
-                </span>
-              </h3>
 
-              <div className="flex flex-col mb-6">
-                {[...cartItems]
-                  .sort((a, b) => {
-                    if (a.esPremio && !b.esPremio) return 1;
-                    if (!a.esPremio && b.esPremio) return -1;
-                    return 0;
-                  })
-                  .map((item: any, index: number) => {
-                    const isTarjeta = !!item.qrCodeId;
-                    const isRegalo = item.esPremio && !isTarjeta;
-                    const displayName = isRegalo || isTarjeta
-                      ? item.name
-                      : (item.variantName ? item.variantName : (item.productName || item.name));
+            {/* Step 4: Payment */}
+            <div id="step-4" className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => toggleSection('step-4')}
+                className="w-full p-4 sm:p-5 flex items-center justify-between hover:bg-gray-50 transition-colors"
+              >
+                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">4</span>
+                  Pago
+                </h2>
+                <i className={`bi bi-chevron-${collapsedSections['step-4'] ? 'down' : 'up'} text-gray-400 transition-transform duration-200`}></i>
+              </button>
+              
+              {!collapsedSections['step-4'] && (
+                <div className="px-4 sm:px-5 pb-4 sm:pb-5">
+                  <div className="space-y-6">
+                {/* Resumen del Pedido Consolidado */}
+                <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100 mb-2">
+                  <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center justify-between">
+                    Resumen de Compra
+                    <span className="text-[10px] bg-white px-2 py-0.5 rounded-lg border border-gray-100 text-gray-500">
+                      {cartItems.length} ítems
+                    </span>
+                  </h3>
 
-                    return (
-                      <div
-                        key={index}
-                        className="flex gap-3 py-3 border-b border-gray-100 last:border-0 transition-all group"
-                      >
-                        {/* Item Image Preview */}
-                        <div className="w-12 h-12 rounded-lg bg-white border border-gray-200 flex-shrink-0 flex items-center justify-center overflow-hidden shadow-sm">
-                          <img
-                            src={item.image || embeddedBusiness?.image}
-                            alt={displayName}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement
-                              if (target.src !== embeddedBusiness?.image) target.src = embeddedBusiness?.image || ''
-                            }}
-                          />
+                  <div className="space-y-2 mb-4">
+                    {[...cartItems]
+                      .sort((a, b) => (a.esPremio ? 1 : b.esPremio ? -1 : 0))
+                      .map((item: any, index: number) => (
+                        <div key={index} className="flex justify-between items-center text-sm">
+                          <span className="text-gray-600 truncate flex-1 mr-4">
+                            <span className="font-bold text-gray-900">{item.quantity}x</span> {item.variantName || item.productName || item.name}
+                          </span>
+                          <span className="font-bold text-gray-900">
+                            {item.price > 0 ? formatPrice(item.price * item.quantity) : '¡Gratis!'}
+                          </span>
                         </div>
+                      ))}
+                  </div>
 
-                        <div className="flex-1 min-w-0">
-                          <div className="flex justify-between items-start gap-1">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
-                                <p className={`text-sm font-bold truncate leading-tight ${isTarjeta ? 'text-blue-900' : isRegalo ? 'text-amber-900' : 'text-gray-900'}`}>
-                                  {displayName}
-                                </p>
-                                {isTarjeta ? (
-                                  <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-black uppercase tracking-wider border border-blue-200">
-                                    Tarjeta
-                                  </span>
-                                ) : isRegalo ? (
-                                  <span className="text-[9px] bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
-                                    Regalo
-                                  </span>
-                                ) : null}
+                  <div className="space-y-2 pt-4 border-t border-gray-200/60">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-500">Subtotal productos</span>
+                      <span className="font-bold text-gray-800">{formatPrice(subtotal)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-500">Costo de envío</span>
+                      <span className={`font-bold ${deliveryCost > 0 ? 'text-gray-800' : 'text-amber-600'}`}>
+                        {deliveryData.type === 'delivery' && deliveryCost === 0 ? 'Por calcular' : (deliveryData.type === 'pickup' ? '$0' : formatPrice(deliveryCost))}
+                      </span>
+                    </div>
+                    {/* Créditos del Usuario */}
+                    {userCredits.available > 0 && (
+                      <>
+                        <div className="flex justify-between items-center text-sm">
+                          <div className="flex items-center gap-2">
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="sr-only peer"
+                                checked={!!paymentData.useCredits}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  const maxPossible = Math.min(userCredits.available, subtotal + deliveryCost);
+                                  const roundedMaxPossible = Math.round(maxPossible * 100) / 100;
+                                  setPaymentData({
+                                    ...paymentData,
+                                    useCredits: checked,
+                                    creditsAmount: checked ? roundedMaxPossible : 0
+                                  });
+                                }}
+                              />
+                              <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-green-500"></div>
+                            </label>
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-gray-900">Usar Créditos</span>
+                              <span className="text-[10px] text-gray-500">Saldo: {formatPrice(userCredits.available)}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-2 py-1 shadow-sm focus-within:ring-2 focus-within:ring-green-500 transition-all">
+                            <span className="text-gray-400 font-medium text-xs">$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max={userCredits.available}
+                              value={paymentData.creditsAmount ? paymentData.creditsAmount.toFixed(2) : ''}
+                              placeholder="0.00"
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0;
+                                const amount = Math.min(val, userCredits.available);
+                                setPaymentData({
+                                  ...paymentData,
+                                  useCredits: amount > 0,
+                                  creditsAmount: amount
+                                });
+                              }}
+                              className="w-16 text-right font-bold text-gray-900 focus:outline-none text-sm [-moz-appearance:_textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none"
+                            />
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    <div className="flex justify-between items-center pt-3 border-t border-gray-300 mt-2">
+                      <span className="text-base font-black text-gray-900 uppercase tracking-tight">Total a pagar</span>
+                      <span className="text-xl font-black text-red-600">{formatPrice(total)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tarjetas escaneadas (Premios) */}
+                {visibleQrCards.length > 0 && (
+                  <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Tus tarjetas de premios</h4>
+                    <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                      {visibleQrCards.map((code) => {
+                        const redeemed = (qrProgress?.redeemedPrizeCodes || []).includes(code.id)
+                        const isBeingRedeemedInThisOrder = qrPrizeIdsInCart.includes(code.id)
+                        const canRedeem = !!code.prize?.trim() && !redeemed && !isBeingRedeemedInThisOrder
+                        const dark = isDarkColor(code.color)
+                        return (
+                          <div key={code.id} className="min-w-[140px] rounded-xl p-3 border border-black/5 flex flex-col justify-between" style={{ backgroundColor: isBeingRedeemedInThisOrder ? '#F1F5F9' : (code.color || '#F8FAFC') }}>
+                            <div className="flex items-start gap-2">
+                              <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/80 border border-white/20 flex-shrink-0">
+                                <img src={code.image || business?.image} alt={code.name} className="w-full h-full object-cover" />
                               </div>
+                              <p className={`text-[10px] font-bold leading-tight ${dark && !isBeingRedeemedInThisOrder ? 'text-white' : 'text-gray-900'}`}>{code.name}</p>
                             </div>
-
-                            <div className="flex items-center gap-3">
-                              <p className={`text-sm font-medium whitespace-nowrap ${isTarjeta ? 'text-blue-700' : isRegalo ? 'text-amber-700' : 'text-gray-600'}`}>
-                                {item.price > 0 ? formatPrice(item.price * item.quantity) : '¡Gratis!'}
-                              </p>
-                              <button
-                                onClick={() => handleRemoveItem(index)}
-                                className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded-full hover:bg-gray-100"
-                                title="Quitar ítem"
-                              >
-                                <i className="bi bi-trash"></i>
-                              </button>
-                            </div>
+                            <button
+                              onClick={() => handleRedeemQrPrize(code)}
+                              disabled={!canRedeem || redeemingQrId === code.id}
+                              className={`mt-3 w-full py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${isBeingRedeemedInThisOrder ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : (dark ? 'bg-white text-gray-900' : 'bg-gray-900 text-white')}`}
+                            >
+                              {isBeingRedeemedInThisOrder ? 'Canjeado' : (redeemingQrId === code.id ? '...' : 'Canjear')}
+                            </button>
                           </div>
-
-                          <div className="flex items-center justify-between mt-1">
-                            <p className="text-xs text-gray-500">
-                              <span className="font-medium bg-gray-200/50 text-gray-500 px-1.5 py-0.5 rounded text-[10px]">x{item.quantity}</span>
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-
-
-
-              <div className="space-y-3 pt-6 border-t border-gray-100">
-                {/* Subtotal */}
-                <div className="flex justify-between items-center text-sm">
-                  <div className="flex items-center gap-2 text-gray-500">
-                    <i className="bi bi-tag"></i>
-                    <span>Subtotal</span>
-                  </div>
-                  <span className="font-bold text-gray-900">{formatPrice(subtotal)}</span>
-                </div>
-
-                {/* Tarifa de envío */}
-                <div className="flex justify-between items-center text-sm">
-                  <div className="flex items-center gap-2 text-gray-500">
-                    <i className="bi bi-truck"></i>
-                    <span>Envío</span>
-                  </div>
-                  <span className={`font-bold ${deliveryCost > 0 ? 'text-gray-900' : 'text-amber-600'}`}>
-                    {deliveryData.type === 'delivery' && deliveryCost === 0
-                      ? 'Por calcular'
-                      : (deliveryData.type === 'pickup' ? '$0' : (deliveryCost > 0 ? formatPrice(deliveryCost) : 'Por calcular'))}
-                  </span>
-                </div>
-
-                {/* Total final */}
-                <div className="flex justify-between items-center pt-4 border-t border-gray-200 mt-2">
-                  <div className="flex items-center gap-2 text-gray-900">
-                    <i className="bi bi-wallet2 text-lg"></i>
-                    <span className="text-base font-bold">Total a pagar</span>
-                  </div>
-                  <p className="text-2xl font-black text-red-600 tracking-tight">{formatPrice(total)}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Scanned Cards Section - Now Independent */}
-            {visibleQrCards.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-lg font-bold text-gray-900">Tarjetas escaneadas</h4>
-                  {loadingQr && (
-                    <span className="text-xs text-gray-400 font-bold">Cargando...</span>
-                  )}
-                </div>
-
-                {qrError && (
-                  <div className="mb-3 text-xs text-red-600 font-bold">
-                    {qrError}
+                        )
+                      })}
+                    </div>
                   </div>
                 )}
 
-                <div className="overflow-x-auto scrollbar-hide -mx-6 px-6">
-                  <div className="flex gap-4 pb-2 snap-x snap-mandatory">
-                    {visibleQrCards.map((code) => {
-                      const redeemed = (qrProgress?.redeemedPrizeCodes || []).includes(code.id)
-                      const hasPrize = !!code.prize?.trim()
-                      const isBeingRedeemedInThisOrder = qrPrizeIdsInCart.includes(code.id)
-                      const canRedeem = hasPrize && !redeemed && !isBeingRedeemedInThisOrder
-                      const dark = isDarkColor(code.color)
-                      const cardBg = isBeingRedeemedInThisOrder ? '#E5E7EB' : (code.color || '#F3F4F6')
-                      const cardTextDark = isBeingRedeemedInThisOrder ? false : dark
 
-                      return (
-                        <div
-                          key={code.id}
-                          className="min-w-[260px] max-w-[260px] snap-start rounded-2xl p-4 shadow-sm border border-black/5"
-                          style={{ backgroundColor: cardBg }}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/80 border border-white/40 flex-shrink-0">
-                              <img
-                                src={code.image || business?.image || 'https://via.placeholder.com/80?text=QR'}
-                                alt={code.prize || code.name}
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                                decoding="async"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement
-                                  target.src = business?.image || 'https://via.placeholder.com/80?text=QR'
-                                }}
-                              />
-                            </div>
-
-                            <div className="min-w-0 flex-1">
-                              <p className={`text-sm font-black truncate ${cardTextDark ? 'text-white' : 'text-gray-900'}`}>🎫 {code.name}</p>
-                              {hasPrize ? (
-                                <p className={`text-xs truncate ${cardTextDark ? 'text-white/90' : 'text-gray-700'}`}>Premio: {code.prize}</p>
-                              ) : (
-                                <p className={`text-xs truncate ${cardTextDark ? 'text-white/70' : 'text-gray-500'}`}>Sin premio configurado</p>
-                              )}
-                              {isBeingRedeemedInThisOrder ? (
-                                <p className="text-[10px] font-black uppercase tracking-widest mt-1 text-gray-500">En canje</p>
-                              ) : redeemed ? (
-                                <p className={`text-[10px] font-black uppercase tracking-widest mt-1 ${cardTextDark ? 'text-white/70' : 'text-gray-500'}`}>Canjeado</p>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          <div className="mt-4">
-                            <button
-                              onClick={() => handleRedeemQrPrize(code)}
-                              disabled={!canRedeem || redeemingQrId === code.id || isBeingRedeemedInThisOrder}
-                              className={`w-full px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-colors disabled:cursor-not-allowed ${dark
-                                ? 'bg-white text-gray-900 hover:bg-white/90 disabled:bg-white/50'
-                                : 'bg-gray-900 text-white hover:bg-black disabled:bg-gray-300'
-                                }`}
-                            >
-                              {isBeingRedeemedInThisOrder
-                                ? 'En carrito'
-                                : (redeemingQrId === code.id ? 'Canjeando...' : (hasPrize ? 'Canjear' : 'No disponible'))}
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Step 4: Payment */}
-            <div id="step-4" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
-              <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-900 text-white text-sm">4</span>
-                Pago
-              </h2>
-
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Efectivo */}
-                  <button
+                {/* Métodos de Pago Restante */}
+                {total > 0 && (
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Efectivo */}
+                    <button
                     type="button"
                     onClick={() => setPaymentData({ ...paymentData, method: 'cash' })}
                     className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${paymentData.method === 'cash'
@@ -2380,7 +2412,20 @@ export function CheckoutContent({
                       </div>
                     )}
                   </button>
-                </div>
+                  </div>
+                )}
+
+                {total === 0 && paymentData.useCredits && (
+                  <div className="p-4 bg-green-50 border border-green-100 rounded-2xl flex items-center gap-3 animate-fadeIn">
+                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-xl">
+                      <i className="bi bi-check-all"></i>
+                    </div>
+                    <div>
+                      <p className="font-bold text-green-900">¡Pedido cubierto!</p>
+                      <p className="text-xs text-green-700">Tus créditos cubren la totalidad del pedido.</p>
+                    </div>
+                  </div>
+                )}
 
                 {errors.paymentMethod && (
                   <p className="text-red-500 text-sm flex items-center">
@@ -2532,6 +2577,8 @@ export function CheckoutContent({
                   </div>
                 )}
               </div>
+                </div>
+              )}
             </div>
 
           </div>
@@ -2614,8 +2661,9 @@ export function CheckoutContent({
             </div>
           </div>
         )}
-      </div>
-    </div >
+    </div>
   )
 }
+
+export default CheckoutContent;
 

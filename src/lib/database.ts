@@ -5020,6 +5020,73 @@ export async function addWalletBalance(
 }
 
 /**
+ * Deduce créditos de la billetera del usuario (prioriza referral credits sobre balance manual)
+ */
+export async function useUserCredits(
+  userId: string,
+  businessId: string,
+  amount: number,
+  orderId: string
+): Promise<void> {
+  try {
+    const q = query(
+      collection(db, 'userCredits'),
+      where('userId', '==', userId),
+      where('businessId', '==', businessId),
+      limit(1)
+    )
+    const snapshot = await getDocs(q)
+
+    if (snapshot.empty) throw new Error('No se encontraron créditos para el usuario')
+
+    const creditRef = snapshot.docs[0].ref
+    const creditData = snapshot.docs[0].data()
+
+    const referralAvailable = creditData.availableCredits || 0
+    const balanceAvailable = creditData.balance || 0
+
+    let remainingToDeduct = amount
+    let referralDeduction = 0
+    let balanceDeduction = 0
+
+    // 1. Deducir de créditos de referidos primero
+    if (referralAvailable > 0) {
+      referralDeduction = Math.min(referralAvailable, remainingToDeduct)
+      remainingToDeduct -= referralDeduction
+    }
+
+    // 2. Deducir el resto del balance manual
+    if (remainingToDeduct > 0) {
+      balanceDeduction = Math.min(balanceAvailable, remainingToDeduct)
+      remainingToDeduct -= balanceDeduction
+    }
+
+    // 3. Actualizar el documento de créditos
+    await updateDoc(creditRef, {
+      availableCredits: firestoreIncrement(-referralDeduction),
+      balance: firestoreIncrement(-balanceDeduction),
+      usedCredits: firestoreIncrement(amount),
+      updatedAt: serverTimestamp()
+    })
+
+    // 4. Registrar la transacción
+    await addDoc(collection(db, 'walletTransactions'), {
+      userId,
+      businessId,
+      type: 'order_payment',
+      amount: -amount,
+      concept: `Pago de pedido ${orderId}`,
+      referenceId: orderId,
+      createdAt: serverTimestamp()
+    })
+
+  } catch (error) {
+    console.error('Error using user credits:', error)
+    throw error
+  }
+}
+
+/**
  * Obtiene el historial de transacciones de la billetera de un usuario.
  * Si no se provee businessId, retorna transacciones de todos los negocios.
  */

@@ -825,7 +825,7 @@ export default function ProfilePage() {
                     <i className="bi bi-wallet2 text-lg"></i>
                   </div>
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-white/50">Mi Billetera</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-white/50">Mis Créditos</p>
                     <p className="text-xs text-white/70">Saldo disponible</p>
                   </div>
                 </div>
@@ -893,7 +893,7 @@ export default function ProfilePage() {
                   </div>
                 ) : (
                   <div className="text-center py-4">
-                    <p className="text-xs text-white/30">Aún no hay movimientos en tu billetera.</p>
+                    <p className="text-xs text-white/30">Aún no hay movimientos en tus créditos.</p>
                   </div>
                 )}
               </div>
