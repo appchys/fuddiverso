@@ -1680,7 +1680,7 @@ function RestaurantContent() {
                 </span>
               </div>
               <div className="text-left">
-                <div className="text-xs text-gray-400 font-bold uppercase tracking-widest leading-none mb-1">Total</div>
+                <div className="text-xs text-gray-400 font-bold uppercase tracking-widest leading-none mb-1">Continuar</div>
                 <div className="text-lg font-black leading-none">${cartTotal.toFixed(2)}</div>
               </div>
               <div className="pl-2 border-l border-white/10 group-hover:translate-x-1 transition-transform">

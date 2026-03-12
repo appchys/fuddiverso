@@ -359,13 +359,23 @@ export function CheckoutContent({
     'step-1': false,
     'step-2': true,
     'step-3': true,
-    'step-4': true
+    'step-4': true,
+    'cart-items': false
   })
 
   const effectiveClientId = user?.id || clientFound?.id || ''
 
   // Helper function to toggle section collapse
   const toggleSection = (stepId: string) => {
+    // Para los items del carrito, permitir colapsar/expandir sin validaciones
+    if (stepId === 'cart-items') {
+      setCollapsedSections(prev => ({
+        ...prev,
+        [stepId]: !prev[stepId]
+      }))
+      return
+    }
+
     // Validar que el paso anterior esté completo antes de permitir desplegar
     if (stepId === 'step-2') {
       const step1Complete = user || (customerData.name && customerData.phone && clientFound)
@@ -1362,6 +1372,57 @@ export function CheckoutContent({
     return true;
   })()
 
+  // Función para encontrar el primer paso incompleto
+  const getFirstIncompleteStep = () => {
+    // Paso 1: cliente
+    const phone = customerData.phone?.trim();
+    const normalizedPhone = normalizeEcuadorianPhone(customerData.phone);
+    if (!phone || !validateEcuadorianPhone(normalizedPhone) || !user || (showNameField && !customerData.name.trim()) || (showNameField && !clientFound && (!phoneConfirmation.trim() || phoneConfirmation !== customerData.phone))) {
+      return 'step-1';
+    }
+
+    // Paso 2: timing
+    if (!timingData.type || (timingData.type === 'scheduled' && (!timingData.scheduledDate || !timingData.scheduledTime || !isSpecificTimeOpen(business, timingData.scheduledDate, timingData.scheduledTime) || !cartAvailability.available))) {
+      return 'step-2';
+    }
+
+    // Paso 3: entrega
+    if (!deliveryData.type || (deliveryData.type === 'delivery' && (!deliveryData.address.trim() && !selectedLocation)) || (!calculatingTariff && selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0))) {
+      return 'step-3';
+    }
+
+    // Paso 4: pago
+    if (total > 0 && (!paymentData.method || (paymentData.method === 'transfer' && (!paymentData.selectedBank || !paymentData.receiptImageUrl)))) {
+      return 'step-4';
+    }
+
+    return null; // Todos los pasos completos
+  }
+
+  // Función para manejar el clic en "Completa los pasos"
+  const handleCompleteStepsClick = () => {
+    if (!readyToConfirm) {
+      const incompleteStep = getFirstIncompleteStep();
+      if (incompleteStep) {
+        // Expandir el paso incompleto y hacer scroll hacia él
+        setCollapsedSections(prev => ({
+          ...prev,
+          [incompleteStep]: false
+        }));
+        
+        // Hacer scroll hacia el paso
+        setTimeout(() => {
+          const element = document.getElementById(incompleteStep);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 100);
+      }
+    } else {
+      handleSubmit();
+    }
+  }
+
   const handleNext = () => {
     if (validateStep(currentStep)) {
       if (currentStep < 4) {
@@ -2261,27 +2322,38 @@ export function CheckoutContent({
                   <div className="space-y-6">
                 {/* Resumen del Pedido Consolidado */}
                 <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100 mb-2">
-                  <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center justify-between">
-                    Resumen de Compra
-                    <span className="text-[10px] bg-white px-2 py-0.5 rounded-lg border border-gray-100 text-gray-500">
-                      {cartItems.length} ítems
-                    </span>
-                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => toggleSection('cart-items')}
+                    className="w-full text-sm text-gray-500 mb-4 flex items-center justify-between hover:text-gray-600 transition-colors"
+                  >
+                    <span>Resumen de Compra</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] bg-white px-2 py-0.5 rounded-lg border border-gray-100 text-gray-500">
+                        {cartItems.length} ítems
+                      </span>
+                      <i className={`bi bi-chevron-${collapsedSections['cart-items'] ? 'down' : 'up'} text-gray-400 transition-transform duration-200`}></i>
+                    </div>
+                  </button>
 
-                  <div className="space-y-2 mb-4">
-                    {[...cartItems]
-                      .sort((a, b) => (a.esPremio ? 1 : b.esPremio ? -1 : 0))
-                      .map((item: any, index: number) => (
-                        <div key={index} className="flex justify-between items-center text-sm">
-                          <span className="text-gray-600 truncate flex-1 mr-4">
-                            <span className="font-bold text-gray-900">{item.quantity}x</span> {item.variantName || item.productName || item.name}
-                          </span>
-                          <span className="font-bold text-gray-900">
-                            {item.price > 0 ? formatPrice(item.price * item.quantity) : '¡Gratis!'}
-                          </span>
-                        </div>
-                      ))}
-                  </div>
+                  {!collapsedSections['cart-items'] && (
+                    <div className="animate-fadeIn">
+                      <div className="space-y-2 mb-4">
+                        {[...cartItems]
+                          .sort((a, b) => (a.esPremio ? 1 : b.esPremio ? -1 : 0))
+                          .map((item: any, index: number) => (
+                            <div key={index} className="flex justify-between items-center text-sm">
+                              <span className="text-gray-600 truncate flex-1 mr-4">
+                                <span className="font-bold text-gray-900">{item.quantity}x</span> {item.variantName || item.productName || item.name}
+                              </span>
+                              <span className="font-bold text-gray-900">
+                                {item.price > 0 ? formatPrice(item.price * item.quantity) : '¡Gratis!'}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="space-y-2 pt-4 border-t border-gray-200/60">
                     <div className="flex justify-between items-center text-sm">
@@ -2608,7 +2680,7 @@ export function CheckoutContent({
             <div className="w-full sm:w-auto text-center">
               <button
                 type="button"
-                onClick={handleSubmit}
+                onClick={handleCompleteStepsClick}
                 disabled={!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage)}
                 className={`w-full sm:w-auto px-6 py-3 rounded-lg text-white font-medium ${!readyToConfirm || loading || (deliveryData.type === 'delivery' && selectedLocationOutsideCoverage)
                   ? 'bg-gray-400 cursor-not-allowed'
