@@ -122,6 +122,34 @@ export default function ProductList({
     setShowProductForm(true)
   }
 
+  // Agrupar productos: categorías del negocio + categorías que tengan los productos pero no estén en la lista
+  const allCategories = React.useMemo(() => {
+    const master = categories || [];
+    const fromProducts = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
+    const extras = fromProducts.filter(c => !master.includes(c));
+    const list = [...master, ...extras];
+    
+    // Si hay productos sin ninguna categoría, añadimos un placeholder si no existe
+    if (products.some(p => !p.category) && !list.includes('Sin categoría')) {
+      list.push('Sin categoría');
+    }
+    return list;
+  }, [products, categories]);
+
+  // Sincronización automática de categorías huérfanas
+  useEffect(() => {
+    if (products.length > 0 && business?.id && onCategoriesChange && onDirectUpdate) {
+      const fromProducts = Array.from(new Set(products.map(p => p.category).filter(c => c && c !== 'Sin categoría'))) as string[];
+      const missing = fromProducts.filter(c => !categories.includes(c));
+      
+      if (missing.length > 0) {
+        const updated = [...categories, ...missing];
+        onCategoriesChange(updated);
+        onDirectUpdate('categories', updated);
+      }
+    }
+  }, [products, categories, business?.id, onCategoriesChange, onDirectUpdate]);
+
   const handleEditProduct = (product: Product) => {
     setEditingProduct(product)
     setFormData({
@@ -284,6 +312,12 @@ export default function ProductList({
     try {
       const updatedCategories = [...categories, newCategory.trim()]
       onCategoriesChange(updatedCategories)
+      
+      // Persistir el cambio en el documento del negocio
+      if (onDirectUpdate) {
+        await onDirectUpdate('categories', updatedCategories)
+      }
+      
       setFormData(prev => ({ ...prev, category: newCategory.trim() }))
       setNewCategory('')
       setShowNewCategory(false)
@@ -580,6 +614,15 @@ export default function ProductList({
         updatedAt: new Date()
       }
 
+      // 0. Sincronizar categoría con la lista maestra del negocio si es nueva
+      if (formData.category && formData.category !== 'Sin categoría' && !categories.includes(formData.category)) {
+        const updatedCategories = [...categories, formData.category];
+        onCategoriesChange(updatedCategories);
+        if (onDirectUpdate) {
+          await onDirectUpdate('categories', updatedCategories);
+        }
+      }
+
       if (editingProduct) {
         const currentId = editingProduct.id;
         await updateProduct(currentId, productData);
@@ -629,15 +672,15 @@ export default function ProductList({
   }
 
   const moveCategory = (index: number, direction: 'up' | 'down') => {
-    const newCategories = [...categories]
+    const newCategories = [...allCategories]
     const targetIndex = direction === 'up' ? index - 1 : index + 1
-    if (targetIndex < 0 || targetIndex >= categories.length) return
+    if (targetIndex < 0 || targetIndex >= newCategories.length) return
 
     const temp = newCategories[index]
     newCategories[index] = newCategories[targetIndex]
     newCategories[targetIndex] = temp
 
-    // Update local state and persist silently
+    // Update local state and persist (esto guarda la nueva lista completa en el negocio)
     onCategoriesChange(newCategories)
     if (onDirectUpdate) {
       onDirectUpdate('categories', newCategories)
@@ -713,9 +756,13 @@ export default function ProductList({
         </div>
       ) : (
         <div className="space-y-8">
-          {categories.map((category, catIndex) => {
+          {allCategories.map((category, catIndex) => {
+            const isMaster = categories.includes(category);
             const categoryProducts = products
-              .filter(p => p.category === category)
+              .filter(p => {
+                if (category === 'Sin categoría') return !p.category;
+                return p.category === category;
+              })
               .sort((a, b) => (a.order || 0) - (b.order || 0))
 
             if (categoryProducts.length === 0) return null
@@ -723,7 +770,7 @@ export default function ProductList({
             return (
               <div key={category} className="mb-10 last:mb-0">
                 <div className="flex items-center gap-3 mb-6">
-                  <h3 className="text-lg font-bold text-gray-800 tracking-wide uppercase">
+                  <h3 className={`text-lg font-bold tracking-wide uppercase ${isMaster ? 'text-gray-800' : 'text-gray-400 italic'}`}>
                     {category}
                   </h3>
                   <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px] font-bold">
@@ -741,7 +788,7 @@ export default function ProductList({
                     </button>
                     <button
                       onClick={() => moveCategory(catIndex, 'down')}
-                      disabled={catIndex === categories.length - 1}
+                      disabled={catIndex === allCategories.length - 1}
                       className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-0"
                       title="Bajar categoría"
                     >
@@ -909,186 +956,6 @@ export default function ProductList({
               </div>
             )
           })}
-
-          {/* Sección de productos sin categoría o categoría no listada */}
-          {(() => {
-            const uncategorizedProducts = products
-              .filter(p => !categories.includes(p.category))
-              .sort((a, b) => (a.order || 0) - (b.order || 0))
-
-            if (uncategorizedProducts.length === 0) return null
-
-            return (
-              <div className="mb-10">
-                <div className="flex items-center gap-3 mb-6">
-                  <h3 className="text-lg font-bold text-gray-800 tracking-wide uppercase">
-                    Otros / Sin categoría
-                  </h3>
-                  <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px] font-bold">
-                    {uncategorizedProducts.length} items
-                  </span>
-                  <div className="flex-1 h-px bg-gradient-to-r from-gray-100 to-transparent ml-2"></div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-                  {uncategorizedProducts.map((product, pIndex) => (
-                    <div
-                      key={product.id}
-                      className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 ${product.isAvailable
-                        ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
-                        : 'border-gray-200 bg-gray-50/50'
-                        }`}
-                    >
-                      <div className={`flex items-center flex-1 min-w-0 ${!product.isAvailable ? 'opacity-50' : ''}`}>
-                        {/* Imagen cuadrada con diseño redondeado */}
-                        <div className={`w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-50 relative border border-gray-50 ${!product.isAvailable ? 'grayscale' : ''}`}>
-                          {product.image ? (
-                            <img
-                              src={product.image}
-                              alt={product.name}
-                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
-                              <i className="bi bi-box-seam text-2xl"></i>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Info Content */}
-                        <div className="flex-1 min-w-0 ml-4 pr-10">
-                          <div className="flex flex-col h-full justify-between">
-                            <div>
-                              <div className="flex flex-wrap items-center gap-2 mb-1">
-                                <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
-                                  {product.name}
-                                </h4>
-                                {!product.isAvailable && (
-                                  <span className="text-[9px] font-black bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded uppercase tracking-widest">
-                                    Oculto
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
-                                {product.description}
-                              </p>
-                            </div>
-
-                            <div className="mt-2 flex items-center gap-3">
-                              <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
-                                ${product.price.toFixed(2)}
-                              </span>
-                              {product.variants && product.variants.length > 0 && (
-                                <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
-                                  <i className="bi bi-stack text-gray-400 text-[10px]"></i>
-                                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
-                                    {product.variants.length} variantes
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Botones de acción - Desplegable */}
-                      <div className="absolute top-3 right-3 product-action-menu z-20">
-                        <button
-                          onClick={() => setActiveMenu(activeMenu === product.id ? null : product.id)}
-                          className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-white shadow-sm border border-gray-100 transition-all active:scale-95 bg-white"
-                        >
-                          <i className="bi bi-three-dots-vertical text-lg"></i>
-                        </button>
-
-                        {activeMenu === product.id && (
-                          <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
-                            <button
-                              onClick={() => {
-                                handleToggleAvailability(product.id, product.isAvailable)
-                                setActiveMenu(null)
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                            >
-                              <i className={`bi ${product.isAvailable ? 'bi-eye-slash text-orange-600' : 'bi-eye text-emerald-600'}`}></i>
-                              {product.isAvailable ? 'Ocultar' : 'Mostrar'}
-                            </button>
-                            <button
-                              onClick={() => {
-                                handleEditProduct(product)
-                                setActiveMenu(null)
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                            >
-                              <i className="bi bi-pencil text-blue-600"></i>
-                              Editar
-                            </button>
-                            <button
-                              onClick={async () => {
-                                const productUrl = `${window.location.origin}/${business?.username}/${product.slug || product.id}`
-                                try {
-                                  if (navigator.clipboard && window.isSecureContext) {
-                                    await navigator.clipboard.writeText(productUrl)
-                                  } else {
-                                    const textArea = document.createElement('textarea')
-                                    textArea.value = productUrl
-                                    textArea.style.position = 'fixed'
-                                    textArea.style.opacity = '0'
-                                    document.body.appendChild(textArea)
-                                    textArea.focus()
-                                    textArea.select()
-                                    document.execCommand('copy')
-                                    document.body.removeChild(textArea)
-                                  }
-                                  setActiveMenu(null)
-                                } catch (err) {
-                                  console.error('Error al copiar enlace:', err)
-                                }
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                            >
-                              <i className="bi bi-link-45deg text-purple-600"></i>
-                              Copiar link
-                            </button>
-                            <div className="border-t border-gray-50 my-1"></div>
-                            <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                              Mover
-                              <div className="flex gap-1">
-                                <button
-                                  onClick={() => moveProduct(product, 'up')}
-                                  disabled={pIndex === 0}
-                                  className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
-                                >
-                                  <i className="bi bi-chevron-up"></i>
-                                </button>
-                                <button
-                                  onClick={() => moveProduct(product, 'down')}
-                                  disabled={pIndex === uncategorizedProducts.length - 1}
-                                  className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
-                                >
-                                  <i className="bi bi-chevron-down"></i>
-                                </button>
-                              </div>
-                            </div>
-                            <div className="border-t border-gray-50 my-1"></div>
-                            <button
-                              onClick={() => {
-                                handleDeleteProduct(product.id)
-                                setActiveMenu(null)
-                              }}
-                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-red-50 flex items-center gap-3 transition-colors text-red-600"
-                            >
-                              <i className="bi bi-trash"></i>
-                              Eliminar
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
-          })()}
         </div>
       )}
 
@@ -1254,18 +1121,26 @@ export default function ProductList({
                       <div>
                         <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Categoría</label>
                         <div className="space-y-2">
-                          {categories.length > 0 && (
-                            <select
-                              name="category"
-                              value={formData.category}
-                              onChange={handleInputChange}
-                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 font-medium bg-white"
-                            >
-                              {categories.map((cat) => (
-                                <option key={cat} value={cat}>{cat}</option>
-                              ))}
-                            </select>
-                          )}
+                          <select
+                            name="category"
+                            value={formData.category}
+                            onChange={handleInputChange}
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 font-medium bg-white"
+                          >
+                            {/* Caso: La categoría del producto no está en la lista del negocio (ej: asignada manual o error) */}
+                            {formData.category && !categories.includes(formData.category) && (
+                              <option value={formData.category}>{formData.category}</option>
+                            )}
+                            
+                            {categories.map((cat) => (
+                              <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                            
+                            {/* Fallback si no hay nada en absoluto */}
+                            {categories.length === 0 && !formData.category && (
+                              <option value="">Selecciona una categoría</option>
+                            )}
+                          </select>
 
                           {/* Botón para agregar nueva categoría - Integrado */}
                           {!showNewCategory ? (
