@@ -36,6 +36,7 @@ interface OrderItem {
   productId: string
   quantity: number
   variant?: string
+  variantName?: string
   productName?: string
   // Metadatos de precios para liquidaciones
   basePrice?: number
@@ -1093,9 +1094,10 @@ export default function ManualOrderSidebar({
     const metadata = getPriceMetadata(item)
 
     const newItem: OrderItem = {
-      name: variant ? variant.name : product.name,  // Solo variante o producto base
-      variant: variant?.name || '',                // Variante para compatibilidad
-      productName: product.name,                    // Nombre base
+      name: product.name,                    // Nombre base del producto
+      variant: variant?.name || '',          // Nombre de la variante
+      variantName: variant?.name || '',      // Nombre de la variante
+      productName: product.name,             // Nombre base
       price: pubPrice,
       productId: product.id,
       quantity: 1,
