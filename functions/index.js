@@ -62,12 +62,15 @@ async function createOrderNotificationLogic(order, orderId) {
       orderId: orderId,
       type: 'new_order',
       title: `${customerName} ha realizado un pedido`,
-      message: `Orden #${orderId.slice(0, 6)} - Total: $${order.total?.toFixed(2) || '0.00'}`,
+      message: `Total: $${order.total?.toFixed(2) || '0.00'}`,
       read: false,
       orderData: {
         id: orderId,
         customer: order.customer,
-        items: order.items,
+        items: order.items?.map(item => ({
+          ...item,
+          name: item.variant?.name ? `${item.name} - ${item.variant.name}` : item.name
+        })) || [],
         total: order.total,
         status: order.status
       },
