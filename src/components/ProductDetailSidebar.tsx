@@ -297,9 +297,9 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
             onClick={() => {
               const itemToAdd = {
                 id: product.id,
-                name: `${product.name} - ${variant.name}`,
-                variantName: variant.name,
-                productName: product.name,
+                name: variant.name,           // Solo la variante
+                variant: variant.name,        // La variante también
+                productName: product.name,    // Nombre base del producto
                 price: getProductPublicPrice(variant),
                 ...getPriceMetadata(variant),
                 image: product.image,

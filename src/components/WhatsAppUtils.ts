@@ -132,9 +132,17 @@ export const sendWhatsAppToDelivery = async (
     }
 
     // Construir lista de productos con cantidades entre paréntesis
-    const productsList = order.items?.map((item: any) =>
-        `(${item.quantity || 1}) ${item.variant || item.name || item.product?.name || 'Producto'}`
-    ).join('\n') || 'Sin productos'
+    const productsList = order.items?.map((item: any) => {
+        const productName = item.productName || item.product?.name || '';
+        const variantName = item.variant || item.name || item.product?.name || 'Producto';
+        
+        // Si hay nombre de producto, mostrarlo en cursiva seguido de la variante
+        if (productName && productName !== variantName) {
+            return `<i>${productName}</i>\n(${item.quantity || 1}) ${variantName}`;
+        }
+        // Si no hay producto base, mostrar solo la variante
+        return `(${item.quantity || 1}) ${variantName}`;
+    }).join('\n\n') || 'Sin productos';
 
     // Calcular totales
     const deliveryCost = order.delivery.type === 'delivery' ? (order.delivery?.deliveryCost || 1) : 0
@@ -233,7 +241,17 @@ export const sendWhatsAppToCustomer = (order: Order) => {
     }
 
     // Construir breve mensaje con detalles del pedido
-    const productsList = order.items?.map((item: any) => `${item.quantity} x ${item.variant || item.name || item.product?.name || 'Producto'}`).join('\n') || 'Sin productos'
+    const productsList = order.items?.map((item: any) => {
+        const productName = item.productName || item.product?.name || '';
+        const variantName = item.variant || item.name || item.product?.name || 'Producto';
+        
+        // Si hay nombre de producto, mostrarlo en cursiva seguido de la variante
+        if (productName && productName !== variantName) {
+            return `<i>${productName}</i>\n(${item.quantity}) ${variantName}`;
+        }
+        // Si no hay producto base, mostrar solo la variante
+        return `(${item.quantity}) ${variantName}`;
+    }).join('\n\n') || 'Sin productos';
     const deliveryInfo = order.delivery?.type === 'delivery' ? `${order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}` : 'Retiro en tienda'
     const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
 
@@ -288,7 +306,17 @@ export const sendOrderToStore = (order: Order, business: Business) => {
     const storePhone = business.phone || '0985985684' // Fallback al número viejo si no hay phone
 
     const customerName = order.customer?.name || 'Cliente'
-    const productsList = order.items?.map((item: any) => `(${item.quantity}) ${item.variant || item.name || item.product?.name || 'Producto'}`).join('\n') || 'Sin productos'
+    const productsList = order.items?.map((item: any) => {
+        const productName = item.productName || item.product?.name || '';
+        const variantName = item.variant || item.name || item.product?.name || 'Producto';
+        
+        // Si hay nombre de producto, mostrarlo en cursiva seguido de la variante
+        if (productName && productName !== variantName) {
+            return `<i>${productName}</i>\n(${item.quantity}) ${variantName}`;
+        }
+        // Si no hay producto base, mostrar solo la variante
+        return `(${item.quantity}) ${variantName}`;
+    }).join('\n\n') || 'Sin productos';
     const total = order.total?.toFixed(2) || '0.00'
     const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : 'Otro'
 
