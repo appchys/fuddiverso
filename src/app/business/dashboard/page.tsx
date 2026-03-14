@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Business, Order, Delivery, Product } from '@/types'
@@ -179,6 +179,11 @@ export default function TodayOrdersPage() {
     const [updatingDeliveryTime, setUpdatingDeliveryTime] = useState(false)
     const [checkoutCount, setCheckoutCount] = useState(0)
     const { queueStatus, retryFailed } = useOfflineQueue()
+
+    // Ref for business dropdown container
+    const businessDropdownRef = useRef<HTMLDivElement>(null)
+    // Ref for time dropdown container
+    const timeDropdownRef = useRef<HTMLDivElement>(null)
 
     // Notifications Hook
     const pushNotifications = usePushNotifications()
@@ -653,6 +658,40 @@ export default function TodayOrdersPage() {
         loadBusinesses();
     }, [user, isAuthenticated]);
 
+    // Close business dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (businessDropdownRef.current && !businessDropdownRef.current.contains(event.target as Node)) {
+                setShowBusinessDropdown(false)
+            }
+        }
+
+        if (showBusinessDropdown) {
+            document.addEventListener('mousedown', handleClickOutside)
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside)
+        }
+    }, [showBusinessDropdown])
+
+    // Close time dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (timeDropdownRef.current && !timeDropdownRef.current.contains(event.target as Node)) {
+                setShowTimeDropdown(false)
+            }
+        }
+
+        if (showTimeDropdown) {
+            document.addEventListener('mousedown', handleClickOutside)
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside)
+        }
+    }, [showTimeDropdown])
+
     // Dashboard Handlers
     const handleLogout = () => {
         logout()
@@ -871,7 +910,7 @@ export default function TodayOrdersPage() {
 
                 <div className={`flex-1 transition-all duration-300 ease-in-out overflow-y-auto w-full ${sidebarOpen ? 'lg:ml-72' : ''}`}>
                     {/* Header */}
-                    <header className="bg-white shadow-sm border-b sticky top-0 z-10 w-full">
+                    <header className="bg-white shadow-sm border-b sticky top-0 z-30 w-full">
                         <div className="px-4 sm:px-6">
                             <div className="flex justify-between items-center py-3 sm:py-4">
                                 <div className="flex items-center space-x-3">
@@ -928,7 +967,7 @@ export default function TodayOrdersPage() {
                                     {/* Control del Tiempo de Entrega */}
                                     {business && (
                                         <div className="flex items-center gap-2">
-                                            <div className="relative group">
+                                            <div className="relative group" ref={timeDropdownRef}>
                                                 <button
                                                     onClick={() => setShowTimeDropdown(!showTimeDropdown)}
                                                     className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-lg border transition-colors ${(business.deliveryTime || 30) > 30 ? 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}`}
@@ -975,7 +1014,7 @@ export default function TodayOrdersPage() {
                                     )}
 
                                     {/* Business Selector */}
-                                    <div className="relative business-dropdown-container">
+                                    <div className="relative business-dropdown-container" ref={businessDropdownRef}>
                                         <button
                                             onClick={() => setShowBusinessDropdown(!showBusinessDropdown)}
                                             className="flex items-center space-x-2 sm:space-x-3 bg-gray-50 hover:bg-gray-100 px-2 sm:px-3 py-2 rounded-lg transition-colors"
@@ -991,7 +1030,7 @@ export default function TodayOrdersPage() {
                                         </button>
 
                                         {showBusinessDropdown && (
-                                            <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-20">
+                                            <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-[60]">
                                                 {businesses.map((biz) => (
                                                     <button
                                                         key={biz.id}

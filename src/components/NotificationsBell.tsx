@@ -37,6 +37,7 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   const [loading, setLoading] = useState(true)
   const audioRef = useRef<HTMLAudioElement>(null)
   const lastProcessedNotificationIdRef = useRef<string | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Función para reproducir un sonido de notificación
   const playNotificationSound = () => {
@@ -164,6 +165,23 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
     }
   }, [businessId])
 
+  // Close notifications dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowDropdown(false)
+      }
+    }
+
+    if (showDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showDropdown])
+
 
 
   // Marcar notificación como leída (se sincroniza en Firebase)
@@ -232,7 +250,7 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   const unreadCount = notifications.filter(n => !n.read).length
 
   return (
-    <div className="relative">
+    <div className="relative" ref={dropdownRef}>
       {/* Elemento de audio silencioso para reproducir el sonido de notificación */}
       <audio
         ref={audioRef}
