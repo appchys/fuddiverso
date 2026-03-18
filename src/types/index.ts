@@ -44,6 +44,7 @@ export interface Business {
   isOpen?: boolean // Estado actual de apertura
   isActive: boolean
   deliveryTime?: number // Tiempo de entrega estimado en minutos
+  defaultDeliveryId?: string // ID del delivery predeterminado asignado a la tienda
   createdAt: Date
   updatedAt: Date
   lastLoginAt?: any

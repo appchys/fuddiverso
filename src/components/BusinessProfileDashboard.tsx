@@ -216,6 +216,150 @@ export default function BusinessProfileDashboard({
 
 
 
+      {/* Contenido de la pestaña General */}
+      {activeTab === 'general' && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* Tarjeta de Identidad */}
+          <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 overflow-hidden group">
+            <div className="h-32 sm:h-48 bg-gray-100 relative overflow-hidden">
+                {displayBusiness.coverImage ? (
+                    <img src={displayBusiness.coverImage} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+                        <i className="bi bi-image text-gray-300 text-4xl"></i>
+                    </div>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
+            </div>
+            
+            <div className="px-8 pb-8 -mt-12 sm:-mt-16 relative z-10">
+                <div className="flex flex-col sm:flex-row items-end gap-6 mb-6">
+                    <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-[2rem] bg-white p-2 shadow-2xl shadow-black/10 overflow-hidden ring-4 ring-white transition-transform duration-500 hover:rotate-2">
+                        {displayBusiness.image ? (
+                            <img src={displayBusiness.image} className="w-full h-full object-cover rounded-[1.5rem]" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-[1.5rem]">
+                                <i className="bi bi-shop text-3xl text-gray-200"></i>
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex-1 pb-2">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <h2 className="text-2xl sm:text-3xl font-black text-gray-900 uppercase tracking-tight">{displayBusiness.name}</h2>
+                            {displayBusiness.isActive ? (
+                                <span className="px-3 py-1 bg-emerald-100 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-widest border border-emerald-200">Activo</span>
+                            ) : (
+                                <span className="px-3 py-1 bg-gray-100 text-gray-400 rounded-full text-[10px] font-black uppercase tracking-widest border border-gray-200">Inactivo</span>
+                            )}
+                        </div>
+                        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                            <i className="bi bi-tag-fill text-red-500"></i>
+                            {displayBusiness.category || 'Sin Categoría'}
+                        </p>
+                    </div>
+                    <button 
+                        onClick={onEditProfile}
+                        className="mb-2 px-6 py-3 bg-gray-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-black transition-all hover:scale-105 active:scale-95 shadow-xl shadow-gray-900/20 flex items-center gap-2"
+                    >
+                        <i className="bi bi-pencil-square"></i>
+                        Editar Perfil
+                    </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-6 border-t border-gray-100">
+                    <div className="space-y-4">
+                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Contacto y Ubicación</h4>
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100/50">
+                                <i className="bi bi-whatsapp text-emerald-500 text-lg"></i>
+                                <div>
+                                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">WhatsApp</p>
+                                    <p className="text-sm font-bold text-gray-900">{displayBusiness.phone || 'No especificado'}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100/50">
+                                <i className="bi bi-envelope text-blue-500 text-lg"></i>
+                                <div>
+                                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Email</p>
+                                    <p className="text-sm font-bold text-gray-900 truncate max-w-[150px]">{displayBusiness.email}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Configuración</h4>
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100/50">
+                                <i className="bi bi-bicycle text-red-500 text-lg"></i>
+                                <div className="flex-1">
+                                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Repartidor Predeterminado</p>
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-sm font-bold text-gray-900">
+                                            {displayBusiness.defaultDeliveryId ? 'Configurado' : 'No asignado'}
+                                        </p>
+                                        {displayBusiness.defaultDeliveryId && (
+                                            <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">ACTIVO</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100/50">
+                                <i className="bi bi-shop-window text-blue-500 text-lg"></i>
+                                <div className="flex-1">
+                                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Retiro en Local</p>
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-sm font-bold text-gray-900">
+                                            {displayBusiness.pickupSettings?.enabled ? 'Habilitado' : 'Desactivado'}
+                                        </p>
+                                        {displayBusiness.pickupSettings?.enabled && (
+                                            <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">ACTIVO</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100/50">
+                                <i className="bi bi-clock-history text-purple-500 text-lg"></i>
+                                <div>
+                                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Tiempo de Entrega</p>
+                                    <p className="text-sm font-bold text-gray-900">{displayBusiness.deliveryTime || 30} minutos</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Horario Hoy</h4>
+                        <div className="p-4 bg-gray-900 text-white rounded-[2rem] shadow-xl shadow-gray-900/10">
+                            {(() => {
+                                const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+                                const today = days[new Date().getDay()] as keyof Business['schedule']
+                                const schedule = displayBusiness.schedule?.[today]
+                                
+                                return (
+                                    <div className="flex flex-col items-center justify-center text-center">
+                                        <p className="text-[9px] font-black text-gray-400 uppercase tracking-[0.3em] mb-2">Estado Actual</p>
+                                        {!schedule?.isOpen ? (
+                                            <span className="text-lg font-black text-red-400 uppercase italic">Cerrado</span>
+                                        ) : (
+                                            <div className="flex flex-col items-center">
+                                                <span className="text-lg font-black text-emerald-400 uppercase italic">Abierto</span>
+                                                <p className="text-xs font-black text-gray-400 mt-1 uppercase tracking-widest">
+                                                    {schedule.open} - {schedule.close}
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )
+                            })()}
+                        </div>
+                    </div>
+                </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Contenido de la pestaña Productos */}
       {activeTab === 'products' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">

@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
@@ -63,10 +63,19 @@ const BusinessProfileDashboard = dynamic(() => import('@/components/BusinessProf
 const BusinessProfileEditor = dynamic(() => import('@/components/BusinessProfileEditor'), { ssr: false })
 
 // Auto-assign logic
-const autoAssignDeliveryForOrder = async (order: Order): Promise<string | undefined> => {
+const autoAssignDeliveryForOrder = async (order: Order, defaultDeliveryId?: string): Promise<string | undefined> => {
     try {
         const deliveries = await getDeliveriesByStatus('activo');
         let assignedDeliveryId: string | undefined = undefined;
+
+        // 0. Default Delivery
+        if (defaultDeliveryId) {
+            const defaultDelivery = deliveries.find(d => d.id === defaultDeliveryId);
+            if (defaultDelivery) {
+                console.log('[AutoAssign] Using store default delivery:', defaultDeliveryId);
+                return defaultDelivery.id;
+            }
+        }
 
         // 1. Coverage Zone
         const latlong = order.delivery.latlong;
@@ -783,7 +792,7 @@ export default function TodayOrdersPage() {
             // Auto-assign if confirming a pending delivery order
             if (currentOrder && currentOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending') {
                 if (currentOrder.delivery?.type === 'delivery' && !currentOrder.delivery.assignedDelivery) {
-                    const assignedId = await autoAssignDeliveryForOrder(currentOrder);
+                    const assignedId = await autoAssignDeliveryForOrder(currentOrder, business?.defaultDeliveryId);
                     if (assignedId) {
                         assignmentUpdate['delivery.assignedDelivery'] = assignedId;
                     }

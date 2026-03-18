@@ -2751,10 +2751,43 @@ export async function getDeliveriesByStatus(estado: 'activo' | 'inactivo'): Prom
 
     return deliveries
   } catch (error) {
-    // En caso de errores (p. ej. permisos), devolver lista vacía para que la UI
-    // no falle y se pueda mostrar un mensaje o estado vacío.
-    console.error('Error getting deliveries by status (returning empty list):', error)
+    console.error('Error getting deliveries by status:', error)
     return []
+  }
+}
+
+/**
+ * Buscar un delivery por su número de teléfono
+ */
+export async function searchDeliveryByPhone(phone: string): Promise<Delivery | null> {
+  try {
+    const q = query(
+      collection(db, 'deliveries'),
+      where('celular', '==', phone),
+      limit(1)
+    )
+
+    const querySnapshot = await getDocs(q)
+    if (querySnapshot.empty) return null
+
+    const docRef = querySnapshot.docs[0]
+    const data = docRef.data()
+
+    return {
+      id: docRef.id,
+      nombres: data.nombres || '',
+      celular: data.celular || '',
+      email: data.email || '',
+      fotoUrl: data.fotoUrl,
+      estado: data.estado || 'activo',
+      fechaRegistro: data.fechaRegistro || new Date().toISOString(),
+      uid: data.uid,
+      manualStatus: data.manualStatus ?? null,
+      scheduleAvailability: data.scheduleAvailability
+    } as Delivery
+  } catch (error) {
+    console.error('Error searching delivery by phone:', error)
+    return null
   }
 }
 

@@ -348,6 +348,18 @@ export default function ManualOrderSidebar({
 
   // Buscar delivery asignado a la zona de una ubicación
   const findDeliveryForLocation = async (location: ClientLocation) => {
+    // 1. PRIORIDAD: Si la tienda tiene un delivery predeterminado, asignarlo siempre
+    if (business?.defaultDeliveryId) {
+      const defaultDelivery = availableDeliveries.find(d => d.id === business.defaultDeliveryId)
+      if (defaultDelivery) {
+        console.log('[ManualOrder] Asignando delivery predeterminado del negocio:', defaultDelivery.nombres)
+        setManualOrderData(prev => ({ ...prev, selectedDelivery: defaultDelivery }))
+        return // Prioridad máxima
+      } else {
+        console.warn('[ManualOrder] Delivery predeterminado configurado pero no encontrado en disponibles:', business.defaultDeliveryId)
+      }
+    }
+
     // Si no tiene coordenadas válidas, mantener delivery actual
     if (!location.latlong || location.latlong.startsWith('pluscode:')) {
       console.log('[ManualOrder] Location sin coordenadas válidas, manteniendo delivery predeterminado')

@@ -1,8 +1,8 @@
 "use client"
 
 import React, { useState, useEffect } from 'react'
-import { Business } from '@/types'
-import { uploadImage } from '@/lib/database'
+import { Business, Delivery } from '@/types'
+import { uploadImage, searchDeliveryByPhone, createDelivery, getDeliveryById } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
 import { GoogleMap, useCurrentLocation } from './GoogleMap'
 
@@ -30,6 +30,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
         isActive: business.isActive ?? true,
         isHidden: business.isHidden ?? false,
         deliveryTime: business.deliveryTime || 30,
+        defaultDeliveryId: business.defaultDeliveryId || '',
         pickupSettings: business.pickupSettings || { enabled: false, references: '', latlong: '', storePhotoUrl: '' }
     })
 
@@ -53,7 +54,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
     const [dragActiveCover, setDragActiveCover] = useState(false)
     const [dragActivePickup, setDragActivePickup] = useState(false)
     const [uploadingPickupPhoto, setUploadingPickupPhoto] = useState(false)
-    const [activeSection, setActiveSection] = useState<'identity' | 'contact' | 'visual' | 'schedule' | 'pickup'>('identity')
+    const [activeSection, setActiveSection] = useState<'identity' | 'contact' | 'visual' | 'schedule' | 'delivery_pickup'>('identity')
 
     const { location: currentGeoLocation, loading: locating, getCurrentLocation } = useCurrentLocation()
 
@@ -214,6 +215,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
             coverImage: coverUrl,
             schedule,
             deliveryTime: Number(formData.deliveryTime),
+            defaultDeliveryId: formData.defaultDeliveryId,
             pickupSettings: formData.pickupSettings
         })
     }
@@ -223,7 +225,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
         { key: 'contact', label: 'Contacto', icon: 'bi-telephone' },
         { key: 'visual', label: 'Visual', icon: 'bi-image' },
         { key: 'schedule', label: 'Horario', icon: 'bi-clock' },
-        { key: 'pickup', label: 'Retiro', icon: 'bi-shop-window' }
+        { key: 'delivery_pickup', label: 'Entrega', icon: 'bi-box-seam' }
     ]
 
     return (
@@ -633,138 +635,150 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                             </div>
                         )}
 
-                        {/* Section: Retiro en tienda */}
-                        {activeSection === 'pickup' && (
-                            <div className="space-y-8 animate-fadeIn">
-                                <div className="flex items-center gap-3 mb-4">
-                                    <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">5</span>
-                                    <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Retiros en Tienda</h3>
-                                </div>
-
-                                {/* Toggle Principal */}
-                                <div className="bg-white rounded-3xl p-6 border-2 border-dashed border-gray-100 flex items-center justify-between group hover:border-red-100 transition-colors">
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all ${formData.pickupSettings.enabled ? 'bg-red-600 text-white shadow-lg shadow-red-200' : 'bg-gray-100 text-gray-400'}`}>
-                                            <i className="bi bi-shop-window"></i>
-                                        </div>
-                                        <div>
-                                            <h4 className="font-black text-gray-900 uppercase tracking-widest text-[10px]">Estatus del Servicio</h4>
-                                            <p className="text-sm font-bold text-gray-500">{formData.pickupSettings.enabled ? 'Habilitado para clientes' : 'Desactivado temporalmente'}</p>
-                                        </div>
+                        {/* Section: Entrega (Retiro y Repartidor) */}
+                        {activeSection === 'delivery_pickup' && (
+                            <div className="space-y-12 animate-fadeIn">
+                                {/* Retiro en tienda */}
+                                <div className="space-y-8">
+                                    <div className="flex items-center gap-3 mb-4">
+                                        <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">5</span>
+                                        <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Retiros en Tienda</h3>
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => handlePickupChange('enabled', !formData.pickupSettings.enabled)}
-                                        className={`w-14 h-8 rounded-full transition-all duration-300 relative ${formData.pickupSettings.enabled ? 'bg-red-600' : 'bg-gray-200'}`}
-                                    >
-                                        <div className={`absolute top-1.5 w-5 h-5 rounded-full bg-white transition-all duration-300 shadow-sm ${formData.pickupSettings.enabled ? 'left-7.5' : 'left-1.5'}`}></div>
-                                    </button>
-                                </div>
 
-                                {formData.pickupSettings.enabled && (
-                                    <div className="space-y-8 animate-fadeIn">
-                                        {/* Referencias del Local */}
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Instrucciones de Retiro / Referencias</label>
-                                            <textarea
-                                                value={formData.pickupSettings.references}
-                                                onChange={(e) => handlePickupChange('references', e.target.value)}
-                                                className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300 min-h-[100px]"
-                                                placeholder="Ej: Retirar por la ventanilla lateral frente al parque central..."
-                                            />
-                                        </div>
-
-                                        {/* Mapa de Ubicación */}
-                                        <div className="space-y-4">
-                                            <div className="flex items-center justify-between px-1">
-                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Ubicación en el Mapa</label>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => getCurrentLocation()}
-                                                    disabled={locating}
-                                                    className="flex items-center gap-2 text-[10px] font-black text-red-600 uppercase tracking-widest hover:text-red-700 transition-colors"
-                                                >
-                                                    <i className={`bi ${locating ? 'animate-spin bi-arrow-repeat' : 'bi-geo-alt-fill'}`}></i>
-                                                    {locating ? 'Obteniendo...' : 'Usar mi ubicación actual'}
-                                                </button>
+                                    {/* Toggle Principal */}
+                                    <div className="bg-white rounded-3xl p-6 border-2 border-dashed border-gray-100 flex items-center justify-between group hover:border-red-100 transition-colors">
+                                        <div className="flex items-center gap-4">
+                                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all ${formData.pickupSettings.enabled ? 'bg-red-600 text-white shadow-lg shadow-red-200' : 'bg-gray-100 text-gray-400'}`}>
+                                                <i className="bi bi-shop-window"></i>
                                             </div>
-                                            <div className="rounded-3xl overflow-hidden border-2 border-gray-100 shadow-inner h-[250px] relative">
-                                                {(() => {
-                                                    const coords = formData.pickupSettings.latlong.split(',').map(c => parseFloat(c.trim()));
-                                                    const lat = !isNaN(coords[0]) ? coords[0] : -0.1807;
-                                                    const lng = !isNaN(coords[1]) ? coords[1] : -78.4678;
-                                                    return (
-                                                        <GoogleMap
-                                                            latitude={lat}
-                                                            longitude={lng}
-                                                            height="100%"
-                                                            draggable={true}
-                                                            onLocationChange={handlePickupLocationChange}
-                                                        />
-                                                    );
-                                                })()}
+                                            <div>
+                                                <h4 className="font-black text-gray-900 uppercase tracking-widest text-[10px]">Estatus del Servicio</h4>
+                                                <p className="text-sm font-bold text-gray-500">{formData.pickupSettings.enabled ? 'Habilitado para clientes' : 'Desactivado temporalmente'}</p>
                                             </div>
-                                            <p className="text-[9px] font-bold text-gray-400 text-center uppercase tracking-widest">Puedes mover el marcador para ajustar la ubicación exacta</p>
                                         </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handlePickupChange('enabled', !formData.pickupSettings.enabled)}
+                                            className={`w-14 h-8 rounded-full transition-all duration-300 relative ${formData.pickupSettings.enabled ? 'bg-red-600' : 'bg-gray-200'}`}
+                                        >
+                                            <div className={`absolute top-1.5 w-5 h-5 rounded-full bg-white transition-all duration-300 shadow-sm ${formData.pickupSettings.enabled ? 'left-7.5' : 'left-1.5'}`}></div>
+                                        </button>
+                                    </div>
 
-                                        {/* Foto del Local */}
-                                        <div className="space-y-4">
-                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Foto para Identificar el Local (Opcional)</label>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                                <div
-                                                    onDragOver={(e) => { e.preventDefault(); setDragActivePickup(true); }}
-                                                    onDragLeave={() => setDragActivePickup(false)}
-                                                    onDrop={(e) => {
-                                                        e.preventDefault();
-                                                        setDragActivePickup(false);
-                                                        if (e.dataTransfer.files?.[0]) handlePickupPhotoChange(e.dataTransfer.files[0]);
-                                                    }}
-                                                    className={`aspect-video rounded-3xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-3 cursor-pointer overflow-hidden group ${dragActivePickup ? 'border-red-500 bg-red-50' : 'border-gray-100 bg-gray-50/50 hover:bg-white hover:border-red-200'}`}
-                                                    onClick={() => document.getElementById('pickup-photo-input')?.click()}
-                                                >
-                                                    {formData.pickupSettings.storePhotoUrl ? (
-                                                        <div className="relative w-full h-full">
-                                                            <img src={formData.pickupSettings.storePhotoUrl} alt="Store" className="w-full h-full object-cover" />
-                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                                                <i className="bi bi-camera text-white text-2xl"></i>
+                                    {formData.pickupSettings.enabled && (
+                                        <div className="space-y-8 animate-fadeIn">
+                                            {/* Referencias del Local */}
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Instrucciones de Retiro / Referencias</label>
+                                                <textarea
+                                                    value={formData.pickupSettings.references}
+                                                    onChange={(e) => handlePickupChange('references', e.target.value)}
+                                                    className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300 min-h-[100px]"
+                                                    placeholder="Ej: Retirar por la ventanilla lateral frente al parque central..."
+                                                />
+                                            </div>
+
+                                            {/* Mapa de Ubicación */}
+                                            <div className="space-y-4">
+                                                <div className="flex items-center justify-between px-1">
+                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Ubicación en el Mapa</label>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => getCurrentLocation()}
+                                                        disabled={locating}
+                                                        className="flex items-center gap-2 text-[10px] font-black text-red-600 uppercase tracking-widest hover:text-red-700 transition-colors"
+                                                    >
+                                                        <i className={`bi ${locating ? 'animate-spin bi-arrow-repeat' : 'bi-geo-alt-fill'}`}></i>
+                                                        {locating ? 'Obteniendo...' : 'Usar mi ubicación actual'}
+                                                    </button>
+                                                </div>
+                                                <div className="rounded-3xl overflow-hidden border-2 border-gray-100 shadow-inner h-[250px] relative">
+                                                    {(() => {
+                                                        const coords = formData.pickupSettings.latlong.split(',').map(c => parseFloat(c.trim()));
+                                                        const lat = !isNaN(coords[0]) ? coords[0] : -0.1807;
+                                                        const lng = !isNaN(coords[1]) ? coords[1] : -78.4678;
+                                                        return (
+                                                            <GoogleMap
+                                                                latitude={lat}
+                                                                longitude={lng}
+                                                                height="100%"
+                                                                draggable={true}
+                                                                onLocationChange={handlePickupLocationChange}
+                                                            />
+                                                        );
+                                                    })()}
+                                                </div>
+                                                <p className="text-[9px] font-bold text-gray-400 text-center uppercase tracking-widest">Puedes mover el marcador para ajustar la ubicación exacta</p>
+                                            </div>
+
+                                            {/* Foto del Local */}
+                                            <div className="space-y-4">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Foto para Identificar el Local (Opcional)</label>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                                    <div
+                                                        onDragOver={(e) => { e.preventDefault(); setDragActivePickup(true); }}
+                                                        onDragLeave={() => setDragActivePickup(false)}
+                                                        onDrop={(e) => {
+                                                            e.preventDefault();
+                                                            setDragActivePickup(false);
+                                                            if (e.dataTransfer.files?.[0]) handlePickupPhotoChange(e.dataTransfer.files[0]);
+                                                        }}
+                                                        className={`aspect-video rounded-3xl border-2 border-dashed transition-all flex flex-col items-center justify-center gap-3 cursor-pointer overflow-hidden group ${dragActivePickup ? 'border-red-500 bg-red-50' : 'border-gray-100 bg-gray-50/50 hover:bg-white hover:border-red-200'}`}
+                                                        onClick={() => document.getElementById('pickup-photo-input')?.click()}
+                                                    >
+                                                        {formData.pickupSettings.storePhotoUrl ? (
+                                                            <div className="relative w-full h-full">
+                                                                <img src={formData.pickupSettings.storePhotoUrl} alt="Store" className="w-full h-full object-cover" />
+                                                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                                    <i className="bi bi-camera text-white text-2xl"></i>
+                                                                </div>
                                                             </div>
-                                                        </div>
-                                                    ) : uploadingPickupPhoto ? (
-                                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
-                                                    ) : (
-                                                        <>
-                                                            <i className="bi bi-camera text-2xl text-gray-300"></i>
-                                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Subir Foto</span>
-                                                        </>
-                                                    )}
-                                                    <input
-                                                        id="pickup-photo-input"
-                                                        type="file"
-                                                        className="hidden"
-                                                        accept="image/*"
-                                                        onChange={(e) => e.target.files?.[0] && handlePickupPhotoChange(e.target.files[0])}
-                                                    />
-                                                </div>
-                                                <div className="flex flex-col justify-center gap-2">
-                                                    <p className="text-xs font-bold text-gray-500 leading-relaxed italic">
-                                                        "Una foto nítida de la fachada de tu local ayuda a los clientes a encontrarte más rápido."
-                                                    </p>
-                                                    {formData.pickupSettings.storePhotoUrl && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handlePickupChange('storePhotoUrl', '')}
-                                                            className="text-[10px] font-black text-red-600 uppercase tracking-widest text-left mt-2 hover:text-red-700 transition-colors"
-                                                        >
-                                                            Eliminar Foto
-                                                        </button>
-                                                    )}
+                                                        ) : uploadingPickupPhoto ? (
+                                                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
+                                                        ) : (
+                                                            <>
+                                                                <i className="bi bi-camera text-2xl text-gray-300"></i>
+                                                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Subir Foto</span>
+                                                            </>
+                                                        )}
+                                                        <input
+                                                            id="pickup-photo-input"
+                                                            type="file"
+                                                            className="hidden"
+                                                            accept="image/*"
+                                                            onChange={(e) => e.target.files?.[0] && handlePickupPhotoChange(e.target.files[0])}
+                                                        />
+                                                    </div>
+                                                    <div className="flex flex-col justify-center gap-2">
+                                                        <p className="text-xs font-bold text-gray-500 leading-relaxed italic">
+                                                            "Una foto nítida de la fachada de tu local ayuda a los clientes a encontrarte más rápido."
+                                                        </p>
+                                                        {formData.pickupSettings.storePhotoUrl && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handlePickupChange('storePhotoUrl', '')}
+                                                                className="text-[10px] font-black text-red-600 uppercase tracking-widest text-left mt-2 hover:text-red-700 transition-colors"
+                                                            >
+                                                                Eliminar Foto
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
+
+                                {/* Divisor */}
+                                <div className="border-t border-dashed border-gray-200 pt-12">
+                                    <DeliveryConfigSection
+                                        defaultDeliveryId={formData.defaultDeliveryId}
+                                        onDeliverySelect={(id) => setFormData(prev => ({ ...prev, defaultDeliveryId: id }))}
+                                    />
+                                </div>
                             </div>
                         )}
+
                         <div className="pt-8 flex flex-col sm:flex-row items-center gap-4">
                             <button
                                 type="button"
@@ -807,6 +821,275 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
           animation: fadeIn 0.3s ease-out;
         }
       `}</style>
+        </div>
+    )
+}
+
+/**
+ * Sección de configuración de delivery predeterminado
+ */
+const DeliveryConfigSection: React.FC<{
+    defaultDeliveryId: string;
+    onDeliverySelect: (id: string) => void;
+}> = ({ defaultDeliveryId, onDeliverySelect }) => {
+    const [searchPhone, setSearchPhone] = useState('')
+    const [searching, setSearching] = useState(false)
+    const [foundDelivery, setFoundDelivery] = useState<Delivery | null>(null)
+    const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null)
+    const [showRegisterForm, setShowRegisterForm] = useState(false)
+    const [newDeliveryData, setNewDeliveryData] = useState({
+        nombres: '',
+        email: ''
+    })
+    const [creating, setCreating] = useState(false)
+    const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' | 'info' } | null>(null)
+
+    const showMessage = (text: string, type: 'success' | 'error' | 'info' = 'info') => {
+        setMessage({ text, type })
+        setTimeout(() => setMessage(null), 3000)
+    }
+
+    // Cargar delivery actual si existe
+    useEffect(() => {
+        if (defaultDeliveryId) {
+            getDeliveryById(defaultDeliveryId).then(setSelectedDelivery)
+        } else {
+            setSelectedDelivery(null)
+        }
+    }, [defaultDeliveryId])
+
+    const handleSearch = async () => {
+        if (!searchPhone || searchPhone.length < 7) {
+            showMessage('Ingresa un número de celular válido', 'error')
+            return
+        }
+
+        setSearching(true)
+        setFoundDelivery(null)
+        setShowRegisterForm(false)
+
+        try {
+            const delivery = await searchDeliveryByPhone(searchPhone)
+            if (delivery) {
+                setFoundDelivery(delivery)
+                showMessage('Repartidor encontrado', 'success')
+            } else {
+                setShowRegisterForm(true)
+                showMessage('No se encontró el repartidor, puedes registrarlo', 'info')
+            }
+        } catch (error) {
+            console.error('Error searching delivery:', error)
+            showMessage('Error al buscar el repartidor', 'error')
+        } finally {
+            setSearching(false)
+        }
+    }
+
+    const handleRegister = async () => {
+        if (!newDeliveryData.nombres || searchPhone.length < 7) {
+            showMessage('Completa los datos del repartidor', 'error')
+            return
+        }
+
+        setCreating(true)
+        try {
+            const newId = await createDelivery({
+                nombres: newDeliveryData.nombres,
+                celular: searchPhone,
+                email: newDeliveryData.email || `${searchPhone}@fuddi.delivery`,
+                estado: 'activo'
+            })
+            onDeliverySelect(newId)
+            setFoundDelivery(null)
+            setShowRegisterForm(false)
+            setSearchPhone('')
+            showMessage('Repartidor registrado y asignado', 'success')
+        } catch (error) {
+            console.error('Error creating delivery:', error)
+            showMessage('Error al registrar el repartidor', 'error')
+        } finally {
+            setCreating(false)
+        }
+    }
+
+    return (
+        <div className="space-y-8 animate-fadeIn">
+            <div className="flex items-center gap-3 mb-4">
+                <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">6</span>
+                <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Repartidor Predeterminado</h3>
+            </div>
+
+            {/* Mensajes de Feedback */}
+            {message && (
+                <div className={`p-4 rounded-2xl text-xs font-black uppercase tracking-widest animate-fadeIn ${
+                    message.type === 'success' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                    message.type === 'error' ? 'bg-red-50 text-red-600 border border-red-100' :
+                    'bg-blue-50 text-blue-600 border border-blue-100'
+                }`}>
+                    <i className={`bi ${message.type === 'success' ? 'bi-check-circle' : message.type === 'error' ? 'bi-exclamation-circle' : 'bi-info-circle'} me-2`}></i>
+                    {message.text}
+                </div>
+            )}
+
+            {/* Repartidor Seleccionado */}
+            {selectedDelivery ? (
+                <div className="p-6 bg-emerald-50 border-2 border-emerald-100 rounded-3xl mb-8 relative group overflow-hidden">
+                    <div className="flex items-center gap-4 relative z-10">
+                        <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-emerald-600 shadow-xl shadow-emerald-200/50 overflow-hidden">
+                            {selectedDelivery.fotoUrl ? (
+                                <img src={selectedDelivery.fotoUrl} className="w-full h-full object-cover" />
+                            ) : (
+                                <i className="bi bi-bicycle text-3xl"></i>
+                            )}
+                        </div>
+                        <div className="flex-1">
+                            <h4 className="font-black text-gray-900 uppercase tracking-tight">{selectedDelivery.nombres}</h4>
+                            <p className="text-sm font-bold text-gray-500 flex items-center gap-2">
+                                <i className="bi bi-telephone-fill text-xs"></i>
+                                {selectedDelivery.celular}
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => onDeliverySelect('')}
+                            className="bg-white/80 hover:bg-white text-red-600 w-10 h-10 rounded-xl flex items-center justify-center transition-all shadow-sm"
+                            title="Quitar repartidor"
+                        >
+                            <i className="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            ) : (
+                <div className="p-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-[3rem] text-center mb-8">
+                    <div className="w-16 h-16 bg-white rounded-[1.5rem] shadow-sm flex items-center justify-center mx-auto mb-4 text-gray-300">
+                        <i className="bi bi-bicycle text-3xl"></i>
+                    </div>
+                    <h4 className="font-black text-gray-900 uppercase tracking-widest text-xs mb-1">Sin Repartidor Asignado</h4>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-relaxed">
+                        Busca un repartidor por su WhatsApp para asignarlo <br /> como el predeterminado para tus pedidos.
+                    </p>
+                </div>
+            )}
+
+            {/* Buscador */}
+            <div className="space-y-4">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">
+                    {foundDelivery ? 'Repartidor Encontrado' : showRegisterForm ? 'Registrar Nuevo Repartidor' : 'Buscar por Celular'}
+                </label>
+                
+                {!foundDelivery && !showRegisterForm && (
+                    <div className="flex gap-3">
+                        <div className="relative flex-1">
+                            <i className="bi bi-whatsapp absolute left-5 top-1/2 -translate-y-1/2 text-emerald-500 font-bold"></i>
+                            <input
+                                type="tel"
+                                value={searchPhone}
+                                onChange={(e) => setSearchPhone(e.target.value)}
+                                className="w-full pl-12 pr-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300"
+                                placeholder="Ej: 0987654321"
+                                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                            />
+                        </div>
+                        <button
+                            onClick={handleSearch}
+                            disabled={searching}
+                            className="px-6 py-4 bg-gray-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-black transition-all disabled:opacity-50"
+                        >
+                            {searching ? <i className="bi bi-arrow-repeat animate-spin"></i> : 'Buscar'}
+                        </button>
+                    </div>
+                )}
+
+                {/* Resultado de búsqueda */}
+                {foundDelivery && (
+                    <div className="p-6 bg-white border-2 border-gray-100 rounded-3xl flex items-center justify-between shadow-sm animate-fadeIn">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400">
+                                <i className="bi bi-person-fill text-2xl"></i>
+                            </div>
+                            <div>
+                                <h5 className="font-black text-gray-900 text-sm uppercase">{foundDelivery.nombres}</h5>
+                                <p className="text-xs font-bold text-gray-400">{foundDelivery.celular}</p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => { setFoundDelivery(null); setSearchPhone(''); }}
+                                className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 hover:text-gray-600"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => { onDeliverySelect(foundDelivery.id); setFoundDelivery(null); setSearchPhone(''); }}
+                                className="px-5 py-3 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-200 transition-all"
+                            >
+                                Asignar Como Default
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Formulario de registro */}
+                {showRegisterForm && (
+                    <div className="p-6 bg-white border-2 border-red-500/10 rounded-3xl space-y-4 shadow-xl shadow-red-500/5 animate-fadeIn">
+                        <div className="flex items-start gap-3 bg-red-50 p-4 rounded-2xl mb-2">
+                            <i className="bi bi-info-circle-fill text-red-500 mt-0.5"></i>
+                            <p className="text-[10px] font-bold text-red-800 uppercase tracking-widest leading-relaxed">
+                                No encontramos ningún repartidor con ese número. <br />
+                                <span className="text-red-600 font-black">¡Puedes registrarlo tú mismo ahora mismo!</span>
+                            </p>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Nombre Completo</label>
+                                <input
+                                    type="text"
+                                    value={newDeliveryData.nombres}
+                                    onChange={(e) => setNewDeliveryData(prev => ({ ...prev, nombres: e.target.value }))}
+                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:bg-white focus:border-red-500 transition-all font-bold text-sm"
+                                    placeholder="Nombre del Repartidor"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Email (Opcional)</label>
+                                <input
+                                    type="email"
+                                    value={newDeliveryData.email}
+                                    onChange={(e) => setNewDeliveryData(prev => ({ ...prev, email: e.target.value }))}
+                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:bg-white focus:border-red-500 transition-all font-bold text-sm"
+                                    placeholder="email@ejemplo.com"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-3 pt-2">
+                            <button
+                                onClick={() => setShowRegisterForm(false)}
+                                className="px-4 py-2 text-[10px] font-black uppercase text-gray-400 hover:text-gray-600"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleRegister}
+                                disabled={creating}
+                                className="px-6 py-3 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {creating ? <i className="bi bi-arrow-repeat animate-spin"></i> : <i className="bi bi-plus-lg"></i>}
+                                Registrar y Asignar
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+            
+            <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl">
+                <div className="flex gap-3">
+                    <i className="bi bi-lightbulb text-blue-500 text-lg"></i>
+                    <p className="text-[10px] text-blue-800 font-bold uppercase tracking-widest leading-relaxed italic">
+                        Un repartidor predeterminado tendrá prioridad sobre cualquier zona de cobertura. Solo se usará el reparto por zona si el repartidor predeterminado no está disponible.
+                    </p>
+                </div>
+            </div>
         </div>
     )
 }
