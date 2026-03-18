@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
@@ -1886,7 +1886,7 @@ function OrderCard({
                     <div className="flex flex-col gap-0.5 mt-1 ml-5 min-w-0">
                         {sortedItems.map((item: any, idx) => {
                             return (
-                                <div key={idx} className="text-xs sm:text-[10px] leading-tight text-gray-600">
+                                <div key={idx} className="text-lg sm:text-sm leading-tight text-gray-600">
                                     {item.quantity}x {item.variant || item.product?.name || item.name}
                                 </div>
                             )
@@ -2034,7 +2034,7 @@ function OrderCard({
                     {/* Items */}
                     <div className="space-y-2 mb-4">
                         {order.items?.map((item: any, idx: number) => (
-                            <div key={idx} className="flex justify-between text-sm">
+                            <div key={idx} className="flex justify-between text-base">
                                 <span className="text-gray-700">
                                     <span className="font-medium text-gray-900">{item.quantity}x</span> {item.variant || item.product?.name || item.name}
                                 </span>
@@ -2097,13 +2097,14 @@ function OrderCard({
 
                     {/* Actions: Edit & Delete */}
                     <div className="flex gap-2 pt-4 border-t border-gray-100">
-                        <button
-                            onClick={onCustomerClick}
-                            className="flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium text-green-600 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
+                        <a
+                            href="#"
+                            onClick={(e) => { e.preventDefault(); onCustomerClick(); }}
+                            className="flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium text-green-600 bg-green-50 rounded-lg hover:bg-green-100 transition-colors cursor-pointer"
                         >
-                            <i className="bi bi-person-fill"></i>
-                            Contactar
-                        </button>
+                            <i className="bi bi-whatsapp"></i>
+                            Enviar comprobante
+                        </a>
                         <button
                             onClick={onEdit}
                             className="flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"

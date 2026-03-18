@@ -38,12 +38,59 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
   const audioRef = useRef<HTMLAudioElement>(null)
   const lastProcessedNotificationIdRef = useRef<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const [audioInitialized, setAudioInitialized] = useState(false)
+
+  // Inicializar audio con la primera interacción del usuario
+  useEffect(() => {
+    const initializeAudio = () => {
+      if (!audioInitialized && audioRef.current) {
+        audioRef.current.volume = 0.3
+        audioRef.current.play().catch(() => {
+          // Silenciar error si no se puede reproducir automáticamente
+        }).then(() => {
+          if (audioRef.current) {
+            audioRef.current.pause()
+            audioRef.current.currentTime = 0
+          }
+        })
+        setAudioInitialized(true)
+        document.removeEventListener('click', initializeAudio)
+        document.removeEventListener('keydown', initializeAudio)
+      }
+    }
+
+    document.addEventListener('click', initializeAudio)
+    document.addEventListener('keydown', initializeAudio)
+
+    return () => {
+      document.removeEventListener('click', initializeAudio)
+      document.removeEventListener('keydown', initializeAudio)
+    }
+  }, [audioInitialized])
 
   // Función para reproducir un sonido de notificación
   const playNotificationSound = () => {
     try {
-      if ((document as any).hidden) return
+      // Usar el archivo MP3 si está disponible y el audio está inicializado
+      if (audioRef.current && audioInitialized) {
+        audioRef.current.currentTime = 0
+        audioRef.current.play().catch(() => {
+          // Si falla el MP3, usar el sonido generado como fallback
+          playGeneratedSound()
+        })
+      } else {
+        // Fallback al sonido generado si el MP3 no está listo
+        playGeneratedSound()
+      }
+    } catch (error) {
+      // Fallback final al sonido generado
+      playGeneratedSound()
+    }
+  }
 
+  // Función fallback con sonido generado
+  const playGeneratedSound = () => {
+    try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
 
       if (audioContext.state === 'suspended') {
@@ -51,7 +98,6 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
           audioContext.resume().then(() => {
             document.removeEventListener('click', resume)
             document.removeEventListener('keydown', resume)
-            // Una vez reanudado, intentar sonar
             makeBeep(audioContext)
           })
         }
