@@ -1417,6 +1417,8 @@ export default function TodayOrdersPage() {
                                     setSelectedOrderForEdit(null)
                                     setManualSidebarMode('create')
                                 }}
+                                setActiveTab={setActiveTab}
+                                setProfileSubTab={setProfileSubTab}
                             />
 
                             <CustomerContactModal

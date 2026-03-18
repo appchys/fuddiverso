@@ -75,6 +75,9 @@ interface ManualOrderSidebarProps {
   mode?: 'create' | 'edit'
   editOrder?: any
   onOrderUpdated?: () => void
+  // Navegación - para que funcione como el DashboardSidebar
+  setActiveTab?: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist') => void
+  setProfileSubTab?: (tab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins') => void
 }
 
 export default function ManualOrderSidebar({
@@ -85,7 +88,9 @@ export default function ManualOrderSidebar({
   onOrderCreated,
   mode = 'create',
   editOrder,
-  onOrderUpdated
+  onOrderUpdated,
+  setActiveTab,
+  setProfileSubTab
 }: ManualOrderSidebarProps) {
   const [manualOrderData, setManualOrderData] = useState<ManualOrderData>({
     customerPhone: '',
@@ -144,6 +149,13 @@ export default function ManualOrderSidebar({
   const [locationImagePreview, setLocationImagePreview] = useState<string>('')
   // Estados para modal de deliveries
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
+
+  // Estados para modal de producto personalizado
+  const [showCustomProductModal, setShowCustomProductModal] = useState(false)
+  const [customProductData, setCustomProductData] = useState({
+    name: '',
+    price: ''
+  })
 
   const canChangeDelivery = business?.email === 'munchys.ec@gmail.com';
 
@@ -1124,6 +1136,46 @@ export default function ManualOrderSidebar({
     calculateTotal([...manualOrderData.selectedProducts, newItem])
   }
 
+  // Agregar producto personalizado a la orden
+  const addCustomProductToOrder = () => {
+    if (!customProductData.name.trim() || !customProductData.price.trim()) {
+      alert('Por favor completa todos los campos del producto personalizado')
+      return
+    }
+
+    const price = parseFloat(customProductData.price)
+    if (isNaN(price) || price <= 0) {
+      alert('Por favor ingresa un precio válido')
+      return
+    }
+
+    const customItem: OrderItem = {
+      name: customProductData.name.trim(),
+      price: price,
+      productId: `custom_${Date.now()}`, // ID temporal único
+      quantity: 1,
+      variant: '',
+      variantName: '',
+      productName: customProductData.name.trim(),
+      // No incluir metadatos de comisión para productos personalizados
+      basePrice: price,
+      commission: 0,
+      commissionType: 'fixed',
+      storeReceives: price
+    }
+
+    setManualOrderData(prev => ({
+      ...prev,
+      selectedProducts: [...prev.selectedProducts, customItem]
+    }))
+
+    calculateTotal([...manualOrderData.selectedProducts, customItem])
+
+    // Limpiar y cerrar el modal
+    setCustomProductData({ name: '', price: '' })
+    setShowCustomProductModal(false)
+  }
+
   // Actualizar cantidad de producto
   const updateProductQuantity = (index: number, quantity: number) => {
     if (quantity <= 0) {
@@ -1532,7 +1584,22 @@ export default function ManualOrderSidebar({
               </div>
             ) : null}
 
-            <h3 className="text-sm font-medium text-black mb-3">Productos</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-black">Productos</h3>
+              <button
+                onClick={() => {
+                  // Navegar como el DashboardSidebar
+                  setActiveTab?.('profile')
+                  setProfileSubTab?.('products')
+                  onClose() // Cerrar el sidebar manual
+                }}
+                className="text-xs text-blue-600 hover:text-blue-700 flex items-center space-x-1 transition-colors"
+                title="Editar productos"
+              >
+                <i className="bi bi-pencil-square"></i>
+                <span>Editar productos</span>
+              </button>
+            </div>
 
             {/* Filtro de categorías */}
             <div className="mb-3">
@@ -1576,45 +1643,63 @@ export default function ManualOrderSidebar({
                   ? products.filter(p => !p.isAvailable)
                   : getFilteredProducts().filter(p => p.isAvailable);
 
-                return filtered.map((product) => (
+                return [
+                  ...filtered.map((product) => (
+                    <div
+                      key={product.id}
+                      className={`aspect-square p-1 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col ${!product.isAvailable ? 'opacity-50 grayscale' : ''
+                        }`}
+                      onClick={() => {
+                        if (product.variants && product.variants.length > 0) {
+                          setSelectedProductForVariants(product)
+                          setIsVariantModalOpen(true)
+                        } else {
+                          addProductToOrder(product)
+                        }
+                      }}
+                    >
+                      {/* Imagen del producto */}
+                      <div className="w-full h-8 mb-1 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
+                        {product.image ? (
+                          <img
+                            src={product.image}
+                            alt={product.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <i className="bi bi-image text-gray-400 text-xs"></i>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1 flex flex-col justify-center text-center">
+                        <p className="text-xs font-medium leading-tight mb-1 line-clamp-2">{product.name}</p>
+                        {product.variants && product.variants.length > 0 ? (
+                          <i className="bi bi-chevron-down text-xs text-blue-600"></i>
+                        ) : (
+                          <p className="text-xs text-gray-500">${product.price}</p>
+                        )}
+                      </div>
+                    </div>
+                  )),
+                  // Tarjeta de producto personalizado
                   <div
-                    key={product.id}
-                    className={`aspect-square p-1 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col ${!product.isAvailable ? 'opacity-50 grayscale' : ''
-                      }`}
-                    onClick={() => {
-                      if (product.variants && product.variants.length > 0) {
-                        setSelectedProductForVariants(product)
-                        setIsVariantModalOpen(true)
-                      } else {
-                        addProductToOrder(product)
-                      }
-                    }}
+                    key="custom-product"
+                    className="aspect-square p-1 border-2 border-dashed border-blue-300 rounded-md hover:bg-blue-50 hover:border-blue-400 cursor-pointer transition-colors flex flex-col items-center justify-center"
+                    onClick={() => setShowCustomProductModal(true)}
                   >
-                    {/* Imagen del producto */}
-                    <div className="w-full h-8 mb-1 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
-                      {product.image ? (
-                        <img
-                          src={product.image}
-                          alt={product.name}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <i className="bi bi-image text-gray-400 text-xs"></i>
-                        </div>
-                      )}
+                    {/* Ícono en lugar de imagen */}
+                    <div className="w-full h-8 mb-1 bg-blue-100 rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center">
+                      <i className="bi bi-plus-circle text-blue-500 text-sm"></i>
                     </div>
 
                     <div className="flex-1 flex flex-col justify-center text-center">
-                      <p className="text-xs font-medium leading-tight mb-1 line-clamp-2">{product.name}</p>
-                      {product.variants && product.variants.length > 0 ? (
-                        <i className="bi bi-chevron-down text-xs text-blue-600"></i>
-                      ) : (
-                        <p className="text-xs text-gray-500">${product.price}</p>
-                      )}
+                      <p className="text-xs font-medium leading-tight text-blue-600">Personalizar</p>
+                      <p className="text-xs text-blue-400">Producto</p>
                     </div>
                   </div>
-                ));
+                ];
               })()}
             </div>
           </div>
@@ -2667,6 +2752,82 @@ export default function ManualOrderSidebar({
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de producto personalizado */}
+      {showCustomProductModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Agregar producto personalizado</h3>
+              <button
+                onClick={() => {
+                  setShowCustomProductModal(false)
+                  setCustomProductData({ name: '', price: '' })
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <i className="bi bi-x-lg"></i>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nombre del producto *
+                </label>
+                <input
+                  type="text"
+                  value={customProductData.name}
+                  onChange={(e) => setCustomProductData(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Ej: Combo especial, Bebida personalizada, etc."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Precio ($) *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={customProductData.price}
+                  onChange={(e) => setCustomProductData(prev => ({ ...prev, price: e.target.value }))}
+                  placeholder="0.00"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-sm text-blue-800">
+                  <i className="bi bi-info-circle me-2"></i>
+                  Este producto personalizado solo se agregará a esta orden específica y no se guardará en el catálogo.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowCustomProductModal(false)
+                  setCustomProductData({ name: '', price: '' })
+                }}
+                className="flex-1 bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={addCustomProductToOrder}
+                disabled={!customProductData.name.trim() || !customProductData.price.trim()}
+                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Agregar a la orden
+              </button>
             </div>
           </div>
         </div>
