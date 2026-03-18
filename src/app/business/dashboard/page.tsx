@@ -1778,6 +1778,28 @@ function OrderCard({
         return diffInMinutes <= 5;
     }
 
+    // Check if order is confirmed, scheduled, and will be delivered in next 30 minutes
+    const shouldShowPreparingButton = () => {
+        // Only show for confirmed scheduled orders
+        if (order.status !== 'confirmed' || order.timing?.type !== 'scheduled') {
+            return false;
+        }
+
+        const now = new Date();
+        let targetDate = new Date();
+
+        if (order.timing?.scheduledTime) {
+            const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number);
+            targetDate.setHours(hours, minutes, 0, 0);
+            
+            // Check if scheduled time is within next 30 minutes
+            const diffInMinutes = (targetDate.getTime() - now.getTime()) / 60000;
+            return diffInMinutes <= 30 && diffInMinutes > 0;
+        }
+
+        return false;
+    }
+
     const urgent = isUrgent();
 
     // Sort items: non-zero price first, then zero price
@@ -1914,6 +1936,18 @@ function OrderCard({
                                 ) : (
                                     <i className={`bi ${getActionIcon(nextStatus)}`}></i>
                                 )}
+                            </button>
+                        )}
+
+                        {/* Preparing Button for Confirmed Scheduled Orders (within 30 minutes) */}
+                        {shouldShowPreparingButton() && (
+                            <button
+                                onClick={() => onStatusChange(order.id, 'preparing')}
+                                className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-purple-600 text-white rounded-lg transition-colors shadow-sm hover:bg-purple-700"
+                                title="Iniciar preparación"
+                            >
+                                <span>En preparación</span>
+                                <i className="bi bi-fire"></i>
                             </button>
                         )}
 

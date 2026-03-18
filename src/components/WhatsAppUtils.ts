@@ -309,15 +309,22 @@ export const sendOrderToStore = (order: Order, business: Business) => {
     const productsList = order.items?.map((item: any) => {
         const productName = item.productName || item.product?.name || '';
         const variantName = item.variant || item.name || item.product?.name || 'Producto';
+        const storePrice = (item.storeReceives || 0).toFixed(2);
         
         // Si hay nombre de producto, mostrarlo en cursiva seguido de la variante
         if (productName && productName !== variantName) {
-            return `<i>${productName}</i>\n(${item.quantity}) ${variantName}`;
+            return `<i>${productName}</i>\n(${item.quantity}) ${variantName} - $${storePrice}`;
         }
         // Si no hay producto base, mostrar solo la variante
-        return `(${item.quantity}) ${variantName}`;
+        return `(${item.quantity}) ${variantName} - $${storePrice}`;
     }).join('\n\n') || 'Sin productos';
-    const total = order.total?.toFixed(2) || '0.00'
+    // Calcular el valor que recibe la tienda
+    const storeReceives = order.items?.reduce((sum: number, item: any) => {
+        const itemStoreReceives = item.storeReceives || 0;
+        return sum + (itemStoreReceives * (item.quantity || 1));
+    }, 0) || order.total;
+
+    const total = storeReceives.toFixed(2)
     const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : 'Otro'
 
     // Lógica de ubicación (reutilizada de sendWhatsAppToDelivery)
@@ -345,34 +352,19 @@ export const sendOrderToStore = (order: Order, business: Business) => {
         : (order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia');
 
     // Construir mensaje con el formato solicitado
-    let message = `*Hola ${business.name}, he realizado un pedido!*\n\n`
+    let message = `*Hola ${business.name}, tienes un pedido por confirmar!*\n\n`
     message += `*Nombres:* ${customerName}\n\n`
 
     message += `*Detalles de la entrega*\n`
     message += `${orderType}\n`
-    message += `Referencias: ${references}\n`
-    if (locationLink) {
-        message += `Ubicación: ${locationLink}\n\n`
-    } else {
-        message += `\n`
-    }
+    message += `Referencias: ${references}\n\n`
 
     message += `*Detalle del pedido*\n`
     message += `${productsList}\n\n`
 
-    message += `*Total* $${total}\n`
-    message += `*Forma de pago:* ${paymentMethod}\n\n`
-
-    // Agregar enlace a la orden
-    try {
-        const origin = typeof window !== 'undefined' ? window.location.origin : '';
-        if (origin && order.id) {
-            const orderUrl = `${origin}/o/${encodeURIComponent(order.id)}`;
-            message += `${orderUrl}`;
-        }
-    } catch (e) {
-        // ignore
-    }
+    message += `*Total* $${total}\n\n`
+    
+    message += `¿En qué tiempo estaría listo para recoger?`
 
     const waPhone = `593${storePhone.startsWith('0') ? storePhone.slice(1) : storePhone}`
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(message)}`
