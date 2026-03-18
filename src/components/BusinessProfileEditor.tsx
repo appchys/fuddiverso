@@ -1,8 +1,8 @@
 "use client"
 
 import React, { useState, useEffect } from 'react'
-import { Business, Delivery } from '@/types'
-import { uploadImage, searchDeliveryByPhone, createDelivery, getDeliveryById } from '@/lib/database'
+import { Business, Delivery, CoverageGroup } from '@/types'
+import { uploadImage, searchDeliveryByPhone, createDelivery, getDeliveryById, getCoverageGroups, getCoverageZoneForLocation } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
 import { GoogleMap, useCurrentLocation } from './GoogleMap'
 
@@ -31,8 +31,12 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
         isHidden: business.isHidden ?? false,
         deliveryTime: business.deliveryTime || 30,
         defaultDeliveryId: business.defaultDeliveryId || '',
+        groupId: business.groupId || '',
+        zoneId: business.zoneId || '',
         pickupSettings: business.pickupSettings || { enabled: false, references: '', latlong: '', storePhotoUrl: '' }
     })
+
+    const [coverageGroups, setCoverageGroups] = useState<CoverageGroup[]>([])
 
     const [schedule, setSchedule] = useState(business.schedule || {
         monday: { open: '09:00', close: '18:00', isOpen: true },
@@ -166,6 +170,16 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
     }
 
     useEffect(() => {
+        const loadGroups = async () => {
+            try {
+                const groups = await getCoverageGroups()
+                setCoverageGroups(groups)
+            } catch (error) {
+                console.error('Error loading coverage groups:', error)
+            }
+        }
+        loadGroups()
+        
         if (currentGeoLocation) {
             handlePickupLocationChange(currentGeoLocation.lat, currentGeoLocation.lng)
         }
@@ -201,6 +215,29 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
             setUploadingCover(false)
         }
 
+        // Auto-detectar grupo y zona basándose en la ubicación de retiro
+        let finalGroupId = formData.groupId
+        let finalZoneId = formData.zoneId
+
+        const coords = formData.pickupSettings.latlong.split(',').map(c => parseFloat(c.trim()))
+        if (!isNaN(coords[0]) && !isNaN(coords[1])) {
+            console.log('[DEBUG] BusinessProfileEditor - Auto-detecting zone for:', coords)
+            try {
+                const zone = await getCoverageZoneForLocation({ lat: coords[0], lng: coords[1] })
+                if (zone) {
+                    console.log('[DEBUG] BusinessProfileEditor - Found zone:', zone.name, 'Group:', zone.groupId)
+                    finalGroupId = zone.groupId || ''
+                    finalZoneId = zone.id
+                } else {
+                    console.log('[DEBUG] BusinessProfileEditor - No zone found, marking as external')
+                    finalGroupId = 'external'
+                    finalZoneId = 'none'
+                }
+            } catch (error) {
+                console.error('[DEBUG] BusinessProfileEditor - Error detecting zone:', error)
+            }
+        }
+
         await onSave({
             name: formData.name,
             username: formData.username,
@@ -216,6 +253,8 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
             schedule,
             deliveryTime: Number(formData.deliveryTime),
             defaultDeliveryId: formData.defaultDeliveryId,
+            groupId: finalGroupId,
+            zoneId: finalZoneId,
             pickupSettings: formData.pickupSettings
         })
     }
@@ -387,6 +426,30 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                         placeholder="Cuéntanos qué hace especial a tu negocio..."
                                     />
                                 </div>
+
+                                {/* Grupo de Cobertura - Oculto por ser proceso automático interno 
+                                 <div className="space-y-2">
+                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Grupo de Cobertura (Ciudad)</label>
+                                     <div className="relative">
+                                         <select
+                                             name="groupId"
+                                             value={formData.groupId}
+                                             onChange={handleChange}
+                                             className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 focus:border-red-500 transition-all duration-300 font-bold text-gray-900 appearance-none"
+                                         >
+                                             <option value="">Sin Grupo (Global)</option>
+                                             {coverageGroups.map(group => (
+                                                 <option key={group.id} value={group.id}>
+                                                     {group.name}
+                                                 </option>
+                                             ))}
+                                         </select>
+                                         <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                                             <i className="bi bi-chevron-down"></i>
+                                         </div>
+                                     </div>
+                                 </div>
+                                 */}
 
                                 {/* Estado del negocio */}
                                 <div className="grid grid-cols-2 gap-4">
@@ -897,7 +960,8 @@ const DeliveryConfigSection: React.FC<{
                 nombres: newDeliveryData.nombres,
                 celular: searchPhone,
                 email: newDeliveryData.email || `${searchPhone}@fuddi.delivery`,
-                estado: 'activo'
+                estado: 'activo',
+                fechaRegistro: new Date().toISOString()
             })
             onDeliverySelect(newId)
             setFoundDelivery(null)

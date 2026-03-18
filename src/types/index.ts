@@ -52,6 +52,8 @@ export interface Business {
   loginSource?: string
   ratingAverage?: number // Calificación promedio
   ratingCount?: number // Cantidad de calificaciones
+  groupId?: string // ID del grupo de cobertura (ciudad/región)
+  zoneId?: string // ID de la zona de cobertura específica
   rewardSettings?: {
     enabled: boolean
     name: string
@@ -117,6 +119,16 @@ export interface CoverageZone {
   assignedDeliveryIds?: string[] // Array de IDs de deliveries asignados a esta zona
   deliveryAssignmentStrategy?: 'single' | 'round-robin' // Estrategia de asignación
   lastAssignedIndex?: number // Índice del último delivery asignado (para Round Robin)
+  groupId?: string // ID del grupo de cobertura (ciudad/región)
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface CoverageGroup {
+  id: string
+  name: string
+  description?: string
+  isActive: boolean
   createdAt: Date
   updatedAt: Date
 }

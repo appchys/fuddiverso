@@ -20,6 +20,7 @@ export default function AdminLayout({
     { href: '/admin/orders', label: 'Gestión de Pedidos', icon: 'bi-cart-fill' },
     { href: '/admin/settlements', label: 'Liquidaciones', icon: 'bi-cash-coin' },
     { href: '/admin/deliveries', label: 'Deliveries', icon: 'bi-scooter' },
+    { href: '/admin/coverage-groups', label: 'Grupos de Cobertura', icon: 'bi-tags-fill' },
     { href: '/admin/coverage-zones', label: 'Zonas de Cobertura', icon: 'bi-geo-alt-fill' },
   ]
 

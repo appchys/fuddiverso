@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts } from '@/lib/database'
+import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups } from '@/lib/database'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
@@ -49,6 +49,8 @@ function HomePageContent() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedProductBusiness, setSelectedProductBusiness] = useState<Business | null>(null)
   const [isProductSidebarOpen, setIsProductSidebarOpen] = useState(false)
+  const [groupId, setGroupId] = useState<string | null>(null)
+  const [detectedGroupName, setDetectedGroupName] = useState<string | null>(null)
 
   // Cart State
   const [cart, setCart] = useState<any[]>([])
@@ -175,14 +177,58 @@ function HomePageContent() {
     }
   }, [businesses])
 
+  // Helper: detectar grupo por coordenadas y actualizar estado
+  const detectGroupFromCoords = async (coords: { lat: number; lng: number }) => {
+    try {
+      console.log('[DEBUG] detectGroupFromCoords - Coords:', coords)
+      const zone = await getCoverageZoneForLocation(coords)
+      console.log('[DEBUG] detectGroupFromCoords - Zone found:', zone)
+      
+      if (zone?.groupId) {
+        console.log('[DEBUG] detectGroupFromCoords - Setting groupId:', zone.groupId)
+        setGroupId(zone.groupId)
+        localStorage.setItem('lastDetectedGroupId', zone.groupId)
+        // Obtener el nombre del grupo para mostrarlo en la UI
+        getCoverageGroups().then(groups => {
+          const found = groups.find(g => g.id === zone.groupId)
+          console.log('[DEBUG] detectGroupFromCoords - Group name:', found?.name)
+          setDetectedGroupName(found?.name || null)
+        }).catch(err => console.error('[DEBUG] detectGroupFromCoords - Error loading groups:', err))
+      } else {
+        console.log('[DEBUG] detectGroupFromCoords - No groupId for these coords')
+        setGroupId(null)
+        setDetectedGroupName(null)
+        localStorage.removeItem('lastDetectedGroupId')
+      }
+    } catch (err) {
+      console.error('[DEBUG] detectGroupFromCoords - Error:', err)
+    }
+  }
+
   useEffect(() => {
+    // Prioridad 1: Coordenadas guardadas por UserSidebar (ubicación activa del usuario)
+    const savedCoords = localStorage.getItem('userCoordinates')
+    if (savedCoords) {
+      try {
+        const coords = JSON.parse(savedCoords)
+        setUserLocation(coords)
+        detectGroupFromCoords(coords)
+        return // No necesitamos GPS si ya tenemos coordenadas guardadas
+      } catch (e) {
+        console.warn('Error parsing saved userCoordinates:', e)
+      }
+    }
+
+    // Prioridad 2: GPS del navegador (si no hay coordenadas guardadas)
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          setUserLocation({
+          const newLocation = {
             lat: position.coords.latitude,
             lng: position.coords.longitude,
-          })
+          }
+          setUserLocation(newLocation)
+          detectGroupFromCoords(newLocation)
         },
         (error) => {
           console.warn('Ubicación no disponible para cálculo de distancias:', error)
@@ -190,6 +236,23 @@ function HomePageContent() {
         { enableHighAccuracy: false, timeout: 5000 }
       )
     }
+  }, [])
+
+  // Escuchar cambios en localStorage: cuando el usuario cambia su ubicación activa en UserSidebar
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'userCoordinates' && e.newValue) {
+        try {
+          const coords = JSON.parse(e.newValue)
+          setUserLocation(coords)
+          detectGroupFromCoords(coords)
+        } catch (err) {
+          console.warn('Error parsing updated userCoordinates:', err)
+        }
+      }
+    }
+    window.addEventListener('storage', handleStorageChange)
+    return () => window.removeEventListener('storage', handleStorageChange)
   }, [])
 
   // Cargar categorías únicas solo una vez al inicio
@@ -210,7 +273,19 @@ function HomePageContent() {
         const urlCategory = searchParams.get('category') || 'all'
 
         if (!urlSearch && urlCategory === 'all') {
-          setBusinesses(visibleBusinesses)
+          // Aplicar filtro de grupo si existe o si estamos en una ciudad específica
+          let filtered = visibleBusinesses;
+          console.log('[DEBUG] init - Total businesses before group filter:', filtered.length)
+          if (groupId) {
+            console.log('[DEBUG] init - Filtering by groupId:', groupId)
+            filtered = filtered.filter(b => b.groupId === groupId)
+          } else {
+            console.log('[DEBUG] init - No groupId, showing only global businesses')
+            filtered = filtered.filter(b => !b.groupId)
+          }
+          console.log('[DEBUG] init - Businesses after filter:', filtered.length)
+
+          setBusinesses(filtered)
           setLoading(false)
         } else {
           loadBusinessesWithParams(urlSearch, urlCategory)
@@ -253,16 +328,37 @@ function HomePageContent() {
   const loadBusinessesWithParams = async (search: string, category: string) => {
     try {
       setLoading(true)
-      const data = search || category !== 'all'
-        ? await searchBusinesses(search, category)
+      const data = search || category !== 'all' || groupId
+        ? await searchBusinesses(search, category, groupId || undefined)
         : await getAllBusinesses()
+      
       // Filtrar negocios ocultos
-      const visibleBusinesses = data.filter(b => !b.isHidden)
+      let visibleBusinesses = data.filter(b => !b.isHidden)
+      
+      // Si usamos getAllBusinesses, el groupId no se filtró en la query
+      if (!search && category === 'all') {
+        console.log('[DEBUG] loadBusinessesWithParams - Filtering businesses by groupId:', groupId)
+        console.log('[DEBUG] loadBusinessesWithParams - Unique groupIds in businesses:', Array.from(new Set(data.map(b => b.groupId))))
+        if (groupId) {
+          visibleBusinesses = visibleBusinesses.filter(b => b.groupId === groupId)
+        } else {
+          visibleBusinesses = visibleBusinesses.filter(b => !b.groupId)
+        }
+        console.log('[DEBUG] loadBusinessesWithParams - Businesses matching group:', visibleBusinesses.length)
+      }
+
       setBusinesses(visibleBusinesses)
     } finally {
       setLoading(false)
     }
   }
+
+  // Recargar negocios cuando cambia el groupId (detección de ubicación)
+  useEffect(() => {
+    const urlSearch = searchParams.get('search') || ''
+    const urlCategory = searchParams.get('category') || 'all'
+    loadBusinessesWithParams(urlSearch, urlCategory)
+  }, [groupId])
 
   const handleCategoryChange = async (category: string) => {
     setSelectedCategory(category)
@@ -447,7 +543,17 @@ function HomePageContent() {
       <section className="py-12 bg-gray-50">
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex justify-between items-end mb-8">
-            <h2 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">Restaurantes cerca de ti</h2>
+            <div>
+              <h2 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">
+                {detectedGroupName ? `Restaurantes en ${detectedGroupName}` : 'Restaurantes cerca de ti'}
+              </h2>
+              {detectedGroupName && (
+                <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                  <i className="bi bi-geo-alt-fill text-[#aa1918]"></i>
+                  Mostrando tiendas en tu ciudad
+                </p>
+              )}
+            </div>
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-100 px-3 py-1 rounded-full">{businesses.filter(b => b.businessType !== 'distributor').length} locales</span>
           </div>
 

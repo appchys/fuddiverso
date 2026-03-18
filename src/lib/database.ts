@@ -38,9 +38,11 @@ import {
   Ingredient,
   Order,
   CoverageZone,
+  CoverageGroup,
   Delivery,
   QRCode,
-  UserQRProgress
+  UserQRProgress,
+  Settlement
 } from '../types'
 import { isDeliveryAvailable } from './store-utils'
 
@@ -1293,7 +1295,7 @@ export async function uploadImage(file: File, path: string): Promise<string> {
 }
 
 // Función para buscar negocios por categoría o nombre
-export async function searchBusinesses(searchTerm: string, category?: string): Promise<Business[]> {
+export async function searchBusinesses(searchTerm: string, category?: string, groupId?: string): Promise<Business[]> {
   try {
     const q = collection(db, 'businesses')
     const querySnapshot = await getDocs(q)
@@ -1316,6 +1318,11 @@ export async function searchBusinesses(searchTerm: string, category?: string): P
         business.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         business.description.toLowerCase().includes(searchTerm.toLowerCase())
       )
+    }
+
+    // Filtrar por grupo de cobertura
+    if (groupId) {
+      businesses = businesses.filter(business => business.groupId === groupId)
     }
 
     return businesses
@@ -2266,21 +2273,6 @@ export async function getCoverageZones(businessId?: string): Promise<CoverageZon
     querySnapshot.forEach((doc) => {
       const data = doc.data();
 
-      // Helper function to safely convert dates
-      const convertToDate = (dateField: any): Date => {
-        if (!dateField) return new Date();
-        if (dateField.toDate && typeof dateField.toDate === 'function') {
-          return dateField.toDate();
-        }
-        if (dateField instanceof Date) {
-          return dateField;
-        }
-        if (typeof dateField === 'string' || typeof dateField === 'number') {
-          return new Date(dateField);
-        }
-        return new Date();
-      };
-
       zones.push({
         id: doc.id,
         name: data.name || '',
@@ -2288,14 +2280,15 @@ export async function getCoverageZones(businessId?: string): Promise<CoverageZon
         polygon: data.polygon || [],
         deliveryFee: data.deliveryFee || 0,
         isActive: data.isActive !== false,
+        groupId: data.groupId || null,
         // Compatibilidad con sistema anterior (single delivery)
         assignedDeliveryId: data.assignedDeliveryId || undefined,
         // Nuevo sistema Round Robin
         assignedDeliveryIds: data.assignedDeliveryIds || (data.assignedDeliveryId ? [data.assignedDeliveryId] : []),
         deliveryAssignmentStrategy: data.deliveryAssignmentStrategy || (data.assignedDeliveryIds?.length > 1 ? 'round-robin' : 'single'),
         lastAssignedIndex: data.lastAssignedIndex || 0,
-        createdAt: convertToDate(data.createdAt),
-        updatedAt: convertToDate(data.updatedAt)
+        createdAt: toSafeDate(data.createdAt),
+        updatedAt: toSafeDate(data.updatedAt)
       });
 
     });
@@ -2304,6 +2297,91 @@ export async function getCoverageZones(businessId?: string): Promise<CoverageZon
   } catch (error) {
     console.error('Error getting coverage zones:', error);
     throw error;
+  }
+}
+
+// Funciones para Grupos de Cobertura
+export async function getCoverageGroups(): Promise<CoverageGroup[]> {
+  try {
+    const q = query(
+      collection(db, 'coverageGroups'),
+      orderBy('name')
+    );
+
+    const querySnapshot = await getDocs(q);
+    const groups: CoverageGroup[] = [];
+
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      groups.push({
+        id: doc.id,
+        name: data.name || '',
+        description: data.description || '',
+        isActive: data.isActive !== false,
+        createdAt: toSafeDate(data.createdAt),
+        updatedAt: toSafeDate(data.updatedAt)
+      });
+    });
+
+    return groups;
+  } catch (error) {
+    console.error('Error getting coverage groups:', error);
+    throw error;
+  }
+}
+
+export async function createCoverageGroup(groupData: Omit<CoverageGroup, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+  try {
+    const cleanedData = cleanObject({
+      ...groupData,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
+    const docRef = await addDoc(collection(db, 'coverageGroups'), cleanedData);
+    return docRef.id;
+  } catch (error) {
+    console.error('Error creating coverage group:', error);
+    throw error;
+  }
+}
+
+export async function updateCoverageGroup(groupId: string, updates: Partial<CoverageGroup>): Promise<void> {
+  try {
+    const cleanedUpdates = cleanObject({
+      ...updates,
+      updatedAt: serverTimestamp()
+    });
+
+    await updateDoc(doc(db, 'coverageGroups', groupId), cleanedUpdates);
+  } catch (error) {
+    console.error('Error updating coverage group:', error);
+    throw error;
+  }
+}
+
+export async function deleteCoverageGroup(groupId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'coverageGroups', groupId));
+  } catch (error) {
+    console.error('Error deleting coverage group:', error);
+    throw error;
+  }
+}
+
+// Nueva función para encontrar zona por ubicación
+export async function getCoverageZoneForLocation(location: { lat: number; lng: number }): Promise<CoverageZone | null> {
+  try {
+    const zones = await getCoverageZones();
+    for (const zone of zones) {
+      if (zone.isActive && isPointInPolygon(location, zone.polygon)) {
+        return zone;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting coverage zone for location:', error);
+    return null;
   }
 }
 
@@ -5215,7 +5293,6 @@ export async function useWalletBalance(
 // Funciones para Liquidaciones (Settlements)
 // ==========================================
 
-import { Settlement } from '../types'
 
 /**
  * Actualiza el estado de liquidación y/o el cobrador de una orden

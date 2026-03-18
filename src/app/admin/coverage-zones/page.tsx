@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { GoogleMap, useJsApiLoader, Polygon, Marker } from '@react-google-maps/api'
-import { getCoverageZones, createCoverageZone, updateCoverageZone, deleteCoverageZone, getAllDeliveries, getActiveOrdersWithLocations, getBusiness, updateOrder } from '@/lib/database'
-import { CoverageZone, Delivery, Order, Business } from '@/types'
+import { getCoverageZones, createCoverageZone, updateCoverageZone, deleteCoverageZone, getAllDeliveries, getActiveOrdersWithLocations, getBusiness, updateOrder, getCoverageGroups, createCoverageGroup } from '@/lib/database'
+import { CoverageZone, Delivery, Order, Business, CoverageGroup } from '@/types'
 import { isDeliveryAvailable } from '@/lib/store-utils'
 
 // Define libraries as a constant outside the component to prevent reloading
@@ -23,8 +23,10 @@ export default function CoverageZonesPage() {
     deliveryFee: 0,
     isActive: true,
     assignedDeliveryId: '', // Legacy - mantener para compatibilidad
-    assignedDeliveryIds: [] as string[] // Nuevo: múltiples deliveries
+    assignedDeliveryIds: [] as string[], // Nuevo: múltiples deliveries
+    groupId: '' // Nuevo: grupo de cobertura
   })
+  const [coverageGroups, setCoverageGroups] = useState<CoverageGroup[]>([])
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
   const [activeOrders, setActiveOrders] = useState<Order[]>([])
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
@@ -44,6 +46,11 @@ export default function CoverageZonesPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
 
+  // Inline group creation state
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false)
+  const [newGroupName, setNewGroupName] = useState('')
+  const [isGroupSaving, setIsGroupSaving] = useState(false)
+
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'google-map-script',
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || 'AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs',
@@ -51,11 +58,46 @@ export default function CoverageZonesPage() {
   })
 
   const [map, setMap] = useState<google.maps.Map | null>(null)
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+
+  const toggleGroup = (groupId: string) => {
+    setCollapsedGroups(prev => ({
+      ...prev,
+      [groupId]: !prev[groupId]
+    }))
+  }
+
+  const groupedZones = useMemo(() => {
+    const groups: Record<string, { id: string; name: string; zones: CoverageZone[] }> = {}
+
+    // Inicializar con grupos existentes
+    coverageGroups.forEach(g => {
+      groups[g.id] = { id: g.id, name: g.name, zones: [] }
+    })
+
+    // Grupo para zonas sin grupo
+    const unassignedId = 'unassigned'
+    groups[unassignedId] = { id: unassignedId, name: 'Zonas Globales', zones: [] }
+
+    // Asignar zonas
+    zones.forEach(z => {
+      const gid = z.groupId || unassignedId
+      if (groups[gid]) {
+        groups[gid].zones.push(z)
+      } else {
+        groups[unassignedId].zones.push(z)
+      }
+    })
+
+    // Filtrar grupos vacíos (excepto si son el de "unassigned" y tienen zonas)
+    return Object.values(groups).filter(g => g.zones.length > 0)
+  }, [zones, coverageGroups])
 
   useEffect(() => {
     loadZones()
     loadDeliveries()
     loadActiveOrders()
+    loadGroups()
 
     // Recargar órdenes cada 30 segundos
     const interval = setInterval(() => {
@@ -64,6 +106,15 @@ export default function CoverageZonesPage() {
 
     return () => clearInterval(interval)
   }, [])
+
+  const loadGroups = async () => {
+    try {
+      const groups = await getCoverageGroups()
+      setCoverageGroups(groups)
+    } catch (error) {
+      console.error('Error loading groups:', error)
+    }
+  }
 
   const loadZones = async () => {
     try {
@@ -410,7 +461,8 @@ export default function CoverageZonesPage() {
           assignedDeliveryIds: formData.assignedDeliveryIds,
           deliveryAssignmentStrategy: strategy,
           lastAssignedIndex: 0, // Resetear al actualizar
-          polygon: currentPolygon
+          polygon: currentPolygon,
+          groupId: formData.groupId
         })
         showNotification('Zona actualizada correctamente', 'success')
       } else {
@@ -423,7 +475,8 @@ export default function CoverageZonesPage() {
           assignedDeliveryIds: formData.assignedDeliveryIds,
           deliveryAssignmentStrategy: strategy,
           lastAssignedIndex: 0,
-          polygon: currentPolygon
+          polygon: currentPolygon,
+          groupId: formData.groupId
         })
         showNotification('Zona creada correctamente', 'success')
       }
@@ -434,6 +487,27 @@ export default function CoverageZonesPage() {
     } catch (error) {
       console.error('Error saving zone:', error)
       showNotification('Error al guardar la zona', 'error')
+    }
+  }
+
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) return
+    setIsGroupSaving(true)
+    try {
+      const groupId = await createCoverageGroup({
+        name: newGroupName,
+        isActive: true
+      })
+      await loadGroups()
+      setFormData(prev => ({ ...prev, groupId }))
+      setNewGroupName('')
+      setIsCreatingGroup(false)
+      showNotification('Grupo creado y seleccionado', 'success')
+    } catch (error) {
+      console.error('Error creating group:', error)
+      showNotification('Error al crear el grupo', 'error')
+    } finally {
+      setIsGroupSaving(false)
     }
   }
 
@@ -463,11 +537,14 @@ export default function CoverageZonesPage() {
       deliveryFee: 0,
       isActive: true,
       assignedDeliveryId: '',
-      assignedDeliveryIds: []
+      assignedDeliveryIds: [],
+      groupId: ''
     })
     setCurrentPolygon([])
     setMarkers([])
     setIsDrawingMode(false)
+    setIsCreatingGroup(false)
+    setNewGroupName('')
   }
 
   const startCreating = () => {
@@ -482,7 +559,8 @@ export default function CoverageZonesPage() {
       deliveryFee: zone.deliveryFee,
       isActive: zone.isActive,
       assignedDeliveryId: zone.assignedDeliveryId || '',
-      assignedDeliveryIds: zone.assignedDeliveryIds || (zone.assignedDeliveryId ? [zone.assignedDeliveryId] : [])
+      assignedDeliveryIds: zone.assignedDeliveryIds || (zone.assignedDeliveryId ? [zone.assignedDeliveryId] : []),
+      groupId: zone.groupId || ''
     })
     setCurrentPolygon(zone.polygon)
     setMarkers(zone.polygon)
@@ -677,125 +755,155 @@ export default function CoverageZonesPage() {
                   </button>
                 </div>
               ) : (
-                <div className="p-2 space-y-1">
-                  {zones.map((zone) => {
-                    const assignedIds = zone.assignedDeliveryIds || (zone.assignedDeliveryId ? [zone.assignedDeliveryId] : []);
-                    const availableDeliveries = assignedIds.filter(id => {
-                      const d = deliveries.find(del => del.id === id);
-                      return d && isDeliveryAvailable(d);
-                    });
-                    const noAvailable = zone.isActive && availableDeliveries.length === 0;
+                <div className="p-2 space-y-4">
+                  {groupedZones.map((group) => {
+                    const isCollapsed = collapsedGroups[group.id] || false;
 
                     return (
-                      <div
-                        key={zone.id}
-                        className={`group p-3 rounded-lg cursor-pointer transition-all ${selectedZone?.id === zone.id
-                          ? 'bg-red-500/20 border border-red-500/50'
-                          : 'hover:bg-gray-700/50 border border-transparent'
-                          } ${noAvailable ? 'ring-1 ring-amber-500/30' : ''}`}
-                        onClick={() => editZone(zone)}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2 mb-1">
-                              <div className="flex items-center gap-2 truncate">
-                                <div className={`w-3 h-3 rounded-full shrink-0 ${zone.isActive ? 'bg-green-500' : 'bg-gray-500'}`}></div>
-                                <h3 className="font-medium text-white truncate">{zone.name}</h3>
-                              </div>
-                              {noAvailable && (
-                                <span className="flex items-center gap-1 bg-amber-500/20 text-amber-500 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full border border-amber-500/30 shrink-0">
-                                  <i className="bi bi-exclamation-triangle-fill"></i>
-                                  Sin Repartidores
-                                </span>
-                              )}
-                            </div>
-                            <div className="mt-1 flex items-center gap-3 text-sm text-gray-400">
-                              <span>${zone.deliveryFee.toFixed(2)}</span>
-                              <span>•</span>
-                              <span>{zone.polygon.length} puntos</span>
-                            </div>
-                            {/* Deliveries asignados */}
-                            {zone.assignedDeliveryIds && zone.assignedDeliveryIds.length > 0 ? (
-                              <div className="mt-2 space-y-1">
-                                {zone.assignedDeliveryIds.length > 1 && (
-                                  <span className="inline-flex items-center text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full border border-blue-500/50 mb-1">
-                                    <i className="bi bi-arrow-repeat mr-1"></i>
-                                    Round Robin
-                                  </span>
-                                )}
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  {zone.assignedDeliveryIds.slice(0, 2).map((deliveryId) => {
-                                    const delivery = deliveries.find(d => d.id === deliveryId);
-                                    if (!delivery) return null;
-                                    const available = isDeliveryAvailable(delivery);
-                                    return (
-                                      <div
-                                        key={deliveryId}
-                                        className={`flex items-center gap-1 bg-gray-700/50 rounded px-1.5 py-0.5 border ${available ? 'border-green-500/30' : 'border-red-500/30'
-                                          }`}
-                                        title={available ? 'Disponible' : 'No disponible'}
-                                      >
-                                        {delivery.fotoUrl ? (
-                                          <img
-                                            src={delivery.fotoUrl}
-                                            alt=""
-                                            className={`w-4 h-4 rounded-full object-cover ${!available ? 'grayscale opacity-60' : ''}`}
-                                          />
-                                        ) : (
-                                          <div className="w-4 h-4 rounded-full bg-gray-600 flex items-center justify-center">
-                                            <i className={`bi bi-person text-xs ${available ? 'text-green-400' : 'text-gray-400'}`}></i>
-                                          </div>
-                                        )}
-                                        <span className={`text-[10px] truncate max-w-[60px] ${available ? 'text-gray-200' : 'text-gray-500'}`}>
-                                          {delivery.nombres.split(' ')[0]}
-                                        </span>
-                                      </div>
-                                    );
-                                  })}
-                                  {zone.assignedDeliveryIds.length > 2 && (
-                                    <span className="text-xs text-gray-500">
-                                      +{zone.assignedDeliveryIds.length - 2}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            ) : zone.assignedDeliveryId ? (
-                              <div className="mt-2 flex items-center gap-2">
-                                {deliveries.find(d => d.id === zone.assignedDeliveryId)?.fotoUrl ? (
-                                  <img
-                                    src={deliveries.find(d => d.id === zone.assignedDeliveryId)?.fotoUrl}
-                                    alt=""
-                                    className="w-5 h-5 rounded-full object-cover"
-                                  />
-                                ) : (
-                                  <div className="w-5 h-5 rounded-full bg-gray-600 flex items-center justify-center">
-                                    <i className="bi bi-person text-gray-400 text-xs"></i>
-                                  </div>
-                                )}
-                                <span className="text-xs text-gray-400 truncate">
-                                  {deliveries.find(d => d.id === zone.assignedDeliveryId)?.nombres || 'Delivery'}
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="mt-2 flex items-center gap-1 text-xs text-gray-500">
-                                <i className="bi bi-person-dash"></i>
-                                <span>Sin delivery</span>
-                              </div>
-                            )}
+                      <div key={group.id} className="space-y-1">
+                        {/* Group Header */}
+                        <button
+                          onClick={() => toggleGroup(group.id)}
+                          className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-gray-700/30 rounded-lg transition-colors group/header"
+                        >
+                          <div className="flex items-center gap-2">
+                            <i className={`bi bi-chevron-${isCollapsed ? 'right' : 'down'} text-[10px] text-gray-500`}></i>
+                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                              {group.name}
+                            </span>
+                            <span className="text-[9px] bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded-full">
+                              {group.zones.length}
+                            </span>
                           </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDeleteZone(zone.id)
-                            }}
-                            className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-400 transition-all"
-                            title="Eliminar zona"
-                          >
-                            <i className="bi bi-trash"></i>
-                          </button>
-                        </div>
+                        </button>
+
+                        {/* Group Zones List */}
+                        {!isCollapsed && (
+                          <div className="space-y-1 animate-in slide-in-from-top-1 duration-200">
+                            {group.zones.map((zone) => {
+                              const assignedIds = zone.assignedDeliveryIds || (zone.assignedDeliveryId ? [zone.assignedDeliveryId] : []);
+                              const availableDeliveries = assignedIds.filter(id => {
+                                const d = deliveries.find(del => del.id === id);
+                                return d && isDeliveryAvailable(d);
+                              });
+                              const noAvailable = zone.isActive && availableDeliveries.length === 0;
+
+                              return (
+                                <div
+                                  key={zone.id}
+                                  className={`group p-3 rounded-lg cursor-pointer transition-all ${selectedZone?.id === zone.id
+                                    ? 'bg-red-500/20 border border-red-500/50'
+                                    : 'hover:bg-gray-700/50 border border-transparent'
+                                    } ${noAvailable ? 'ring-1 ring-amber-500/30' : ''}`}
+                                  onClick={() => editZone(zone)}
+                                >
+                                  <div className="flex items-start justify-between">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center justify-between gap-2 mb-1">
+                                        <div className="flex items-center gap-2 truncate">
+                                          <div className={`w-3 h-3 rounded-full shrink-0 ${zone.isActive ? 'bg-green-500' : 'bg-gray-500'}`}></div>
+                                          <h3 className="font-medium text-white truncate">{zone.name}</h3>
+                                        </div>
+                                        {noAvailable && (
+                                          <span className="flex items-center gap-1 bg-amber-500/20 text-amber-500 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full border border-amber-500/30 shrink-0">
+                                            <i className="bi bi-exclamation-triangle-fill"></i>
+                                            Sin Repartidores
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="mt-1 flex items-center gap-3 text-sm text-gray-400">
+                                        <span>${zone.deliveryFee.toFixed(2)}</span>
+                                        <span>•</span>
+                                        <span>{zone.polygon.length} puntos</span>
+                                      </div>
+                                      
+                                      {/* Deliveries asignados */}
+                                      {zone.assignedDeliveryIds && zone.assignedDeliveryIds.length > 0 ? (
+                                        <div className="mt-2 space-y-1">
+                                          {zone.assignedDeliveryIds.length > 1 && (
+                                            <span className="inline-flex items-center text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full border border-blue-500/50 mb-1">
+                                              <i className="bi bi-arrow-repeat mr-1"></i>
+                                              Round Robin
+                                            </span>
+                                          )}
+                                          <div className="flex items-center gap-1 flex-wrap">
+                                            {zone.assignedDeliveryIds.slice(0, 2).map((deliveryId) => {
+                                              const delivery = deliveries.find(d => d.id === deliveryId);
+                                              if (!delivery) return null;
+                                              const available = isDeliveryAvailable(delivery);
+                                              return (
+                                                <div
+                                                  key={deliveryId}
+                                                  className={`flex items-center gap-1 bg-gray-700/50 rounded px-1.5 py-0.5 border ${available ? 'border-green-500/30' : 'border-red-500/30'
+                                                    }`}
+                                                  title={available ? 'Disponible' : 'No disponible'}
+                                                >
+                                                  {delivery.fotoUrl ? (
+                                                    <img
+                                                      src={delivery.fotoUrl}
+                                                      alt=""
+                                                      className={`w-4 h-4 rounded-full object-cover ${!available ? 'grayscale opacity-60' : ''}`}
+                                                    />
+                                                  ) : (
+                                                    <div className="w-4 h-4 rounded-full bg-gray-600 flex items-center justify-center">
+                                                      <i className={`bi bi-person text-xs ${available ? 'text-green-400' : 'text-gray-400'}`}></i>
+                                                    </div>
+                                                  )}
+                                                  <span className={`text-[10px] truncate max-w-[60px] ${available ? 'text-gray-200' : 'text-gray-500'}`}>
+                                                    {delivery.nombres.split(' ')[0]}
+                                                  </span>
+                                                </div>
+                                              );
+                                            })}
+                                            {zone.assignedDeliveryIds.length > 2 && (
+                                              <span className="text-xs text-gray-500">
+                                                +{zone.assignedDeliveryIds.length - 2}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ) : zone.assignedDeliveryId ? (
+                                        <div className="mt-2 flex items-center gap-2">
+                                          {deliveries.find(d => d.id === zone.assignedDeliveryId)?.fotoUrl ? (
+                                            <img
+                                              src={deliveries.find(d => d.id === zone.assignedDeliveryId)?.fotoUrl}
+                                              alt=""
+                                              className="w-5 h-5 rounded-full object-cover"
+                                            />
+                                          ) : (
+                                            <div className="w-5 h-5 rounded-full bg-gray-600 flex items-center justify-center">
+                                              <i className="bi bi-person text-gray-400 text-xs"></i>
+                                            </div>
+                                          )}
+                                          <span className="text-xs text-gray-400 truncate">
+                                            {deliveries.find(d => d.id === zone.assignedDeliveryId)?.nombres || 'Delivery'}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <div className="mt-2 flex items-center gap-1 text-xs text-gray-500">
+                                          <i className="bi bi-person-dash"></i>
+                                          <span>Sin delivery</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleDeleteZone(zone.id)
+                                      }}
+                                      className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-400 transition-all"
+                                      title="Eliminar zona"
+                                    >
+                                      <i className="bi bi-trash"></i>
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-                    )
+                    );
                   })}
                 </div>
               )}
@@ -1156,6 +1264,67 @@ export default function CoverageZonesPage() {
                     className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500"
                     placeholder="Ej: Centro Norte, Samborondón..."
                   />
+                </div>
+
+                {/* Coverage Group */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between ml-1">
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                      <i className="bi bi-tags-fill mr-2 text-red-500/50"></i>
+                      Grupo de Cobertura (Ciudad)
+                    </label>
+                    <button
+                      onClick={() => setIsCreatingGroup(!isCreatingGroup)}
+                      className="text-[10px] font-black text-blue-500 hover:text-blue-400 uppercase tracking-widest flex items-center gap-1 transition-colors"
+                    >
+                      <i className={`bi bi-${isCreatingGroup ? 'dash-circle' : 'plus-circle'}`}></i>
+                      {isCreatingGroup ? 'Cancelar' : 'Nuevo'}
+                    </button>
+                  </div>
+
+                  {!isCreatingGroup ? (
+                    <select
+                      value={formData.groupId}
+                      onChange={(e) => setFormData({ ...formData, groupId: e.target.value })}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-red-500 font-bold"
+                    >
+                      <option value="">Zona Global (Sin Grupo)</option>
+                      {coverageGroups.map(group => (
+                        <option key={group.id} value={group.id}>
+                          {group.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="flex gap-2 animate-in slide-in-from-top-1 duration-200">
+                      <input
+                        type="text"
+                        value={newGroupName}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                        placeholder="Nombre de la ciudad..."
+                        className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold"
+                        autoFocus
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleCreateGroup();
+                          }
+                        }}
+                      />
+                      <button
+                        onClick={handleCreateGroup}
+                        disabled={isGroupSaving || !newGroupName.trim()}
+                        className="px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 text-white rounded-lg transition-colors flex items-center justify-center min-w-[40px]"
+                        title="Guardar Ciudad"
+                      >
+                        {isGroupSaving ? (
+                          <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                        ) : (
+                          <i className="bi bi-check-lg"></i>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Delivery fee */}

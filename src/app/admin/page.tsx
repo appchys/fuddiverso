@@ -12,7 +12,11 @@ import {
   getAllReferralLinksGlobal,
   getAllClientsGlobal,
   getAllDeliveries,
-  addWalletBalance
+  addWalletBalance,
+  getCoverageGroups,
+  updateBusiness,
+  getCoverageZoneForLocation,
+  getCoverageZones
 } from '@/lib/database'
 import { normalizeEcuadorianPhone } from '@/lib/validation'
 import { isStoreOpen } from '@/lib/store-utils'
@@ -41,6 +45,12 @@ export default function AdminDashboard() {
   const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'templates' | 'products' | 'orders'>('home')
+  const [coverageGroups, setCoverageGroups] = useState<any[]>([])
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+  const [updatingBusinessId, setUpdatingBusinessId] = useState<string | null>(null)
+  const [showManualZoneModal, setShowManualZoneModal] = useState(false)
+  const [selectedBusinessForManualZone, setSelectedBusinessForManualZone] = useState<Business | null>(null)
+  const [coverageZones, setCoverageZones] = useState<any[]>([])
 
   // Estados para filtros del historial de órdenes
   const [filterOrdersBusiness, setFilterOrdersBusiness] = useState<string>('all')
@@ -404,14 +414,18 @@ export default function AdminDashboard() {
       setCustomers(Array.from(customerMap.values()).sort((a, b) => b.spent - a.spent))
 
       // Cargar Datos de Recomendadores y Clientes (Paralelo)
-      const [allCredits, allLinks, allGlobalClients, allDeliveries] = await Promise.all([
+      const [allCredits, allLinks, allGlobalClients, allDeliveries, allGroups, allZones] = await Promise.all([
         getAllUserCreditsGlobal(),
         getAllReferralLinksGlobal(),
         getAllClientsGlobal(),
-        getAllDeliveries()
+        getAllDeliveries(),
+        getCoverageGroups(),
+        getCoverageZones()
       ])
       setDeliveries(allDeliveries)
       setGlobalClients(allGlobalClients)
+      setCoverageGroups(allGroups)
+      setCoverageZones(allZones)
 
       const processedCustomers = Array.from(customerMap.values())
 
@@ -497,6 +511,100 @@ export default function AdminDashboard() {
       setWalletMessage({ type: 'error', text: 'Ocurrió un error al acreditar el saldo.' })
     } finally {
       setWalletLoading(false)
+    }
+  }
+
+  const handleRefreshBusinessGroup = async (business: Business) => {
+    if (!business.id || updatingBusinessId) return
+
+    // Verificar si tiene coordenadas
+    const latlong = business.pickupSettings?.latlong
+    if (!latlong) {
+      // No tiene coordenadas, abrir modal para selección manual
+      setSelectedBusinessForManualZone(business)
+      setShowManualZoneModal(true)
+      return
+    }
+
+    // Tiene coordenadas, proceder con actualización automática
+    await performAutomaticUpdate(business)
+  }
+
+  const performAutomaticUpdate = async (business: Business) => {
+    if (!business.id || updatingBusinessId) return
+
+    setUpdatingBusinessId(business.id)
+    try {
+      const latlong = business.pickupSettings?.latlong
+      if (!latlong) {
+        alert('Este negocio no tiene coordenadas configuradas en pickupSettings.')
+        return
+      }
+
+      const [lat, lng] = latlong.split(',').map(Number)
+      if (isNaN(lat) || isNaN(lng)) {
+        alert('Coordenadas inválidas.')
+        return
+      }
+
+      const zoneInfo = await getCoverageZoneForLocation({ lat, lng })
+      
+      const updates = {
+        groupId: zoneInfo?.groupId || 'external',
+        zoneId: zoneInfo?.id || 'none'
+      }
+
+      await updateBusiness(business.id, updates)
+      
+      // Actualizar estado local
+      setBusinesses(prev => prev.map(b => 
+        b.id === business.id ? { ...b, ...updates } : b
+      ))
+      
+      // Feedback visual temporal
+      setTimeout(() => setUpdatingBusinessId(null), 2000)
+    } catch (error) {
+      console.error('Error refreshing business group:', error)
+      alert('Error al actualizar el grupo. Revisa la consola.')
+      setUpdatingBusinessId(null)
+    }
+  }
+
+  const handleManualZoneSelection = async (zoneId: string) => {
+    if (!selectedBusinessForManualZone?.id || updatingBusinessId) return
+
+    setUpdatingBusinessId(selectedBusinessForManualZone.id)
+    try {
+      // Encontrar la zona seleccionada
+      const selectedZone = coverageZones.find(z => z.id === zoneId)
+      if (!selectedZone) {
+        alert('Zona no encontrada')
+        return
+      }
+
+      // El groupId viene de la zona seleccionada
+      const updates = {
+        zoneId: selectedZone.id,
+        groupId: selectedZone.groupId || 'external'
+      }
+
+      await updateBusiness(selectedBusinessForManualZone.id, updates)
+      
+      // Actualizar estado local
+      setBusinesses(prev => prev.map(b => 
+        b.id === selectedBusinessForManualZone.id ? { ...b, ...updates } : b
+      ))
+      
+      // Cerrar modal y limpiar estado
+      setShowManualZoneModal(false)
+      setSelectedBusinessForManualZone(null)
+      
+      // Feedback visual temporal
+      setTimeout(() => setUpdatingBusinessId(null), 2000)
+    } catch (error) {
+      console.error('Error updating business with manual zone:', error)
+      alert('Error al actualizar la zona manualmente. Revisa la consola.')
+      setUpdatingBusinessId(null)
     }
   }
   // ─────────────────────────────────────────────────────────────────────────
@@ -1039,65 +1147,147 @@ export default function AdminDashboard() {
               className="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
             />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {businesses.map((business) => {
-              // Calcular contadores de órdenes para este negocio filtrado por fecha
-              const businessOrders = orders.filter(o => {
-                try {
-                  return o.businessId === business.id &&
-                    o.createdAt &&
-                    new Date(o.createdAt).toISOString().startsWith(selectedDate);
-                } catch (e) {
-                  return false;
-                }
-              });
-              const activeOrders = businessOrders.filter(o => ['pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(o.status)).length;
-              const deliveredOrders = businessOrders.filter(o => o.status === 'delivered').length;
+          <div className="space-y-6">
+            {(() => {
+              // Agrupar negocios por groupId
+              const groups: Record<string, Business[]> = {}
+              businesses.forEach(b => {
+                const gId = b.groupId || 'external'
+                if (!groups[gId]) groups[gId] = []
+                groups[gId].push(b)
+              })
 
-              return (
-                <a
-                  key={business.id}
-                  href={`/business/${business.username || business.id}/dashboard`}
-                  className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 flex items-center gap-4 hover:shadow-md transition-all group cursor-pointer"
-                >
-                  <div className="w-16 h-16 rounded-full border border-gray-100 bg-gray-50 overflow-hidden flex-shrink-0">
-                    {business.image ? (
-                      <img src={business.image} alt={business.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <i className="bi bi-shop text-gray-400 text-xl"></i>
+              // Ordenar grupos por nombre (Guayaquil primero, etc, luego external)
+              const sortedGroupIds = Object.keys(groups).sort((a, b) => {
+                if (a === 'external') return 1
+                if (b === 'external') return -1
+                const nameA = coverageGroups.find(g => g.id === a)?.name || a
+                const nameB = coverageGroups.find(g => g.id === b)?.name || b
+                return nameA.localeCompare(nameB)
+              })
+
+              return sortedGroupIds.map(gId => {
+                const groupName = gId === 'external' ? 'Otras Ubicaciones' : (coverageGroups.find(g => g.id === gId)?.name || `Grupo ${gId}`)
+                const groupBusinesses = groups[gId]
+                const isCollapsed = collapsedGroups[gId] || false
+                
+                // Contadores locales del grupo
+                const openInGroup = groupBusinesses.filter(b => b.isOpen).length
+
+                return (
+                  <div key={gId} className="space-y-4">
+                    {/* Encabezado del Grupo */}
+                    <button
+                      onClick={() => setCollapsedGroups(prev => ({ ...prev, [gId]: !isCollapsed }))}
+                      className="w-full flex items-center justify-between p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:bg-gray-50 transition-all group"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isCollapsed ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white shadow-lg shadow-blue-200'}`}>
+                          <i className={`bi ${gId === 'external' ? 'bi-geo' : 'bi-building'} text-lg`}></i>
+                        </div>
+                        <div className="text-left">
+                          <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">{groupName}</h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{groupBusinesses.length} Tiendas</span>
+                            <span className="w-1 h-1 rounded-full bg-gray-300"></span>
+                            <span className="text-[10px] font-bold text-green-600 uppercase tracking-widest">{openInGroup} Abiertas</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-transform duration-300 ${isCollapsed ? '' : 'rotate-180'} bg-gray-100 text-gray-400 group-hover:bg-gray-200`}>
+                        <i className="bi bi-chevron-down"></i>
+                      </div>
+                    </button>
+
+                    {/* Lista de Negocios (Colapsable) */}
+                    {!isCollapsed && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-fadeIn">
+                        {groupBusinesses.map((business) => {
+                          const businessOrders = orders.filter(o => {
+                            try {
+                              return o.businessId === business.id &&
+                                o.createdAt &&
+                                new Date(o.createdAt).toISOString().startsWith(selectedDate);
+                            } catch (e) {
+                              return false;
+                            }
+                          });
+                          const activeOrders = businessOrders.filter(o => ['pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(o.status)).length;
+                          const deliveredOrders = businessOrders.filter(o => o.status === 'delivered').length;
+
+                          return (
+                            <a
+                              key={business.id}
+                              href={`/business/${business.username || business.id}/dashboard`}
+                              className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 flex items-center gap-4 hover:shadow-md transition-all group cursor-pointer"
+                            >
+                              <div className="w-16 h-16 rounded-full border border-gray-100 bg-gray-50 overflow-hidden flex-shrink-0">
+                                {business.image ? (
+                                  <img src={business.image} alt={business.name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <i className="bi bi-shop text-gray-400 text-xl"></i>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <h3 className="text-base font-bold text-gray-900 group-hover:text-blue-600 transition-colors line-clamp-1">
+                                  {business.name}
+                                </h3>
+
+                                <div className={`mt-1 inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full w-fit ${business.isOpen
+                                  ? 'bg-green-50 text-green-700 border border-green-200'
+                                  : 'bg-gray-50 text-gray-500 border border-gray-200'
+                                  }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${business.isOpen ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                                  {business.isOpen ? 'Abierto' : 'Cerrado'}
+                                </div>
+
+                                <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
+                                  <div className="flex flex-col">
+                                    <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Activas</span>
+                                    <span className="text-sm font-bold text-gray-900">{activeOrders}</span>
+                                  </div>
+                                  <div className="w-px h-6 bg-gray-100"></div>
+                                  <div className="flex-1"></div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      handleRefreshBusinessGroup(business)
+                                    }}
+                                    className={`p-2 rounded-lg border transition-all ${
+                                      updatingBusinessId === business.id 
+                                        ? 'bg-blue-50 border-blue-200 text-blue-600' 
+                                        : business.pickupSettings?.latlong
+                                          ? 'bg-gray-50 border-gray-100 text-gray-400 hover:text-blue-600 hover:border-blue-100'
+                                          : 'bg-orange-50 border-orange-200 text-orange-600 hover:text-orange-700 hover:border-orange-300'
+                                    }`}
+                                    title={business.pickupSettings?.latlong ? "Recalcular Ciudad/Zona por ubicación" : "Asignar zona manualmente (sin coordenadas)"}
+                                  >
+                                    {updatingBusinessId === business.id ? (
+                                      <div className="flex items-center gap-1.5 px-0.5">
+                                        <div className="animate-spin rounded-full h-3 w-3 border-2 border-current border-t-transparent"></div>
+                                      </div>
+                                    ) : business.pickupSettings?.latlong ? (
+                                      <i className="bi bi-geo-alt text-sm"></i>
+                                    ) : (
+                                      <i className="bi bi-geo-alt-fill text-sm"></i>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </a>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
+                )
+              })
+            })()}
 
-                  <div className="flex flex-col flex-1 min-w-0">
-                    <h3 className="text-base font-bold text-gray-900 group-hover:text-blue-600 transition-colors line-clamp-1">
-                      {business.name}
-                    </h3>
-
-                    <div className={`mt-1 inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full w-fit ${business.isOpen
-                      ? 'bg-green-50 text-green-700 border border-green-200'
-                      : 'bg-gray-50 text-gray-500 border border-gray-200'
-                      }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${business.isOpen ? 'bg-green-500' : 'bg-gray-400'}`}></span>
-                      {business.isOpen ? 'Abierto' : 'Cerrado'}
-                    </div>
-
-                    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Activas</span>
-                        <span className="text-sm font-bold text-gray-900">{activeOrders}</span>
-                      </div>
-                      <div className="w-px h-6 bg-gray-100"></div>
-                      <div className="flex flex-col">
-                        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Entregadas</span>
-                        <span className="text-sm font-bold text-gray-900">{deliveredOrders}</span>
-                      </div>
-                    </div>
-                  </div>
-                </a>
-              );
-            })}
             {businesses.length === 0 && !loading && (
               <div className="col-span-full py-12 text-center">
                 <div className="inline-block p-4 rounded-full bg-gray-50 mb-4">
@@ -1584,6 +1774,90 @@ export default function AdminDashboard() {
       ) : (
         renderRecommendersTab()
       )}
+
+      {/* Modal para Selección Manual de Zona */}
+      {showManualZoneModal && selectedBusinessForManualZone && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
+            <div className="p-6 border-b border-gray-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">
+                    Seleccionar Zona Manualmente
+                  </h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Tienda: <span className="font-semibold">{selectedBusinessForManualZone.name}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowManualZoneModal(false)
+                    setSelectedBusinessForManualZone(null)
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <i className="bi bi-x-lg text-gray-500"></i>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              <div className="space-y-4">
+                {coverageGroups.length === 0 || coverageZones.length === 0 ? (
+                  <div className="text-center py-8">
+                    <i className="bi bi-info-circle text-4xl text-gray-300 mb-3 block"></i>
+                    <p className="text-gray-500">No hay zonas de cobertura disponibles</p>
+                  </div>
+                ) : (
+                  coverageGroups.map(group => {
+                    const groupZones = coverageZones.filter(zone => zone.groupId === group.id)
+                    if (groupZones.length === 0) return null
+
+                    return (
+                      <div key={group.id} className="space-y-2">
+                        <h4 className="font-semibold text-gray-900 text-sm uppercase tracking-wider">
+                          {group.name}
+                        </h4>
+                        <div className="grid grid-cols-1 gap-2">
+                          {groupZones.map(zone => (
+                            <button
+                              key={zone.id}
+                              onClick={() => handleManualZoneSelection(zone.id)}
+                              className="p-3 text-left border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-200 transition-all group"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="font-medium text-gray-900 group-hover:text-blue-600">
+                                    {zone.name}
+                                  </div>
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    Tarifa de delivery: ${zone.deliveryFee?.toFixed(2) || '0.00'}
+                                  </div>
+                                </div>
+                                <i className="bi bi-chevron-right text-gray-400 group-hover:text-blue-600"></i>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style jsx global>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.3s ease-out forwards;
+        }
+      `}</style>
     </div>
   );
 }
