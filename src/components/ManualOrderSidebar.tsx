@@ -63,6 +63,7 @@ interface ManualOrderData {
   total: number
   selectedDelivery: any
   orderStatus: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'on_way' | 'delivered' | 'cancelled' | 'borrador'
+  notas: string
 }
 
 interface ManualOrderSidebarProps {
@@ -109,7 +110,8 @@ export default function ManualOrderSidebar({
     transferAmount: 0,
     total: 0,
     selectedDelivery: null,
-    orderStatus: 'pending'
+    orderStatus: 'pending',
+    notas: ''
   })
 
   const [searchingClient, setSearchingClient] = useState(false)
@@ -124,6 +126,7 @@ export default function ManualOrderSidebar({
   const [creatingClient, setCreatingClient] = useState(false)
   const [updatingClient, setUpdatingClient] = useState(false)
   const [creatingOrder, setCreatingOrder] = useState(false)
+  const [showNotasField, setShowNotasField] = useState(false)
 
   // Estados para búsqueda mejorada
   const [searchResults, setSearchResults] = useState<Client[]>([])
@@ -282,7 +285,8 @@ export default function ManualOrderSidebar({
         transferAmount: (eo.payment as any)?.transferAmount || 0,
         total: eo.total || 0,
         selectedDelivery: selectedDeliveryFromId(availableDeliveries, eo.delivery?.assignedDelivery),
-        orderStatus: eo.status || 'pending'
+        orderStatus: eo.status || 'pending',
+        notas: eo.notas || ''
       }))
 
       // Mostrar inmediatamente tarjeta de cliente encontrado y cargar ubicaciones
@@ -1317,7 +1321,8 @@ export default function ManualOrderSidebar({
         status: finalStatus as any,
         createdByAdmin: true,
         createdAt: new Date(),
-        updatedAt: new Date()
+        updatedAt: new Date(),
+        notas: manualOrderData.notas
       }
 
       // Log para debugging
@@ -1342,7 +1347,8 @@ export default function ManualOrderSidebar({
           payment: orderData.payment,
           total: orderData.total,
           status: finalStatus,
-          updatedAt: new Date()
+          updatedAt: new Date(),
+          notas: manualOrderData.notas
         }
         await updateOrder(editOrder.id, updatePayload)
         onOrderUpdated && onOrderUpdated()
@@ -1420,7 +1426,8 @@ export default function ManualOrderSidebar({
       transferAmount: 0,
       total: 0,
       selectedDelivery: null,
-      orderStatus: 'borrador'
+      orderStatus: 'borrador',
+      notas: ''
     })
     setClientFound(false)
     setShowCreateClient(false)
@@ -2160,6 +2167,40 @@ export default function ManualOrderSidebar({
                 <span>${manualOrderData.total.toFixed(2)}</span>
               </div>
             </div>
+          </div>
+
+          {/* Notas - Collapsible */}
+          <div className="mb-6">
+            <button
+              type="button"
+              onClick={() => setShowNotasField(!showNotasField)}
+              className="w-full flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-md hover:bg-gray-100 transition-colors"
+            >
+              <span className="text-sm font-medium text-black flex items-center">
+                <i className={`bi bi-${showNotasField ? 'chevron-up' : 'plus-circle'} mr-2`}></i>
+                Agregar nota
+              </span>
+              {manualOrderData.notas && (
+                <span className="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded-full">
+                  {manualOrderData.notas.length > 20 
+                    ? `${manualOrderData.notas.substring(0, 20)}...` 
+                    : manualOrderData.notas
+                  }
+                </span>
+              )}
+            </button>
+            
+            {showNotasField && (
+              <div className="mt-3">
+                <textarea
+                  value={manualOrderData.notas}
+                  onChange={(e) => setManualOrderData(prev => ({ ...prev, notas: e.target.value }))}
+                  placeholder="Agregar notas adicionales del pedido..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 resize-vertical"
+                />
+              </div>
+            )}
           </div>
 
           {/* Mensaje de validación para pago mixto */}

@@ -1883,40 +1883,30 @@ function OrderCard({
             )}
             {/* Card Header: Time & Status */}
             <div
-                className="px-4 py-3 border-b border-gray-50 flex justify-between items-start bg-gray-50/50 cursor-pointer hover:bg-gray-100 transition-colors"
+                className="px-4 py-3 border-b border-gray-50 bg-gray-50/50 cursor-pointer hover:bg-gray-100 transition-colors"
                 onClick={() => setIsExpanded(!isExpanded)}
             >
-                <div className="flex flex-col">
-                    <div className="flex items-center gap-2">
+                {/* First Row: Customer, Time & Buttons */}
+                <div className="flex justify-between items-center mb-2">
+                    <div className="flex items-center gap-3">
                         {/* Chevron for expand/collapse */}
-                        <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 text-xs mr-2 transform transition-transform duration-200`}></i>
+                        <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 text-xs transform transition-transform duration-200`}></i>
 
-                        <span className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
-                            {!isDelivery && <i className="bi bi-shop text-gray-400"></i>}
-                            {order.customer?.name || "Cliente"}
-                        </span>
+                        <div className="flex flex-col">
+                            <span className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
+                                {!isDelivery && <i className="bi bi-shop text-gray-400"></i>}
+                                {order.customer?.name || "Cliente"}
+                            </span>
+
+                            <div className="flex items-center gap-2 mt-0.5">
+                                <i className={`bi ${order.timing?.type === 'scheduled' ? 'bi-clock' : 'bi-lightning-fill'} ${order.timing?.type === 'scheduled' ? 'text-blue-600' : 'text-yellow-500'}`}></i>
+                                <span className="font-mono text-sm sm:font-medium text-gray-600">
+                                    {getOrderDisplayTime(order)}
+                                </span>
+                            </div>
+                        </div>
                     </div>
 
-                    <div className="flex items-center gap-2 mt-1 ml-5">
-                        <i className={`bi ${order.timing?.type === 'scheduled' ? 'bi-clock' : 'bi-lightning-fill'} ${order.timing?.type === 'scheduled' ? 'text-blue-600' : 'text-yellow-500'}`}></i>
-                        <span className="font-mono text-sm sm:font-medium text-gray-600">
-                            {getOrderDisplayTime(order)}
-                        </span>
-                    </div>
-
-                    {/* Items List (Small) */}
-                    <div className="flex flex-col gap-0.5 mt-1 ml-5 min-w-0">
-                        {sortedItems.map((item: any, idx) => {
-                            return (
-                                <div key={idx} className="text-lg sm:text-sm leading-tight text-gray-600">
-                                    {item.quantity}x {item.variant || item.product?.name || item.name}
-                                </div>
-                            )
-                        })}
-                    </div>
-                </div>
-
-                <div className="flex flex-col items-end gap-2">
                     <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                         {/* Advance Status */}
                         {nextStatus && (
@@ -1961,8 +1951,6 @@ function OrderCard({
                                 <i className="bi bi-x-lg"></i>
                             </button>
                         )}
-
-                        
 
                         {/* Delivery Acceptance Status */}
                         {isDelivery && order.delivery?.assignedDelivery && (
@@ -2045,9 +2033,18 @@ function OrderCard({
                                 }
                             </div>
                         }
-
-
                     </div>
+                </div>
+
+                {/* Second Row: Items List (Full Width) */}
+                <div className="flex flex-col gap-0.5">
+                    {sortedItems.map((item: any, idx) => {
+                        return (
+                            <div key={idx} className="text-lg sm:text-sm leading-tight text-gray-600">
+                                {item.quantity}x {item.variant || item.product?.name || item.name}
+                            </div>
+                        )
+                    })}
                 </div>
             </div>
 
@@ -2064,6 +2061,19 @@ function OrderCard({
                             )}
                         </div>
                     </div>
+
+                    {/* Notes - Show only if exists */}
+                    {order.notas && order.notas.trim() && (
+                        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                            <div className="flex items-start gap-2">
+                                <i className="bi bi-sticky text-amber-600 mt-0.5 flex-shrink-0"></i>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-amber-800 mb-1">Notas</p>
+                                    <p className="text-sm text-amber-700 whitespace-pre-wrap">{order.notas}</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Items */}
                     <div className="space-y-2 mb-4">

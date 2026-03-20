@@ -258,6 +258,7 @@ export interface Order {
   deliveredAt?: Date | Timestamp // Fecha y hora cuando se marcó como entregado
   createdByAdmin?: boolean
   referralCode?: string // Código de referido si la orden vino de un link de recomendación
+  notas?: string // Notas adicionales del pedido
   // Timestamps para cada cambio de estado
   statusHistory?: {
     pendingAt?: Date | Timestamp
