@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { getOrder, getBusiness, getDelivery, saveBusinessRating, hasOrderBeenRated, updateOrderStatus, createRatingNotification, generateReferralLink, trackReferralClick, generateProductSlug, getAllBusinesses } from '@/lib/database'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
-import { sendOrderToStore } from '@/components/WhatsAppUtils'
+import { sendOrderToStoreFromClient } from '@/components/WhatsAppUtils'
 import { useAuth } from '@/contexts/AuthContext'
 
 type Props = {
@@ -1109,7 +1109,7 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
         <div className="space-y-3 pt-2">
           {(order.status === 'pending' || order.status === 'confirmed') && (
             <button
-              onClick={() => business && sendOrderToStore(order, business)}
+              onClick={() => business && sendOrderToStoreFromClient(order, business)}
               className="w-full bg-white border-2 border-green-500 text-green-600 font-black uppercase tracking-widest text-xs py-4 rounded-2xl flex items-center justify-center gap-3 transition-all hover:bg-green-50 active:scale-95 shadow-sm"
             >
               <i className="bi bi-whatsapp text-lg"></i>

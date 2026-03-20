@@ -300,7 +300,86 @@ export const sendWhatsAppToCustomer = (order: Order) => {
     window.open(whatsappUrl, '_blank')
 }
 
-// Enviar mensaje a la tienda solicitando comprobante
+// Enviar mensaje a la tienda solicitando comprobante (versión cliente - plantilla original)
+export const sendOrderToStoreFromClient = (order: Order, business: Business) => {
+    // Usar el teléfono del negocio
+    const storePhone = business.phone || '0985985684' // Fallback al número viejo si no hay phone
+
+    const customerName = order.customer?.name || 'Cliente'
+    const productsList = order.items?.map((item: any) => {
+        const productName = item.productName || item.product?.name || '';
+        const variantName = item.variant || item.name || item.product?.name || 'Producto';
+        
+        // Si hay nombre de producto, mostrarlo en cursiva seguido de la variante
+        if (productName && productName !== variantName) {
+            return `<i>${productName}</i>\n(${item.quantity}) ${variantName}`;
+        }
+        // Si no hay producto base, mostrar solo la variante
+        return `(${item.quantity}) ${variantName}`;
+    }).join('\n\n') || 'Sin productos';
+    const total = order.total?.toFixed(2) || '0.00'
+    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : 'Otro'
+
+    // Lógica de ubicación (reutilizada de sendWhatsAppToDelivery)
+    let locationLink = ''
+    if (order.delivery.type === 'delivery') {
+        if (order.delivery?.latlong) {
+            const cleanCoords = order.delivery.latlong.replace(/\s+/g, '')
+            if (cleanCoords.startsWith('pluscode:')) {
+                const plusCode = cleanCoords.replace('pluscode:', '')
+                locationLink = `https://www.google.com/maps/place/${encodeURIComponent(plusCode)}`
+            } else if (cleanCoords.includes(',')) {
+                locationLink = `https://www.google.com/maps/place/${cleanCoords}`
+            } else {
+                locationLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`
+            }
+        } else if (order.delivery?.mapLocation) {
+            locationLink = `https://www.google.com/maps/place/${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}`
+        }
+    }
+
+    const orderType = formatScheduledDate(order.timing);
+
+    const references = order.delivery.type === 'pickup'
+        ? '🏪 Retira en tienda'
+        : (order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia');
+
+    // Construir mensaje con el formato original completo
+    let message = `*Hola ${business.name}, he realizado un pedido!*\n\n`
+    message += `*Nombres:* ${customerName}\n\n`
+
+    message += `*Detalles de la entrega*\n`
+    message += `${orderType}\n`
+    message += `Referencias: ${references}\n`
+    if (locationLink) {
+        message += `Ubicación: ${locationLink}\n\n`
+    } else {
+        message += `\n`
+    }
+
+    message += `*Detalle del pedido*\n`
+    message += `${productsList}\n\n`
+
+    message += `*Total* $${total}\n`
+    message += `*Forma de pago:* ${paymentMethod}\n\n`
+
+    // Agregar enlace a la orden
+    try {
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        if (origin && order.id) {
+            const orderUrl = `${origin}/o/${encodeURIComponent(order.id)}`;
+            message += `${orderUrl}`;
+        }
+    } catch (e) {
+        // ignore
+    }
+
+    const waPhone = `593${storePhone.startsWith('0') ? storePhone.slice(1) : storePhone}`
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(message)}`
+    window.open(whatsappUrl, '_blank')
+}
+
+// Enviar mensaje a la tienda solicitando comprobante (versión admin - plantilla simplificada)
 export const sendOrderToStore = (order: Order, business: Business) => {
     // Usar el teléfono del negocio
     const storePhone = business.phone || '0985985684' // Fallback al número viejo si no hay phone
