@@ -1305,7 +1305,7 @@ export default function ManualOrderSidebar({
         },
         payment: {
           method: manualOrderData.paymentMethod,
-          paymentStatus: manualOrderData.paymentMethod === 'transfer' ? 'paid' : manualOrderData.paymentStatus,
+          paymentStatus: manualOrderData.paymentStatus,
           selectedBank: manualOrderData.selectedBank,
           ...(manualOrderData.paymentMethod === 'mixed' && {
             cashAmount: manualOrderData.cashAmount || 0,
@@ -1908,12 +1908,22 @@ export default function ManualOrderSidebar({
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => setManualOrderData(prev => ({
-                  ...prev,
-                  paymentMethod: 'cash',
-                  cashAmount: 0,
-                  transferAmount: 0
-                }))}
+                onClick={() => {
+                  if (manualOrderData.paymentMethod === 'cash') {
+                    const statuses: ('pending' | 'validating' | 'paid')[] = ['paid', 'pending', 'validating'];
+                    const currentIndex = statuses.indexOf(manualOrderData.paymentStatus);
+                    const nextStatus = statuses[(currentIndex + 1) % statuses.length];
+                    setManualOrderData(prev => ({ ...prev, paymentStatus: nextStatus }));
+                  } else {
+                    setManualOrderData(prev => ({
+                      ...prev,
+                      paymentMethod: 'cash',
+                      paymentStatus: 'paid',
+                      cashAmount: 0,
+                      transferAmount: 0
+                    }));
+                  }
+                }}
                 className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.paymentMethod === 'cash'
                   ? 'border-green-500 bg-green-50 text-green-700'
                   : 'border-gray-300 hover:border-gray-400'
@@ -1921,17 +1931,33 @@ export default function ManualOrderSidebar({
               >
                 <i className="bi bi-cash text-lg"></i>
                 <span className="text-xs font-medium">Efectivo</span>
+                {manualOrderData.paymentMethod === 'cash' && (
+                  <span className="text-[10px] font-bold uppercase mt-1">
+                    {manualOrderData.paymentStatus === 'paid' ? 'Pagado' : 
+                     manualOrderData.paymentStatus === 'pending' ? 'Pendiente' : 
+                     'Validando'}
+                  </span>
+                )}
               </button>
 
               <button
                 type="button"
-                onClick={() => setManualOrderData(prev => ({
-                  ...prev,
-                  paymentMethod: 'transfer',
-                  paymentStatus: mode === 'create' ? 'paid' : prev.paymentStatus,
-                  cashAmount: 0,
-                  transferAmount: 0
-                }))}
+                onClick={() => {
+                  if (manualOrderData.paymentMethod === 'transfer') {
+                    const statuses: ('pending' | 'validating' | 'paid')[] = ['paid', 'pending', 'validating'];
+                    const currentIndex = statuses.indexOf(manualOrderData.paymentStatus);
+                    const nextStatus = statuses[(currentIndex + 1) % statuses.length];
+                    setManualOrderData(prev => ({ ...prev, paymentStatus: nextStatus }));
+                  } else {
+                    setManualOrderData(prev => ({
+                      ...prev,
+                      paymentMethod: 'transfer',
+                      paymentStatus: 'paid',
+                      cashAmount: 0,
+                      transferAmount: 0
+                    }));
+                  }
+                }}
                 className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.paymentMethod === 'transfer'
                   ? 'border-blue-500 bg-blue-50 text-blue-700'
                   : 'border-gray-300 hover:border-gray-400'
@@ -1939,6 +1965,13 @@ export default function ManualOrderSidebar({
               >
                 <i className="bi bi-bank text-lg"></i>
                 <span className="text-xs font-medium">Transferencia</span>
+                {manualOrderData.paymentMethod === 'transfer' && (
+                  <span className="text-[10px] font-bold uppercase mt-1">
+                    {manualOrderData.paymentStatus === 'paid' ? 'Pagado' : 
+                     manualOrderData.paymentStatus === 'pending' ? 'Pendiente' : 
+                     'Validando'}
+                  </span>
+                )}
               </button>
 
               <button
