@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
@@ -465,7 +465,6 @@ export default function TodayOrdersPage() {
         }
     }, [authLoading, isAuthenticated, router])
 
-    // Fetch business data
     useEffect(() => {
         if (!businessId) return
         const fetchBusiness = async () => {
@@ -478,6 +477,29 @@ export default function TodayOrdersPage() {
         }
         fetchBusiness()
     }, [businessId])
+
+    // Auto-repair effect for missing manualStatusExpiry
+    useEffect(() => {
+        if (!business?.id || !business.manualStoreStatus) return
+        if (business.manualStatusExpiry) return
+
+        const repairExpiry = async () => {
+            console.log('🔧 [Auto-repair] Manual status detected without expiry for:', business.name)
+            const expiry = calculateManualStatusExpiry(business)
+            if (expiry) {
+                try {
+                    await updateBusiness(business.id, { manualStatusExpiry: expiry })
+                    console.log('✅ [Auto-repair] Expiry set to:', expiry.toLocaleString('es-EC'))
+                    setBusiness(prev => prev?.id === business.id ? { ...prev, manualStatusExpiry: expiry } : prev)
+                } catch (err) {
+                    console.error('❌ [Auto-repair] Failed to update expiry:', err)
+                }
+            } else {
+                console.warn('⚠️ [Auto-repair] Could not calculate expiry for:', business.name)
+            }
+        }
+        repairExpiry()
+    }, [business?.id, business?.manualStoreStatus, !!business?.manualStatusExpiry])
 
     // Load visits count
     const [visitsCount, setVisitsCount] = useState(0)
@@ -715,7 +737,17 @@ export default function TodayOrdersPage() {
         if (!business?.id) return
         setUpdatingStoreStatus(true)
         try {
-            const currentStatus = business.manualStoreStatus
+            // Check if current manual status is effectively active or expired
+            let currentStatus = business.manualStoreStatus
+            if (currentStatus) {
+                const now = new Date()
+                const expiry = business.manualStatusExpiry ? toSafeDate(business.manualStatusExpiry) : null
+                if (expiry && now >= expiry) {
+                    console.log('🔄 Toggle: Existing manual status is expired, treating as automatic')
+                    currentStatus = null
+                }
+            }
+
             let newStatus: 'open' | 'closed' | null = null
             if (currentStatus === null || currentStatus === undefined) newStatus = 'closed'
             else if (currentStatus === 'closed') newStatus = 'open'
@@ -734,21 +766,12 @@ export default function TodayOrdersPage() {
                 expiryTime: expiryTime?.toLocaleString('es-EC')
             })
 
-            if (newStatus === null) {
-                // Remove the field entirely when switching back to automatic mode
-                console.log('📤 Sending update to Firebase: manualStoreStatus = null (delete field)')
-                await updateBusiness(business.id, { 
-                    manualStoreStatus: null,
-                    manualStatusExpiry: undefined
-                } as Partial<Business>)
-            } else {
-                console.log('📤 Sending update to Firebase: manualStoreStatus =', newStatus)
-                console.log('⏰ Manual status will expire at:', expiryTime?.toLocaleString('es-EC'))
-                await updateBusiness(business.id, { 
-                    manualStoreStatus: newStatus,
-                    manualStatusExpiry: expiryTime 
-                } as Partial<Business>)
+            const updateData: any = { 
+                manualStoreStatus: newStatus,
+                manualStatusExpiry: expiryTime 
             }
+
+            await updateBusiness(business.id, updateData)
             
             console.log('✅ Firebase update completed, updating local state')
             setBusiness(prev => prev ? { 
@@ -947,29 +970,26 @@ export default function TodayOrdersPage() {
                                     {business && (
                                         <div className="flex items-center gap-2">
                                             <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
-                                                {(() => {
-                                                    console.log('🔍 Dashboard checking store status:', {
-                                                        manualStoreStatus: business.manualStoreStatus,
-                                                        schedule: business.schedule,
-                                                        businessName: business.name
-                                                    })
-                                                    const storeOpen = isStoreOpen(business)
-                                                    console.log('🔍 Dashboard store status result:', storeOpen)
-                                                    return storeOpen
-                                                })()}
                                                 <div className={`w-2 h-2 rounded-full ${isStoreOpen(business) ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
                                                 <span className="text-sm font-medium text-gray-700">
                                                     {isStoreOpen(business) ? 'Abierto' : 'Cerrado'}
                                                 </span>
                                             </div>
 
-                                            <button
-                                                onClick={handleToggleStoreStatus}
-                                                disabled={updatingStoreStatus}
-                                                className="px-3 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 disabled:opacity-50"
-                                            >
-                                                <i className={`bi ${business.manualStoreStatus === 'open' ? 'bi-unlock-fill text-green-600' : business.manualStoreStatus === 'closed' ? 'bi-lock-fill text-red-600' : `bi-clock-fill ${isStoreOpen(business) ? 'text-green-600' : 'text-gray-400'}`}`} />
-                                            </button>
+                                            {(() => {
+                                                const isManualActive = business.manualStoreStatus && (!business.manualStatusExpiry || new Date() < toSafeDate(business.manualStatusExpiry))
+                                                
+                                                return (
+                                                    <button
+                                                        onClick={handleToggleStoreStatus}
+                                                        disabled={updatingStoreStatus}
+                                                        className="px-3 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 disabled:opacity-50"
+                                                        title={isManualActive ? (business.manualStoreStatus === 'open' ? 'Abierto (Manual)' : 'Cerrado (Manual)') : 'Horario Automático'}
+                                                    >
+                                                        <i className={`bi ${isManualActive ? (business.manualStoreStatus === 'open' ? 'bi-unlock-fill text-green-600' : 'bi-lock-fill text-red-600') : `bi-clock-fill ${isStoreOpen(business) ? 'text-green-600' : 'text-gray-400'}`}`} />
+                                                    </button>
+                                                )
+                                            })()}
                                         </div>
                                     )}
 
@@ -1226,45 +1246,6 @@ export default function TodayOrdersPage() {
                                 </div>
                             ) : (
                                 <>
-                                    {/* Totals Summary */}
-                                    <div className="bg-white border-b border-gray-100 px-6 py-4">
-                                        <div className="flex justify-end items-center gap-8">
-                                            <div className="text-right">
-                                                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Visitas Hoy</p>
-                                                <p className="text-2xl font-bold text-gray-900">{visitsCount}</p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Ventas</p>
-                                                <p className="text-2xl font-bold text-green-600">
-                                                    ${orders.reduce((acc, order) => {
-                                                        if (order.status === 'cancelled') return acc
-
-                                                        // 1. Try to calculate from items (most accurate for "product only" value)
-                                                        if (order.items && order.items.length > 0) {
-                                                            const itemsTotal = order.items.reduce((sum, item) => {
-                                                                // Check for item.subtotal first, then calculate manually
-                                                                if (typeof item.subtotal === 'number') return sum + item.subtotal
-
-                                                                // Manual calculation backup
-                                                                const price = item.storeReceives || item.product?.price || 0
-                                                                const quantity = item.quantity || 1
-                                                                return sum + (price * quantity)
-                                                            }, 0)
-
-                                                            if (itemsTotal > 0) return acc + itemsTotal
-                                                        }
-
-                                                        // 2. Fallback to order.subtotal if available
-                                                        if (typeof order.subtotal === 'number') return acc + order.subtotal
-
-                                                        // 3. Last resort: use total (might include delivery, but better than 0)
-                                                        return acc + (order.total || 0)
-                                                    }, 0).toFixed(2)}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-
                                     <div className="p-4 space-y-6">
                                         {orders.length === 0 ? (
                                             <DayPreflightChecklist
@@ -1277,90 +1258,147 @@ export default function TodayOrdersPage() {
                                                 historicalOrders={historicalOrders}
                                             />
                                         ) : (
-                                            <div className="flex flex-col lg:flex-row gap-6 items-start">
-                                                {/* Columna 1: Borrador, Pendiente y Live Checkouts */}
-                                                {showCol1 && (
-                                                    <div className="w-full lg:flex-1 lg:min-w-0 space-y-6">
-                                                        {businessId && (
-                                                            <LiveCheckoutsPanel
-                                                                businessId={businessId}
-                                                                orders={orders}
-                                                                onCountChange={setCheckoutCount}
-                                                            />
-                                                        )}
-                                                        <OrderStatusColumn
-                                                            statuses={['borrador', 'pending']}
-                                                            orders={orders}
-                                                            availableDeliveries={availableDeliveries}
-                                                            handleStatusChange={handleStatusChange}
-                                                            handleDeliveryAssignment={handleDeliveryAssignment}
-                                                            handlePaymentClick={handlePaymentClick}
-                                                            handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
-                                                            handlePrint={handlePrint}
-                                                            setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
-                                                            setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
-                                                            setSelectedOrderForEdit={setSelectedOrderForEdit}
-                                                            setManualSidebarMode={setManualSidebarMode}
-                                                            setManualOrderSidebarOpen={setManualOrderSidebarOpen}
-                                                            handleDeleteOrder={handleDeleteOrder}
-                                                            setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
-                                                            setCustomerContactModalOpen={setCustomerContactModalOpen}
-                                                            business={business}
-                                                        />
+                                            <>
+                                                {/* Totals Summary for Mobile (Top) */}
+                                                <div className="lg:hidden bg-white rounded-xl border border-gray-100 p-4 mb-4 shadow-sm">
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div className="text-left">
+                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Visitas Hoy</p>
+                                                            <p className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                                                <i className="bi bi-people text-gray-400 text-sm"></i>
+                                                                {visitsCount}
+                                                            </p>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Total Ventas</p>
+                                                            <p className="text-xl font-bold text-green-600">
+                                                                ${orders.reduce((acc, order) => {
+                                                                    if (order.status === 'cancelled') return acc
+                                                                    if (order.items && order.items.length > 0) {
+                                                                        const itemsTotal = order.items.reduce((sum, item) => {
+                                                                            if (typeof item.subtotal === 'number') return sum + item.subtotal
+                                                                            const price = item.storeReceives || item.product?.price || 0
+                                                                            return sum + (price * (item.quantity || 1))
+                                                                        }, 0)
+                                                                        if (itemsTotal > 0) return acc + itemsTotal
+                                                                    }
+                                                                    if (typeof order.subtotal === 'number') return acc + order.subtotal
+                                                                    return acc + (order.total || 0)
+                                                                }, 0).toFixed(2)}
+                                                            </p>
+                                                        </div>
                                                     </div>
-                                                )}
+                                                </div>
+
+                                                <div className="flex flex-col lg:flex-row gap-6 items-start">
+                                                {/* Columna 1: Borrador, Pendiente y Live Checkouts */}
+                                                <div className={`${showCol1 ? 'block' : 'hidden lg:block'} w-full lg:flex-1 lg:min-w-0 space-y-6`}>
+                                                    {businessId && (
+                                                        <LiveCheckoutsPanel
+                                                            businessId={businessId}
+                                                            orders={orders}
+                                                            onCountChange={setCheckoutCount}
+                                                        />
+                                                    )}
+                                                    <OrderStatusColumn
+                                                        statuses={['borrador', 'pending']}
+                                                        orders={orders}
+                                                        availableDeliveries={availableDeliveries}
+                                                        handleStatusChange={handleStatusChange}
+                                                        handleDeliveryAssignment={handleDeliveryAssignment}
+                                                        handlePaymentClick={handlePaymentClick}
+                                                        handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                                                        handlePrint={handlePrint}
+                                                        setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
+                                                        setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
+                                                        setSelectedOrderForEdit={setSelectedOrderForEdit}
+                                                        setManualSidebarMode={setManualSidebarMode}
+                                                        setManualOrderSidebarOpen={setManualOrderSidebarOpen}
+                                                        handleDeleteOrder={handleDeleteOrder}
+                                                        setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
+                                                        setCustomerContactModalOpen={setCustomerContactModalOpen}
+                                                        business={business}
+                                                    />
+                                                </div>
 
                                                 {/* Columna 2: Confirmados */}
-                                                {showCol2 && (
-                                                    <div className="w-full lg:flex-1 lg:min-w-0 space-y-6">
-                                                        <OrderStatusColumn
-                                                            statuses={['confirmed']}
-                                                            orders={orders}
-                                                            availableDeliveries={availableDeliveries}
-                                                            handleStatusChange={handleStatusChange}
-                                                            handleDeliveryAssignment={handleDeliveryAssignment}
-                                                            handlePaymentClick={handlePaymentClick}
-                                                            handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
-                                                            handlePrint={handlePrint}
-                                                            setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
-                                                            setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
-                                                            setSelectedOrderForEdit={setSelectedOrderForEdit}
-                                                            setManualSidebarMode={setManualSidebarMode}
-                                                            setManualOrderSidebarOpen={setManualOrderSidebarOpen}
-                                                            handleDeleteOrder={handleDeleteOrder}
-                                                            setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
-                                                            setCustomerContactModalOpen={setCustomerContactModalOpen}
-                                                            business={business}
-                                                        />
-                                                    </div>
-                                                )}
+                                                <div className={`${showCol2 ? 'block' : 'hidden lg:block'} w-full lg:flex-1 lg:min-w-0 space-y-6`}>
+                                                    <OrderStatusColumn
+                                                        statuses={['confirmed']}
+                                                        orders={orders}
+                                                        availableDeliveries={availableDeliveries}
+                                                        handleStatusChange={handleStatusChange}
+                                                        handleDeliveryAssignment={handleDeliveryAssignment}
+                                                        handlePaymentClick={handlePaymentClick}
+                                                        handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                                                        handlePrint={handlePrint}
+                                                        setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
+                                                        setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
+                                                        setSelectedOrderForEdit={setSelectedOrderForEdit}
+                                                        setManualSidebarMode={setManualSidebarMode}
+                                                        setManualOrderSidebarOpen={setManualOrderSidebarOpen}
+                                                        handleDeleteOrder={handleDeleteOrder}
+                                                        setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
+                                                        setCustomerContactModalOpen={setCustomerContactModalOpen}
+                                                        business={business}
+                                                    />
+                                                </div>
 
                                                 {/* Columna 3: El resto */}
-                                                {showCol3 && (
-                                                    <div className="w-full lg:flex-1 lg:min-w-0 space-y-6">
-                                                        <OrderStatusColumn
-                                                            statuses={['preparing', 'ready', 'on_way', 'delivered', 'cancelled']}
-                                                            orders={orders}
-                                                            availableDeliveries={availableDeliveries}
-                                                            handleStatusChange={handleStatusChange}
-                                                            handleDeliveryAssignment={handleDeliveryAssignment}
-                                                            handlePaymentClick={handlePaymentClick}
-                                                            handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
-                                                            handlePrint={handlePrint}
-                                                            setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
-                                                            setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
-                                                            setSelectedOrderForEdit={setSelectedOrderForEdit}
-                                                            setManualSidebarMode={setManualSidebarMode}
-                                                            setManualOrderSidebarOpen={setManualOrderSidebarOpen}
-                                                            handleDeleteOrder={handleDeleteOrder}
-                                                            setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
-                                                            setCustomerContactModalOpen={setCustomerContactModalOpen}
-                                                            business={business}
-                                                        />
+                                                <div className={`${showCol3 || orders.length > 0 ? 'block' : 'hidden lg:block'} w-full lg:flex-1 lg:min-w-0 space-y-6`}>
+                                                    {/* Totals Summary for Desktop ONLY */}
+                                                    <div className="hidden lg:block bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div className="text-left">
+                                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Visitas Hoy</p>
+                                                                <p className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                                                    <i className="bi bi-people text-gray-400 text-sm"></i>
+                                                                    {visitsCount}
+                                                                </p>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Total Ventas</p>
+                                                                <p className="text-xl font-bold text-green-600">
+                                                                    ${orders.reduce((acc, order) => {
+                                                                        if (order.status === 'cancelled') return acc
+                                                                        if (order.items && order.items.length > 0) {
+                                                                            const itemsTotal = order.items.reduce((sum, item) => {
+                                                                                if (typeof item.subtotal === 'number') return sum + item.subtotal
+                                                                                const price = item.storeReceives || item.product?.price || 0
+                                                                                return sum + (price * (item.quantity || 1))
+                                                                            }, 0)
+                                                                            if (itemsTotal > 0) return acc + itemsTotal
+                                                                        }
+                                                                        if (typeof order.subtotal === 'number') return acc + order.subtotal
+                                                                        return acc + (order.total || 0)
+                                                                    }, 0).toFixed(2)}
+                                                                </p>
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                )}
+                                                    <OrderStatusColumn
+                                                        statuses={['preparing', 'ready', 'on_way', 'delivered', 'cancelled']}
+                                                        orders={orders}
+                                                        availableDeliveries={availableDeliveries}
+                                                        handleStatusChange={handleStatusChange}
+                                                        handleDeliveryAssignment={handleDeliveryAssignment}
+                                                        handlePaymentClick={handlePaymentClick}
+                                                        handleSendWhatsAppToDelivery={handleSendWhatsAppToDelivery}
+                                                        handlePrint={handlePrint}
+                                                        setSelectedOrderForStatusModal={setSelectedOrderForStatusModal}
+                                                        setDeliveryStatusModalOpen={setDeliveryStatusModalOpen}
+                                                        setSelectedOrderForEdit={setSelectedOrderForEdit}
+                                                        setManualSidebarMode={setManualSidebarMode}
+                                                        setManualOrderSidebarOpen={setManualOrderSidebarOpen}
+                                                        handleDeleteOrder={handleDeleteOrder}
+                                                        setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
+                                                        setCustomerContactModalOpen={setCustomerContactModalOpen}
+                                                        business={business}
+                                                    />
+                                                </div>
                                             </div>
-                                        )}
+                                        </>
+                                    )}
                                     </div>
                                 </>
                             )}

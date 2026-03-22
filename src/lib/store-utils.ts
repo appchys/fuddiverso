@@ -10,32 +10,52 @@ import { Business, Delivery } from '@/types'
  */
 // Función para calcular cuándo debería expirar el control manual
 export function calculateManualStatusExpiry(business: Business): Date | null {
-  if (!business.schedule) return null
+  if (!business.schedule) {
+    console.warn('⚠️ calculateManualStatusExpiry: No business schedule found')
+    return null
+  }
 
   const now = new Date()
   const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
   const currentDay = dayNames[now.getDay()]
   const currentMinutes = now.getHours() * 60 + now.getMinutes()
 
-  const todaySchedule = business.schedule[currentDay]
+  // Buscar el horario de hoy de forma insensible a mayúsculas
+  const scheduleKeys = Object.keys(business.schedule)
+  const todayKey = scheduleKeys.find(k => k.toLowerCase() === currentDay)
+  const todaySchedule = todayKey ? business.schedule[todayKey] : null
+
+  console.log('🔍 Calculating manual expiry:', {
+    currentDay,
+    todayKey,
+    hasTodaySchedule: !!todaySchedule,
+    currentMinutes
+  })
+
   if (!todaySchedule || !todaySchedule.isOpen) {
-    // Si hoy está cerrado, buscar próxima apertura
+    // Si hoy está cerrado (o no hay horario), buscar próxima apertura en los próximos 7 días
+    console.log('📅 Store closed today (or no schedule), looking for next open day...')
     for (let i = 1; i <= 7; i++) {
-      const nextDay = dayNames[(now.getDay() + i) % 7]
-      const nextDaySchedule = business.schedule[nextDay]
+      const nextDayIndex = (now.getDay() + i) % 7
+      const nextDayName = dayNames[nextDayIndex]
+      const nextDayKey = scheduleKeys.find(k => k.toLowerCase() === nextDayName)
+      const nextDaySchedule = nextDayKey ? business.schedule[nextDayKey] : null
+
       if (nextDaySchedule && nextDaySchedule.isOpen) {
         const expiryDate = new Date(now)
         expiryDate.setDate(now.getDate() + i)
-        const [openH, openM] = nextDaySchedule.open.split(':').map(Number)
+        const [openH, openM] = normalizeTime(nextDaySchedule.open).split(':').map(Number)
         expiryDate.setHours(openH, openM, 0, 0)
+        console.log(`✅ Next opening found: ${nextDayName} at ${nextDaySchedule.open}`, { expiryDate })
         return expiryDate
       }
     }
+    console.warn('❌ No open day found in the next 7 days')
     return null
   }
 
-  const [openH, openM] = todaySchedule.open.split(':').map(Number)
-  const [closeH, closeM] = todaySchedule.close.split(':').map(Number)
+  const [openH, openM] = normalizeTime(todaySchedule.open).split(':').map(Number)
+  const [closeH, closeM] = normalizeTime(todaySchedule.close).split(':').map(Number)
   const openMinutes = openH * 60 + openM
   const closeMinutes = closeH * 60 + closeM
 
@@ -44,21 +64,29 @@ export function calculateManualStatusExpiry(business: Business): Date | null {
   if (currentMinutes < openMinutes) {
     // Antes de hora de apertura: expirar a la hora de apertura
     expiryDate.setHours(openH, openM, 0, 0)
+    console.log('⏰ Expiry set to today opening time:', expiryDate.toLocaleString('es-EC'))
   } else if (currentMinutes < closeMinutes) {
     // Durante horario abierto: expirar a la hora de cierre
     expiryDate.setHours(closeH, closeM, 0, 0)
+    console.log('⏰ Expiry set to today closing time:', expiryDate.toLocaleString('es-EC'))
   } else {
-    // Después de hora de cierre: expirar mañana a la hora de apertura
+    // Después de hora de cierre: expirar mañana (o el próximo día que se abra) a la hora de apertura
+    console.log('🌙 After closing time today, looking for next opening...')
     for (let i = 1; i <= 7; i++) {
-      const nextDay = dayNames[(now.getDay() + i) % 7]
-      const nextDaySchedule = business.schedule[nextDay]
+      const nextDayIndex = (now.getDay() + i) % 7
+      const nextDayName = dayNames[nextDayIndex]
+      const nextDayKey = scheduleKeys.find(k => k.toLowerCase() === nextDayName)
+      const nextDaySchedule = nextDayKey ? business.schedule[nextDayKey] : null
+
       if (nextDaySchedule && nextDaySchedule.isOpen) {
         expiryDate.setDate(now.getDate() + i)
-        const [nextOpenH, nextOpenM] = nextDaySchedule.open.split(':').map(Number)
+        const [nextOpenH, nextOpenM] = normalizeTime(nextDaySchedule.open).split(':').map(Number)
         expiryDate.setHours(nextOpenH, nextOpenM, 0, 0)
+        console.log(`✅ Next opening found: ${nextDayName} at ${nextDaySchedule.open}`, { expiryDate })
         return expiryDate
       }
     }
+    console.warn('❌ No future open day found')
     return null
   }
 
@@ -68,77 +96,70 @@ export function calculateManualStatusExpiry(business: Business): Date | null {
 export function isStoreOpen(business: Business | null): boolean {
     if (!business) return false
 
+    const now = new Date()
+
     // 1. Verificar si el control manual ha expirado
-    if (business.manualStoreStatus && business.manualStatusExpiry) {
-        const now = new Date()
-        const expiryTime = business.manualStatusExpiry instanceof Date 
-            ? business.manualStatusExpiry 
-            : new Date(business.manualStatusExpiry)
-        
-        if (now >= expiryTime) {
-            console.log('⏰ Manual status expired, switching to automatic')
-            // El control manual ha expirado, continuar con lógica automática
+    if (business.manualStoreStatus) {
+        if (business.manualStatusExpiry) {
+            // Asegurar que manejamos Timestamp de Firestore o Date
+            const expiryTime = business.manualStatusExpiry instanceof Date 
+                ? business.manualStatusExpiry 
+                : (business.manualStatusExpiry as any).seconds 
+                    ? new Date((business.manualStatusExpiry as any).seconds * 1000)
+                    : new Date(business.manualStatusExpiry)
+            
+            if (now >= expiryTime) {
+                console.log('⏰ Manual status expired:', {
+                    now: now.toLocaleString('es-EC'),
+                    expiry: expiryTime.toLocaleString('es-EC')
+                })
+                // El control manual ha expirado, continuar con lógica automática
+            } else {
+                // El control manual todavía está activo
+                if (business.manualStoreStatus === 'open') {
+                    console.log('🟢 Store OPEN (manual override Active)')
+                    return true
+                }
+                if (business.manualStoreStatus === 'closed') {
+                    console.log('🔴 Store CLOSED (manual override Active)')
+                    return false
+                }
+            }
         } else {
-            // El control manual todavía está activo
+            // Caso antiguo o sin fecha: control manual sin expiración
             if (business.manualStoreStatus === 'open') {
-                console.log('🟢 Store OPEN (manual override)')
+                console.log('🟢 Store OPEN (manual override - no expiry)')
                 return true
             }
             if (business.manualStoreStatus === 'closed') {
-                console.log('🔴 Store CLOSED (manual override)')
+                console.log('🔴 Store CLOSED (manual override - no expiry)')
                 return false
             }
-        }
-    } else if (business.manualStoreStatus && !business.manualStatusExpiry) {
-        // Caso antiguo: control manual sin expiración (para compatibilidad)
-        if (business.manualStoreStatus === 'open') {
-            console.log('🟢 Store OPEN (manual override - no expiry)')
-            return true
-        }
-        if (business.manualStoreStatus === 'closed') {
-            console.log('🔴 Store CLOSED (manual override - no expiry)')
-            return false
         }
     }
 
     // 2. Verificar horario automático
-    const now = new Date()
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
     const currentDay = dayNames[now.getDay()]
     
-    console.log('📍 Checking automatic schedule:')
-    console.log('  - Current time:', now.toLocaleTimeString('es-EC'))
-    console.log('  - Current day:', currentDay)
-    console.log('  - Business schedule for today:', business.schedule?.[currentDay])
-
     const todaySchedule = business.schedule?.[currentDay]
 
     // Si no hay horario definido para hoy o está marcado como cerrado
     if (!todaySchedule || !todaySchedule.isOpen) {
-        console.log('🔴 Store CLOSED (no schedule or marked as closed)')
         return false
     }
 
     // Comparar hora actual con horario de apertura/cierre
     const currentMinutes = now.getHours() * 60 + now.getMinutes()
     
-    const [openH, openM] = todaySchedule.open.split(':').map(Number)
-    const [closeH, closeM] = todaySchedule.close.split(':').map(Number)
+    // Normalizar horas para evitar errores de formato (ej: "9:00" -> "09:00")
+    const [openH, openM] = normalizeTime(todaySchedule.open).split(':').map(Number)
+    const [closeH, closeM] = normalizeTime(todaySchedule.close).split(':').map(Number)
     
     const openMinutes = openH * 60 + openM
     const closeMinutes = closeH * 60 + closeM
     
-    console.log('  - Schedule:', todaySchedule.open, 'to', todaySchedule.close)
-    console.log('  - Current minutes:', currentMinutes)
-    console.log('  - Open minutes:', openMinutes)
-    console.log('  - Close minutes:', closeMinutes)
-    console.log('  - Is current >= open?', currentMinutes >= openMinutes)
-    console.log('  - Is current <= close?', currentMinutes <= closeMinutes)
-    
-    const isOpen = currentMinutes >= openMinutes && currentMinutes <= closeMinutes
-    console.log('📍 Final result:', isOpen ? '🟢 Store OPEN' : '🔴 Store CLOSED')
-    
-    return isOpen
+    return currentMinutes >= openMinutes && currentMinutes <= closeMinutes
 }
 
 /**
@@ -149,15 +170,32 @@ export function isStoreOpen(business: Business | null): boolean {
 export function getStoreStatusDescription(business: Business | null): string {
     if (!business) return 'Desconocido'
 
+    const now = new Date()
     const isOpen = isStoreOpen(business)
 
-    if (business.manualStoreStatus === 'open') {
-        return 'Abierto (Manual)'
-    } else if (business.manualStoreStatus === 'closed') {
-        return 'Cerrado (Manual)'
-    } else {
-        return isOpen ? 'Abierto (Horario)' : 'Cerrado (Horario)'
+    // Si hay estado manual, verificar si está activo o caducado
+    if (business.manualStoreStatus) {
+        let isExpired = false
+        if (business.manualStatusExpiry) {
+            const expiryTime = business.manualStatusExpiry instanceof Date 
+                ? business.manualStatusExpiry 
+                : (business.manualStatusExpiry as any).seconds 
+                    ? new Date((business.manualStatusExpiry as any).seconds * 1000)
+                    : new Date(business.manualStatusExpiry)
+            
+            if (now >= expiryTime) {
+                isExpired = true
+            }
+        }
+
+        if (!isExpired) {
+            return business.manualStoreStatus === 'open' ? 'Abierto (Manual)' : 'Cerrado (Manual)'
+        }
+        // Si caducó, mostramos el estado de horario pero con una nota? 
+        // Por ahora solo el estado de horario para que sea consistente
     }
+
+    return isOpen ? 'Abierto (Horario)' : 'Cerrado (Horario)'
 }
 
 /**
@@ -165,15 +203,17 @@ export function getStoreStatusDescription(business: Business | null): string {
  * Maneja espacios y segundos si existieran.
  */
 export function normalizeTime(time: string): string {
-    if (!time) return ''
+    if (!time || typeof time !== 'string') return '00:00'
     // Limpiar espacios y segundos
     const cleanTime = time.trim().split(' ')[0]
     const parts = cleanTime.split(':')
-    if (parts.length < 2) return cleanTime
+    if (parts.length < 2) return cleanTime.padStart(5, '0').includes(':') ? cleanTime : `${cleanTime.padStart(2, '0')}:00`
 
     // Tomar solo HH y MM ignorando SS si existiera
-    const [h, m] = parts
-    return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`
+    let [h, m] = parts
+    h = (h || '0').padStart(2, '0')
+    m = (m || '0').padStart(2, '0')
+    return `${h}:${m}`
 }
 
 /**

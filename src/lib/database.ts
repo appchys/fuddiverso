@@ -202,21 +202,31 @@ function cleanObject(obj: any): any {
     return null
   }
 
+  // Preserve Date and Timestamp objects
+  if (obj instanceof Date || (obj && obj.constructor && obj.constructor.name === 'Timestamp')) {
+    return obj
+  }
+
   if (Array.isArray(obj)) {
     return obj.map(cleanObject).filter(item => item !== null && item !== undefined)
   }
 
   if (typeof obj === 'object') {
     const cleaned: any = {}
+    let hasAnyValues = false
+    
     for (const [key, value] of Object.entries(obj)) {
       if (value !== undefined) {
-        cleaned[key] = cleanObject(value)
+        const cleanedValue = cleanObject(value)
+        if (cleanedValue !== undefined) {
+          cleaned[key] = cleanedValue
+          hasAnyValues = true
+        }
       }
     }
     // Si el objeto resultante está vacío, devolver null
     // PERO mantener el objeto si tiene valores null (para deleteField)
-    const hasAnyValues = Object.keys(cleaned).length > 0
-    return hasAnyValues ? cleaned : null
+    return hasAnyValues ? cleaned : (Object.keys(obj).length === 0 ? {} : null)
   }
 
   return obj
