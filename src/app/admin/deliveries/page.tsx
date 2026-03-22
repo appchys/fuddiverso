@@ -50,6 +50,7 @@ export default function DeliveriesAdmin() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -65,6 +66,26 @@ export default function DeliveriesAdmin() {
       console.error('Error loading deliveries:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleCopyTelegramLink = async (deliveryId: string) => {
+    const telegramLink = `https://t.me/fuddi_delivery_bot?start=${deliveryId}`
+    try {
+      await navigator.clipboard.writeText(telegramLink)
+      setCopiedId(deliveryId)
+      setTimeout(() => setCopiedId(null), 2000) // Reset after 2 seconds
+    } catch (error) {
+      console.error('Error copying link:', error)
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea')
+      textArea.value = telegramLink
+      document.body.appendChild(textArea)
+      textArea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textArea)
+      setCopiedId(deliveryId)
+      setTimeout(() => setCopiedId(null), 2000)
     }
   }
 
@@ -577,16 +598,18 @@ export default function DeliveriesAdmin() {
                         Vinculado
                       </span>
                     ) : (
-                      <a
-                        href={`https://t.me/fuddi_delivery_bot?start=${delivery.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 hover:bg-blue-100 hover:text-blue-900 transition-colors"
-                        title="Haz clic para vincular Telegram"
+                      <button
+                        onClick={() => handleCopyTelegramLink(delivery.id)}
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                          copiedId === delivery.id
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-gray-100 text-gray-800 hover:bg-blue-100 hover:text-blue-900'
+                        }`}
+                        title={copiedId === delivery.id ? '¡Enlace copiado!' : 'Haz clic para copiar el enlace de Telegram'}
                       >
-                        <i className="bi bi-telegram me-1"></i>
-                        Vincular
-                      </a>
+                        <i className={`bi ${copiedId === delivery.id ? 'bi-check' : 'bi-telegram'} me-1`}></i>
+                        {copiedId === delivery.id ? 'Copiado' : 'Vincular'}
+                      </button>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">

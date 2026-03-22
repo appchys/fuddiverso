@@ -10,8 +10,8 @@ import { isDeliveryAvailable } from '@/lib/store-utils'
 const GOOGLE_MAPS_LIBRARIES: ("drawing" | "geometry" | "places" | "visualization")[] = ["drawing", "geometry"]
 
 const defaultCenter = {
-  lat: -2.1709979,
-  lng: -79.9224426 // Guayaquil, Ecuador
+  lat: -1.862870,
+  lng: -79.977040
 }
 
 export default function CoverageZonesPage() {
