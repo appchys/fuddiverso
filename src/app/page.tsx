@@ -278,12 +278,48 @@ function HomePageContent() {
   useEffect(() => {
     const init = async () => {
       try {
+        console.log('[DEBUG CATEGORIES] Starting category load with groupId:', groupId)
         const allBusinesses = await getAllBusinesses()
         const visibleBusinesses = allBusinesses.filter(b => !b.isHidden)
+        console.log('[DEBUG CATEGORIES] Total visible businesses:', visibleBusinesses.length)
 
-        // Extraer categorías
+        // Aplicar filtro de grupo si existe o si estamos en una ciudad específica
+        let filteredForCategories = visibleBusinesses;
+        if (groupId) {
+          console.log('[DEBUG CATEGORIES] Filtering businesses by groupId:', groupId)
+          filteredForCategories = filteredForCategories.filter(b => b.groupId === groupId)
+        } else {
+          console.log('[DEBUG CATEGORIES] Filtering global businesses (no groupId)')
+          filteredForCategories = filteredForCategories.filter(b => !b.groupId)
+        }
+        console.log('[DEBUG CATEGORIES] Businesses after location filter:', filteredForCategories.length)
+
+        // Extraer categorías de los productos de los negocios filtrados por ubicación
         const uniqueCategories = new Set<string>()
-        visibleBusinesses.forEach(b => b.categories?.forEach(c => uniqueCategories.add(c)))
+        
+        // Primero agregar categorías de los negocios (si existen)
+        filteredForCategories.forEach(b => {
+          console.log('[DEBUG CATEGORIES] Business:', b.name, 'categories:', b.categories)
+          b.categories?.forEach(c => uniqueCategories.add(c))
+        })
+        
+        // Luego agregar categorías de los productos de esos negocios
+        const businessIds = filteredForCategories.map(b => b.id)
+        if (businessIds.length > 0) {
+          try {
+            const products = await getGlobalProducts('all', 1000, groupId || undefined) // Obtener todos los productos de esta ubicación
+            products.forEach(p => {
+              if (p.category) {
+                console.log('[DEBUG CATEGORIES] Product category found:', p.category, 'from product:', p.name)
+                uniqueCategories.add(p.category)
+              }
+            })
+          } catch (error) {
+            console.error('[DEBUG CATEGORIES] Error loading products for categories:', error)
+          }
+        }
+        
+        console.log('[DEBUG CATEGORIES] Unique categories found:', Array.from(uniqueCategories))
         const shuffled = Array.from(uniqueCategories).sort(() => 0.5 - Math.random())
         setCategories(['all', ...shuffled])
 
@@ -317,7 +353,7 @@ function HomePageContent() {
       }
     }
     init()
-  }, [])
+  }, [groupId])
 
   // Sincronizar parámetros de la URL
   useEffect(() => {
