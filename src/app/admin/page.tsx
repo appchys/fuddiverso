@@ -236,14 +236,31 @@ export default function AdminDashboard() {
           return acc;
         }, {});
 
-        const formattedData = Object.keys(grouped).map(key => ({
-          date: key,
-          count: grouped[key]
-        })).sort((a, b) => {
-          const [dayA, monthA] = a.date.split('/').map(Number);
-          const [dayB, monthB] = b.date.split('/').map(Number);
-          if (isNaN(dayA) || isNaN(monthA) || isNaN(dayB) || isNaN(monthB)) return 0;
-          return (monthA * 31 + dayA) - (monthB * 31 + dayB);
+        // Generate all days in the range to ensure no gaps
+        const start = new Date(dateRange.start)
+        const end = new Date(dateRange.end)
+        start.setHours(0, 0, 0, 0)
+        end.setHours(0, 0, 0, 0)
+
+        const days: Date[] = []
+        const current = new Date(start)
+        let count = 0
+        while (current <= end && count < 90) {
+          days.push(new Date(current))
+          current.setDate(current.getDate() + 1)
+          count++
+        }
+
+        // Create complete dataset with all days
+        const formattedData = days.map(date => {
+          const day = date.getDate().toString().padStart(2, '0');
+          const month = (date.getMonth() + 1).toString().padStart(2, '0');
+          const dateStr = `${day}/${month}`;
+          
+          return {
+            date: dateStr,
+            count: grouped[dateStr] || 0 // Use 0 for days with no links
+          };
         });
 
         setTelegramChartData(formattedData);
@@ -1424,6 +1441,17 @@ export default function AdminDashboard() {
                 <h3 className="text-lg font-bold text-gray-900">Comisión Fuddi</h3>
                 <p className="text-sm text-gray-500">Ganancias de la plataforma por comisiones</p>
               </div>
+              
+              {/* Total Global de Comisiones */}
+              <div className="mb-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-green-700">Total de comisiones en el período</span>
+                  <span className="text-xl font-bold text-green-900">
+                    ${commissionChartData.reduce((sum, item) => sum + (item.commission || 0), 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+              
               <div className="h-80 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={commissionChartData}>
@@ -1626,138 +1654,7 @@ export default function AdminDashboard() {
             </div>
 
 
-            {/* Pedidos Recientes - Mobile First */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 lg:col-span-2 overflow-hidden">
-              <div className="p-4 md:p-6 border-b border-gray-100 flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900">Pedidos Recientes</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">{orders.length} pedidos totales</p>
-                </div>
-                <a href="/admin/orders" className="text-sm font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1">
-                  Ver todos
-                  <i className="bi bi-chevron-right text-xs"></i>
-                </a>
-              </div>
-
-              {/* Vista Móvil - Cards Dashboard */}
-              <div className="md:hidden space-y-4 p-4 bg-gray-50/30">
-                {orders.slice(0, 5).map((order) => {
-                  const business = businesses.find(b => b.id === order.businessId)
-                  if (!order || !order.customer) return null
-
-                  const statusConfig: Record<string, { bg: string; text: string; icon: string }> = {
-                    pending: { bg: 'bg-amber-50', text: 'text-amber-700', icon: 'bi-clock-history' },
-                    confirmed: { bg: 'bg-blue-50', text: 'text-blue-700', icon: 'bi-check2-circle' },
-                    preparing: { bg: 'bg-orange-50', text: 'text-orange-700', icon: 'bi-fire' },
-                    ready: { bg: 'bg-green-50', text: 'text-green-700', icon: 'bi-bag-check' },
-                    delivered: { bg: 'bg-gray-50', text: 'text-gray-600', icon: 'bi-house-check' },
-                    cancelled: { bg: 'bg-red-50', text: 'text-red-700', icon: 'bi-x-circle' }
-                  }
-                  const status = statusConfig[order.status] || statusConfig.pending
-
-                  return (
-                    <div key={order.id} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm active:scale-[0.98] transition-all">
-                      <div className="flex items-start justify-between gap-3 mb-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-10 h-10 rounded-xl bg-gray-50 overflow-hidden border border-gray-100 shrink-0">
-                            {business?.image ? (
-                              <img src={business.image} alt={business.name || ''} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-gray-200">
-                                <i className="bi bi-shop"></i>
-                              </div>
-                            )}
-                          </div>
-                          <div className="min-w-0">
-                            <h4 className="text-sm font-black text-gray-900 truncate uppercase tracking-tight">
-                              {order.customer?.name || 'S/N'}
-                            </h4>
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest truncate">
-                              {business?.name || 'S/T'}
-                            </p>
-                          </div>
-                        </div>
                       </div>
-
-                      <div className="flex items-center justify-between pt-3 border-t border-gray-50">
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${status.bg} ${status.text} border border-current/10`}>
-                            <i className={`bi ${status.icon}`}></i>
-                            {order.status}
-                          </span>
-                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                            {order.createdAt ? new Date(order.createdAt).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }) : ''}
-                          </span>
-                        </div>
-                        <a href="/admin/orders" className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-1">
-                          Gestionar
-                          <i className="bi bi-arrow-right"></i>
-                        </a>
-                      </div>
-                    </div>
-                  )
-                }).filter(Boolean)}
-              </div>
-
-              {/* Vista Desktop - Tabla */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pedido</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tienda</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {orders.slice(0, 5).map((order) => {
-                      const business = businesses.find(b => b.id === order.businessId)
-                      if (!order || !order.customer) return null
-
-                      return (
-                        <tr key={order.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">#{order.id?.slice(-6)}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">{order.customer?.name || 'Sin nombre'}</div>
-                            <div className="text-sm text-gray-500">{order.customer?.phone || 'Sin teléfono'}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">{business?.name || 'N/A'}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-bold text-gray-900">${order.total?.toFixed(2) || '0.00'}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${order.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                              order.status === 'confirmed' ? 'bg-blue-100 text-blue-800' :
-                                order.status === 'preparing' ? 'bg-orange-100 text-orange-800' :
-                                  order.status === 'ready' ? 'bg-green-100 text-green-800' :
-                                    order.status === 'delivered' ? 'bg-gray-100 text-gray-800' :
-                                      'bg-red-100 text-red-800'
-                              }`}>
-                              {order.status === 'pending' ? 'Pendiente' :
-                                order.status === 'confirmed' ? 'Confirmado' :
-                                  order.status === 'preparing' ? 'Preparando' :
-                                    order.status === 'ready' ? 'Listo' :
-                                      order.status === 'delivered' ? 'Entregado' : 'Cancelado'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'Sin fecha'}
-                          </td>
-                        </tr>
-                      )
-                    }).filter(Boolean)}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
         </>
       ) : activeTab === 'customers' ? (
         renderCustomersTab()
