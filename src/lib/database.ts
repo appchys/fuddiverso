@@ -266,6 +266,27 @@ export async function createBusiness(businessData: Omit<Business, 'id' | 'create
   }
 }
 
+/**
+ * Guardar una solicitud de restaurante en una zona sin cobertura
+ */
+export async function saveRestaurantRequest(data: {
+  restaurantName: string;
+  whatsapp?: string;
+  location?: { lat: number; lng: number } | null;
+  groupId?: string | null;
+}) {
+  try {
+    const docRef = await addDoc(collection(db, 'restaurant_requests'), {
+      ...data,
+      createdAt: serverTimestamp(),
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error('Error saving restaurant request:', error);
+    throw error;
+  }
+}
+
 // Función auxiliar para crear un negocio desde datos del formulario
 export async function createBusinessFromForm(formData: {
   name: string;

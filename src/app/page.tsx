@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups } from '@/lib/database'
+import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest } from '@/lib/database'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
@@ -51,6 +51,10 @@ function HomePageContent() {
   const [isProductSidebarOpen, setIsProductSidebarOpen] = useState(false)
   const [groupId, setGroupId] = useState<string | null>(null)
   const [detectedGroupName, setDetectedGroupName] = useState<string | null>(null)
+  const [surveySubmitted, setSurveySubmitted] = useState(false)
+  const [requestName, setRequestName] = useState('')
+  const [requestWhatsapp, setRequestWhatsapp] = useState('')
+  const [isSubmittingSurvey, setIsSubmittingSurvey] = useState(false)
 
   // Cart State
   const [cart, setCart] = useState<any[]>([])
@@ -618,15 +622,103 @@ function HomePageContent() {
               <p className="mt-4 text-gray-600">Cargando restaurantes...</p>
             </div>
           ) : businesses.filter(b => b.businessType !== 'distributor').length === 0 ? (
-            <div className="text-center py-16">
-              <div className="text-6xl mb-4">🍽️</div>
-              <p className="text-gray-600 text-lg mb-4">No se encontraron restaurantes</p>
-              <button
-                onClick={() => loadBusinessesWithParams('', 'all')}
-                className="bg-[#aa1918] text-white px-6 py-2 rounded-lg hover:bg-[#911515]"
-              >
-                Recargar
-              </button>
+            <div className="max-w-xl mx-auto py-12 px-6 bg-white rounded-3xl shadow-sm border border-gray-100">
+              {surveySubmitted ? (
+                <div className="text-center animate-in fade-in zoom-in duration-500">
+                  <div className="text-6xl mb-4">🚀</div>
+                  <h3 className="text-2xl font-black text-gray-900 mb-2">¡Pedido recibido!</h3>
+                  <p className="text-gray-600 mb-6">Gracias por ayudarnos a crecer. ¡Pronto estaremos en tu zona!</p>
+                  <button
+                    onClick={() => setSurveySubmitted(false)}
+                    className="text-[#aa1918] font-bold text-sm hover:underline"
+                  >
+                    Enviar otra sugerencia
+                  </button>
+                </div>
+              ) : (
+                <div className="text-center">
+                  <div className="text-6xl mb-6">🍽️</div>
+                  <h3 className="text-2xl font-black text-gray-900 mb-3 leading-tight">
+                    Aún no estamos repartiendo en tu zona, pero tú mandas.
+                  </h3>
+                  <p className="text-gray-500 mb-8 font-medium">¿Qué restaurante nos falta aquí?</p>
+                  
+                  <form onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!requestName.trim()) return;
+                    
+                    setIsSubmittingSurvey(true);
+                    try {
+                      await saveRestaurantRequest({
+                        restaurantName: requestName,
+                        whatsapp: requestWhatsapp,
+                        location: userLocation,
+                        groupId: groupId
+                      });
+                      setSurveySubmitted(true);
+                      setRequestName('');
+                      setRequestWhatsapp('');
+                    } catch (err) {
+                      alert('Error al enviar la sugerencia. Inténtalo de nuevo.');
+                    } finally {
+                      setIsSubmittingSurvey(false);
+                    }
+                  }} className="space-y-4">
+                    <div className="text-left">
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 ml-1">
+                        Nombre del Restaurante
+                      </label>
+                      <input
+                        type="text"
+                        value={requestName}
+                        onChange={(e) => setRequestName(e.target.value)}
+                        placeholder="Ej: Las Burguesas de la Esquina"
+                        required
+                        className="w-full bg-gray-50 border-none rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-[#aa1918]/20 transition-all"
+                      />
+                    </div>
+                    
+                    <div className="text-left">
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 ml-1">
+                        Tu WhatsApp (Opcional)
+                      </label>
+                      <p className="text-[10px] text-gray-500 mb-2 ml-1">
+                        Te avisaremos en cuanto los sumemos y te enviaremos un cupón de regalo 🎁
+                      </p>
+                      <input
+                        type="tel"
+                        value={requestWhatsapp}
+                        onChange={(e) => setRequestWhatsapp(e.target.value)}
+                        placeholder="0987654321"
+                        className="w-full bg-gray-50 border-none rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-[#aa1918]/20 transition-all"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSubmittingSurvey || !requestName.trim()}
+                      className={`w-full bg-[#aa1918] text-white font-black py-4 rounded-2xl shadow-lg shadow-red-900/10 hover:shadow-red-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group ${isSubmittingSurvey ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {isSubmittingSurvey ? (
+                        <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      ) : (
+                        <>
+                          Enviar Sugerencia
+                          <i className="bi bi-arrow-right group-hover:translate-x-1 transition-transform"></i>
+                        </>
+                      )}
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => loadBusinessesWithParams('', 'all')}
+                      className="w-full text-gray-400 font-bold text-xs uppercase tracking-widest border border-gray-100 py-3 rounded-2xl hover:bg-gray-50 transition-all"
+                    >
+                      Ver todos los restaurantes
+                    </button>
+                  </form>
+                </div>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">

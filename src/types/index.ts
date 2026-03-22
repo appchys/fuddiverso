@@ -376,3 +376,12 @@ export interface UserCredits {
   updatedAt: Date
 }
 
+export interface RestaurantRequest {
+  id?: string
+  restaurantName: string
+  whatsapp?: string
+  location?: { lat: number; lng: number } | null
+  groupId?: string | null
+  createdAt: any
+}
+
