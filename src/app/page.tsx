@@ -251,8 +251,27 @@ function HomePageContent() {
         }
       }
     }
+
+    const handleLocationChanged = () => {
+      const savedCoords = localStorage.getItem('userCoordinates')
+      if (savedCoords) {
+        try {
+          const coords = JSON.parse(savedCoords)
+          setUserLocation(coords)
+          detectGroupFromCoords(coords)
+        } catch (err) {
+          console.warn('Error parsing location-changed event:', err)
+        }
+      }
+    }
+
     window.addEventListener('storage', handleStorageChange)
-    return () => window.removeEventListener('storage', handleStorageChange)
+    window.addEventListener('location-changed', handleLocationChanged)
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      window.removeEventListener('location-changed', handleLocationChanged)
+    }
   }, [])
 
   // Cargar categorías únicas solo una vez al inicio
@@ -314,7 +333,7 @@ function HomePageContent() {
   // Cargar productos aleatorios de forma EFICIENTE (una sola query)
   const loadRandomProducts = async (category: string = 'all') => {
     try {
-      const selected = await getGlobalProducts(category, 24)
+      const selected = await getGlobalProducts(category, 24, groupId || undefined)
       setRandomProducts(selected)
     } catch (error) {
       console.error('Error loading random products:', error)
@@ -323,7 +342,7 @@ function HomePageContent() {
 
   useEffect(() => {
     loadRandomProducts(selectedCategory)
-  }, [selectedCategory])
+  }, [selectedCategory, groupId])
 
   const loadBusinessesWithParams = async (search: string, category: string) => {
     try {

@@ -326,6 +326,9 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
             // Guardar en localStorage para persistencia
             localStorage.setItem('userCoordinates', JSON.stringify({ lat, lng }))
 
+            // Notificar a HomePage del cambio de ubicación
+            window.dispatchEvent(new Event('location-changed'))
+
             // Close modal if open
             setIsLocationModalOpen(false)
         } catch (e) {

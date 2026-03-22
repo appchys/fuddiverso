@@ -714,32 +714,92 @@ export async function getProductsByBusiness(businessId: string): Promise<Product
  * Obtener productos disponibles de forma aleatoria/reciente a través de todos los negocios
  * Optimizado para evitar bucles N+1 en la home
  */
-export async function getGlobalProducts(category: string = 'all', limitCount: number = 20): Promise<Product[]> {
+export async function getGlobalProducts(category: string = 'all', limitCount: number = 20, groupId?: string): Promise<Product[]> {
   try {
-    const productsRef = collection(db, 'products')
-    let q
-
-    if (category === 'all') {
-      q = query(
-        productsRef,
-        where('isAvailable', '==', true),
-        limit(limitCount)
+    let products: Product[] = []
+    
+    if (groupId) {
+      // Si hay groupId, primero obtenemos los negocios de ese grupo
+      const businessesRef = collection(db, 'businesses')
+      const businessesQuery = query(
+        businessesRef,
+        where('groupId', '==', groupId)
       )
+      const businessesSnapshot = await getDocs(businessesQuery)
+      const businessIds = businessesSnapshot.docs.map(doc => doc.id)
+      
+      if (businessIds.length === 0) {
+        return []
+      }
+      
+      // Luego obtenemos productos de esos negocios
+      const productsRef = collection(db, 'products')
+      let q
+      
+      if (category === 'all') {
+        q = query(
+          productsRef,
+          where('isAvailable', '==', true),
+          where('businessId', 'in', businessIds),
+          limit(limitCount)
+        )
+      } else {
+        q = query(
+          productsRef,
+          where('isAvailable', '==', true),
+          where('category', '==', category),
+          where('businessId', 'in', businessIds),
+          limit(limitCount)
+        )
+      }
+      
+      const snapshot = await getDocs(q)
+      products = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: toSafeDate(doc.data().createdAt)
+      })) as Product[]
     } else {
-      q = query(
-        productsRef,
-        where('isAvailable', '==', true),
-        where('category', '==', category),
-        limit(limitCount)
+      // Sin groupId - obtener todos los productos de negocios globales
+      const businessesRef = collection(db, 'businesses')
+      const businessesQuery = query(
+        businessesRef,
+        where('groupId', '==', null)
       )
+      const businessesSnapshot = await getDocs(businessesQuery)
+      const businessIds = businessesSnapshot.docs.map(doc => doc.id)
+      
+      if (businessIds.length === 0) {
+        return []
+      }
+      
+      const productsRef = collection(db, 'products')
+      let q
+      
+      if (category === 'all') {
+        q = query(
+          productsRef,
+          where('isAvailable', '==', true),
+          where('businessId', 'in', businessIds),
+          limit(limitCount)
+        )
+      } else {
+        q = query(
+          productsRef,
+          where('isAvailable', '==', true),
+          where('category', '==', category),
+          where('businessId', 'in', businessIds),
+          limit(limitCount)
+        )
+      }
+      
+      const snapshot = await getDocs(q)
+      products = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: toSafeDate(doc.data().createdAt)
+      })) as Product[]
     }
-
-    const snapshot = await getDocs(q)
-    const products = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: toSafeDate(doc.data().createdAt)
-    })) as Product[]
 
     // Mezclar en cliente para dar sensación de aleatoriedad
     return products.sort(() => 0.5 - Math.random())
