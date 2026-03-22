@@ -360,7 +360,7 @@ export function CheckoutContent({
     'step-2': true,
     'step-3': true,
     'step-4': true,
-    'cart-items': false
+    'cart-items': true
   })
 
   const effectiveClientId = user?.id || clientFound?.id || ''
@@ -1990,7 +1990,7 @@ export function CheckoutContent({
                     <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${!canOrderNow
                       ? 'bg-gray-200 text-gray-400'
                       : timingData.type === 'immediate'
-                        ? 'bg-white/20 text-white'
+                        ? 'bg-white/20 text-yellow-400'
                         : 'bg-white text-gray-400'
                       }`}>
                       <i className="bi bi-lightning-charge-fill"></i>
@@ -2031,8 +2031,8 @@ export function CheckoutContent({
                       : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
                       }`}
                   >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${timingData.type === 'scheduled' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'}`}>
-                      <i className="bi bi-clock-fill"></i>
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${timingData.type === 'scheduled' ? 'bg-white/20 text-blue-500' : 'bg-white text-gray-400'}`}>
+                      <i className="bi bi-alarm-fill"></i>
                     </div>
                     <span className="font-bold">Programar</span>
                     {timingData.type === 'scheduled' && (
@@ -2322,23 +2322,28 @@ export function CheckoutContent({
                   <div className="space-y-6">
                 {/* Resumen del Pedido Consolidado */}
                 <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100 mb-2">
-                  <button
-                    type="button"
-                    onClick={() => toggleSection('cart-items')}
-                    className="w-full text-sm text-gray-500 mb-4 flex items-center justify-between hover:text-gray-600 transition-colors"
-                  >
-                    <span>Resumen de Compra</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] bg-white px-2 py-0.5 rounded-lg border border-gray-100 text-gray-500">
-                        {cartItems.length} ítems
-                      </span>
-                      <i className={`bi bi-chevron-${collapsedSections['cart-items'] ? 'down' : 'up'} text-gray-400 transition-transform duration-200`}></i>
+                  <div className="space-y-2 pt-4 border-t border-gray-200/60">
+                    <div className="flex justify-between items-center text-sm">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection('cart-items')}
+                          className="flex items-center gap-2 hover:text-gray-600 transition-colors"
+                        >
+                          <span className="text-gray-500">Subtotal productos</span>
+                          <i className={`bi bi-chevron-${collapsedSections['cart-items'] ? 'down' : 'up'} text-gray-400 transition-transform duration-200`}></i>
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] bg-white px-2 py-0.5 rounded-lg border border-gray-100 text-gray-500">
+                          {cartItems.length} ítems
+                        </span>
+                        <span className="font-bold text-gray-800">{formatPrice(subtotal)}</span>
+                      </div>
                     </div>
-                  </button>
 
-                  {!collapsedSections['cart-items'] && (
-                    <div className="animate-fadeIn">
-                      <div className="space-y-2 mb-4">
+                    {!collapsedSections['cart-items'] && (
+                      <div className="animate-fadeIn pl-4 space-y-2">
                         {[...cartItems]
                           .sort((a, b) => (a.esPremio ? 1 : b.esPremio ? -1 : 0))
                           .map((item: any, index: number) => (
@@ -2352,14 +2357,10 @@ export function CheckoutContent({
                             </div>
                           ))}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
                   <div className="space-y-2 pt-4 border-t border-gray-200/60">
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-500">Subtotal productos</span>
-                      <span className="font-bold text-gray-800">{formatPrice(subtotal)}</span>
-                    </div>
                     <div className="flex justify-between items-center text-sm">
                       <span className="text-gray-500">Costo de envío</span>
                       <span className={`font-bold ${deliveryCost > 0 ? 'text-gray-800' : 'text-amber-600'}`}>
