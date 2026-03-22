@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
@@ -1949,7 +1949,16 @@ function OrderCard({
                         {/* Advance Status */}
                         {nextStatus && (
                             <button
-                                onClick={() => onStatusChange(order.id, nextStatus)}
+                                onClick={() => {
+                                    // Si el siguiente estado es 'confirmed', verificar el tipo de timing
+                                    if (nextStatus === 'confirmed') {
+                                        // Si es inmediata, ir a 'preparando', si es programada, ir a 'confirmed'
+                                        const targetStatus = order.timing?.type === 'immediate' ? 'preparing' : 'confirmed';
+                                        onStatusChange(order.id, targetStatus);
+                                    } else {
+                                        onStatusChange(order.id, nextStatus);
+                                    }
+                                }}
                                 className={`flex items-center gap-1 rounded-lg transition-colors shadow-sm ${nextStatus === 'confirmed'
                                     ? 'px-3 py-1.5 text-xs font-bold bg-green-600 text-white hover:bg-green-700'
                                     : 'p-1.5 text-lg hover:bg-white hover:shadow-md'
