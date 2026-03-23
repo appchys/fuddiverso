@@ -31,7 +31,6 @@ import {
 import { Business } from '@/types'
 import LocationMap from '@/components/LocationMap'
 import LocationSelectionModal from '@/components/LocationSelectionModal'
-import RestrictedBrowserGPSWarning from '@/components/RestrictedBrowserGPSWarning'
 import { useAuth } from '@/contexts/AuthContext'
 import { storage } from '@/lib/firebase'
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -2203,7 +2202,6 @@ export function CheckoutContent({
                 {/* Selected Location Display */}
                 {deliveryData.type === 'delivery' && (
                   <div className="animate-fadeIn space-y-4">
-                    <RestrictedBrowserGPSWarning />
 
                     {selectedLocation ? (
                       <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 flex items-start gap-3 relative group">

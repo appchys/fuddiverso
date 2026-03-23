@@ -19,7 +19,6 @@ import { isStoreOpen, getNextOpeningMessage } from '@/lib/store-utils'
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
-import InstagramBrowserBanner from '@/components/InstagramBrowserBanner'
 
 // Componente para structured data JSON-LD
 function BusinessStructuredData({ business }: { business: Business }) {
@@ -1308,7 +1307,6 @@ function RestaurantContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <InstagramBrowserBanner />
 
       {/* Structured Data for SEO */}
       <BusinessStructuredData business={business} />

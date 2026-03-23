@@ -10,7 +10,6 @@ import type { Product, Business } from '@/types/index'
 import CartSidebar from '@/components/CartSidebar'
 import UserSidebar from '@/components/UserSidebar'
 import ClientLoginModal from '@/components/ClientLoginModal'
-import InstagramBrowserBanner from '@/components/InstagramBrowserBanner'
 
 export default function ProductPageByUsername() {
   const params = useParams()
@@ -381,7 +380,6 @@ export default function ProductPageByUsername() {
 
   return (
     <div className="min-h-screen bg-white">
-      <InstagramBrowserBanner />
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {business && (

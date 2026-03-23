@@ -11,7 +11,6 @@ import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
 import ProductDetailSidebar from '@/components/ProductDetailSidebar'
 import CartSidebar from '@/components/CartSidebar' // Added import for CartSidebar
-import InstagramBrowserBanner from '@/components/InstagramBrowserBanner'
 
 export default function HomePage() {
   return (
@@ -475,7 +474,6 @@ function HomePageContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <InstagramBrowserBanner />
 
       {/* CATEGORÍAS */}
       <section className="py-6 bg-white border-b border-gray-100">
