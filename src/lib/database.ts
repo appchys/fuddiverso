@@ -749,7 +749,7 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
   try {
     let products: Product[] = []
     
-    if (groupId) {
+    if (groupId && groupId !== 'ALL') {
       // Si hay groupId, primero obtenemos los negocios de ese grupo
       const businessesRef = collection(db, 'businesses')
       const businessesQuery = query(
@@ -791,12 +791,16 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
         createdAt: toSafeDate(doc.data().createdAt)
       })) as Product[]
     } else {
-      // Sin groupId - obtener todos los productos de negocios globales
+      // Sin groupId o groupId === 'ALL' - obtener productos de negocios globales o todos
       const businessesRef = collection(db, 'businesses')
-      const businessesQuery = query(
-        businessesRef,
-        where('groupId', '==', null)
-      )
+      let businessesQuery
+      
+      if (groupId === 'ALL') {
+        businessesQuery = query(businessesRef)
+      } else {
+        businessesQuery = query(businessesRef, where('groupId', '==', null))
+      }
+      
       const businessesSnapshot = await getDocs(businessesQuery)
       const businessIds = businessesSnapshot.docs.map(doc => doc.id)
       
@@ -807,21 +811,42 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
       const productsRef = collection(db, 'products')
       let q
       
-      if (category === 'all') {
-        q = query(
-          productsRef,
-          where('isAvailable', '==', true),
-          where('businessId', 'in', businessIds),
-          limit(limitCount)
-        )
+      // Si es una lista de IDs muy grande (>30), Firestore 'in' fallará.
+      // Aquí simplificamos, pero para 'ALL' tal vez convenga no filtrar por businessId en la query
+      // y filtrar en memoria después? O mejor, no filtrar por ID si es ALL.
+      
+      if (groupId === 'ALL') {
+        if (category === 'all') {
+          q = query(
+            productsRef,
+            where('isAvailable', '==', true),
+            limit(limitCount)
+          )
+        } else {
+          q = query(
+            productsRef,
+            where('isAvailable', '==', true),
+            where('category', '==', category),
+            limit(limitCount)
+          )
+        }
       } else {
-        q = query(
-          productsRef,
-          where('isAvailable', '==', true),
-          where('category', '==', category),
-          where('businessId', 'in', businessIds),
-          limit(limitCount)
-        )
+        if (category === 'all') {
+          q = query(
+            productsRef,
+            where('isAvailable', '==', true),
+            where('businessId', 'in', businessIds),
+            limit(limitCount)
+          )
+        } else {
+          q = query(
+            productsRef,
+            where('isAvailable', '==', true),
+            where('category', '==', category),
+            where('businessId', 'in', businessIds),
+            limit(limitCount)
+          )
+        }
       }
       
       const snapshot = await getDocs(q)
@@ -831,6 +856,8 @@ export async function getGlobalProducts(category: string = 'all', limitCount: nu
         createdAt: toSafeDate(doc.data().createdAt)
       })) as Product[]
     }
+
+    return products;
 
     // Mezclar en cliente para dar sensación de aleatoriedad
     return products.sort(() => 0.5 - Math.random())

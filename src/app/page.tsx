@@ -51,6 +51,9 @@ function HomePageContent() {
   const [isProductSidebarOpen, setIsProductSidebarOpen] = useState(false)
   const [groupId, setGroupId] = useState<string | null>(null)
   const [detectedGroupName, setDetectedGroupName] = useState<string | null>(null)
+  const [isOutOfCoverage, setIsOutOfCoverage] = useState(false)
+  const [locationError, setLocationError] = useState(false)
+  const [showAllRestaurants, setShowAllRestaurants] = useState(false)
   const [surveySubmitted, setSurveySubmitted] = useState(false)
   const [requestName, setRequestName] = useState('')
   const [requestWhatsapp, setRequestWhatsapp] = useState('')
@@ -191,6 +194,7 @@ function HomePageContent() {
       if (zone?.groupId) {
         console.log('[DEBUG] detectGroupFromCoords - Setting groupId:', zone.groupId)
         setGroupId(zone.groupId)
+        setIsOutOfCoverage(false)
         localStorage.setItem('lastDetectedGroupId', zone.groupId)
         // Obtener el nombre del grupo para mostrarlo en la UI
         getCoverageGroups().then(groups => {
@@ -201,6 +205,7 @@ function HomePageContent() {
       } else {
         console.log('[DEBUG] detectGroupFromCoords - No groupId for these coords')
         setGroupId(null)
+        setIsOutOfCoverage(true)
         setDetectedGroupName(null)
         localStorage.removeItem('lastDetectedGroupId')
       }
@@ -235,10 +240,13 @@ function HomePageContent() {
           detectGroupFromCoords(newLocation)
         },
         (error) => {
-          console.warn('Ubicación no disponible para cálculo de distancias:', error)
+          console.warn('Ubicación no disponible:', error)
+          setLocationError(true)
         },
         { enableHighAccuracy: false, timeout: 5000 }
       )
+    } else {
+      setLocationError(true)
     }
   }, [])
 
@@ -289,7 +297,9 @@ function HomePageContent() {
 
         // Aplicar filtro de grupo si existe o si estamos en una ciudad específica
         let filteredForCategories = visibleBusinesses;
-        if (groupId) {
+        if (showAllRestaurants) {
+          console.log('[DEBUG CATEGORIES] Showing all categories (showAllRestaurants)')
+        } else if (groupId) {
           console.log('[DEBUG CATEGORIES] Filtering businesses by groupId:', groupId)
           filteredForCategories = filteredForCategories.filter(b => b.groupId === groupId)
         } else {
@@ -311,7 +321,7 @@ function HomePageContent() {
         const businessIds = filteredForCategories.map(b => b.id)
         if (businessIds.length > 0) {
           try {
-            const products = await getGlobalProducts('all', 1000, groupId || undefined) // Obtener todos los productos de esta ubicación
+            const products = await getGlobalProducts('all', 1000, showAllRestaurants ? 'ALL' : (groupId || undefined)) // Obtener todos los productos de esta ubicación
             products.forEach(p => {
               if (p.category) {
                 console.log('[DEBUG CATEGORIES] Product category found:', p.category, 'from product:', p.name)
@@ -331,24 +341,23 @@ function HomePageContent() {
         const urlSearch = searchParams.get('search') || ''
         const urlCategory = searchParams.get('category') || 'all'
 
-        if (!urlSearch && urlCategory === 'all') {
-          // Aplicar filtro de grupo si existe o si estamos en una ciudad específica
-          let filtered = visibleBusinesses;
-          console.log('[DEBUG] init - Total businesses before group filter:', filtered.length)
-          if (groupId) {
-            console.log('[DEBUG] init - Filtering by groupId:', groupId)
-            filtered = filtered.filter(b => b.groupId === groupId)
-          } else {
-            console.log('[DEBUG] init - No groupId, showing only global businesses')
-            filtered = filtered.filter(b => !b.groupId)
-          }
-          console.log('[DEBUG] init - Businesses after filter:', filtered.length)
-
-          setBusinesses(filtered)
-          setLoading(false)
+        // Aplicar filtro de grupo si existe o si estamos en una ciudad específica
+        let filtered = visibleBusinesses;
+        console.log('[DEBUG] init - Total businesses before group filter:', filtered.length)
+        
+        if (showAllRestaurants) {
+          console.log('[DEBUG] init - Showing all restaurants (forceShowAll)')
+        } else if (groupId) {
+          console.log('[DEBUG] init - Filtering by groupId:', groupId)
+          filtered = filtered.filter(b => b.groupId === groupId)
         } else {
-          loadBusinessesWithParams(urlSearch, urlCategory)
+          console.log('[DEBUG] init - No groupId, showing only global businesses')
+          filtered = filtered.filter(b => !b.groupId)
         }
+        console.log('[DEBUG] init - Businesses after filter:', filtered.length)
+
+        setBusinesses(filtered)
+        setLoading(false)
 
         if (user) loadFollowedBusinesses()
       } catch (err) {
@@ -357,7 +366,7 @@ function HomePageContent() {
       }
     }
     init()
-  }, [groupId])
+  }, [groupId, showAllRestaurants])
 
   // Sincronizar parámetros de la URL
   useEffect(() => {
@@ -373,7 +382,7 @@ function HomePageContent() {
   // Cargar productos aleatorios de forma EFICIENTE (una sola query)
   const loadRandomProducts = async (category: string = 'all') => {
     try {
-      const selected = await getGlobalProducts(category, 24, groupId || undefined)
+      const selected = await getGlobalProducts(category, 24, showAllRestaurants ? 'ALL' : (groupId || undefined))
       setRandomProducts(selected)
     } catch (error) {
       console.error('Error loading random products:', error)
@@ -382,28 +391,26 @@ function HomePageContent() {
 
   useEffect(() => {
     loadRandomProducts(selectedCategory)
-  }, [selectedCategory, groupId])
+  }, [selectedCategory, groupId, showAllRestaurants])
 
   const loadBusinessesWithParams = async (search: string, category: string) => {
     try {
       setLoading(true)
-      const data = search || category !== 'all' || groupId
-        ? await searchBusinesses(search, category, groupId || undefined)
+      const data = search || category !== 'all' || (groupId && !showAllRestaurants)
+        ? await searchBusinesses(search, category, showAllRestaurants ? undefined : (groupId || undefined))
         : await getAllBusinesses()
       
       // Filtrar negocios ocultos
       let visibleBusinesses = data.filter(b => !b.isHidden)
       
       // Si usamos getAllBusinesses, el groupId no se filtró en la query
-      if (!search && category === 'all') {
+      if (!search && category === 'all' && !showAllRestaurants) {
         console.log('[DEBUG] loadBusinessesWithParams - Filtering businesses by groupId:', groupId)
-        console.log('[DEBUG] loadBusinessesWithParams - Unique groupIds in businesses:', Array.from(new Set(data.map(b => b.groupId))))
         if (groupId) {
           visibleBusinesses = visibleBusinesses.filter(b => b.groupId === groupId)
         } else {
           visibleBusinesses = visibleBusinesses.filter(b => !b.groupId)
         }
-        console.log('[DEBUG] loadBusinessesWithParams - Businesses matching group:', visibleBusinesses.length)
       }
 
       setBusinesses(visibleBusinesses)
@@ -417,7 +424,7 @@ function HomePageContent() {
     const urlSearch = searchParams.get('search') || ''
     const urlCategory = searchParams.get('category') || 'all'
     loadBusinessesWithParams(urlSearch, urlCategory)
-  }, [groupId])
+  }, [groupId, showAllRestaurants])
 
   const handleCategoryChange = async (category: string) => {
     setSelectedCategory(category)
@@ -621,7 +628,26 @@ function HomePageContent() {
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#aa1918] mx-auto"></div>
               <p className="mt-4 text-gray-600">Cargando restaurantes...</p>
             </div>
-          ) : businesses.filter(b => b.businessType !== 'distributor').length === 0 ? (
+          ) : locationError && !showAllRestaurants ? (
+            <div className="max-w-xl mx-auto py-12 px-6 bg-white rounded-3xl shadow-sm border border-gray-100 text-center animate-in fade-in zoom-in duration-500">
+              <div className="text-6xl mb-6">📍</div>
+              <h3 className="text-2xl font-black text-gray-900 mb-3 leading-tight">
+                No podemos obtener tu ubicación
+              </h3>
+              <p className="text-gray-500 mb-8 font-medium">Activa el GPS para mostrarte los restaurantes más cercanos a ti.</p>
+              
+              <button
+                onClick={() => {
+                  setLocationError(false)
+                  setShowAllRestaurants(true)
+                }}
+                className="w-full bg-[#aa1918] text-white font-black py-4 rounded-2xl shadow-lg shadow-red-900/10 hover:shadow-red-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group"
+              >
+                Ver todos los restaurantes
+                <i className="bi bi-arrow-right group-hover:translate-x-1 transition-transform"></i>
+              </button>
+            </div>
+          ) : (isOutOfCoverage || businesses.filter(b => b.businessType !== 'distributor').length === 0) ? (
             <div className="max-w-xl mx-auto py-12 px-6 bg-white rounded-3xl shadow-sm border border-gray-100">
               {surveySubmitted ? (
                 <div className="text-center animate-in fade-in zoom-in duration-500">
@@ -711,7 +737,10 @@ function HomePageContent() {
                     
                     <button
                       type="button"
-                      onClick={() => loadBusinessesWithParams('', 'all')}
+                      onClick={() => {
+                        setIsOutOfCoverage(false)
+                        loadBusinessesWithParams('', 'all')
+                      }}
                       className="w-full text-gray-400 font-bold text-xs uppercase tracking-widest border border-gray-100 py-3 rounded-2xl hover:bg-gray-50 transition-all"
                     >
                       Ver todos los restaurantes
