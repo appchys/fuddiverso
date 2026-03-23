@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { GoogleMap } from './GoogleMap'
 import LocationMap from './LocationMap'
-import { ClientLocation, createClientLocation, getDeliveryFeeForLocation, deleteLocation, updateLocation } from '@/lib/database'
+import { ClientLocation, createClientLocation, getDeliveryFeeForLocation, getDeliveryDetailsForLocation, deleteLocation, updateLocation } from '@/lib/database'
 import { isInstagramBrowser, getDeviceType, openInExternalBrowser } from '@/lib/instagram-detect'
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -53,6 +53,8 @@ export default function LocationSelectionModal({
     const [locationImageFile, setLocationImageFile] = useState<File | null>(null)
     const [locationImagePreview, setLocationImagePreview] = useState<string>('')
     const [isSubmitting, setIsSubmitting] = useState(false)
+    const [calculatedDistance, setCalculatedDistance] = useState<number | null>(null)
+    const [isInsideCoverage, setIsInsideCoverage] = useState<boolean>(false)
 
     useEffect(() => {
         setIsInInstagram(isInstagramBrowser())
@@ -96,7 +98,16 @@ export default function LocationSelectionModal({
     const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
         try {
             if (!businessId) return 0
-            const fee = await getDeliveryFeeForLocation({ lat, lng }, businessId)
+            const { fee, distance } = await getDeliveryDetailsForLocation({ lat, lng }, businessId)
+            
+            // Si la tarifa es mayor a 0, significa que está en una zona de cobertura
+            setIsInsideCoverage(fee > 0);
+            
+            if (distance !== undefined) {
+                setCalculatedDistance(distance);
+            } else {
+                setCalculatedDistance(null);
+            }
             return fee
         } catch (error) {
             console.error('Error calculating delivery fee:', error)
@@ -535,23 +546,28 @@ export default function LocationSelectionModal({
 
                             {/* Delivery Fee Status */}
                             {newLocationData.latlong && (
-                                <div className={`p-4 rounded-xl border ${Number(newLocationData.tarifa) === 1.5 || Number(newLocationData.tarifa) <= 0
+                                <div className={`p-4 rounded-xl border ${!isInsideCoverage
                                     ? 'bg-amber-50 border-amber-100'
                                     : 'bg-green-50 border-green-100'
                                     }`}>
                                     <div className="flex justify-between items-start mb-1">
-                                        <span className={`text-sm font-bold ${Number(newLocationData.tarifa) === 1.5 || Number(newLocationData.tarifa) <= 0
+                                        <span className={`text-sm font-bold ${!isInsideCoverage
                                             ? 'text-amber-800'
                                             : 'text-green-800'
                                             }`}>
                                             Tarifa de envío: ${newLocationData.tarifa}
+                                            {calculatedDistance != null && (
+                                                <span className="ml-2 text-xs opacity-75 font-medium">
+                                                    (a {calculatedDistance.toFixed(1)} km)
+                                                </span>
+                                            )}
                                         </span>
                                     </div>
-                                    <p className={`text-xs ${Number(newLocationData.tarifa) === 1.5 || Number(newLocationData.tarifa) <= 0
+                                    <p className={`text-xs ${!isInsideCoverage
                                         ? 'text-amber-700'
                                         : 'text-green-700'
                                         }`}>
-                                        {Number(newLocationData.tarifa) === 1.5 || Number(newLocationData.tarifa) <= 0
+                                        {!isInsideCoverage
                                             ? 'Tu ubicación parece estar fuera de nuestra zona principal. Revisaremos la tarifa al confirmar.'
                                             : '¡Genial! Estás dentro de nuestra zona de cobertura.'}
                                     </p>

@@ -14,6 +14,7 @@ import {
   getClientLocations,
   ClientLocation,
   getDeliveryFeeForLocation,
+  getDeliveryDetailsForLocation,
   registerOrderConsumption,
   getQRCodesByBusiness,
   getUserQRProgress,
@@ -353,6 +354,7 @@ export function CheckoutContent({
 
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [calculatingTariff, setCalculatingTariff] = useState(false)
+  const [calculatedDistance, setCalculatedDistance] = useState<number | null>(null)
   const [showStoreImageModal, setShowStoreImageModal] = useState(false)
   const [userCredits, setUserCredits] = useState<{ available: number; referral: number; manual: number }>({ available: 0, referral: 0, manual: 0 })
   const [collapsedSections, setCollapsedSections] = useState<{ [key: string]: boolean }>({
@@ -587,7 +589,12 @@ export function CheckoutContent({
   const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
     try {
       if (!business?.id) return 0
-      const fee = await getDeliveryFeeForLocation({ lat, lng }, business.id)
+      const { fee, distance } = await getDeliveryDetailsForLocation({ lat, lng }, business.id);
+      if (distance !== undefined) {
+        setCalculatedDistance(distance);
+      } else {
+        setCalculatedDistance(null);
+      }
       return fee
     } catch (error) {
       console.error('Error calculating delivery fee:', error)
@@ -935,21 +942,7 @@ export function CheckoutContent({
 
   // Función unificada para seleccionar una ubicación del cliente
   const handleLocationSelect = async (location: ClientLocation) => {
-    // Si la ubicación ya tiene una tarifa válida guardada (> 0), usarla tal cual sin recalcular
-    const storedTariff = location.tarifa != null ? Number(location.tarifa) : NaN
-    if (!isNaN(storedTariff) && storedTariff > 0) {
-      setSelectedLocation(location)
-      setDeliveryData(prev => ({
-        ...prev,
-        address: location.referencia,
-        references: `${location.sector} - ${location.latlong}`,
-        tarifa: location.tarifa
-      }))
-      closeLocationModal()
-      return
-    }
-
-    // Si no hay tarifa válida pero sí coordenadas, calcularla automáticamente
+    // Si hay coordenadas, calcular la tarifa automáticamente para asegurar que sea fresca
     if (location.latlong) {
       setCalculatingTariff(true)
       try {
@@ -980,7 +973,7 @@ export function CheckoutContent({
       }
     }
 
-    // Fallback: sin tarifa válida ni cálculo, usar lo que haya en location.tarifa
+    // Fallback: si no hay coordenadas o falló el cálculo, usar lo que haya en location.tarifa
     setSelectedLocation(location)
     setDeliveryData(prev => ({
       ...prev,
@@ -1356,7 +1349,6 @@ export function CheckoutContent({
     // Paso 3: entrega
     if (!deliveryData.type) return false;
     if (deliveryData.type === 'delivery') {
-      if (!deliveryData.address.trim() && !selectedLocation) return false;
       // Si la ubicación seleccionada está fuera de cobertura, no permitir confirmar
       if (!calculatingTariff && selectedLocation && (selectedLocation.tarifa == null || Number(selectedLocation.tarifa) <= 0)) return false;
     }
@@ -2362,7 +2354,14 @@ export function CheckoutContent({
 
                   <div className="space-y-2 pt-4 border-t border-gray-200/60">
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-500">Costo de envío</span>
+                      <div className="flex flex-col">
+                        <span className="text-gray-500">Costo de envío</span>
+                        {deliveryData.type === 'delivery' && calculatedDistance != null && (
+                          <span className="text-[10px] text-gray-400">
+                            Distancia: {calculatedDistance.toFixed(1)} km
+                          </span>
+                        )}
+                      </div>
                       <span className={`font-bold ${deliveryCost > 0 ? 'text-gray-800' : 'text-amber-600'}`}>
                         {deliveryData.type === 'delivery' && deliveryCost === 0 ? 'Por calcular' : (deliveryData.type === 'pickup' ? '$0' : formatPrice(deliveryCost))}
                       </span>

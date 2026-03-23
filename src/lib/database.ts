@@ -2405,6 +2405,8 @@ export async function getCoverageZones(businessId?: string): Promise<CoverageZon
         assignedDeliveryIds: data.assignedDeliveryIds || (data.assignedDeliveryId ? [data.assignedDeliveryId] : []),
         deliveryAssignmentStrategy: data.deliveryAssignmentStrategy || (data.assignedDeliveryIds?.length > 1 ? 'round-robin' : 'single'),
         lastAssignedIndex: data.lastAssignedIndex || 0,
+        feeMode: data.feeMode || 'flat',
+        distanceSettings: data.distanceSettings || undefined,
         createdAt: toSafeDate(data.createdAt),
         updatedAt: toSafeDate(data.updatedAt)
       });
@@ -2562,15 +2564,56 @@ export function isPointInPolygon(point: { lat: number; lng: number }, polygon: {
   return inside;
 }
 
-// Función para obtener la tarifa de envío basada en la ubicación
-export async function getDeliveryFeeForLocation(location: { lat: number; lng: number }, businessId?: string): Promise<number> {
+/**
+ * Calcula la distancia en kilómetros entre dos puntos usando la fórmula de Haversine
+ */
+export function calculateHaversineDistance(
+  pos1: { lat: number; lng: number },
+  pos2: { lat: number; lng: number }
+): number {
+  const R = 6371; // Radio de la Tierra en km
+  const dLat = (pos2.lat - pos1.lat) * (Math.PI / 180);
+  const dLng = (pos2.lng - pos1.lng) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(pos1.lat * (Math.PI / 180)) *
+    Math.cos(pos2.lat * (Math.PI / 180)) *
+    Math.sin(dLng / 2) *
+    Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const straightDistance = R * c;
+  return straightDistance * 1.35; // Aplicar coeficiente de curvatura para estimar distancia por carretera
+}
+
+// Función para obtener los detalles de entrega (tarifa y distancia) basada en la ubicación
+export async function getDeliveryDetailsForLocation(location: { lat: number; lng: number }, businessId?: string): Promise<{ fee: number; distance?: number }> {
   try {
     const zones = await getCoverageZones(businessId);
 
     // Buscar en zonas específicas del negocio primero, luego en zonas globales
     for (const zone of zones) {
       if (zone.isActive && isPointInPolygon(location, zone.polygon)) {
-        return zone.deliveryFee;
+        // Lógica de cálculo por distancia
+        if (zone.feeMode === 'distance' && zone.distanceSettings && businessId) {
+          const business = await getBusiness(businessId);
+          if (business?.pickupSettings?.latlong) {
+            const [bLat, bLng] = business.pickupSettings.latlong.split(',').map(Number);
+            if (!isNaN(bLat) && !isNaN(bLng)) {
+              const distance = calculateHaversineDistance({ lat: bLat, lng: bLng }, location);
+              const { baseFee, baseDistance, extraKmFee } = zone.distanceSettings;
+
+              let fee = baseFee;
+              if (distance > baseDistance) {
+                const extraDistance = Math.ceil(distance - baseDistance);
+                fee = baseFee + (extraDistance * extraKmFee);
+              }
+              return { fee, distance };
+            }
+          }
+        }
+
+        // Si no es modo distancia o falló la ubicación del negocio, usar tarifa plana
+        return { fee: zone.deliveryFee };
       }
     }
 
@@ -2579,17 +2622,39 @@ export async function getDeliveryFeeForLocation(location: { lat: number; lng: nu
       const globalZones = await getCoverageZones();
       for (const zone of globalZones) {
         if (!zone.businessId && zone.isActive && isPointInPolygon(location, zone.polygon)) {
-          return zone.deliveryFee;
+          if (zone.feeMode === 'distance' && zone.distanceSettings) {
+            const business = await getBusiness(businessId);
+            if (business?.pickupSettings?.latlong) {
+              const [bLat, bLng] = business.pickupSettings.latlong.split(',').map(Number);
+              if (!isNaN(bLat) && !isNaN(bLng)) {
+                const distance = calculateHaversineDistance({ lat: bLat, lng: bLng }, location);
+                const { baseFee, baseDistance, extraKmFee } = zone.distanceSettings;
+
+                let fee = baseFee;
+                if (distance > baseDistance) {
+                  const extraDistance = Math.ceil(distance - baseDistance);
+                  fee = baseFee + (extraDistance * extraKmFee);
+                }
+                return { fee, distance };
+              }
+            }
+          }
+          return { fee: zone.deliveryFee };
         }
       }
     }
 
-    // Si no está en ninguna zona, retornar tarifa por defecto o error
-    return 0; // O lanzar error si prefieres que no haya entrega fuera de zonas
+    return { fee: 0 };
   } catch (error) {
-    console.error('Error getting delivery fee for location:', error);
-    return 0;
+    console.error('Error getting delivery details for location:', error);
+    return { fee: 0 };
   }
+}
+
+// Función para obtener la tarifa de envío basada en la ubicación (mantiene compatibilidad)
+export async function getDeliveryFeeForLocation(location: { lat: number; lng: number }, businessId?: string): Promise<number> {
+  const details = await getDeliveryDetailsForLocation(location, businessId);
+  return details.fee;
 }
 
 /**

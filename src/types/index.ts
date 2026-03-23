@@ -120,6 +120,12 @@ export interface CoverageZone {
   deliveryAssignmentStrategy?: 'single' | 'round-robin' // Estrategia de asignación
   lastAssignedIndex?: number // Índice del último delivery asignado (para Round Robin)
   groupId?: string // ID del grupo de cobertura (ciudad/región)
+  feeMode?: 'flat' | 'distance'
+  distanceSettings?: {
+    baseFee: number
+    baseDistance: number
+    extraKmFee: number
+  }
   createdAt: Date
   updatedAt: Date
 }

@@ -24,7 +24,11 @@ export default function CoverageZonesPage() {
     isActive: true,
     assignedDeliveryId: '', // Legacy - mantener para compatibilidad
     assignedDeliveryIds: [] as string[], // Nuevo: múltiples deliveries
-    groupId: '' // Nuevo: grupo de cobertura
+    groupId: '', // Nuevo: grupo de cobertura
+    feeMode: 'flat' as 'flat' | 'distance',
+    baseFee: 1.50,
+    baseDistance: 2,
+    extraKmFee: 0.25
   })
   const [coverageGroups, setCoverageGroups] = useState<CoverageGroup[]>([])
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
@@ -462,7 +466,13 @@ export default function CoverageZonesPage() {
           deliveryAssignmentStrategy: strategy,
           lastAssignedIndex: 0, // Resetear al actualizar
           polygon: currentPolygon,
-          groupId: formData.groupId
+          groupId: formData.groupId,
+          feeMode: formData.feeMode,
+          distanceSettings: formData.feeMode === 'distance' ? {
+            baseFee: formData.baseFee,
+            baseDistance: formData.baseDistance,
+            extraKmFee: formData.extraKmFee
+          } : undefined
         })
         showNotification('Zona actualizada correctamente', 'success')
       } else {
@@ -476,7 +486,13 @@ export default function CoverageZonesPage() {
           deliveryAssignmentStrategy: strategy,
           lastAssignedIndex: 0,
           polygon: currentPolygon,
-          groupId: formData.groupId
+          groupId: formData.groupId,
+          feeMode: formData.feeMode,
+          distanceSettings: formData.feeMode === 'distance' ? {
+            baseFee: formData.baseFee,
+            baseDistance: formData.baseDistance,
+            extraKmFee: formData.extraKmFee
+          } : undefined
         })
         showNotification('Zona creada correctamente', 'success')
       }
@@ -538,7 +554,11 @@ export default function CoverageZonesPage() {
       isActive: true,
       assignedDeliveryId: '',
       assignedDeliveryIds: [],
-      groupId: ''
+      groupId: '',
+      feeMode: 'flat',
+      baseFee: 1.50,
+      baseDistance: 2,
+      extraKmFee: 0.25
     })
     setCurrentPolygon([])
     setMarkers([])
@@ -560,7 +580,11 @@ export default function CoverageZonesPage() {
       isActive: zone.isActive,
       assignedDeliveryId: zone.assignedDeliveryId || '',
       assignedDeliveryIds: zone.assignedDeliveryIds || (zone.assignedDeliveryId ? [zone.assignedDeliveryId] : []),
-      groupId: zone.groupId || ''
+      groupId: zone.groupId || '',
+      feeMode: zone.feeMode || 'flat',
+      baseFee: zone.distanceSettings?.baseFee ?? 1.50,
+      baseDistance: zone.distanceSettings?.baseDistance ?? 2,
+      extraKmFee: zone.distanceSettings?.extraKmFee ?? 0.25
     })
     setCurrentPolygon(zone.polygon)
     setMarkers(zone.polygon)
@@ -1327,20 +1351,111 @@ export default function CoverageZonesPage() {
                   )}
                 </div>
 
-                {/* Delivery fee */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Tarifa de envío ($)
+                {/* Delivery fee mode selection */}
+                <div className="space-y-3 border-t border-gray-700 pt-4">
+                  <label className="block text-sm font-medium text-gray-300">
+                    Configuración de Tarifa
                   </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.deliveryFee}
-                    onChange={(e) => setFormData({ ...formData, deliveryFee: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500"
-                    placeholder="0.00"
-                  />
+                  <div className="flex gap-2 p-1 bg-gray-900/50 rounded-lg border border-gray-700">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, feeMode: 'flat' })}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-bold transition-all ${formData.feeMode === 'flat'
+                        ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
+                        : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800'
+                        }`}
+                    >
+                      <i className="bi bi-tag-fill"></i>
+                      Tarifa Plana
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, feeMode: 'distance' })}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-bold transition-all ${formData.feeMode === 'distance'
+                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                        : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800'
+                        }`}
+                    >
+                      <i className="bi bi-geo-fill"></i>
+                      Por Distancia
+                    </button>
+                  </div>
+
+                  {formData.feeMode === 'flat' ? (
+                    <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                      <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1 ml-1">
+                        Costo de envío fijo ($)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={formData.deliveryFee}
+                          onChange={(e) => setFormData({ ...formData, deliveryFee: parseFloat(e.target.value) || 0 })}
+                          className="w-full pl-7 pr-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white font-bold focus:outline-none focus:ring-2 focus:ring-red-500"
+                          placeholder="0.00"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1 ml-1">
+                            Tarifa Base ($)
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={formData.baseFee}
+                              onChange={(e) => setFormData({ ...formData, baseFee: parseFloat(e.target.value) || 0 })}
+                              className="w-full pl-7 pr-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1 ml-1">
+                            Distancia Base (km)
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              step="0.5"
+                              min="0"
+                              value={formData.baseDistance}
+                              onChange={(e) => setFormData({ ...formData, baseDistance: parseFloat(e.target.value) || 0 })}
+                              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 text-right pr-10"
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-[10px]">km</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1 ml-1">
+                          Tarifa por km adicional ($)
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={formData.extraKmFee}
+                            onChange={(e) => setFormData({ ...formData, extraKmFee: parseFloat(e.target.value) || 0 })}
+                            className="w-full pl-7 pr-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <p className="text-[9px] text-gray-400 mt-1 ml-1 italic">
+                          Se cobrará cada km adicional o fracción después de los {formData.baseDistance}km.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Active toggle */}
