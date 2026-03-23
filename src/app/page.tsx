@@ -737,7 +737,7 @@ function HomePageContent() {
                       type="button"
                       onClick={() => {
                         setIsOutOfCoverage(false)
-                        loadBusinessesWithParams('', 'all')
+                        setShowAllRestaurants(true)
                       }}
                       className="w-full text-gray-400 font-bold text-xs uppercase tracking-widest border border-gray-100 py-3 rounded-2xl hover:bg-gray-50 transition-all"
                     >
