@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Business, Product, Ingredient } from '@/types'
-import { getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, uploadImage } from '@/lib/database'
+import { Business, Product, Ingredient, CoverageZone } from '@/types'
+import { getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, uploadImage, getCoverageZonesByGroup } from '@/lib/database'
 import ProductList from './ProductList'
 import NotificationSettings from './NotificationSettings'
 import { GoogleMap, useCurrentLocation } from './GoogleMap'
@@ -68,7 +68,7 @@ export default function BusinessProfileDashboard({
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
   const [activeTab, setActiveTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>(initialTab)
-  const [fidelizacionSubTab, setFidelizacionSubTab] = useState<'automatic' | 'qr'>('automatic')
+  const [fidelizacionSubTab, setFidelizacionSubTab] = useState<'automatic' | 'qr' | 'delivery'>('automatic')
 
   // Hook para ubicación
   const { location, loading: locating, error: locationError, getCurrentLocation } = useCurrentLocation()
@@ -83,11 +83,46 @@ export default function BusinessProfileDashboard({
   const [showRewardIngredientSuggestions, setShowRewardIngredientSuggestions] = useState(false)
   const [rewardIngredientSearchTerm, setRewardIngredientSearchTerm] = useState('')
 
+  // Estados para la campaña de delivery gratis
+  const [groupZones, setGroupZones] = useState<CoverageZone[]>([])
+  const [loadingGroupZones, setLoadingGroupZones] = useState(false)
+  const [deliveryCampaignForm, setDeliveryCampaignForm] = useState({
+    isActive: business?.freeDeliveryCampaign?.isActive ?? false,
+    startDate: business?.freeDeliveryCampaign?.startDate ?? '',
+    endDate: business?.freeDeliveryCampaign?.endDate ?? '',
+    applicableZoneIds: business?.freeDeliveryCampaign?.applicableZoneIds ?? [],
+    minimumOrderAmount: business?.freeDeliveryCampaign?.minimumOrderAmount ?? 0,
+  })
+  const [savingCampaign, setSavingCampaign] = useState(false)
+  const [campaignSaved, setCampaignSaved] = useState(false)
+
   useEffect(() => {
     if (business?.id && activeTab === 'fidelizacion') {
       getIngredientLibrary(business.id).then(lib => setIngredientLibrary(lib))
     }
   }, [business?.id, activeTab])
+
+  // Cargar zonas del grupo del restaurante cuando se abre el sub-tab
+  useEffect(() => {
+    if (activeTab === 'fidelizacion' && fidelizacionSubTab === 'delivery' && business?.groupId) {
+      setLoadingGroupZones(true)
+      getCoverageZonesByGroup(business.groupId)
+        .then(zones => setGroupZones(zones))
+        .finally(() => setLoadingGroupZones(false))
+    }
+  }, [activeTab, fidelizacionSubTab, business?.groupId])
+
+  // Sincronizar formulario cuando cambia el negocio
+  useEffect(() => {
+    setDeliveryCampaignForm({
+      isActive: business?.freeDeliveryCampaign?.isActive ?? false,
+      startDate: business?.freeDeliveryCampaign?.startDate ?? '',
+      endDate: business?.freeDeliveryCampaign?.endDate ?? '',
+      applicableZoneIds: business?.freeDeliveryCampaign?.applicableZoneIds ?? [],
+      minimumOrderAmount: business?.freeDeliveryCampaign?.minimumOrderAmount ?? 0,
+    })
+  }, [business?.id])
+
 
   const handleRewardIngredientChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -533,6 +568,16 @@ export default function BusinessProfileDashboard({
               <i className="bi bi-qr-code me-2"></i>
               Códigos QR
             </button>
+            <button
+              onClick={() => setFidelizacionSubTab('delivery')}
+              className={`flex-1 py-4 text-sm font-medium text-center transition-colors border-b-2 ${fidelizacionSubTab === 'delivery'
+                  ? 'border-green-500 text-green-600 bg-green-50/50'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                }`}
+            >
+              <i className="bi bi-truck me-2"></i>
+              Delivery Gratis
+            </button>
           </div>
 
           <div className="p-6">
@@ -751,6 +796,173 @@ export default function BusinessProfileDashboard({
             {/* Contenido Códigos QR */}
             {fidelizacionSubTab === 'qr' && (
               <QRCodesContent businessId={business.id} />
+            )}
+
+            {/* Contenido Delivery Gratis */}
+            {fidelizacionSubTab === 'delivery' && (
+              <div className="max-w-2xl mx-auto">
+                {/* Header y toggle principal */}
+                <div className="flex items-start justify-between mb-6">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Campaña de Delivery Gratis</h3>
+                    <p className="text-sm text-gray-500 mt-1">El restaurante asume el costo de envío. El repartidor recibe su pago normal.</p>
+                  </div>
+                  <div
+                    className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 flex-shrink-0 ml-4 ${
+                      deliveryCampaignForm.isActive ? 'bg-green-500' : 'bg-gray-200'
+                    }`}
+                    onClick={() => setDeliveryCampaignForm(prev => ({ ...prev, isActive: !prev.isActive }))}
+                  >
+                    <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${deliveryCampaignForm.isActive ? 'translate-x-6' : ''}`}></div>
+                  </div>
+                </div>
+
+                <div className={`space-y-5 transition-opacity duration-200 ${deliveryCampaignForm.isActive ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+
+                  {/* Fechas de la campaña */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de inicio (opcional)</label>
+                      <input
+                        type="date"
+                        value={deliveryCampaignForm.startDate}
+                        onChange={e => setDeliveryCampaignForm(prev => ({ ...prev, startDate: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de fin (opcional)</label>
+                      <input
+                        type="date"
+                        value={deliveryCampaignForm.endDate}
+                        onChange={e => setDeliveryCampaignForm(prev => ({ ...prev, endDate: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Monto mínimo de compra */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Monto mínimo de compra (0 = sin mínimo)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.50"
+                        value={deliveryCampaignForm.minimumOrderAmount}
+                        onChange={e => setDeliveryCampaignForm(prev => ({ ...prev, minimumOrderAmount: parseFloat(e.target.value) || 0 }))}
+                        className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Zonas aplicables */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Zonas donde aplica
+                      <span className="text-gray-400 font-normal text-xs ml-2">(vacío = aplica a todas las zonas)</span>
+                    </label>
+
+                    {!business?.groupId ? (
+                      <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                        <i className="bi bi-exclamation-triangle me-2"></i>
+                        Este restaurante no tiene un grupo de cobertura asignado. Asigna un grupo desde el panel de administración para poder filtrar zonas.
+                      </div>
+                    ) : loadingGroupZones ? (
+                      <div className="flex items-center gap-2 py-4 text-gray-500 text-sm">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-500"></div>
+                        Cargando zonas...
+                      </div>
+                    ) : groupZones.length === 0 ? (
+                      <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-500">
+                        No hay zonas configuradas para el grupo de este restaurante.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {groupZones.map(zone => {
+                          const isChecked = deliveryCampaignForm.applicableZoneIds.includes(zone.id)
+                          return (
+                            <label
+                              key={zone.id}
+                              className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                                isChecked
+                                  ? 'border-green-400 bg-green-50'
+                                  : 'border-gray-200 bg-white hover:border-gray-300'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  setDeliveryCampaignForm(prev => ({
+                                    ...prev,
+                                    applicableZoneIds: isChecked
+                                      ? prev.applicableZoneIds.filter(id => id !== zone.id)
+                                      : [...prev.applicableZoneIds, zone.id]
+                                  }))
+                                }}
+                                className="w-4 h-4 text-green-500 rounded"
+                              />
+                              <div className="flex-1">
+                                <span className="text-sm font-medium text-gray-800">{zone.name}</span>
+                                {zone.deliveryFee > 0 && (
+                                  <span className="ml-2 text-xs text-gray-400">${zone.deliveryFee.toFixed(2)}</span>
+                                )}
+                              </div>
+                              {isChecked && <i className="bi bi-check-circle-fill text-green-500"></i>}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div className="p-4 bg-green-50 rounded-lg border border-green-100">
+                    <div className="flex gap-3">
+                      <i className="bi bi-info-circle text-green-600 text-lg"></i>
+                      <p className="text-sm text-green-800">
+                        Los clientes verán el costo de envío <strong>tachado</strong> y un <strong>$0.00</strong> en verde.
+                        El repartidor sigue recibiendo su pago normal — el costo lo asume el restaurante.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Botón Guardar */}
+                <div className="mt-8 pt-6 border-t border-gray-200">
+                  {campaignSaved && (
+                    <p className="text-green-600 text-sm text-center mb-3 flex items-center justify-center gap-2">
+                      <i className="bi bi-check-circle-fill"></i> Campaña guardada exitosamente
+                    </p>
+                  )}
+                  <button
+                    onClick={async () => {
+                      if (!onDirectUpdate) return
+                      setSavingCampaign(true)
+                      setCampaignSaved(false)
+                      try {
+                        await onDirectUpdate('freeDeliveryCampaign', deliveryCampaignForm)
+                        setCampaignSaved(true)
+                        setTimeout(() => setCampaignSaved(false), 3000)
+                      } catch (e) {
+                        alert('Error al guardar la campaña')
+                      } finally {
+                        setSavingCampaign(false)
+                      }
+                    }}
+                    disabled={savingCampaign || !onDirectUpdate}
+                    className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {savingCampaign ? (
+                      <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div> Guardando...</>
+                    ) : (
+                      <><i className="bi bi-save2"></i> Guardar Campaña</>
+                    )}
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>

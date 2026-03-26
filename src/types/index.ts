@@ -75,6 +75,15 @@ export interface Business {
   }
   telegramChatIds?: string[] // IDs de chat de Telegram para notificaciones a la tienda
   telegramChatId?: string // ID antiguo (para migración)
+  freeDeliveryCampaign?: FreeDeliveryCampaign // Campaña de delivery gratis asumida por el restaurante
+}
+
+export interface FreeDeliveryCampaign {
+  isActive: boolean
+  startDate?: string          // fecha ISO "YYYY-MM-DD"
+  endDate?: string            // fecha ISO "YYYY-MM-DD"
+  applicableZoneIds: string[] // IDs de zonas donde aplica (vacío = todas las zonas)
+  minimumOrderAmount?: number // monto mínimo de compra (0 o undefined = sin mínimo)
 }
 
 export interface BusinessAdministrator {

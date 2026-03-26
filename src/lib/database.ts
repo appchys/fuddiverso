@@ -2420,6 +2420,43 @@ export async function getCoverageZones(businessId?: string): Promise<CoverageZon
   }
 }
 
+// Obtener zonas de cobertura filtradas por groupId
+export async function getCoverageZonesByGroup(groupId: string): Promise<CoverageZone[]> {
+  try {
+    const q = query(
+      collection(db, 'coverageZones'),
+      where('groupId', '==', groupId),
+      orderBy('name')
+    );
+    const querySnapshot = await getDocs(q);
+    const zones: CoverageZone[] = [];
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      zones.push({
+        id: doc.id,
+        name: data.name || '',
+        businessId: data.businessId || null,
+        polygon: data.polygon || [],
+        deliveryFee: data.deliveryFee || 0,
+        isActive: data.isActive !== false,
+        groupId: data.groupId || null,
+        assignedDeliveryId: data.assignedDeliveryId || undefined,
+        assignedDeliveryIds: data.assignedDeliveryIds || (data.assignedDeliveryId ? [data.assignedDeliveryId] : []),
+        deliveryAssignmentStrategy: data.deliveryAssignmentStrategy || 'single',
+        lastAssignedIndex: data.lastAssignedIndex || 0,
+        feeMode: data.feeMode || 'flat',
+        distanceSettings: data.distanceSettings || undefined,
+        createdAt: toSafeDate(data.createdAt),
+        updatedAt: toSafeDate(data.updatedAt)
+      });
+    });
+    return zones;
+  } catch (error) {
+    console.error('Error getting coverage zones by group:', error);
+    return [];
+  }
+}
+
 // Funciones para Grupos de Cobertura
 export async function getCoverageGroups(): Promise<CoverageGroup[]> {
   try {

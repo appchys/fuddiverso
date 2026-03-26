@@ -508,6 +508,79 @@ export function CheckoutContent({
     return 0 // Delivery sin ubicación seleccionada
   }
 
+
+  // Estado para saber la zona de cobertura de la ubicación seleccionada
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
+
+  // Verificar zona al seleccionar ubicación
+  useEffect(() => {
+    const checkZone = async () => {
+      if (!selectedLocation?.latlong || deliveryData.type !== 'delivery') {
+        setSelectedZoneId(null)
+        return
+      }
+      try {
+        const [lat, lng] = selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
+        if (isNaN(lat) || isNaN(lng)) { setSelectedZoneId(null); return }
+        const zones = await getCoverageZones()
+        const matchingZone = zones.find(z => z.isActive && isPointInPolygon({ lat, lng }, z.polygon))
+        setSelectedZoneId(matchingZone?.id || null)
+      } catch (e) {
+        setSelectedZoneId(null)
+      }
+    }
+    void checkZone()
+  }, [selectedLocation?.latlong, deliveryData.type])
+
+  // Campaña activa final (con verificación de zona)
+  const isFreeDeliveryActive = useMemo(() => {
+    const campaign = business?.freeDeliveryCampaign
+    if (!campaign?.isActive) return false
+    if (deliveryData.type !== 'delivery' || !selectedLocation) return false
+
+    // Verificar rango de fechas
+    const today = new Date().toISOString().split('T')[0]
+    if (campaign.startDate && today < campaign.startDate) return false
+    if (campaign.endDate && today > campaign.endDate) return false
+
+    // Verificar zonas: si no hay zonas configuradas, aplica a todas
+    if (campaign.applicableZoneIds && campaign.applicableZoneIds.length > 0) {
+      if (!selectedZoneId || !campaign.applicableZoneIds.includes(selectedZoneId)) return false
+    }
+
+    // Verificar mínimo de compra
+    if (campaign.minimumOrderAmount && campaign.minimumOrderAmount > 0) {
+      const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0)
+      if (subtotal < campaign.minimumOrderAmount) return false
+    }
+
+    return true
+  }, [business?.freeDeliveryCampaign, deliveryData.type, selectedLocation, selectedZoneId, cartItems])
+
+  // Lógica para calcular cuánto le falta para el delivery gratis
+  const missingAmountForFreeDelivery = useMemo(() => {
+    const campaign = business?.freeDeliveryCampaign
+    if (!campaign?.isActive || !campaign.minimumOrderAmount || campaign.minimumOrderAmount <= 0) return 0
+    if (deliveryData.type !== 'delivery' || !selectedLocation) return 0
+
+    // Verificar rango de fechas
+    const today = new Date().toISOString().split('T')[0]
+    if (campaign.startDate && today < campaign.startDate) return 0
+    if (campaign.endDate && today > campaign.endDate) return 0
+
+    // Verificar zonas: si no hay zonas configuradas, aplica a todas
+    if (campaign.applicableZoneIds && campaign.applicableZoneIds.length > 0) {
+      if (!selectedZoneId || !campaign.applicableZoneIds.includes(selectedZoneId)) return 0
+    }
+
+    const subtotalValue = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0)
+    if (subtotalValue < campaign.minimumOrderAmount) {
+      return campaign.minimumOrderAmount - subtotalValue
+    }
+
+    return 0
+  }, [business?.freeDeliveryCampaign, deliveryData.type, selectedLocation, selectedZoneId, cartItems])
+
   // Indicar que estamos en cliente
   useEffect(() => { setIsClient(true); }, []);
 
@@ -1517,7 +1590,9 @@ export function CheckoutContent({
       const subtotal = cartItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
       const deliveryCost = selectedLocation?.tarifa ? parseFloat(selectedLocation.tarifa) : 0;
       const creditToApply = paymentData.useCredits ? (paymentData.creditsAmount || 0) : 0;
-      const total = Math.max(0, subtotal + deliveryCost - creditToApply);
+      // Si la campaña de delivery gratis aplica, el cliente no paga el costo de envío
+      const clientDeliveryCost = isFreeDeliveryActive ? 0 : deliveryCost;
+      const total = Math.max(0, subtotal + clientDeliveryCost - creditToApply);
       const businessId = (isEmbedded ? embeddedBusinessId : (searchParams.get('businessId') || ''))
 
       // El delivery se asignará automáticamente cuando la tienda confirme el pedido en el dashboard
@@ -1572,6 +1647,10 @@ export function CheckoutContent({
         total,
         subtotal,
         creditUsed: creditToApply,
+        ...(isFreeDeliveryActive && {
+          freeDeliveryApplied: true,
+          freeDeliveryAmount: deliveryCost // costo asumido por el restaurante
+        }),
         status: 'pending' as const,
         createdByAdmin: false,
         createdAt: new Date(),
@@ -2359,10 +2438,29 @@ export function CheckoutContent({
                             Distancia: {calculatedDistance.toFixed(1)} km
                           </span>
                         )}
+                        {isFreeDeliveryActive && (
+                          <span className="text-[10px] text-green-600 font-bold">
+                            🎉 Delivery gratis del restaurante
+                          </span>
+                        )}
+                        {!isFreeDeliveryActive && missingAmountForFreeDelivery > 0 && (
+                          <span className="text-[10px] text-amber-600 font-medium">
+                            Te faltan {formatPrice(missingAmountForFreeDelivery)} para delivery gratis
+                          </span>
+                        )}
                       </div>
-                      <span className={`font-bold ${deliveryCost > 0 ? 'text-gray-800' : 'text-amber-600'}`}>
-                        {deliveryData.type === 'delivery' && deliveryCost === 0 ? 'Por calcular' : (deliveryData.type === 'pickup' ? '$0' : formatPrice(deliveryCost))}
-                      </span>
+                      {isFreeDeliveryActive ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-gray-400 line-through">
+                            {formatPrice(deliveryCost)}
+                          </span>
+                          <span className="font-black text-green-600">$0.00</span>
+                        </div>
+                      ) : (
+                        <span className={`font-bold ${deliveryCost > 0 ? 'text-gray-800' : 'text-amber-600'}`}>
+                          {deliveryData.type === 'delivery' && deliveryCost === 0 ? 'Por calcular' : (deliveryData.type === 'pickup' ? '$0' : formatPrice(deliveryCost))}
+                        </span>
+                      )}
                     </div>
                     {/* Créditos del Usuario */}
                     {userCredits.available > 0 && (
@@ -2419,7 +2517,7 @@ export function CheckoutContent({
                     )}
                     <div className="flex justify-between items-center pt-3 border-t border-gray-300 mt-2">
                       <span className="text-base font-black text-gray-900 uppercase tracking-tight">Total a pagar</span>
-                      <span className="text-xl font-black text-red-600">{formatPrice(total)}</span>
+                      <span className="text-xl font-black text-red-600">{formatPrice(isFreeDeliveryActive ? Math.max(0, total - deliveryCost) : total)}</span>
                     </div>
                   </div>
                 </div>
@@ -2629,7 +2727,7 @@ export function CheckoutContent({
                                   </>
                                 ) : (
                                   <>
-                                    <p className="font-bold text-lg mb-1">Total a transferir: {formatPrice(total)}</p>
+                                    <p className="font-bold text-lg mb-1">Total a transferir: {formatPrice(isFreeDeliveryActive ? Math.max(0, total - deliveryCost) : total)}</p>
                                     <p className="text-sm text-gray-300 leading-snug">
                                       Transfiere el monto exacto y sube tu comprobante a continuación para confirmar tu pedido.
                                     </p>
