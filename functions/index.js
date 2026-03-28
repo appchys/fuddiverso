@@ -237,6 +237,37 @@ async function notifyBusinessTelegramOnOrderCreation(orderData, orderId) {
   }
 }
 
+/**
+ * Notificar al administrador por Telegram cuando se crea una orden
+ */
+async function notifyAdminTelegramOnOrderCreation(orderData, orderId) {
+  try {
+    console.log(`📨 [Telegram Admin] Preparando notificación para Admin de orden ${orderId}...`);
+    
+    // Obtener nombre del negocio para el mensaje
+    let businessName = 'Negocio';
+    if (orderData.businessId) {
+      const businessDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
+      if (businessDoc.exists) {
+        businessName = businessDoc.data().name || businessName;
+      }
+    }
+
+    const { text: telegramText } = await telegramServices.formatTelegramMessage(
+      { ...orderData, id: orderId }, 
+      businessName, 
+      true // Usar formato detallado
+    );
+
+    const adminMessage = `🚀 <b>¡NUEVA ORDEN EN FUDDI!</b>\nTienda: <b>${businessName}</b>\n\n${telegramText}`;
+    
+    await telegramServices.sendAdminTelegramMessage(adminMessage);
+    console.log(`✅ [Telegram Admin] Notificación enviada exitosamente para orden ${orderId}`);
+  } catch (error) {
+    console.error(`❌ Error enviando notificación de Telegram a Admin para orden ${orderId}:`, error);
+  }
+}
+
 
 async function notifyDeliveryAssignmentLogic(beforeData, afterData, orderId) {
   const beforeDeliveryId = beforeData.delivery?.assignedDelivery;
@@ -350,7 +381,8 @@ exports.onOrderCreated = onDocumentCreated("orders/{orderId}", async (event) => 
     sendOrderEmailLogic(order, orderId),
     createOrderNotificationLogic(order, orderId),
     notifyDeliveryOnOrderCreationLogic(order, orderId),
-    notifyBusinessTelegramOnOrderCreation(order, orderId)
+    notifyBusinessTelegramOnOrderCreation(order, orderId),
+    notifyAdminTelegramOnOrderCreation(order, orderId)
   ]);
 });
 
@@ -622,4 +654,5 @@ exports.sendDailyOrderSummary = onSchedule({
 exports.telegramWebhook = onRequest(telegramServices.handleStoreWebhook);
 exports.telegramDeliveryWebhook = onRequest(telegramServices.handleDeliveryWebhook);
 exports.telegramCustomerWebhook = onRequest(telegramServices.handleCustomerWebhook);
+exports.telegramAdminWebhook = onRequest(telegramServices.handleAdminWebhook);
 exports.handleDeliveryOrderAction = onRequest(deliveryServices.handleDeliveryOrderAction);

@@ -7,6 +7,7 @@ const { processOrderAction } = require('./delivery');
 let STORE_BOT_TOKEN = process.env.STORE_BOT_TOKEN;
 let DELIVERY_BOT_TOKEN = process.env.DELIVERY_BOT_TOKEN;
 let CUSTOMER_BOT_TOKEN = process.env.CUSTOMER_BOT_TOKEN;
+let ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN || '8514960086:AAHw09N32bSfbRV6l9eX3Q6oLrR87goXr9g';
 
 // Fallback a functions.config() si no está en process.env
 try {
@@ -15,6 +16,7 @@ try {
         if (!STORE_BOT_TOKEN) STORE_BOT_TOKEN = config.telegram.store_token;
         if (!DELIVERY_BOT_TOKEN) DELIVERY_BOT_TOKEN = config.telegram.delivery_token;
         if (!CUSTOMER_BOT_TOKEN) CUSTOMER_BOT_TOKEN = config.telegram.customer_token;
+        if (!ADMIN_BOT_TOKEN) ADMIN_BOT_TOKEN = config.telegram.admin_token;
     }
 } catch (e) {
     console.warn('⚠️ No se pudo acceder a functions.config(), usando process.env');
@@ -25,6 +27,7 @@ console.log('🔍 [Telegram Init] Validando tokens de Telegram:');
 console.log(`✓ STORE_BOT_TOKEN: ${STORE_BOT_TOKEN ? '✅ CONFIGURADO' : '❌ NO CONFIGURADO'}`);
 console.log(`✓ DELIVERY_BOT_TOKEN: ${DELIVERY_BOT_TOKEN ? '✅ CONFIGURADO' : '❌ NO CONFIGURADO'}`);
 console.log(`✓ CUSTOMER_BOT_TOKEN: ${CUSTOMER_BOT_TOKEN ? '✅ CONFIGURADO' : '❌ NO CONFIGURADO'}`);
+console.log(`✓ ADMIN_BOT_TOKEN: ${ADMIN_BOT_TOKEN ? '✅ CONFIGURADO' : '❌ NO CONFIGURADO'}`);
 
 // ─── Template Engine ─────────────────────────────────────────
 let _templateCache = null;
@@ -662,6 +665,31 @@ async function sendCustomerTelegramMessage(chatId, text, replyMarkup = null, lin
         return null;
     }
     return sendTelegramMessageGeneric(CUSTOMER_BOT_TOKEN, chatId, text, replyMarkup, linkPreviewOptions);
+}
+
+/**
+ * Enviar mensaje usando el bot de Admin
+ */
+async function sendAdminTelegramMessage(text, replyMarkup = null, linkPreviewOptions = null) {
+    if (!ADMIN_BOT_TOKEN) {
+        console.error('❌ [Telegram] ADMIN_BOT_TOKEN no configurado. No se puede enviar mensaje a admin.');
+        return null;
+    }
+
+    try {
+        // Obtener el Chat ID del admin desde Firestore
+        const adminDoc = await admin.firestore().collection('settings').doc('admin_telegram').get();
+        if (!adminDoc.exists || !adminDoc.data().chatId) {
+            console.warn('⚠️ [Telegram] Chat ID de admin no encontrado en settings/admin_telegram. No se puede enviar mensaje.');
+            return null;
+        }
+
+        const chatId = adminDoc.data().chatId;
+        return sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, text, replyMarkup, linkPreviewOptions);
+    } catch (error) {
+        console.error('❌ [Telegram] Error al enviar mensaje a admin:', error);
+        return null;
+    }
 }
 
 /**
@@ -1581,13 +1609,44 @@ async function sendBusinessReminderNotification(businessData, orderData, orderId
 }
 
 
+/**
+ * Webhook para el bot de ADMIN
+ */
+async function handleAdminWebhook(req, res) {
+    try {
+        const update = req.body;
+        console.log('📬 Admin Bot Update:', JSON.stringify(update));
+
+        if (update.message && update.message.text) {
+            const text = update.message.text;
+            const chatId = update.message.chat.id;
+
+            if (text.startsWith('/start')) {
+                // Guardar el Chat ID del admin en Firestore
+                await admin.firestore().collection('settings').doc('admin_telegram').set({
+                    chatId: chatId.toString(),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+
+                await sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, "✅ <b>¡Bot de Admin vinculado con éxito!</b>\n\nDesde ahora recibirás notificaciones aquí de cada orden creada en Fuddi.");
+            }
+        }
+        return res.status(200).send('ok');
+    } catch (error) {
+        console.error('❌ Error en Admin Webhook:', error);
+        return res.status(500).send('error');
+    }
+}
+
 module.exports = {
     formatTelegramMessage,
     sendStoreTelegramMessage,
     sendDeliveryTelegramMessage,
+    sendAdminTelegramMessage, // Exportado
     handleStoreWebhook,
     handleDeliveryWebhook,
     handleCustomerWebhook,
+    handleAdminWebhook, // Exportado
     sendDeliveryTelegramNotification,
     sendBusinessTelegramNotification,
     sendBusinessReminderNotification,
