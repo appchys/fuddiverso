@@ -64,6 +64,7 @@ interface ManualOrderData {
   selectedDelivery: any
   orderStatus: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'on_way' | 'delivered' | 'cancelled' | 'borrador'
   notas: string
+  receiptImageUrl?: string
 }
 
 interface ManualOrderSidebarProps {
@@ -111,7 +112,8 @@ export default function ManualOrderSidebar({
     total: 0,
     selectedDelivery: null,
     orderStatus: 'pending',
-    notas: ''
+    notas: '',
+    receiptImageUrl: ''
   })
 
   const [searchingClient, setSearchingClient] = useState(false)
@@ -286,7 +288,8 @@ export default function ManualOrderSidebar({
         total: eo.total || 0,
         selectedDelivery: selectedDeliveryFromId(availableDeliveries, eo.delivery?.assignedDelivery),
         orderStatus: eo.status || 'pending',
-        notas: eo.notas || ''
+        notas: eo.notas || '',
+        receiptImageUrl: eo.payment?.receiptImageUrl || ''
       }))
 
       // Mostrar inmediatamente tarjeta de cliente encontrado y cargar ubicaciones
@@ -902,33 +905,43 @@ export default function ManualOrderSidebar({
 
   // Función para crear nueva ubicación
   const handleCreateLocation = async () => {
+    if (creatingLocation) return;
+
     if (!newLocationData.referencia.trim()) {
       alert('Por favor ingresa una referencia para la ubicación');
       return;
     }
 
-    // LatLong ahora es opcional. Si se proporciona, debe ser válido.
-    if (newLocationData.latlong.trim()) {
-      if (!isValidLocation(newLocationData.latlong)) {
-        alert('Por favor ingresa coordenadas válidas (formato: lat,lng o un Plus Code como 42W9+246)');
-        return;
-      }
-      // Solo normalizar si no es un Plus Code
-      if (!newLocationData.latlong.startsWith('pluscode:')) {
-        const normalized = normalizeLatLong(newLocationData.latlong);
-        setNewLocationData(prev => ({ ...prev, latlong: normalized }));
-      }
-    }
-
-    // Buscar el cliente para obtener su ID
-    const client = await searchClientByPhone(manualOrderData.customerPhone);
-    if (!client) {
-      alert('No se encontró el cliente');
-      return;
-    }
-
     setCreatingLocation(true);
     try {
+      // LatLong ahora es opcional. Si se proporciona, debe ser válido.
+      if (newLocationData.latlong.trim()) {
+        if (!isValidLocation(newLocationData.latlong)) {
+          alert('Por favor ingresa coordenadas válidas (formato: lat,lng o un Plus Code como 42W9+246)');
+          setCreatingLocation(false);
+          return;
+        }
+        // Solo normalizar si no es un Plus Code
+        if (!newLocationData.latlong.startsWith('pluscode:')) {
+          const normalized = normalizeLatLong(newLocationData.latlong);
+          setNewLocationData(prev => ({ ...prev, latlong: normalized }));
+        }
+      }
+
+      // Buscar el cliente para obtener su ID
+      if (!manualOrderData.customerPhone) {
+        alert('Por favor identifica al cliente primero (buscando por teléfono)');
+        setCreatingLocation(false);
+        return;
+      }
+
+      const client = await searchClientByPhone(manualOrderData.customerPhone);
+      if (!client) {
+        alert('No se encontró el registro del cliente. Por favor asegúrate de haberlo creado o seleccionado correctamente.');
+        setCreatingLocation(false);
+        return;
+      }
+
       const clientId = client.id;
 
       // Subir imagen si existe
@@ -987,6 +1000,7 @@ export default function ManualOrderSidebar({
       setShowLocationModal(false);
     } catch (error) {
       console.error('Error creando ubicación:', error);
+      alert('Error al crear la ubicación. Por favor intenta de nuevo.');
     } finally {
       setCreatingLocation(false);
     }
@@ -1011,30 +1025,39 @@ export default function ManualOrderSidebar({
 
   // Guardar cambios de edición
   const handleSaveEditedLocation = async () => {
-    if (!editingLocationId) return
+    if (!editingLocationId || creatingLocation) return
+    
     if (!newLocationData.referencia.trim()) {
       alert('Por favor ingresa una referencia para la ubicación');
       return;
     }
 
-    if (newLocationData.latlong.trim()) {
-      if (!isValidLocation(newLocationData.latlong)) {
-        alert('Por favor ingresa coordenadas válidas (formato: lat,lng o un Plus Code como 42W9+246)');
-        return;
-      }
-      // Solo normalizar si no es un Plus Code
-      if (!newLocationData.latlong.startsWith('pluscode:')) {
-        const normalized = normalizeLatLong(newLocationData.latlong);
-        setNewLocationData(prev => ({ ...prev, latlong: normalized }));
-      }
-    }
-
     setCreatingLocation(true)
     try {
+      if (newLocationData.latlong.trim()) {
+        if (!isValidLocation(newLocationData.latlong)) {
+          alert('Por favor ingresa coordenadas válidas (formato: lat,lng o un Plus Code como 42W9+246)');
+          setCreatingLocation(false);
+          return;
+        }
+        // Solo normalizar si no es un Plus Code
+        if (!newLocationData.latlong.startsWith('pluscode:')) {
+          const normalized = normalizeLatLong(newLocationData.latlong);
+          setNewLocationData(prev => ({ ...prev, latlong: normalized }));
+        }
+      }
+
       // Buscar el cliente para obtener su ID (necesario para subir imagen)
+      if (!manualOrderData.customerPhone) {
+        alert('No se pudo identificar al cliente asociado');
+        setCreatingLocation(false);
+        return;
+      }
+
       const client = await searchClientByPhone(manualOrderData.customerPhone);
       if (!client) {
-        alert('No se encontró el cliente');
+        alert('No se encontró el registro del cliente');
+        setCreatingLocation(false);
         return;
       }
 
@@ -1089,6 +1112,7 @@ export default function ManualOrderSidebar({
       setLocationImagePreview('')
     } catch (error) {
       console.error('Error actualizando ubicación:', error)
+      alert('Error al actualizar la ubicación. Por favor intenta de nuevo.');
     } finally {
       setCreatingLocation(false)
     }
@@ -1282,35 +1306,54 @@ export default function ManualOrderSidebar({
             assignedDelivery: manualOrderData.selectedDelivery?.id || null
           })
         },
-        timing: {
-          type: manualOrderData.timingType,
-          ...(manualOrderData.timingType === 'scheduled' && {
-            scheduledDate: manualOrderData.scheduledDate ? (() => {
-              const [year, month, day] = manualOrderData.scheduledDate.split('-').map(Number);
-              const [hours, minutes] = manualOrderData.scheduledTime ? manualOrderData.scheduledTime.split(':').map(Number) : [0, 0];
-              return {
-                seconds: Math.floor(new Date(year, month - 1, day, hours, minutes).getTime() / 1000),
-                nanoseconds: 0
-              };
-            })() : null,
-            scheduledTime: manualOrderData.scheduledTime || ''
-          }),
-          ...(manualOrderData.timingType === 'immediate' && {
-            // Para pedidos inmediatos, guardar fecha actual y hora actual + tiempo definido (o 30 min)
-            scheduledDate: firestoreTimestamp,
-            scheduledTime: (() => {
-              const baseDeliveryTime = business?.deliveryTime || 30;
-              const deliveryTime = new Date(now.getTime() + (baseDeliveryTime + 1) * 60 * 1000);
-              const hh = String(deliveryTime.getHours()).padStart(2, '0');
-              const mm = String(deliveryTime.getMinutes()).padStart(2, '0');
-              return `${hh}:${mm}`;
-            })()
-          })
-        },
+        timing: (() => {
+          // Si estamos editando y el tipo es inmediato, intentar preservar el tiempo original
+          if (
+            mode === 'edit' && 
+            editOrder?.timing?.type === 'immediate' && 
+            manualOrderData.timingType === 'immediate' &&
+            editOrder.timing.scheduledDate &&
+            editOrder.timing.scheduledTime
+          ) {
+            return {
+              type: 'immediate',
+              scheduledDate: editOrder.timing.scheduledDate,
+              scheduledTime: editOrder.timing.scheduledTime
+            }
+          }
+
+          // Para pedidos programados o nuevos pedidos inmediatos
+          return {
+            type: manualOrderData.timingType,
+            ...(manualOrderData.timingType === 'scheduled' && {
+              scheduledDate: manualOrderData.scheduledDate ? (() => {
+                const [year, month, day] = manualOrderData.scheduledDate.split('-').map(Number);
+                const [hours, minutes] = manualOrderData.scheduledTime ? manualOrderData.scheduledTime.split(':').map(Number) : [0, 0];
+                return {
+                  seconds: Math.floor(new Date(year, month - 1, day, hours, minutes).getTime() / 1000),
+                  nanoseconds: 0
+                };
+              })() : null,
+              scheduledTime: manualOrderData.scheduledTime || ''
+            }),
+            ...(manualOrderData.timingType === 'immediate' && {
+              // Para NUEVOS pedidos inmediatos, guardar fecha actual y hora actual + tiempo definido (o 30 min)
+              scheduledDate: firestoreTimestamp,
+              scheduledTime: (() => {
+                const baseDeliveryTime = business?.deliveryTime || 30;
+                const deliveryTime = new Date(now.getTime() + (baseDeliveryTime + 1) * 60 * 1000);
+                const hh = String(deliveryTime.getHours()).padStart(2, '0');
+                const mm = String(deliveryTime.getMinutes()).padStart(2, '0');
+                return `${hh}:${mm}`;
+              })()
+            })
+          }
+        })(),
         payment: {
           method: manualOrderData.paymentMethod,
           paymentStatus: manualOrderData.paymentStatus,
           selectedBank: manualOrderData.selectedBank,
+          receiptImageUrl: manualOrderData.receiptImageUrl || '',
           ...(manualOrderData.paymentMethod === 'mixed' && {
             cashAmount: manualOrderData.cashAmount || 0,
             transferAmount: manualOrderData.transferAmount || 0
@@ -1427,7 +1470,8 @@ export default function ManualOrderSidebar({
       total: 0,
       selectedDelivery: null,
       orderStatus: 'borrador',
-      notas: ''
+      notas: '',
+      receiptImageUrl: ''
     })
     setClientFound(false)
     setShowCreateClient(false)
@@ -1913,8 +1957,8 @@ export default function ManualOrderSidebar({
           <div className="mb-6">
             <h3 className="text-sm font-medium text-black mb-3">Método de pago</h3>
             <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
+              <div
+                role="button"
                 onClick={() => {
                   if (manualOrderData.paymentMethod === 'cash') {
                     const statuses: ('pending' | 'validating' | 'paid')[] = ['paid', 'pending', 'validating'];
@@ -1931,7 +1975,7 @@ export default function ManualOrderSidebar({
                     }));
                   }
                 }}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.paymentMethod === 'cash'
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 cursor-pointer ${manualOrderData.paymentMethod === 'cash'
                   ? 'border-green-500 bg-green-50 text-green-700'
                   : 'border-gray-300 hover:border-gray-400'
                   }`}
@@ -1945,10 +1989,10 @@ export default function ManualOrderSidebar({
                      'Validando'}
                   </span>
                 )}
-              </button>
+              </div>
 
-              <button
-                type="button"
+              <div
+                role="button"
                 onClick={() => {
                   if (manualOrderData.paymentMethod === 'transfer') {
                     const statuses: ('pending' | 'validating' | 'paid')[] = ['paid', 'pending', 'validating'];
@@ -1965,7 +2009,7 @@ export default function ManualOrderSidebar({
                     }));
                   }
                 }}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.paymentMethod === 'transfer'
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 cursor-pointer ${manualOrderData.paymentMethod === 'transfer'
                   ? 'border-blue-500 bg-blue-50 text-blue-700'
                   : 'border-gray-300 hover:border-gray-400'
                   }`}
@@ -1973,30 +2017,60 @@ export default function ManualOrderSidebar({
                 <i className="bi bi-bank text-lg"></i>
                 <span className="text-xs font-medium">Transferencia</span>
                 {manualOrderData.paymentMethod === 'transfer' && (
-                  <span className="text-[10px] font-bold uppercase mt-1">
-                    {manualOrderData.paymentStatus === 'paid' ? 'Pagado' : 
-                     manualOrderData.paymentStatus === 'pending' ? 'Pendiente' : 
-                     'Validando'}
-                  </span>
+                  <div className="flex flex-col items-center mt-1">
+                    <span className="text-[10px] font-bold uppercase">
+                      {manualOrderData.paymentStatus === 'paid' ? 'Pagado' : 
+                       manualOrderData.paymentStatus === 'pending' ? 'Pendiente' : 
+                       'Validando'}
+                    </span>
+                    {manualOrderData.receiptImageUrl && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.open(manualOrderData.receiptImageUrl, '_blank');
+                        }}
+                        className="mt-1 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded hover:bg-blue-200 transition-colors flex items-center gap-1"
+                        title="Ver comprobante"
+                      >
+                        <i className="bi bi-image"></i>
+                        Ver Recibo
+                      </button>
+                    )}
+                  </div>
                 )}
-              </button>
+              </div>
 
-              <button
-                type="button"
+              <div
+                role="button"
                 onClick={() => setManualOrderData(prev => ({
                   ...prev,
                   paymentMethod: 'mixed',
                   cashAmount: prev.total / 2,
                   transferAmount: prev.total / 2
                 }))}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.paymentMethod === 'mixed'
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 cursor-pointer ${manualOrderData.paymentMethod === 'mixed'
                   ? 'border-purple-500 bg-purple-50 text-purple-700'
                   : 'border-gray-300 hover:border-gray-400'
                   }`}
               >
                 <i className="bi bi-cash-coin text-lg"></i>
                 <span className="text-xs font-medium">Mixto</span>
-              </button>
+                {manualOrderData.paymentMethod === 'mixed' && manualOrderData.receiptImageUrl && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.open(manualOrderData.receiptImageUrl, '_blank');
+                    }}
+                    className="mt-1 text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded hover:bg-purple-200 transition-colors flex items-center gap-1"
+                    title="Ver comprobante"
+                  >
+                    <i className="bi bi-image"></i>
+                    Ver Recibo
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Configuración de Pago Mixto */}
@@ -2636,7 +2710,7 @@ export default function ManualOrderSidebar({
 
                   <button
                     onClick={() => editingLocationId ? handleSaveEditedLocation() : handleCreateLocation()}
-                    disabled={creatingLocation || !newLocationData.referencia.trim()}
+                    disabled={creatingLocation}
                     className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
                   >
                     {creatingLocation ? (
