@@ -812,9 +812,22 @@ export default function TodayOrdersPage() {
             const currentOrder = orders.find(o => o.id === orderId);
             let assignmentUpdate: any = {};
 
-            // Auto-assign if confirming a pending delivery order
-            if (currentOrder && currentOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending') {
-                if (currentOrder.delivery?.type === 'delivery' && !currentOrder.delivery.assignedDelivery) {
+            const isScheduled = currentOrder?.timing?.type === 'scheduled';
+            const isDelivery = currentOrder?.delivery?.type === 'delivery';
+            const hasNoDeliveryAssigned = !currentOrder?.delivery?.assignedDelivery;
+
+            // Auto-assign delivery logic
+            if (currentOrder && isDelivery && hasNoDeliveryAssigned) {
+                // Scenario A: Confirming a pending order (Immediate orders go to preparing, Scheduled go to confirmed)
+                // We only assign delivery here if it's NOT scheduled (meaning it's immediate)
+                if (currentOrder.status === 'pending' && newStatus !== 'cancelled' && newStatus !== 'pending' && !isScheduled) {
+                    const assignedId = await autoAssignDeliveryForOrder(currentOrder, business?.defaultDeliveryId);
+                    if (assignedId) {
+                        assignmentUpdate['delivery.assignedDelivery'] = assignedId;
+                    }
+                }
+                // Scenario B: Moving a scheduled order from confirmed to preparing (purple button)
+                else if (currentOrder.status === 'confirmed' && newStatus === 'preparing' && isScheduled) {
                     const assignedId = await autoAssignDeliveryForOrder(currentOrder, business?.defaultDeliveryId);
                     if (assignedId) {
                         assignmentUpdate['delivery.assignedDelivery'] = assignedId;
