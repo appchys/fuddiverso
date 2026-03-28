@@ -7,7 +7,7 @@ const { processOrderAction } = require('./delivery');
 let STORE_BOT_TOKEN = process.env.STORE_BOT_TOKEN;
 let DELIVERY_BOT_TOKEN = process.env.DELIVERY_BOT_TOKEN;
 let CUSTOMER_BOT_TOKEN = process.env.CUSTOMER_BOT_TOKEN;
-let ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN || '8514960086:AAHw09N32bSfbRV6l9eX3Q6oLrR87goXr9g';
+let ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN;
 
 // Fallback a functions.config() si no está en process.env
 try {

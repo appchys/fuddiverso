@@ -24,7 +24,7 @@ export default function LocationMap({ latlong, height = "96px" }: { latlong: str
     }
 
     // Usar Google Static Maps API con un tamaño mayor para mejor resolución en anchos grandes
-    const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${coordinates.lat},${coordinates.lng}&zoom=16&size=600x300&maptype=roadmap&markers=color:red%7C${coordinates.lat},${coordinates.lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
+    const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${coordinates.lat},${coordinates.lng}&zoom=16&size=600x300&maptype=roadmap&markers=color:red%7C${coordinates.lat},${coordinates.lng}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`;
 
     return (
         <div className="w-full h-full overflow-hidden relative" style={{ minHeight: height }}>

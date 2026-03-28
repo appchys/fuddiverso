@@ -439,7 +439,7 @@ function OrderCard({
                 <div
                   className="h-48 w-full bg-cover bg-center border-t border-gray-50 animate-in slide-in-from-top-2 duration-300"
                   style={{
-                    backgroundImage: `url('https://maps.googleapis.com/maps/api/staticmap?center=${order.delivery.latlong}&zoom=15&size=400x200&scale=2&maptype=roadmap&markers=color:red%7C${order.delivery.latlong}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs')`
+                    backgroundImage: `url('https://maps.googleapis.com/maps/api/staticmap?center=${order.delivery.latlong}&zoom=15&size=400x200&scale=2&maptype=roadmap&markers=color:red%7C${order.delivery.latlong}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}')`
                   }}
                 ></div>
               )}

@@ -14,6 +14,9 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+// Google Maps API Key para mapas estáticos
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+
 /**
  * Enviar email cuando se crea una nueva orden
  */
@@ -95,7 +98,7 @@ async function sendOrderCreatedEmail(order, orderId) {
         // Parsear latlong si viene en formato "lat,lng"
         const [lat, lng] = order.delivery.latlong.split(',').map(s => s.trim());
         if (lat && lng) {
-          const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=17&size=400x200&markers=color:red%7C${lat},${lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
+          const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=17&size=400x200&markers=color:red%7C${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}`;
           const mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
           mapHtml = `
             <div style="margin-top: 16px;">
@@ -569,7 +572,7 @@ async function sendDeliveryAssignmentEmail(order, orderId, deliveryEmail, custom
     if (order.delivery?.latlong) {
       const [lat, lng] = order.delivery.latlong.split(',').map(s => s.trim());
       if (lat && lng) {
-        const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=17&size=400x200&markers=color:red%7C${lat},${lng}&key=AIzaSyAgOiLYPpzxlUHkX3lCmp5KK4UF7wx7zMs`;
+        const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=17&size=400x200&markers=color:red%7C${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}`;
         const mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
         mapHtml = `
             <div style="margin-top: 12px; margin-bottom: 12px;">
