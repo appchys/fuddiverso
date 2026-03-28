@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
@@ -122,7 +122,7 @@ const autoAssignDeliveryForOrder = async (order: Order, defaultDeliveryId?: stri
 
 import PaymentManagementModals from '@/components/PaymentManagementModals'
 import ManualOrderSidebar from '@/components/ManualOrderSidebar'
-import { LiveCheckoutsPanel } from '@/components/LiveCheckoutsPanel'
+import { LiveCheckoutsPanel, CheckoutSession } from '@/components/LiveCheckoutsPanel'
 
 const getStatusText = (status: string) => {
     switch (status) {
@@ -895,6 +895,38 @@ export default function TodayOrdersPage() {
         }
     }
 
+    const handleOpenManualOrderFromCheckout = (checkoutSession: CheckoutSession) => {
+        // Crear una orden temporal basada en los datos del checkout para prellenar el formulario
+        const tempOrder: any = {
+            id: `checkout-${checkoutSession.id}`, // ID temporal solo para prellenar
+            businessId: checkoutSession.businessId,
+            customer: checkoutSession.customerData,
+            delivery: {
+                type: checkoutSession.deliveryData.type,
+                address: checkoutSession.deliveryData.address,
+                references: checkoutSession.deliveryData.references,
+                deliveryCost: parseFloat(checkoutSession.deliveryData.tarifa || '0'),
+                latlong: checkoutSession.deliveryData.latlong
+            },
+            timing: checkoutSession.timingData,
+            payment: {
+                ...checkoutSession.paymentData,
+                paymentStatus: 'pending'
+            },
+            items: checkoutSession.cartItems,
+            total: (checkoutSession.cartItems?.reduce((acc: number, item: any) => acc + ((item.price || item.product?.price || 0) * item.quantity), 0) || 0) + (parseFloat(checkoutSession.deliveryData?.tarifa || '0')),
+            status: 'pending',
+            createdAt: new Date(),
+            checkoutSessionId: checkoutSession.id,
+            _isFromCheckout: true // Bandera para identificar que viene de un checkout
+        }
+
+        // Usar el mismo sidebar pero en modo edit con datos precargados
+        setSelectedOrderForEdit(tempOrder)
+        setManualSidebarMode('edit')
+        setManualOrderSidebarOpen(true)
+    }
+
     // ... (rendering) ...
 
     if (loading) {
@@ -1298,6 +1330,7 @@ export default function TodayOrdersPage() {
                                                             businessId={businessId}
                                                             orders={orders}
                                                             onCountChange={setCheckoutCount}
+                                                            onOpenManualOrder={handleOpenManualOrderFromCheckout}
                                                         />
                                                     )}
                                                     <OrderStatusColumn
