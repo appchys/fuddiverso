@@ -641,9 +641,10 @@ exports.sendDailyOrderSummary = onSchedule({
         }
       }
 
-      todayOrders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime));
-
-      await emailServices.sendDailySummaryEmail(business, todayOrders, recipients, todayFormatted, previewDateStr);
+      if (todayOrders.length > 0) {
+        todayOrders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime));
+        await emailServices.sendDailySummaryEmail(business, todayOrders, recipients, todayFormatted, previewDateStr);
+      }
     }
   } catch (error) {
     console.error('❌ Error en sendDailyOrderSummary:', error);
