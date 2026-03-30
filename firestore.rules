@@ -8,12 +8,14 @@ service cloud.firestore {
       // TODO: Revertir después de migración
       allow write: if request.auth != null;
       
-      // Permitir actualización de zoneId y groupId sin autenticación (para admin dashboard)
+      // Permitir actualización parcial sin autenticación (rating stats, zoneId, groupId)
       allow update: if (
-        request.writeFields.size() <= 2 &&
-        request.writeFields.hasAll(['zoneId', 'groupId']) &&
-        request.resource.data.zoneId is string &&
-        request.resource.data.groupId is string
+        (request.writeFields.hasOnly(['zoneId', 'groupId']) &&
+         request.resource.data.zoneId is string &&
+         request.resource.data.groupId is string) ||
+        (request.writeFields.hasOnly(['ratingAverage', 'ratingCount', 'updatedAt']) &&
+         request.resource.data.ratingAverage is number &&
+         request.resource.data.ratingCount is number)
       );
       
       // Subcolección de notificaciones
@@ -49,7 +51,7 @@ service cloud.firestore {
       
       // Subcolección de calificaciones
       match /ratings/{ratingId} {
-        // Permitir lectura pública para verificar si una orden ya fue calificada
+        // Permitir lectura pública
         allow read: if true;
         
         // Permitir consultas de agregación (necesario para count, avg, etc.)
@@ -57,16 +59,23 @@ service cloud.firestore {
         
         // Cualquiera puede crear calificaciones (los clientes sin autenticación)
         allow create: if (
-          // Validar que los campos requeridos estén presentes
-          request.resource.data.keys().hasAll(['orderId', 'rating']) &&
+          // Validar que al menos el rating esté presente
+          request.resource.data.keys().hasAll(['rating']) &&
           // Validar que el rating sea un número entre 1 y 5
           request.resource.data.rating is number &&
           request.resource.data.rating >= 1 &&
           request.resource.data.rating <= 5
         );
         
-        // No permitir actualizaciones ni eliminaciones
-        allow update, delete: if false;
+        // Permitir actualización para que los clientes puedan cambiar su calificación
+        allow update: if (
+          request.resource.data.rating is number &&
+          request.resource.data.rating >= 1 &&
+          request.resource.data.rating <= 5
+        );
+        
+        // TEMPORAL: Permitir eliminaciones para depuración de duplicados
+        allow delete: if true;
       }
     }
 

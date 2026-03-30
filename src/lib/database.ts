@@ -18,6 +18,7 @@ import {
   onSnapshot,
   writeBatch,
   deleteField,
+  arrayUnion,
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
@@ -3591,6 +3592,16 @@ export interface BusinessRating {
   clientName?: string;
   clientPhone?: string;
   clientEmail?: string;
+  clientPhotoURL?: string;
+  likes?: string[]; // Array de IDs de clientes que dieron corazón
+  replies?: {
+    id: string;
+    userName: string;
+    userPhone: string; // ID del cliente que respondió
+    userPhoto?: string;
+    comment: string;
+    createdAt: any;
+  }[];
   userAgent?: string;
   ipAddress?: string;
   createdAt: any;
@@ -3598,7 +3609,193 @@ export interface BusinessRating {
 }
 
 /**
- * Save a rating for a business
+ * Save or update a general rating for a business (not tied to a specific order)
+ * USES PHONE AS ID TO PREVENT DUPLICATES
+ */
+export async function saveStoreRating(
+  businessId: string,
+  rating: number,
+  comment: string = '',
+  clientInfo: { name?: string; phone?: string; email?: string; photoURL?: string } = {}
+): Promise<string> {
+  try {
+    // If no phone, fallback to auto ID (shouldn't happen with current UI)
+    if (!clientInfo.phone) {
+      const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
+      const ratingData = {
+        businessId,
+        rating,
+        comment,
+        clientName: clientInfo.name || 'Cliente',
+        clientPhone: '',
+        clientEmail: clientInfo.email || '',
+        clientPhotoURL: clientInfo.photoURL || '',
+        userAgent: typeof window !== 'undefined' ? navigator.userAgent : '',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+      const docRef = await addDoc(ratingsRef, ratingData);
+      await updateBusinessRatingStats(businessId);
+      return docRef.id;
+    }
+
+    // Use sanitized phone as ID for idempotency
+    const ratingId = clientInfo.phone.replace(/\D/g, '');
+    const ratingRef = doc(db, 'businesses', businessId, 'ratings', ratingId);
+    
+    const docSnap = await getDoc(ratingRef);
+    
+    const ratingData: any = {
+      businessId,
+      rating,
+      comment,
+      clientName: clientInfo.name || 'Cliente',
+      clientPhone: clientInfo.phone,
+      clientEmail: clientInfo.email || '',
+      clientPhotoURL: clientInfo.photoURL || '',
+      userAgent: typeof window !== 'undefined' ? navigator.userAgent : '',
+      updatedAt: serverTimestamp(),
+    };
+
+    if (!docSnap.exists()) {
+      ratingData.createdAt = serverTimestamp();
+      await setDoc(ratingRef, ratingData);
+    } else {
+      await updateDoc(ratingRef, ratingData);
+    }
+
+    await updateBusinessRatingStats(businessId);
+    return ratingId;
+  } catch (error) {
+    console.error('Error saving store rating:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get the latest rating from a specific user for a business
+ */
+/**
+ * Dar o quitar corazón a una calificación de tienda
+ */
+export async function toggleLikeStoreRating(
+  businessId: string,
+  ratingId: string,
+  clientPhone: string
+): Promise<void> {
+  try {
+    const ratingRef = doc(db, 'businesses', businessId, 'ratings', ratingId);
+    const docSnap = await getDoc(ratingRef);
+    
+    if (!docSnap.exists()) return;
+    
+    const data = docSnap.data() as BusinessRating;
+    const currentLikes = data.likes || [];
+    
+    let newLikes;
+    if (currentLikes.includes(clientPhone)) {
+      newLikes = currentLikes.filter(id => id !== clientPhone);
+    } else {
+      newLikes = [...currentLikes, clientPhone];
+    }
+    
+    await updateDoc(ratingRef, {
+      likes: newLikes,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error toggling like:', error);
+    throw error;
+  }
+}
+
+export async function addStoreRatingReply(
+  businessId: string,
+  ratingId: string,
+  reply: {
+    userName: string;
+    userPhone: string;
+    userPhoto?: string;
+    comment: string;
+  }
+): Promise<void> {
+  try {
+    const ratingRef = doc(db, 'businesses', businessId, 'ratings', ratingId);
+    const newReply = {
+      ...reply,
+      id: Math.random().toString(36).substring(7),
+      createdAt: new Date()
+    };
+    
+    await updateDoc(ratingRef, {
+      replies: arrayUnion(newReply),
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error adding reply:', error);
+    throw error;
+  }
+}
+
+export async function deleteStoreRatingReply(
+  businessId: string,
+  ratingId: string,
+  replyId: string,
+  clientPhone: string
+): Promise<void> {
+  try {
+    const ratingRef = doc(db, 'businesses', businessId, 'ratings', ratingId);
+    const docSnap = await getDoc(ratingRef);
+    if (!docSnap.exists()) return;
+    
+    const data = docSnap.data() as BusinessRating;
+    const currentReplies = data.replies || [];
+    
+    // Solo permitir borrar si es el dueño
+    const newReplies = currentReplies.filter(r => !(r.id === replyId && r.userPhone === clientPhone));
+    
+    await updateDoc(ratingRef, {
+      replies: newReplies,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error deleting reply:', error);
+    throw error;
+  }
+}
+
+export async function getUserStoreRating(businessId: string, clientPhone: string): Promise<BusinessRating | null> {
+  try {
+    const ratingId = clientPhone.replace(/\D/g, '');
+    const ratingRef = doc(db, 'businesses', businessId, 'ratings', ratingId);
+    const docSnap = await getDoc(ratingRef);
+    
+    if (docSnap.exists()) {
+      return { id: docSnap.id, ...docSnap.data() } as BusinessRating;
+    }
+
+    // Fallback for old auto-generated IDs
+    const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
+    const q = query(
+      ratingsRef,
+      where('clientPhone', '==', clientPhone),
+      orderBy('updatedAt', 'desc'),
+      limit(1)
+    );
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      const doc = snapshot.docs[0];
+      return { id: doc.id, ...doc.data() } as BusinessRating;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting user store rating:', error);
+    return null;
+  }
+}
+
+/**
+ * Save a rating for a business tied to an order
  */
 export async function saveBusinessRating(
   businessId: string,
@@ -3631,6 +3828,25 @@ export async function saveBusinessRating(
     return docRef.id;
   } catch (error) {
     console.error('Error saving rating:', error);
+    throw error;
+  }
+}
+
+/**
+ * Delete a rating for a business
+ */
+export async function deleteStoreRating(
+  businessId: string,
+  ratingId: string
+): Promise<void> {
+  try {
+    const ratingRef = doc(db, 'businesses', businessId, 'ratings', ratingId);
+    await deleteDoc(ratingRef);
+    
+    // Update business rating stats
+    await updateBusinessRatingStats(businessId);
+  } catch (error) {
+    console.error('Error deleting store rating:', error);
     throw error;
   }
 }

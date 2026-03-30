@@ -6,11 +6,11 @@ import Link from 'next/link'
 import Head from 'next/head'
 import { getProductPublicPrice, formatPrice, getPriceMetadata } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick } from '@/lib/database'
+import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick, saveStoreRating, getUserStoreRating, getBusinessRatings, BusinessRating, deleteStoreRating, toggleLikeStoreRating, addStoreRatingReply, deleteStoreRatingReply, searchClientByPhone, createClient, updateClient, serverTimestamp } from '@/lib/database'
 import { collection, query, where, onSnapshot, doc, limit } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import CartSidebar from '@/components/CartSidebar'
-import { normalizeEcuadorianPhone } from '@/lib/validation'
+import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 import LocationMap from '@/components/LocationMap'
 import { CheckoutContent } from '@/components/CheckoutContent'
 import UserSidebar from '@/components/UserSidebar'
@@ -19,6 +19,7 @@ import { isStoreOpen, getNextOpeningMessage } from '@/lib/store-utils'
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
+import Header from '@/components/Header'
 
 // Componente para structured data JSON-LD
 function BusinessStructuredData({ business }: { business: Business }) {
@@ -48,8 +49,8 @@ function BusinessStructuredData({ business }: { business: Business }) {
     ).filter(Boolean) : [],
     "aggregateRating": {
       "@type": "AggregateRating",
-      "ratingValue": "4.5",
-      "reviewCount": "10"
+      "ratingValue": (business.ratingAverage || 5.0).toString(),
+      "reviewCount": (business.ratingCount || 10).toString()
     },
     "potentialAction": {
       "@type": "OrderAction",
@@ -679,6 +680,800 @@ function ReferralModal({
   )
 }
 
+// Modal para calificar la tienda
+function StoreRatingModal({
+  isOpen,
+  onClose,
+  business,
+  clientPhone,
+  clientUser,
+  onSuccess
+}: {
+  isOpen: boolean
+  onClose: () => void
+  business: Business
+  clientPhone: string | null
+  clientUser: any
+  onSuccess: (message: string) => void
+}) {
+  const { login } = useAuth()
+  const [rating, setRating] = useState(0)
+  const [hover, setHover] = useState(0)
+  const [comment, setComment] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [loadingInitial, setLoadingInitial] = useState(true)
+  const [allRatings, setAllRatings] = useState<BusinessRating[]>([])
+  const [loadingRatings, setLoadingRatings] = useState(true)
+  const [activePhone, setActivePhone] = useState<string | null>(clientPhone)
+  const [showReplyFor, setShowReplyFor] = useState<string | null>(null)
+  const [replyText, setReplyText] = useState('')
+  const [isReplying, setIsReplying] = useState(false)
+
+  const handleToggleLike = async (ratingId: string) => {
+    if (!activePhone) return
+    try {
+      await toggleLikeStoreRating(business.id, ratingId, activePhone)
+      // Recargar ratings localmente
+      const ratings = await getBusinessRatings(business.id, 100)
+      setAllRatings(ratings)
+    } catch (error) {
+      console.error('Error liking rating:', error)
+    }
+  }
+
+  const handleAddReply = async (ratingId: string) => {
+    if (!replyText.trim()) return
+    const displayName = clientUser?.nombres || clientFound?.nombres || 'Cliente'
+    const photoURL = clientUser?.photoURL || clientFound?.photoURL || ''
+    
+    setIsReplying(true)
+    try {
+      await addStoreRatingReply(business.id, ratingId, {
+        userName: displayName,
+        userPhone: activePhone || '',
+        userPhoto: photoURL,
+        comment: replyText
+      })
+      setReplyText('')
+      setShowReplyFor(null)
+      const ratings = await getBusinessRatings(business.id, 100)
+      setAllRatings(ratings)
+    } catch (error) {
+      console.error('Error replying:', error)
+    } finally {
+      setIsReplying(false)
+    }
+  }
+
+  const handleDeleteReply = async (ratingId: string, replyId: string) => {
+    if (!activePhone) return
+    try {
+      await deleteStoreRatingReply(business.id, ratingId, replyId, activePhone)
+      const ratings = await getBusinessRatings(business.id, 100)
+      setAllRatings(ratings)
+    } catch (error) {
+      console.error('Error deleting reply:', error)
+    }
+  }
+
+  useEffect(() => {
+    if (clientPhone) {
+      setActivePhone(clientPhone)
+    }
+  }, [clientPhone])
+
+  // Login states
+  const [customerData, setCustomerData] = useState({ name: '', phone: '' })
+  const [phoneConfirmation, setPhoneConfirmation] = useState('')
+  const [clientFound, setClientFound] = useState<any | null>(null)
+  const [clientSearching, setClientSearching] = useState(false)
+  const [showNameField, setShowNameField] = useState(false)
+  const [phoneError, setPhoneError] = useState('')
+  const [nameError, setNameError] = useState('')
+
+  const loadRatings = async () => {
+    if (!business?.id) return
+    setLoadingRatings(true)
+    try {
+      const ratings = await getBusinessRatings(business.id, 100)
+      setAllRatings(ratings)
+    } catch (e) {
+      console.error('Error loading ratings:', e)
+    } finally {
+      setLoadingRatings(false)
+    }
+  }
+
+  // Función para buscar cliente por teléfono
+  async function handlePhoneSearch(phone: string) {
+    if (!phone.trim()) {
+      setClientFound(null)
+      setShowNameField(false)
+      setPhoneError('')
+      return
+    }
+
+    const normalizedPhone = normalizeEcuadorianPhone(phone)
+    if (!validateEcuadorianPhone(normalizedPhone)) {
+      setPhoneError('Ingresa un número ecuatoriano válido')
+      setClientFound(null)
+      setShowNameField(false)
+      return
+    }
+
+    setPhoneError('')
+    setClientSearching(true)
+
+    try {
+      // Buscar con el número normalizado
+      const client = await searchClientByPhone(normalizedPhone)
+      if (client) {
+        // Cliente encontrado - mostrar confirmación
+        setClientFound(client)
+        setCustomerData(prev => ({
+          ...prev,
+          phone: normalizedPhone,
+          name: client.nombres || ''
+        }))
+        setShowNameField(false)
+        // No hacer auto-login aquí, esperar confirmación
+      } else {
+        // Cliente no encontrado - mostrar formulario de registro
+        setClientFound(null)
+        setShowNameField(true)
+        setCustomerData(prev => ({ ...prev, phone: normalizedPhone }))
+      }
+    } catch (error) {
+      console.error('Error searching client:', error)
+      setPhoneError('Error al buscar el cliente')
+      setClientFound(null)
+      setShowNameField(false)
+    } finally {
+      setClientSearching(false)
+    }
+  }
+
+  // Función para confirmar login del cliente encontrado
+  async function handleConfirmLogin() {
+    if (!clientFound) return
+
+    try {
+      // Auto-login del cliente
+      login(clientFound as any)
+
+      // Registrar login desde Rating
+      if (clientFound.id) {
+        await updateClient(clientFound.id, {
+          lastLoginAt: serverTimestamp(),
+          loginSource: 'rating'
+        })
+      }
+
+      const phoneToUse = clientFound.celular || customerData.phone
+      localStorage.setItem('loginPhone', phoneToUse)
+      setActivePhone(phoneToUse)
+
+      onSuccess('¡Bienvenido!')
+    } catch (error) {
+      console.error('Error en login:', error)
+      setPhoneError('Error al iniciar sesión')
+    }
+  }
+
+  // Función para crear nuevo cliente
+  async function handleCreateClient() {
+    if (!customerData.phone || !customerData.name) {
+      setNameError('El nombre es requerido')
+      return
+    }
+
+    const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
+    if (!validateEcuadorianPhone(normalizedPhone)) {
+      setPhoneError('Número de teléfono inválido')
+      return
+    }
+
+    setIsSubmitting(true)
+    setNameError('')
+    setPhoneError('')
+
+    try {
+      // Verificar si el cliente ya existe por si acaso
+      const existingClient = await searchClientByPhone(normalizedPhone)
+      if (existingClient) {
+        // Actualizar nombre si es diferente
+        if (existingClient.nombres !== customerData.name.trim()) {
+          try {
+            await updateClient(existingClient.id, {
+              nombres: customerData.name.trim(),
+              lastLoginAt: serverTimestamp(),
+              loginSource: 'rating'
+            })
+          } catch (e) {
+            console.warn('No se pudo actualizar el nombre del cliente existente:', e)
+          }
+        }
+
+        const updatedClient = { ...existingClient, nombres: customerData.name.trim() }
+        setClientFound(updatedClient)
+        setShowNameField(false)
+        setCustomerData(prev => ({ ...prev, phone: normalizedPhone }))
+
+        // Auto-login del cliente actualizado
+        login(updatedClient as any)
+        
+        localStorage.setItem('loginPhone', normalizedPhone)
+        setActivePhone(normalizedPhone)
+        
+        return
+      }
+
+      const newClient = await createClient({
+        celular: normalizedPhone,
+        nombres: customerData.name.trim(),
+        fecha_de_registro: new Date().toISOString()
+      })
+
+      // Registrar login desde Rating
+      if (newClient && newClient.id) {
+        await updateClient(newClient.id, {
+          lastRegistrationAt: serverTimestamp(),
+          lastLoginAt: serverTimestamp(),
+          loginSource: 'rating'
+        })
+      }
+
+      const clientData = {
+        id: newClient?.id,
+        celular: normalizedPhone,
+        nombres: customerData.name.trim(),
+        fecha_de_registro: new Date().toISOString()
+      }
+
+      setClientFound(clientData)
+      setShowNameField(false)
+
+      // Auto-login del nuevo cliente
+      login(clientData as any)
+      
+      localStorage.setItem('loginPhone', normalizedPhone)
+      setActivePhone(normalizedPhone)
+      
+    } catch (error) {
+      console.error('Error creating/updating client:', error)
+      setNameError('Error al crear el cliente. Intenta nuevamente.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  useEffect(() => {
+    if (isOpen && business?.id) {
+      loadRatings()
+      
+      const loadPreviousData = async () => {
+        if (activePhone) {
+          setLoadingInitial(true)
+          try {
+            const prev = await getUserStoreRating(business.id, activePhone)
+            if (prev) {
+              setRating(prev.rating)
+              setComment(prev.comment || '')
+            } else {
+              setRating(0)
+              setComment('')
+            }
+          } catch (e) {
+            console.error('Error loading previous rating:', e)
+          } finally {
+            setLoadingInitial(false)
+          }
+        } else {
+          setRating(0)
+          setComment('')
+          setLoadingInitial(false)
+        }
+      }
+      loadPreviousData()
+    }
+  }, [isOpen, business?.id, activePhone])
+
+  if (!isOpen) return null
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (rating === 0 || !business?.id) return
+
+    setIsSubmitting(true)
+    try {
+      await saveStoreRating(
+        business.id,
+        rating,
+        comment,
+        {
+          name: clientUser?.nombres || clientFound?.nombres || 'Cliente',
+          phone: activePhone || '',
+          email: clientUser?.email || '',
+          photoURL: clientUser?.photoURL || clientFound?.photoURL || ''
+        }
+      )
+      loadRatings()
+      onSuccess(rating > 0 ? '¡Gracias por tu calificación!' : 'Calificación guardada')
+      onClose()
+    } catch (error) {
+      console.error('Error al enviar la calificación:', error)
+      alert('Error al guardar la calificación')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleDelete = async (ratingId: string) => {
+    if (!business?.id || !window.confirm('¿Eliminar esta calificación?')) return
+    try {
+      await deleteStoreRating(business.id, ratingId)
+      onSuccess('Calificación eliminada')
+      loadRatings()
+    } catch (error) {
+      console.error('Error al eliminar:', error)
+      alert('Error al eliminar')
+    }
+  }
+
+  // Si no hay cliente logueado, mostrar login UI
+  if (!activePhone) {
+    return (
+      <div className="fixed inset-0 z-[200] overflow-hidden">
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
+
+        <div className="flex items-end sm:items-center justify-center min-h-screen p-0 sm:p-4">
+          <div className="relative w-full max-w-md bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden transform transition-all animate-in slide-in-from-bottom sm:zoom-in duration-300 flex flex-col max-h-[90svh]">
+            
+            <div className="px-6 pt-8 pb-4 text-center border-b border-gray-100 flex-shrink-0">
+              <button
+                onClick={onClose}
+                className="absolute top-6 right-6 p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all"
+              >
+                <i className="bi bi-x-lg"></i>
+              </button>
+              <div className="w-16 h-16 bg-yellow-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl">
+                ⭐
+              </div>
+              <h3 className="text-xl font-black text-gray-900 leading-tight">Inicia sesión para calificar</h3>
+              <p className="text-sm text-gray-400 mt-1 font-medium">Tu opinión ayuda mucho a {business.name}</p>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+              <div className="space-y-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Número de Celular</label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                      <i className="bi bi-phone"></i>
+                    </span>
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={customerData.phone}
+                      onChange={(e) => {
+                        const phone = e.target.value
+                        setCustomerData({ ...customerData, phone })
+                        handlePhoneSearch(phone)
+                      }}
+                      onBlur={(e) => {
+                        const phone = e.target.value
+                        const normalizedPhone = normalizeEcuadorianPhone(phone)
+                        if (validateEcuadorianPhone(normalizedPhone)) {
+                          setCustomerData({ ...customerData, phone: normalizedPhone })
+                        }
+                      }}
+                      className={`w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all ${phoneError ? 'ring-2 ring-red-100 border-red-300' : ''}`}
+                      placeholder="0999999999"
+                      maxLength={10}
+                      disabled={clientSearching}
+                    />
+                  </div>
+                  {clientFound && (
+                    <button
+                      onClick={() => {
+                        setClientFound(null)
+                        setCustomerData({ name: '', phone: '' })
+                        setShowNameField(false)
+                        setPhoneError('')
+                        setPhoneConfirmation('')
+                      }}
+                      className="px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                      title="Cambiar número"
+                    >
+                      Cambiar
+                    </button>
+                  )}
+                </div>
+                {phoneError && <p className="text-red-500 text-xs mt-2 ml-1">{phoneError}</p>}
+
+                {/* Searching indicator */}
+                {clientSearching && (
+                  <div className="mt-3 flex items-center gap-2 text-blue-600 animate-fadeIn">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                    <p className="text-sm">Buscando cliente...</p>
+                  </div>
+                )}
+
+                {/* Cliente encontrado - mostrar confirmación */}
+                {!clientSearching && clientFound && (
+                  <div className="mt-4 pt-4 border-t border-gray-100 animate-fadeIn">
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                          <i className="bi bi-person-check-fill text-green-600 text-xl"></i>
+                        </div>
+                        <div>
+                          <p className="text-lg font-bold text-gray-900">¿Eres {clientFound.nombres}?</p>
+                          <p className="text-sm text-gray-600">Encontramos una cuenta con este número</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleConfirmLogin}
+                        className="w-full py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <i className="bi bi-check-circle"></i>
+                        Continuar como {clientFound.nombres}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setClientFound(null)
+                          setCustomerData({ name: '', phone: '' })
+                          setShowNameField(false)
+                          setPhoneError('')
+                          setPhoneConfirmation('')
+                        }}
+                        className="w-full mt-2 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                      >
+                        No, soy otra persona
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Cliente no encontrado - pedir nombre para registrar */}
+                {!clientSearching && !clientFound && showNameField && customerData.phone.trim() && validateEcuadorianPhone(normalizeEcuadorianPhone(customerData.phone)) && (
+                  <div className="mt-4 pt-4 border-t border-gray-100 animate-fadeIn">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                      <p className="text-sm text-blue-800">
+                        <i className="bi bi-info-circle mr-2"></i>
+                        Número no registrado. Por favor ingresa tus datos para continuar.
+                      </p>
+                    </div>
+
+                    {/* Campo de confirmación de teléfono */}
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Confirmar Celular *</label>
+                    <div className="relative mb-4">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                        <i className="bi bi-phone-fill"></i>
+                      </span>
+                      <input
+                        type="tel"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={phoneConfirmation}
+                        onChange={(e) => setPhoneConfirmation(e.target.value)}
+                        className={`w-full pl-10 pr-12 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 transition-all ${phoneConfirmation.trim() && phoneConfirmation === customerData.phone
+                          ? 'border-green-300 ring-2 ring-green-100 focus:ring-green-900'
+                          : phoneConfirmation.trim() && phoneConfirmation !== customerData.phone
+                            ? 'border-red-300 ring-2 ring-red-100 focus:ring-red-900'
+                            : 'border-gray-200 focus:ring-gray-900'
+                          }`}
+                        placeholder="Vuelve a escribir tu celular"
+                        maxLength={10}
+                      />
+                      {/* Ícono de validación */}
+                      {phoneConfirmation.trim() && (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                          {phoneConfirmation === customerData.phone ? (
+                            <i className="bi bi-check-circle-fill text-green-500 text-xl"></i>
+                          ) : (
+                            <i className="bi bi-x-circle-fill text-red-500 text-xl"></i>
+                          )}
+                        </span>
+                      )}
+                    </div>
+
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
+                    <input
+                      type="text"
+                      required
+                      value={customerData.name}
+                      onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
+                      className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all ${nameError ? 'border-red-300 ring-red-100' : 'border-gray-200'}`}
+                      placeholder="Juan Pérez"
+                    />
+                    {nameError && <p className="text-red-500 text-sm mt-1">{nameError}</p>}
+
+                    <button
+                      onClick={handleCreateClient}
+                      disabled={!customerData.name.trim() || !phoneConfirmation.trim() || phoneConfirmation !== customerData.phone || isSubmitting}
+                      className="w-full mt-3 px-4 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
+                    >
+                      {isSubmitting ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                          <span>Creando cuenta...</span>
+                        </div>
+                      ) : 'Continuar'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Si hay cliente logueado, mostrar rating UI normal
+  return (
+    <div className="fixed inset-0 z-[200] overflow-hidden">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
+
+      <div className="flex items-end sm:items-center justify-center min-h-screen p-0 sm:p-4">
+        <div className="relative w-full max-w-md bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden transform transition-all animate-in slide-in-from-bottom sm:zoom-in duration-300 flex flex-col max-h-[90svh]">
+          
+          <div className="px-6 pt-8 pb-4 text-center border-b border-gray-100 flex-shrink-0">
+            <button
+              onClick={onClose}
+              className="absolute top-6 right-6 p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all"
+            >
+              <i className="bi bi-x-lg"></i>
+            </button>
+            <div className="w-16 h-16 bg-yellow-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl">
+              ⭐
+            </div>
+            <h3 className="text-xl font-black text-gray-900 leading-tight">¿Qué tal tu experiencia?</h3>
+            <p className="text-sm text-gray-400 mt-1 font-medium">Tu opinión ayuda mucho a {business.name}</p>
+          </div>
+
+          <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+            {loadingInitial ? (
+              <div className="py-12 flex flex-col items-center justify-center gap-3">
+                <div className="w-8 h-8 border-3 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Cargando...</p>
+              </div>
+            ) : (() => {
+              const displayName = clientUser?.nombres || clientFound?.nombres || 'Cliente'
+              return (
+                <form onSubmit={handleSubmit} className="bg-white border border-gray-100 rounded-3xl p-4 shadow-sm ring-1 ring-black/5 mb-8">
+                  <div className="flex gap-3">
+                    {/* Avatar Compacto */}
+                    <div className="flex-shrink-0">
+                      {clientUser?.photoURL ? (
+                        <img src={clientUser.photoURL} alt={displayName} className="w-10 h-10 rounded-full object-cover border border-gray-100 shadow-sm" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-rose-400 flex items-center justify-center text-white font-black text-xs border border-red-100 shadow-sm">
+                          {displayName.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                        <p className="font-bold text-gray-900 text-xs truncate uppercase tracking-wider">{displayName}</p>
+                        <div className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded-full border border-gray-100">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <button
+                              key={star}
+                              type="button"
+                              className={`text-base transition-all duration-300 transform ${star <= (hover || rating) ? 'text-yellow-400 scale-110' : 'text-gray-200'} hover:scale-125`}
+                              onClick={() => setRating(star)}
+                              onMouseEnter={() => setHover(star)}
+                              onMouseLeave={() => setHover(rating)}
+                            >
+                              <i className={`bi ${star <= (hover || rating) ? 'bi-star-fill' : 'bi-star'}`}></i>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <textarea
+                        rows={2}
+                        className="w-full px-4 py-2.5 bg-gray-50/50 border border-gray-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none transition-all placeholder:text-gray-400 resize-none mb-3"
+                        placeholder="Comparte tu experiencia..."
+                        value={comment}
+                        onChange={(e) => setComment(e.target.value)}
+                      />
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
+                          <i className="bi bi-shield-lock-fill"></i>
+                          Opinión Pública
+                        </span>
+                        
+                        <button
+                          type="submit"
+                          disabled={isSubmitting || rating === 0}
+                          className={`px-5 py-2 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all duration-300 flex items-center gap-2 ${rating === 0
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-red-500 text-white shadow-lg shadow-red-100 hover:bg-red-600 hover:scale-[1.02] active:scale-95'
+                            }`}
+                        >
+                          {isSubmitting ? (
+                            <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                          ) : (
+                            <>
+                              <span>Publicar</span>
+                              <i className="bi bi-send-fill"></i>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </form>
+              )
+            })()}
+
+            {/* Lista de Calificaciones Existentes - Rediseño más limpio */}
+            <div className="mt-8 space-y-6">
+              <div className="flex items-center justify-between mb-6">
+                <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                  <i className="bi bi-chat-quote-fill text-red-500"></i>
+                  Opiniones de la comunidad
+                </h4>
+                {((business.ratingCount ?? 0) > 0 || allRatings.length > 0) && (
+                  <span className="text-[9px] font-black text-red-500 bg-red-50 px-2.5 py-1 rounded-full border border-red-100">
+                    {business.ratingCount ?? allRatings.length} reseñas
+                  </span>
+                )}
+              </div>
+
+              {loadingRatings ? (
+                <div className="py-8 flex justify-center">
+                  <div className="w-5 h-5 border-2 border-gray-100 border-t-red-500 rounded-full animate-spin"></div>
+                </div>
+              ) : allRatings.length > 0 ? (
+                <div className="grid gap-6">
+                  {allRatings.map((r) => (
+                    <div key={r.id} className="relative pl-12 group">
+                      {/* Avatar Absoluto */}
+                      <div className="absolute left-0 top-0">
+                        <div className="w-10 h-10 rounded-2xl overflow-hidden border-2 border-white shadow-md ring-1 ring-gray-100 transform -rotate-3 group-hover:rotate-0 transition-transform duration-300">
+                          {r.clientPhotoURL ? (
+                            <img src={r.clientPhotoURL} alt={r.clientName} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 uppercase">
+                              {r.clientName?.charAt(0) || 'C'}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="bg-white border border-gray-50 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-gray-100 transition-all">
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <p className="text-xs font-black text-gray-900 leading-none mb-1">{r.clientName || 'Cliente'}</p>
+                            <div className="flex text-[9px] text-yellow-400 gap-0.5">
+                              {[...Array(5)].map((_, i) => (
+                                <i key={i} className={`bi ${i < r.rating ? 'bi-star-fill' : 'bi-star'}`}></i>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] font-bold text-gray-300 uppercase tracking-tighter">
+                              {r.createdAt ? new Date(r.createdAt.seconds * 1000).toLocaleDateString('es-EC', { day: '2-digit', month: 'short' }) : ''}
+                            </span>
+                            {r.clientPhone === activePhone && (
+                              <button
+                                onClick={() => r.id && handleDelete(r.id)}
+                                className="w-6 h-6 flex items-center justify-center text-gray-200 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                title="Eliminar mi calificación"
+                              >
+                                <i className="bi bi-trash3 text-xs"></i>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {r.comment && (
+                          <p className="text-sm text-gray-600 font-medium leading-relaxed italic border-l-2 border-red-100 pl-3 py-1">
+                            "{r.comment}"
+                          </p>
+                        )}
+
+                        {/* Social Actions */}
+                        <div className="mt-2 pt-2 border-t border-gray-50 flex items-center gap-6">
+                          <button 
+                            onClick={() => r.id && handleToggleLike(r.id)}
+                            className={`flex items-center gap-1.5 text-[10px] font-black uppercase transition-all ${r.likes?.includes(activePhone || '') ? 'text-red-500 scale-110' : 'text-gray-400 hover:text-gray-600'}`}
+                          >
+                            <i className={`bi ${r.likes?.includes(activePhone || '') ? 'bi-heart-fill' : 'bi-heart'}`}></i>
+                            <span>{r.likes?.length || 0}</span>
+                          </button>
+                          
+                          <button 
+                            onClick={() => setShowReplyFor(showReplyFor === r.id ? null : (r.id || null))}
+                            className="flex items-center gap-1.5 text-[10px] font-black uppercase text-gray-400 hover:text-gray-600 transition-all"
+                          >
+                            <i className="bi bi-chat-dots-fill"></i>
+                            <span>Comentar</span>
+                          </button>
+                        </div>
+
+                        {/* Input de respuesta */}
+                        {showReplyFor === r.id && (
+                          <div className="mt-4 bg-gray-50 p-2 rounded-xl flex gap-2">
+                            <input 
+                              autoFocus
+                              className="flex-1 bg-white border border-gray-100 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-red-500"
+                              placeholder="Escribe un comentario..."
+                              value={replyText}
+                              onChange={(e) => setReplyText(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && r.id && handleAddReply(r.id)}
+                            />
+                            <button 
+                              disabled={isReplying || !replyText.trim()}
+                              onClick={() => r.id && handleAddReply(r.id)}
+                              className="bg-red-500 text-white w-8 h-8 rounded-lg flex items-center justify-center disabled:bg-gray-100 disabled:text-gray-300"
+                            >
+                              {isReplying ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <i className="bi bi-send-fill text-xs"></i>}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Lista de respuestas */}
+                        {r.replies && r.replies.length > 0 && (
+                          <div className="mt-4 space-y-3 pl-2 border-l-2 border-gray-50">
+                            {r.replies.map((reply, index) => (
+                              <div key={reply.id || index} className="flex gap-2 last:mb-0">
+                                <div className="flex-shrink-0">
+                                  {reply.userPhoto ? (
+                                    <img src={reply.userPhoto} className="w-5 h-5 rounded-full object-cover" />
+                                  ) : (
+                                    <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-[8px] font-black text-slate-500">
+                                      {reply.userName?.charAt(0) || 'C'}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex-1">
+                                  <p className="text-[10px] font-bold text-gray-900 leading-none mb-1">
+                                    {reply.userName}
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 leading-tight">
+                                    {reply.comment}
+                                  </p>
+                                </div>
+                                {reply.userPhone === activePhone && (
+                                  <button
+                                    onClick={() => r.id && handleDeleteReply(r.id, reply.id)}
+                                    className="text-[10px] text-gray-200 hover:text-red-500 transition-all self-start pt-1"
+                                    title="Eliminar comentario"
+                                  >
+                                    <i className="bi bi-x-circle-fill"></i>
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12 bg-gray-50 rounded-[2.5rem] border border-dashed border-gray-200">
+                  <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm">
+                    <i className="bi bi-chat-heart text-2xl text-gray-200"></i>
+                  </div>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Sé el primero en calificar</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function RestaurantPage() {
   return (
     <BusinessAuthProvider>
@@ -726,6 +1521,7 @@ function RestaurantContent() {
   const [selectedProductForReferral, setSelectedProductForReferral] = useState<any>(null)
   const [generatedReferralLink, setGeneratedReferralLink] = useState<string>('')
   const [referralCode, setReferralCode] = useState<string | null>(null)
+  const [isRatingModalOpen, setIsRatingModalOpen] = useState(false)
 
 
   useEffect(() => {
@@ -1306,13 +2102,26 @@ function RestaurantContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 pt-16">
+
+      {/* Header Component */}
+      <Header />
 
       {/* Structured Data for SEO */}
       <BusinessStructuredData business={business} />
 
       {/* Hero Section sin skeletons */}
       <div className="bg-white shadow-sm">
+        {/* Rating Modal */}
+        <StoreRatingModal
+          isOpen={isRatingModalOpen}
+          onClose={() => setIsRatingModalOpen(false)}
+          business={business}
+          clientPhone={clientPhone}
+          clientUser={clientUser}
+          onSuccess={(msg) => showNotification(msg)}
+        />
+
         {/* Portada con logo superpuesto */}
         <div className="relative w-full h-36 sm:h-48 bg-gray-200">
           {/* Hamburger Menu Icon */}
@@ -1363,9 +2172,25 @@ function RestaurantContent() {
         <div className="max-w-3xl mx-auto px-4 pt-16 sm:pt-20 pb-8 text-center">
           <div className="flex flex-col items-center">
             <div className="w-full">
-              <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight mb-2">
+              <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight mb-1">
                 {business.name}
               </h1>
+              <div 
+                className="flex justify-center items-center gap-2 mb-4 cursor-pointer hover:opacity-80 transition-all active:scale-95 group"
+                onClick={() => {
+                  setIsRatingModalOpen(true);
+                }}
+              >
+                <div className="flex items-center gap-1.5 bg-white/50 backdrop-blur-sm px-3 py-1 rounded-full border border-gray-100 shadow-sm group-hover:border-yellow-200 group-hover:bg-yellow-50/30 transition-all">
+                  <StarRating rating={business.ratingAverage || 5.0} size="md" />
+                  <div className="flex items-center gap-1 border-l border-gray-200 pl-2">
+                    {business.ratingCount && (
+                      <span className="text-xs font-black text-gray-900 leading-none">{business.ratingCount}</span>
+                    )}
+                    <i className="bi bi-pencil-square text-[10px] text-gray-400 group-hover:text-yellow-600"></i>
+                  </div>
+                </div>
+              </div>
               {business.description && (
                 <p className="text-gray-500 text-sm sm:text-base mt-2 max-w-2xl mx-auto leading-relaxed">
                   {business.description}
@@ -1689,33 +2514,33 @@ function RestaurantContent() {
         </div>
       )}
 
-      {/* Cart Sidebar */}
-      <CartSidebar
-        isOpen={isCartOpen}
-        onClose={() => setIsCartOpen(false)}
-        cart={cart}
-        business={business}
-        removeFromCart={removeFromCart}
-        updateQuantity={updateQuantity}
-        clearCart={clearCart}
-        addItemToCart={(item: any) => {
-          if (!business?.id) return
+      <>
+        {/* Cart Sidebar */}
+        <CartSidebar
+          isOpen={isCartOpen}
+          onClose={() => setIsCartOpen(false)}
+          cart={cart}
+          business={business}
+          removeFromCart={removeFromCart}
+          updateQuantity={updateQuantity}
+          clearCart={clearCart}
+          addItemToCart={(item: any) => {
+            if (!business?.id) return
 
-          const existingItem = cart.find((i: any) => i.id === item.id && i.variantName === (item.variantName ?? null))
-          const newCart = existingItem
-            ? cart.map((i: any) => (i.id === item.id && i.variantName === (item.variantName ?? null))
-              ? { ...i, quantity: (i.quantity || 1) + (item.quantity || 1) }
-              : i
-            )
-            : [...cart, { ...item, quantity: item.quantity || 1 }]
+            const existingItem = cart.find((i: any) => i.id === item.id && i.variantName === (item.variantName ?? null))
+            const newCart = existingItem
+              ? cart.map((i: any) => (i.id === item.id && i.variantName === (item.variantName ?? null))
+                ? { ...i, quantity: (i.quantity || 1) + (item.quantity || 1) }
+                : i
+              )
+              : [...cart, { ...item, quantity: item.quantity || 1 }]
 
-          setCart(newCart)
-          updateCartInStorage(business.id, newCart)
-        }}
-        onOpenUserSidebar={() => setIsUserSidebarOpen(true)}
-      />
+            setCart(newCart)
+            updateCartInStorage(business.id, newCart)
+          }}
+          onOpenUserSidebar={() => setIsUserSidebarOpen(true)}
+        />
 
-      {/* Modal de variantes */}
       <VariantModal
         product={selectedProduct}
         isOpen={isVariantModalOpen}
@@ -1732,7 +2557,6 @@ function RestaurantContent() {
         cartItemsCount={cartItemsCount}
       />
 
-      {/* Notificación temporal - Premium Toast */}
       {notification.show && (
         <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[300] w-[calc(100%-2rem)] max-w-xs pointer-events-none animate-[slideDown_0.3s_ease-out]">
           <div className="bg-gray-900/95 backdrop-blur-xl border border-white/10 rounded-[2rem] px-6 py-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-4">
@@ -1880,6 +2704,7 @@ function RestaurantContent() {
         referralLink={generatedReferralLink}
         businessName={business?.name || ''}
       />
+      </>
     </div>
   )
 }

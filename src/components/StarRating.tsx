@@ -18,15 +18,13 @@ export default function StarRating({ rating, size = 'md' }: StarRatingProps) {
     <div className={`flex items-center ${sizeClasses[size]}`}>
       {[1, 2, 3, 4, 5].map((star) => {
         const starClass = filledStars >= star 
-          ? 'text-yellow-400' 
+          ? 'bi-star-fill text-yellow-400' 
           : filledStars >= star - 0.5 
-            ? 'text-yellow-400' 
-            : 'text-gray-300';
+            ? 'bi-star-half text-yellow-400' 
+            : 'bi-star text-gray-300';
             
         return (
-          <span key={star} className={starClass}>
-            {filledStars >= star ? '★' : filledStars >= star - 0.5 ? '½' : '☆'}
-          </span>
+          <i key={star} className={`bi ${starClass} mr-0.5`}></i>
         );
       })}
       <span className="ml-1 text-gray-600 text-sm">
