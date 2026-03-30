@@ -242,6 +242,12 @@ async function notifyBusinessTelegramOnOrderCreation(orderData, orderId) {
  */
 async function notifyAdminTelegramOnOrderCreation(orderData, orderId) {
   try {
+    // No enviar notificación al admin si el pedido es de munchys
+    if (orderData.businessId === '0FeNtdYThoTRMPJ6qaS7') {
+      console.log(`ℹ️ Orden ${orderId} es de munchys, omitiendo notificación al admin bot.`);
+      return;
+    }
+
     console.log(`📨 [Telegram Admin] Preparando notificación para Admin de orden ${orderId}...`);
     
     // Obtener nombre del negocio para el mensaje
