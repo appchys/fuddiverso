@@ -2183,9 +2183,17 @@ function RestaurantContent() {
                 </div>
               </div>
               {business.description && (
-                <p className="text-gray-500 text-sm sm:text-base mt-2 max-w-2xl mx-auto leading-relaxed">
-                  {business.description}
-                </p>
+                <div className="mt-2 max-w-2xl mx-auto">
+                  <div className="text-gray-500 text-sm sm:text-base leading-relaxed flex flex-wrap">
+                    <span className="line-clamp-3">{business.description}</span>
+                    <button
+                      onClick={() => setActiveTab('perfil')}
+                      className="text-red-500 text-sm sm:text-base font-medium hover:text-red-600 transition-colors"
+                    >
+                      Leer más
+                    </button>
+                  </div>
+                </div>
               )}
 
               <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
