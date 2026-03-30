@@ -33,7 +33,7 @@ import LocationMap from '@/components/LocationMap'
 import LocationSelectionModal from '@/components/LocationSelectionModal'
 import { useAuth } from '@/contexts/AuthContext'
 import { storage } from '@/lib/firebase'
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
 import { Timestamp } from 'firebase/firestore'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
@@ -823,8 +823,22 @@ export function CheckoutContent({
   }, [deliveryData.type, selectedLocation?.id, selectedLocation?.latlong, business?.id, calculatingTariff])
 
   // Función para abrir el modal
-  const openLocationModal = () => {
-    if (!effectiveClientId) {
+  const openLocationModal = async () => {
+    // Si no hay cliente pero ya escribió nombre y teléfono, crearlo automáticamente
+    if (!effectiveClientId && customerData.name && customerData.phone && showNameField) {
+      setLoadingLocations(true);
+      try {
+        await handleCreateClient();
+        // Esperamos un momento para que el estado se actualice
+        await new Promise(resolve => setTimeout(resolve, 300));
+      } catch (error) {
+        console.error('Error creating client before opening location modal:', error);
+      } finally {
+        setLoadingLocations(false);
+      }
+    }
+
+    if (!effectiveClientId && !user && !clientFound) {
       alert('Por favor, completa el Paso 1 (Tus Datos) para poder agregar una dirección.');
       const step1 = document.getElementById('step-1');
       if (step1) step1.scrollIntoView({ behavior: 'smooth' });

@@ -1,9 +1,8 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { GoogleMap } from './GoogleMap'
 import LocationMap from './LocationMap'
-import { ClientLocation, createClientLocation, getDeliveryFeeForLocation, getDeliveryDetailsForLocation, deleteLocation, updateLocation } from '@/lib/database'
+import { ClientLocation, createClientLocation, getDeliveryFeeForLocation, getDeliveryDetailsForLocation, deleteLocation, updateLocation, uploadImage } from '@/lib/database'
 import { storage } from '@/lib/firebase'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
 
 interface NewLocationData {
@@ -207,22 +206,23 @@ export default function LocationSelectionModal({
         }
 
         setIsSubmitting(true);
+        let photoUrl = '';
         try {
-            let photoUrl = '';
             if (locationImageFile) {
                 const timestamp = Date.now();
-                // Optimizar imagen antes de subir (Max 1000px, 0.8 calidad, formato JPEG)
+                const safeName = locationImageFile.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+                const extension = 'jpg';
+                const fileName = `locations/${clientId}_${timestamp}_${safeName}.${extension}`;
+
+                // Optimizar imagen antes de subir (Max 1000px, 0.8 calidad, formato JPEG para compatibilidad)
                 const optimizedBlob = await optimizeImage(locationImageFile, 1000, 0.8, 'image/jpeg');
                 const optimizedFile = new File(
                     [optimizedBlob],
-                    `${timestamp}_${locationImageFile.name.split('.')[0]}.jpg`,
-                    { type: optimizedBlob.type || 'image/jpeg' }
+                    `${timestamp}_${safeName}.${extension}`,
+                    { type: 'image/jpeg' }
                 );
 
-                const fileName = `locations/${clientId}_${optimizedFile.name}`;
-                const storageRef = ref(storage, fileName);
-                await uploadBytes(storageRef, optimizedFile);
-                photoUrl = await getDownloadURL(storageRef);
+                photoUrl = await uploadImage(optimizedFile, fileName);
             }
 
             const locationId = await createClientLocation({

@@ -191,7 +191,7 @@ export default function ProductPageByUsername() {
     }, 3000)
   }
 
-  const handleAddToCart = () => {
+  const handleAddToCart = (variantNameOverride?: string | null) => {
     if (!product) return
 
     try {
@@ -200,14 +200,18 @@ export default function ProductPageByUsername() {
       const businessIdForCart = business?.id || product.businessId || 'unknown'
       const currentCart = allCarts[businessIdForCart] || []
 
-      const variantData = selectedVariant && product.variants
-        ? product.variants.find((v: any) => v.name === selectedVariant)
+      // Usar variantName de parámetro si existe (usado en la lista de variantes)
+      // de lo contrario usar el seleccionado por defecto
+      const finalVariantName = variantNameOverride !== undefined ? variantNameOverride : (selectedVariant || null)
+
+      const variantData = finalVariantName && product.variants
+        ? product.variants.find((v: any) => v.name === finalVariantName)
         : null
 
       const baseItem: any = {
         id: product.id,
-        name: `${product.name}${selectedVariant ? ` - ${selectedVariant}` : ''}`,
-        variantName: selectedVariant || null,
+        name: `${product.name}${finalVariantName ? ` - ${finalVariantName}` : ''}`,
+        variantName: finalVariantName,
         productName: product.name,
         // Siempre usar precio público calculado (con comisión aplicada si corresponde)
         price: variantData ? getProductPublicPrice(variantData) : getProductPublicPrice(product),
@@ -234,21 +238,24 @@ export default function ProductPageByUsername() {
 
       // Buscar si el producto con ESA VARIANTE ya existe
       const existingItemIndex = currentCart.findIndex((item: any) =>
-        item.id === product.id && item.variantName === (selectedVariant || null)
+        item.id === product.id && item.variantName === (finalVariantName || null)
       )
 
       if (existingItemIndex > -1) {
-        currentCart[existingItemIndex].quantity += quantity
+        currentCart[existingItemIndex].quantity += (variantNameOverride !== undefined ? 1 : quantity)
       } else {
-        currentCart.push({ ...cartItem, quantity })
+        currentCart.push({ ...cartItem, quantity: variantNameOverride !== undefined ? 1 : quantity })
       }
 
       allCarts[businessIdForCart] = currentCart
       localStorage.setItem('carts', JSON.stringify(allCarts))
+      setCart([...currentCart])
 
-      showNotification(`${product.name}${selectedVariant ? ` - ${selectedVariant}` : ''} agregado al carrito`)
+      showNotification(`${product.name}${finalVariantName ? ` - ${finalVariantName}` : ''} agregado al carrito`)
 
-      setQuantity(1)
+      if (variantNameOverride === undefined) {
+        setQuantity(1)
+      }
     } catch (error) {
       console.error('Error adding to cart:', error)
       showNotification('Error al agregar al carrito', 'error')
@@ -514,34 +521,7 @@ export default function ProductPageByUsername() {
                             </div>
                           ) : (
                             <button
-                                onClick={() => {
-                                  const itemToAdd = {
-                                  id: product.id,
-                                  name: `${product.name} - ${variant.name}`,
-                                  variantName: variant.name,
-                                  productName: product.name,
-                                  price: getProductPublicPrice(variant),
-                                  image: product.image,
-                                  description: variant.description || product.description,
-                                  businessId: business?.id || product.businessId,
-                                  businessName: business?.name || product.businessName,
-                                  businessImage: business?.image || product.businessImage,
-                                  category: product.category
-                                };
-
-                                
-                                const cartsData = localStorage.getItem('carts');
-                                
-                                const allCarts = cartsData ? JSON.parse(cartsData) : {};
-                                const businessIdForCart = business?.id || product.businessId || 'unknown';
-                                const currentCart = allCarts[businessIdForCart] || [];
-                                const enrichedItem = ensureCartItemMetadata(itemToAdd);
-                                currentCart.push({ ...enrichedItem, quantity: 1 });
-                                allCarts[businessIdForCart] = currentCart;
-                                localStorage.setItem('carts', JSON.stringify(allCarts));
-                                setCart([...currentCart]);
-                                showNotification(`${product.name} - ${variant.name} agregado`);
-                              }}
+                              onClick={() => handleAddToCart(variant.name)}
                               disabled={!product.isAvailable}
                               className="w-10 h-10 flex items-center justify-center bg-gray-900 text-white rounded-xl shadow-lg hover:bg-black transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
@@ -590,31 +570,7 @@ export default function ProductPageByUsername() {
                           </div>
                         ) : (
                           <button
-                            onClick={() => {
-                              const itemToAdd = {
-                                id: product.id,
-                                name: product.name,
-                                variantName: null,
-                                productName: product.name,
-                                price: getProductPublicPrice(product),
-                                image: product.image,
-                                description: product.description,
-                                businessId: business?.id || product.businessId,
-                                businessName: business?.name || product.businessName,
-                                businessImage: business?.image || product.businessImage,
-                                category: product.category
-                              };
-
-                              const cartsData = localStorage.getItem('carts');
-                              const allCarts = cartsData ? JSON.parse(cartsData) : {};
-                              const businessIdForCart = business?.id || product.businessId || 'unknown';
-                              const currentCart = allCarts[businessIdForCart] || [];
-                              // Enriched already applied above for this path
-                              allCarts[businessIdForCart] = currentCart;
-                              localStorage.setItem('carts', JSON.stringify(allCarts));
-                              setCart([...currentCart]);
-                              showNotification(`${product.name} agregado`);
-                            }}
+                            onClick={() => handleAddToCart()}
                             disabled={!product.isAvailable}
                             className="bg-gray-900 hover:bg-black text-white font-black py-4 px-8 rounded-2xl shadow-xl transition-all active:scale-95 flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
@@ -704,7 +660,7 @@ export default function ProductPageByUsername() {
 
       {/* Floating Cart Button - Ultra Modern (Synchronized with Store Page) */}
       {cartItemsCount > 0 && (
-        <div className="fixed bottom-8 right-6 z-40">
+        <div className="fixed bottom-8 right-6 z-[80]">
           <button
             onClick={() => setIsCartOpen(true)}
             className="relative bg-gray-900 text-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] hover:bg-black transition-all duration-300 transform hover:scale-105 active:scale-95 group overflow-hidden"
