@@ -154,14 +154,11 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     const [clientFound, setClientFound] = useState<any>(null)
     const [clientSearching, setClientSearching] = useState(false)
     const [showNameField, setShowNameField] = useState(false)
-    const [loginPin, setLoginPin] = useState('')
+    const [phoneConfirmation, setPhoneConfirmation] = useState('')
     const [loginPinLoading, setLoginPinLoading] = useState(false)
-    const [loginPinError, setLoginPinError] = useState('')
-    const [registerPin, setRegisterPin] = useState('')
-    const [registerPinConfirm, setRegisterPinConfirm] = useState('')
+    const [phoneError, setPhoneError] = useState('')
+    const [nameError, setNameError] = useState('')
     const [registerLoading, setRegisterLoading] = useState(false)
-    const [registerError, setRegisterError] = useState('')
-    const [pinAttempted, setPinAttempted] = useState(false)
     const [showAuthForm, setShowAuthForm] = useState(false)
     const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null)
     const [savedLocation, setSavedLocation] = useState<{ referencia: string; lat: number; lng: number } | null>(null)
@@ -340,25 +337,46 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
 
     // Phone search function
     async function handlePhoneSearch(phone: string) {
+        if (!phone.trim()) {
+            setClientFound(null)
+            setShowNameField(false)
+            setPhoneError('')
+            setPhoneConfirmation('')
+            return
+        }
+
         const normalizedPhone = normalizeEcuadorianPhone(phone);
 
         if (!validateEcuadorianPhone(normalizedPhone)) {
             setClientFound(null);
             setShowNameField(false);
+            setPhoneError('')
+            setPhoneConfirmation('')
             return;
         }
 
         setClientSearching(true);
+        setPhoneError('')
         try {
             const client = await searchClientByPhone(normalizedPhone);
             if (client) {
                 setClientFound(client);
                 setCustomerData(prev => ({
                     ...prev,
-                    name: client.pinHash ? (client.nombres || '') : '',
+                    name: client.nombres || '',
                     phone: normalizedPhone
                 }));
-                setShowNameField(!client.pinHash);
+                setShowNameField(false);
+                
+                // Auto-login if found
+                login(client as any)
+                if (client.id) {
+                    await updateClient(client.id, {
+                        lastLoginAt: serverTimestamp(),
+                        loginSource: 'sidebar'
+                    })
+                }
+                setShowAuthForm(false)
             } else {
                 setClientFound(null);
                 setShowNameField(true);
@@ -370,125 +388,48 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
             }
         } catch (error) {
             console.error('Error searching client:', error);
+            setPhoneError('Error al buscar el cliente');
             setClientFound(null);
-            setShowNameField(true);
+            setShowNameField(false);
         } finally {
             setClientSearching(false);
         }
     }
 
-    // PIN hash function
-    async function hashPin(pin: string): Promise<string> {
-        const simpleHash = (str: string): string => {
-            let hash = 0
-            for (let i = 0; i < str.length; i++) {
-                const char = str.charCodeAt(i)
-                hash = ((hash << 5) - hash) + char
-                hash = hash & hash
-            }
-            return Math.abs(hash).toString(16).padStart(8, '0')
-        }
-
-        try {
-            if (typeof window !== 'undefined' && window.crypto?.subtle?.digest) {
-                if (clientFound?.pinHash?.length === 64) {
-                    const encoder = new TextEncoder()
-                    const data = encoder.encode(pin)
-                    const hashBuffer = await window.crypto.subtle.digest('SHA-256', data)
-                    const hashArray = Array.from(new Uint8Array(hashBuffer))
-                    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-                }
-            }
-        } catch (e) {
-            console.warn('Error using Web Crypto API, using simple hash', e)
-        }
-
-        return simpleHash(pin)
-    }
-
-    // Login with PIN
-    const handleLoginWithPin = async () => {
-        setLoginPinError('')
-        setPinAttempted(true)
-
-        if (!clientFound) return
-        if (!/^[0-9]{4,6}$/.test(loginPin)) {
-            setLoginPinError('PIN inválido')
+    // Register function like in CheckoutContent
+    const handleRegister = async () => {
+        if (!customerData.phone || !customerData.name) {
+            setNameError('El nombre es requerido')
             return
         }
 
-        setLoginPinLoading(true)
-        try {
-            const pinHash = await hashPin(loginPin)
-            if (pinHash === clientFound.pinHash) {
-                // Actualizar fecha de último login
-                if (clientFound.id) {
-                    await updateClient(clientFound.id, {
-                        lastLoginAt: serverTimestamp(),
-                        loginSource: 'sidebar'
-                    })
-                }
-
-                login(clientFound as any)
-                setCustomerData(prev => ({
-                    ...prev,
-                    name: clientFound.nombres || '',
-                    phone: normalizeEcuadorianPhone(prev.phone)
-                }))
-                setShowNameField(false)
-                setLoginPin('')
-                setShowAuthForm(false)
-            } else {
-                setLoginPinError('PIN incorrecto')
-            }
-        } catch (error) {
-            console.error('Error validating PIN:', error)
-            setLoginPinError('Error al verificar PIN')
-        } finally {
-            setLoginPinLoading(false)
-        }
-    }
-
-    // Register or set PIN
-    const handleRegisterOrSetPin = async () => {
-        setRegisterError('')
-        const requireName = !clientFound || (clientFound && !clientFound.pinHash)
-        if (requireName && (!customerData.name || !customerData.name.trim())) {
-            setRegisterError('Ingresa tu nombre')
-            return
-        }
-        if (!/^[0-9]{4,6}$/.test(registerPin)) {
-            setRegisterError('El PIN debe contener entre 4 y 6 dígitos')
-            return
-        }
-        if (registerPin !== registerPinConfirm) {
-            setRegisterError('Los PIN no coinciden')
+        if (phoneConfirmation !== customerData.phone) {
+            setPhoneError('Los números no coinciden')
             return
         }
 
         setRegisterLoading(true)
-        try {
-            const pinHash = await hashPin(registerPin)
-            const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
+        setNameError('')
+        setPhoneError('')
 
+        try {
+            const normalizedPhone = normalizeEcuadorianPhone(customerData.phone)
+            
             if (clientFound && clientFound.id) {
                 await updateClient(clientFound.id, {
                     nombres: customerData.name.trim(),
-                    pinHash,
-                    lastLoginAt: serverTimestamp(), // También cuenta como login
+                    lastLoginAt: serverTimestamp(),
                     loginSource: 'sidebar'
                 })
-                const updatedClient = { ...clientFound, nombres: customerData.name.trim(), pinHash }
+                const updatedClient = { ...clientFound, nombres: customerData.name.trim() }
                 login(updatedClient as any)
             } else {
                 const newClient = await createClient({
                     celular: normalizedPhone,
-                    nombres: customerData.name,
-                    pinHash,
+                    nombres: customerData.name.trim(),
                     fecha_de_registro: new Date().toISOString()
                 })
 
-                // Actualizar lastRegistrationAt y lastLoginAt para el nuevo cliente
                 if (newClient && newClient.id) {
                     await updateClient(newClient.id, {
                         lastRegistrationAt: serverTimestamp(),
@@ -501,11 +442,10 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
             }
 
             setShowAuthForm(false)
-            setRegisterPin('')
-            setRegisterPinConfirm('')
+            setPhoneConfirmation('')
         } catch (error) {
             console.error('Error in registration:', error)
-            setRegisterError('Error al procesar registro')
+            setNameError('Error al procesar registro')
         } finally {
             setRegisterLoading(false)
         }
@@ -722,6 +662,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                                             className="w-full pl-12 pr-4 py-4 bg-gray-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all"
                                                         />
                                                     </div>
+                                                    {phoneError && <p className="text-red-500 text-[10px] font-bold mt-1 uppercase tracking-wide">{phoneError}</p>}
                                                 </div>
 
                                                 {clientSearching && (
@@ -731,46 +672,47 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                                     </div>
                                                 )}
 
-                                                {!clientSearching && clientFound && clientFound.pinHash && (
-                                                    <div className="space-y-4 pt-2">
-                                                        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                                                            <p className="text-xs text-gray-500">Bienvenido de nuevo</p>
-                                                            <p className="font-black text-gray-900">{clientFound.nombres || clientFound.celular}</p>
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">
-                                                                PIN de Seguridad
-                                                            </label>
-                                                            <input
-                                                                type="password"
-                                                                value={loginPin}
-                                                                onChange={(e) => setLoginPin(e.target.value)}
-                                                                maxLength={6}
-                                                                placeholder="••••"
-                                                                className="w-full px-4 py-4 bg-gray-50 border-none rounded-2xl text-center text-2xl tracking-[1em] font-black focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all"
-                                                                onKeyPress={(e) => e.key === 'Enter' && handleLoginWithPin()}
-                                                            />
-                                                            {loginPinError && (
-                                                                <p className="text-[10px] font-bold text-red-500 mt-2 uppercase tracking-wide text-center">{loginPinError}</p>
-                                                            )}
-                                                        </div>
-                                                        <button
-                                                            onClick={handleLoginWithPin}
-                                                            disabled={loginPinLoading || loginPin.length < 4}
-                                                            className="w-full py-4 bg-gray-900 text-white rounded-2xl font-bold hover:bg-gray-800 transition-all shadow-xl shadow-gray-200 disabled:opacity-50 active:scale-[0.98]"
-                                                        >
-                                                            {loginPinLoading ? 'Verificando...' : 'Entrar ahora'}
-                                                        </button>
-                                                    </div>
-                                                )}
-
-                                                {!clientSearching && ((clientFound && !clientFound.pinHash) || (!clientFound && customerData.phone.length >= 8)) && (
+                                                {!clientSearching && !clientFound && showNameField && customerData.phone.length >= 7 && (
                                                     <div className="space-y-4 pt-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
                                                         <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
                                                             <p className="text-xs font-bold text-blue-700 leading-relaxed">
-                                                                {clientFound ? 'Hereda tu cuenta configurando un PIN para entrar desde cualquier lugar.' : 'Crea tu cuenta Fuddi en pocos segundos.'}
+                                                                Parece que eres nuevo por aquí. ¡Crea tu cuenta Fuddi en pocos segundos!
                                                             </p>
                                                         </div>
+                                                        
+                                                        <div>
+                                                            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">
+                                                                Confirmar WhatsApp
+                                                            </label>
+                                                            <div className="relative">
+                                                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                                                    <span className="text-xs font-bold text-gray-400">+593</span>
+                                                                </div>
+                                                                <input
+                                                                    type="tel"
+                                                                    value={phoneConfirmation}
+                                                                    onChange={(e) => setPhoneConfirmation(e.target.value)}
+                                                                    placeholder="Repite tu número"
+                                                                    className={`w-full pl-12 pr-10 py-4 bg-gray-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:bg-white transition-all ${
+                                                                        phoneConfirmation && phoneConfirmation === customerData.phone 
+                                                                        ? 'focus:ring-green-500' 
+                                                                        : phoneConfirmation && phoneConfirmation !== customerData.phone 
+                                                                            ? 'focus:ring-red-500' 
+                                                                            : 'focus:ring-gray-900'
+                                                                    }`}
+                                                                />
+                                                                {phoneConfirmation && (
+                                                                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                                                        {phoneConfirmation === customerData.phone ? (
+                                                                            <i className="bi bi-check-circle-fill text-green-500"></i>
+                                                                        ) : (
+                                                                            <i className="bi bi-x-circle-fill text-red-500"></i>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
                                                         <div>
                                                             <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">
                                                                 Tu Nombre
@@ -782,44 +724,15 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                                                 placeholder="Ej. Juan Pérez"
                                                                 className="w-full px-4 py-4 bg-gray-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all"
                                                             />
+                                                            {nameError && <p className="text-red-500 text-[10px] font-bold mt-1 uppercase tracking-wide">{nameError}</p>}
                                                         </div>
-                                                        <div className="grid grid-cols-2 gap-3">
-                                                            <div>
-                                                                <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">
-                                                                    Crea un PIN
-                                                                </label>
-                                                                <input
-                                                                    type="password"
-                                                                    value={registerPin}
-                                                                    onChange={(e) => setRegisterPin(e.target.value)}
-                                                                    maxLength={6}
-                                                                    placeholder="••••"
-                                                                    className="w-full px-4 py-4 bg-gray-50 border-none rounded-2xl text-center text-xl font-black focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all"
-                                                                />
-                                                            </div>
-                                                            <div>
-                                                                <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">
-                                                                    Repite PIN
-                                                                </label>
-                                                                <input
-                                                                    type="password"
-                                                                    value={registerPinConfirm}
-                                                                    onChange={(e) => setRegisterPinConfirm(e.target.value)}
-                                                                    maxLength={6}
-                                                                    placeholder="••••"
-                                                                    className="w-full px-4 py-4 bg-gray-50 border-none rounded-2xl text-center text-xl font-black focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all"
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                        {registerError && (
-                                                            <p className="text-[10px] font-bold text-red-500 mt-1 uppercase tracking-wide text-center">{registerError}</p>
-                                                        )}
+
                                                         <button
-                                                            onClick={handleRegisterOrSetPin}
-                                                            disabled={registerLoading || !customerData.name || registerPin.length < 4}
+                                                            onClick={handleRegister}
+                                                            disabled={registerLoading || !customerData.name || phoneConfirmation !== customerData.phone}
                                                             className="w-full py-4 bg-gray-900 text-white rounded-2xl font-bold hover:bg-gray-800 transition-all shadow-xl shadow-gray-200 disabled:opacity-50 active:scale-[0.98]"
                                                         >
-                                                            {registerLoading ? 'Procesando...' : (clientFound ? 'Confirmar PIN' : 'Crear mi cuenta')}
+                                                            {registerLoading ? 'Creando cuenta...' : 'Crear mi cuenta'}
                                                         </button>
                                                     </div>
                                                 )}
