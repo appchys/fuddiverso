@@ -19,6 +19,7 @@ import {
     getUserBusinessAccess,
     getTodayVisitsDocRef,
     getHistoricalOrdersByBusiness,
+    getOrdersByBusinessPaginated,
     getOrdersByBusinessComplete,
     uploadImage,
     addBusinessAdministrator,
@@ -238,6 +239,8 @@ export default function TodayOrdersPage() {
     const [historicalOrders, setHistoricalOrders] = useState<Order[]>([])
     const [historyLoading, setHistoryLoading] = useState(false)
     const [historyLoaded, setHistoryLoaded] = useState(false)
+    const [lastHistoryDoc, setLastHistoryDoc] = useState<any>(null)
+    const [hasMoreHistory, setHasMoreHistory] = useState(true)
 
     // ... existing modal states ...
     const [paymentModalOpen, setPaymentModalOpen] = useState(false)
@@ -651,12 +654,23 @@ export default function TodayOrdersPage() {
 
     // Load History
     const loadHistory = async () => {
-        if (!businessId || historyLoading || historyLoaded) return
+        if (!businessId || historyLoading || (historyLoaded && !hasMoreHistory)) return
         setHistoryLoading(true)
         try {
-            // Obtenemos todos los pedidos para el historial completo
-            const data = await getOrdersByBusinessComplete(businessId)
-            setHistoricalOrders(data)
+            // Obtenemos los pedidos para el historial de forma paginada
+            const { orders: data, lastDoc } = await getOrdersByBusinessPaginated(businessId, 20, lastHistoryDoc)
+            
+            // Filtrar duplicados por si acaso
+            setHistoricalOrders(prev => {
+                const existingIds = new Set(prev.map(o => o.id))
+                const newOrders = data.filter(o => !existingIds.has(o.id))
+                return [...prev, ...newOrders]
+            })
+            
+            setLastHistoryDoc(lastDoc)
+            if (data.length < 20) {
+                setHasMoreHistory(false)
+            }
             setHistoryLoaded(true)
         } catch (error) {
             console.error("Error loading history", error)
@@ -664,6 +678,14 @@ export default function TodayOrdersPage() {
             setHistoryLoading(false)
         }
     }
+
+    // Reset history when business changes
+    useEffect(() => {
+        setHistoricalOrders([])
+        setLastHistoryDoc(null)
+        setHasMoreHistory(true)
+        setHistoryLoaded(false)
+    }, [businessId])
 
     useEffect(() => {
         if (ordersSubTab === 'history' || (!loading && orders.length === 0)) {
@@ -1242,6 +1264,9 @@ export default function TodayOrdersPage() {
                                 <div className="p-4 sm:p-6">
                                     <OrderHistory
                                         orders={historicalOrders}
+                                        onLoadMore={loadHistory}
+                                        hasMore={hasMoreHistory}
+                                        loadingMore={historyLoading}
                                         onOrderEdit={(o) => {
                                             setSelectedOrderForEdit(o)
                                             setManualSidebarMode('edit')

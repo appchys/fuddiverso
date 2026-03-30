@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { Order, Delivery } from '@/types'
 import { getNextStatus } from '@/components/WhatsAppUtils'
 
@@ -23,6 +23,9 @@ interface OrderHistoryProps {
   onDeliveryStatusClick?: (order: Order) => void
   onCustomerClick?: (order: Order) => void
   businessPhone?: string
+  onLoadMore?: () => void
+  hasMore?: boolean
+  loadingMore?: boolean
 }
 
 export default function OrderHistory({
@@ -43,9 +46,34 @@ export default function OrderHistory({
   onPrint,
   onDeliveryStatusClick,
   onCustomerClick,
-  businessPhone
+  businessPhone,
+  onLoadMore,
+  hasMore = false,
+  loadingMore = false
 }: OrderHistoryProps) {
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set())
+  const observerTarget = useRef(null)
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore && onLoadMore) {
+          onLoadMore()
+        }
+      },
+      { threshold: 0.1, rootMargin: '100px' }
+    )
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current)
+    }
+
+    return () => {
+      if (observerTarget.current) {
+        observer.unobserve(observerTarget.current)
+      }
+    }
+  }, [hasMore, loadingMore, onLoadMore])
 
   // Helper functions from dashboard
   const getActionIcon = (status: string) => {
@@ -556,8 +584,8 @@ export default function OrderHistory({
     setExpandedDates(newExpanded)
   }
 
-  const { upcomingOrders } = categorizedOrders
-  const groupedPastOrders = groupOrdersByDate(orders.slice(0, 100))
+  const { upcomingOrders, pastOrders } = categorizedOrders
+  const groupedPastOrders = useMemo(() => groupOrdersByDate(pastOrders), [pastOrders, getOrderDateTime])
 
   return (
     <div>
@@ -607,11 +635,6 @@ export default function OrderHistory({
                     <i className="bi bi-archive me-2"></i>
                     Historial de Pedidos ({orders.length})
                   </h2>
-                  {orders.length > 100 && (
-                    <span className="text-sm text-gray-500">
-                      Mostrando los últimos 100 pedidos
-                    </span>
-                  )}
                 </div>
 
                 <div className="space-y-4">
@@ -669,6 +692,21 @@ export default function OrderHistory({
                       </div>
                     )
                   })}
+                </div>
+
+                {/* Sentinel and Loading Indicator */}
+                <div ref={observerTarget} className="py-8 flex flex-col items-center justify-center">
+                  {loadingMore && (
+                    <div className="flex items-center gap-3 text-gray-500">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-red-600"></div>
+                      <span className="text-sm font-medium">Cargando más pedidos...</span>
+                    </div>
+                  )}
+                  {!hasMore && orders.length > 0 && (
+                    <div className="text-gray-400 text-sm italic">
+                      No hay más pedidos para mostrar
+                    </div>
+                  )}
                 </div>
               </div>
             ) : upcomingOrders.length === 0 && (

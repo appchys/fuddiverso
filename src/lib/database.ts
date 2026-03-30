@@ -19,6 +19,7 @@ import {
   writeBatch,
   deleteField,
   arrayUnion,
+  startAfter,
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { db, storage, googleProvider, auth } from './firebase'
@@ -1120,6 +1121,43 @@ export async function getOrdersByBusinessComplete(businessId: string): Promise<O
     })
   } catch (error) {
     console.error('Error getting complete orders:', error)
+    throw error
+  }
+}
+
+/**
+ * Obtiene pedidos de forma paginada para un negocio.
+ * Se ordena por fecha de creación descendente por defecto.
+ */
+export async function getOrdersByBusinessPaginated(
+  businessId: string,
+  limitCount: number = 20,
+  lastOrderDoc?: any
+): Promise<{ orders: Order[], lastDoc: any }> {
+  try {
+    let q = query(
+      collection(db, 'orders'),
+      where('businessId', '==', businessId),
+      orderBy('createdAt', 'desc'),
+      limit(limitCount)
+    )
+
+    if (lastOrderDoc) {
+      q = query(q, startAfter(lastOrderDoc))
+    }
+
+    const querySnapshot = await getDocs(q)
+    const lastDoc = querySnapshot.docs[querySnapshot.docs.length - 1]
+    
+    const orders = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: parseCreatedAt(doc.data().createdAt)
+    })) as Order[]
+
+    return { orders, lastDoc }
+  } catch (error) {
+    console.error('Error getting paginated orders:', error)
     throw error
   }
 }

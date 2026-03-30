@@ -704,7 +704,7 @@ function StoreRatingModal({
   const [loadingInitial, setLoadingInitial] = useState(true)
   const [allRatings, setAllRatings] = useState<BusinessRating[]>([])
   const [loadingRatings, setLoadingRatings] = useState(true)
-  const [activePhone, setActivePhone] = useState<string | null>(clientPhone)
+  const [activePhone, setActivePhone] = useState<string | null>(clientPhone || clientUser?.celular || null)
   const [showReplyFor, setShowReplyFor] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
   const [isReplying, setIsReplying] = useState(false)
@@ -757,10 +757,10 @@ function StoreRatingModal({
   }
 
   useEffect(() => {
-    if (clientPhone) {
-      setActivePhone(clientPhone)
+    if (clientPhone || clientUser?.celular) {
+      setActivePhone(clientPhone || clientUser?.celular || null)
     }
-  }, [clientPhone])
+  }, [clientPhone, clientUser])
 
   // Login states
   const [customerData, setCustomerData] = useState({ name: '', phone: '' })
@@ -1043,7 +1043,7 @@ function StoreRatingModal({
               <p className="text-sm text-gray-400 mt-1 font-medium">Tu opinión ayuda mucho a {business.name}</p>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+            <div className="p-6 pb-32 sm:pb-6 overflow-y-auto flex-1 custom-scrollbar">
               <div className="space-y-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Número de Celular</label>
                 <div className="flex gap-2">
@@ -1214,11 +1214,11 @@ function StoreRatingModal({
 
   // Si hay cliente logueado, mostrar rating UI normal
   return (
-    <div className="fixed inset-0 z-[200] overflow-hidden">
+    <div className="fixed inset-0 z-[200] sm:overflow-hidden">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
 
       <div className="flex items-end sm:items-center justify-center min-h-screen p-0 sm:p-4">
-        <div className="relative w-full max-w-md bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden transform transition-all animate-in slide-in-from-bottom sm:zoom-in duration-300 flex flex-col max-h-[90svh]">
+        <div className="relative w-full max-w-md bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden transform transition-all animate-in slide-in-from-bottom sm:zoom-in duration-300 flex flex-col sm:max-h-[90svh] h-[100svh] sm:h-auto">
           
           <div className="px-6 pt-8 pb-4 text-center border-b border-gray-100 flex-shrink-0">
             <button
@@ -1234,7 +1234,7 @@ function StoreRatingModal({
             <p className="text-sm text-gray-400 mt-1 font-medium">Tu opinión ayuda mucho a {business.name}</p>
           </div>
 
-          <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+          <div className="p-6 pb-32 sm:pb-6 overflow-y-auto flex-1 custom-scrollbar">
             {loadingInitial ? (
               <div className="py-12 flex flex-col items-center justify-center gap-3">
                 <div className="w-8 h-8 border-3 border-red-500 border-t-transparent rounded-full animate-spin"></div>
@@ -1259,7 +1259,7 @@ function StoreRatingModal({
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                         <p className="font-bold text-gray-900 text-xs truncate uppercase tracking-wider">{displayName}</p>
-                        <div className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded-full border border-gray-100">
+                        <div className="flex items-center gap-1">
                           {[1, 2, 3, 4, 5].map((star) => (
                             <button
                               key={star}
@@ -1285,8 +1285,8 @@ function StoreRatingModal({
 
                       <div className="flex items-center justify-between">
                         <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
-                          <i className="bi bi-shield-lock-fill"></i>
-                          Opinión Pública
+                          <i className="bi bi-globe"></i>
+                          Público
                         </span>
                         
                         <button
@@ -2182,12 +2182,11 @@ function RestaurantContent() {
                 }}
               >
                 <div className="flex items-center gap-1.5 bg-white/50 backdrop-blur-sm px-3 py-1 rounded-full border border-gray-100 shadow-sm group-hover:border-yellow-200 group-hover:bg-yellow-50/30 transition-all">
-                  <StarRating rating={business.ratingAverage || 5.0} size="md" />
+                  <StarRating rating={business.ratingAverage || 5.0} size="md" showGrayStars={!business.ratingCount || business.ratingCount === 0} />
                   <div className="flex items-center gap-1 border-l border-gray-200 pl-2">
                     {business.ratingCount && (
                       <span className="text-xs font-black text-gray-900 leading-none">{business.ratingCount}</span>
                     )}
-                    <i className="bi bi-pencil-square text-[10px] text-gray-400 group-hover:text-yellow-600"></i>
                   </div>
                 </div>
               </div>
@@ -2628,7 +2627,9 @@ function RestaurantContent() {
                           <span className="text-xs text-gray-500 ml-1">({store.ratingCount || 0})</span>
                         </div>
                       ) : (
-                        <div className="text-xs text-gray-400">Sin calificaciones</div>
+                        <div className="flex items-center">
+                          <StarRating rating={0} size="sm" showGrayStars={true} />
+                        </div>
                       )}
                     </div>
                     {store.description && (
