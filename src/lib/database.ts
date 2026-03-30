@@ -2179,6 +2179,23 @@ export async function getVisitsForBusiness(businessId: string): Promise<number> 
 }
 
 /**
+ * Obtiene las visitas de HOY para un negocio
+ */
+export async function getTodayVisitsForBusiness(businessId: string): Promise<number> {
+  try {
+    const now = new Date()
+    const dateStr = now.toLocaleDateString('en-CA')
+    const dailyRef = doc(db, 'visits', businessId, 'daily', dateStr)
+    const snap = await getDoc(dailyRef)
+    if (!snap.exists()) return 0
+    return parseInt(snap.data().count || 0, 10) || 0
+  } catch (error) {
+    console.error('Error getting today visits from Firestore:', error)
+    return 0
+  }
+}
+
+/**
  * Retorna la referencia al documento de visitas de hoy para escuchar cambios en tiempo real
  */
 export function getTodayVisitsDocRef(businessId: string) {

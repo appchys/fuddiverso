@@ -8,6 +8,7 @@ import {
   getAllOrders,
   getAllBusinesses,
   getVisitsForBusiness,
+  getTodayVisitsForBusiness,
   getAllUserCreditsGlobal,
   getAllReferralLinksGlobal,
   getAllClientsGlobal,
@@ -72,6 +73,7 @@ export default function AdminDashboard() {
   const [commissionChartData, setCommissionChartData] = useState<any[]>([])
   const [linkedClients, setLinkedClients] = useState<any[]>([])
   const [globalClients, setGlobalClients] = useState<any[]>([])
+  const [todayVisitsChartData, setTodayVisitsChartData] = useState<any[]>([])
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
 
@@ -342,26 +344,28 @@ export default function AdminDashboard() {
 
       // Cargar visitas desde Firestore para cada business (paralelo)
       try {
-        const visitPromises = validBusinesses.map(b => getVisitsForBusiness(b.id))
+        const visitPromises = validBusinesses.map(b => getTodayVisitsForBusiness(b.id))
         const visitResults = await Promise.all(visitPromises)
         const map: Record<string, number> = {}
+        const chartDataPoints: any[] = []
+
         validBusinesses.forEach((b, idx) => {
-          map[b.id] = visitResults[idx] || 0
+          const visits = visitResults[idx] || 0
+          map[b.id] = visits
+          if (visits > 0) {
+            chartDataPoints.push({
+              name: b.name,
+              visits: visits
+            })
+          }
         })
 
-        // Combinar con pendingVisits (localStorage) para mostrar conteos locales pendientes
-        try {
-          const pendingRaw = localStorage.getItem('pendingVisits')
-          if (pendingRaw) {
-            const pending = JSON.parse(pendingRaw)
-            for (const [bId, cnt] of Object.entries(pending)) {
-              map[bId] = (map[bId] || 0) + Number(cnt)
-            }
-          }
-        } catch (e) {
-          console.warn('Error reading pendingVisits from localStorage:', e)
-        }
-
+        // Ordenar por visitas (desc) y tomar los top 10
+        const top10Visits = chartDataPoints
+          .sort((a, b) => b.visits - a.visits)
+          .slice(0, 10)
+        
+        setTodayVisitsChartData(top10Visits)
         setVisitsMap(map)
       } catch (e) {
         console.error('Error loading visits for businesses:', e)
@@ -1646,6 +1650,43 @@ export default function AdminDashboard() {
                       fill="#ef4444"
                       stackId="a"
                       radius={[4, 4, 0, 0]}
+                      barSize={20}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Top 10 Visitas Hoy (NUEVO) */}
+            <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200 lg:col-span-2">
+              <div className="mb-6">
+                <h3 className="text-lg font-bold text-gray-900">Top 10 Tiendas (Visitas de Hoy)</h3>
+                <p className="text-sm text-gray-500">Tiendas con más tráfico el día de hoy (Hoy: {new Date().toLocaleDateString('es-EC')})</p>
+              </div>
+              
+              <div className="h-80 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={todayVisitsChartData} layout="vertical" margin={{ left: 20, right: 30 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={true} horizontal={false} stroke="#f3f4f6" />
+                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 12 }} />
+                    <YAxis 
+                      dataKey="name" 
+                      type="category" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: '#4b5563', fontSize: 11, fontWeight: 'bold' }} 
+                      width={120}
+                    />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      cursor={{ fill: '#f3f4f6' }}
+                      formatter={(value: any) => [value, 'Visitas hoy']}
+                    />
+                    <Bar
+                      dataKey="visits"
+                      name="Visitas"
+                      fill="#8b5cf6"
+                      radius={[0, 4, 4, 0]}
                       barSize={20}
                     />
                   </BarChart>
