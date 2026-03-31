@@ -451,27 +451,57 @@ export default function AdminDashboard() {
       const processedCustomers = Array.from(customerMap.values())
 
       // Procesar Recomendadores
-      const recommenderData = allCredits.map(credit => {
-        const userLinks = allLinks.filter(l => l.createdBy === credit.userId)
-        const totalClicks = userLinks.reduce((sum, l) => sum + (l.clicks || 0), 0)
-        const totalConversions = userLinks.reduce((sum, l) => sum + (l.conversions || 0), 0)
+      const recommenderMap = new Map<string, any>()
+      
+      allCredits
+        .filter(credit => {
+          // Filtrar para incluir solo usuarios que han creado al menos un link
+          const userLinks = allLinks.filter(l => l.createdBy === credit.userId)
+          return userLinks.length > 0
+        })
+        .forEach(credit => {
+          const userId = credit.userId
+          
+          // Si ya existe este usuario, sumamos sus datos
+          if (recommenderMap.has(userId)) {
+            const existing = recommenderMap.get(userId)
+            existing.totalCredits += credit.totalCredits || 0
+            existing.credits += credit.availableCredits || 0
+          } else {
+            // Si no existe, creamos el registro
+            const userLinks = allLinks.filter(l => l.createdBy === userId)
+            const totalClicks = userLinks.reduce((sum, l) => sum + (l.clicks || 0), 0)
+            const totalConversions = userLinks.reduce((sum, l) => sum + (l.conversions || 0), 0)
 
-        // Buscar en clientes de órdenes o en clientes globales registrados
-        const customerFromOrders = processedCustomers.find(c => c.phone === credit.userId)
-        const globalClient = allGlobalClients.find(c => c.celular === credit.userId)
+            // Buscar en clientes de órdenes o en clientes globales registrados
+            const customerFromOrders = processedCustomers.find(c => c.phone === userId)
+            const globalClient = allGlobalClients.find(c => c.celular === userId)
+            
+            // Buscar también por ID de Firebase
+            const globalClientById = allGlobalClients.find(c => c.id === userId)
+            
+            // Buscar también en clientes globales con teléfono normalizado
+            const normalizedGlobalClient = allGlobalClients.find(c => {
+              const normalizedPhone = normalizeEcuadorianPhone(c.celular || '')
+              const normalizedUserId = normalizeEcuadorianPhone(userId)
+              return normalizedPhone === normalizedUserId
+            })
 
-        return {
-          id: credit.id,
-          phone: credit.userId,
-          name: customerFromOrders?.name || globalClient?.nombres || 'Usuario',
-          image: globalClient?.photoURL || null,
-          credits: credit.availableCredits || 0,
-          totalCredits: credit.totalCredits || 0,
-          linksCount: userLinks.length,
-          clicks: totalClicks,
-          conversions: totalConversions
-        }
-      }).sort((a, b) => b.totalCredits - a.totalCredits)
+            recommenderMap.set(userId, {
+              id: credit.id,
+              phone: userId,
+              name: customerFromOrders?.name || globalClient?.nombres || globalClientById?.nombres || normalizedGlobalClient?.nombres || userId,
+              image: globalClient?.photoURL || globalClientById?.photoURL || normalizedGlobalClient?.photoURL || null,
+              credits: credit.availableCredits || 0,
+              totalCredits: credit.totalCredits || 0,
+              linksCount: userLinks.length,
+              clicks: totalClicks,
+              conversions: totalConversions
+            })
+          }
+        })
+
+      const recommenderData = Array.from(recommenderMap.values()).sort((a, b) => b.totalCredits - a.totalCredits)
       setRecommenders(recommenderData)
 
     } catch (error) {
@@ -1046,8 +1076,8 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {recommenders.map((r, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50">
+                {recommenders.map((r) => (
+                  <tr key={r.phone} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center space-x-3">
                         <div className="w-10 h-10 bg-gray-100 rounded-full overflow-hidden border border-gray-200 flex items-center justify-center">
