@@ -687,6 +687,8 @@ function StoreRatingModal({
   business,
   clientPhone,
   clientUser,
+  businessUser,
+  businessOwnerId,
   onSuccess
 }: {
   isOpen: boolean
@@ -694,9 +696,15 @@ function StoreRatingModal({
   business: Business
   clientPhone: string | null
   clientUser: any
+  businessUser: any
+  businessOwnerId: string | null
   onSuccess: (message: string) => void
 }) {
   const { login } = useAuth()
+  
+  // Detectar si el usuario loggeado es dueño de esta tienda
+  const isOwner = businessUser && businessOwnerId && businessUser.uid === businessOwnerId
+  
   const [rating, setRating] = useState(0)
   const [hover, setHover] = useState(0)
   const [comment, setComment] = useState('')
@@ -708,6 +716,10 @@ function StoreRatingModal({
   const [showReplyFor, setShowReplyFor] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
   const [isReplying, setIsReplying] = useState(false)
+  const [replyingAsType, setReplyingAsType] = useState<'client' | 'business'>('client')
+  const [existingRatingId, setExistingRatingId] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [showRatingMenu, setShowRatingMenu] = useState(false)
 
   const handleToggleLike = async (ratingId: string) => {
     if (!activePhone) return
@@ -723,32 +735,62 @@ function StoreRatingModal({
 
   const handleAddReply = async (ratingId: string) => {
     if (!replyText.trim()) return
-    const displayName = clientUser?.nombres || clientFound?.nombres || 'Cliente'
-    const photoURL = clientUser?.photoURL || clientFound?.photoURL || ''
     
-    setIsReplying(true)
-    try {
-      await addStoreRatingReply(business.id, ratingId, {
-        userName: displayName,
-        userPhone: activePhone || '',
-        userPhoto: photoURL,
-        comment: replyText
-      })
-      setReplyText('')
-      setShowReplyFor(null)
-      const ratings = await getBusinessRatings(business.id, 100)
-      setAllRatings(ratings)
-    } catch (error) {
-      console.error('Error replying:', error)
-    } finally {
-      setIsReplying(false)
+    // Si está respondiendo como tienda
+    if (replyingAsType === 'business' && isOwner) {
+      const displayName = business.name
+      const photoURL = business.image || ''
+      
+      setIsReplying(true)
+      try {
+        await addStoreRatingReply(business.id, ratingId, {
+          userName: displayName,
+          userPhone: '', // No usar phone para replies de tienda
+          userPhoto: photoURL,
+          comment: replyText,
+          isBusinessReply: true,
+          businessReplyName: business.name,
+          businessOwnerId: businessOwnerId || ''
+        })
+        setReplyText('')
+        setShowReplyFor(null)
+        setReplyingAsType('client')
+        const ratings = await getBusinessRatings(business.id, 100)
+        setAllRatings(ratings)
+      } catch (error) {
+        console.error('Error replying as business:', error)
+      } finally {
+        setIsReplying(false)
+      }
+    } else {
+      // Responder como cliente normal
+      const displayName = clientUser?.nombres || clientFound?.nombres || 'Cliente'
+      const photoURL = clientUser?.photoURL || clientFound?.photoURL || ''
+      
+      setIsReplying(true)
+      try {
+        await addStoreRatingReply(business.id, ratingId, {
+          userName: displayName,
+          userPhone: activePhone || '',
+          userPhoto: photoURL,
+          comment: replyText
+        })
+        setReplyText('')
+        setShowReplyFor(null)
+        setReplyingAsType('client')
+        const ratings = await getBusinessRatings(business.id, 100)
+        setAllRatings(ratings)
+      } catch (error) {
+        console.error('Error replying:', error)
+      } finally {
+        setIsReplying(false)
+      }
     }
   }
 
   const handleDeleteReply = async (ratingId: string, replyId: string) => {
-    if (!activePhone) return
     try {
-      await deleteStoreRatingReply(business.id, ratingId, replyId, activePhone)
+      await deleteStoreRatingReply(business.id, ratingId, replyId, activePhone || '', businessOwnerId || undefined)
       const ratings = await getBusinessRatings(business.id, 100)
       setAllRatings(ratings)
     } catch (error) {
@@ -959,9 +1001,13 @@ function StoreRatingModal({
             if (prev) {
               setRating(prev.rating)
               setComment(prev.comment || '')
+              setExistingRatingId(prev.id || null)
+              setIsEditing(false)
             } else {
               setRating(0)
               setComment('')
+              setExistingRatingId(null)
+              setIsEditing(false)
             }
           } catch (e) {
             console.error('Error loading previous rating:', e)
@@ -971,6 +1017,8 @@ function StoreRatingModal({
         } else {
           setRating(0)
           setComment('')
+          setExistingRatingId(null)
+          setIsEditing(false)
           setLoadingInitial(false)
         }
       }
@@ -998,7 +1046,9 @@ function StoreRatingModal({
         }
       )
       loadRatings()
-      onSuccess(rating > 0 ? '¡Gracias por tu calificación!' : 'Calificación guardada')
+      onSuccess(isEditing ? '¡Calificación actualizada!' : '¡Gracias por tu calificación!')
+      setIsEditing(false)
+      setShowRatingMenu(false)
       onClose()
     } catch (error) {
       console.error('Error al enviar la calificación:', error)
@@ -1013,11 +1063,58 @@ function StoreRatingModal({
     try {
       await deleteStoreRating(business.id, ratingId)
       onSuccess('Calificación eliminada')
+      setRating(0)
+      setComment('')
+      setExistingRatingId(null)
+      setIsEditing(false)
+      setShowRatingMenu(false)
       loadRatings()
     } catch (error) {
       console.error('Error al eliminar:', error)
       alert('Error al eliminar')
     }
+  }
+
+  const handleDeleteMyRating = async () => {
+    if (!business?.id || !existingRatingId) return
+    if (!window.confirm('¿Estás seguro de que quieres eliminar tu calificación?')) return
+    
+    setIsSubmitting(true)
+    try {
+      await deleteStoreRating(business.id, existingRatingId)
+      onSuccess('Calificación eliminada')
+      setRating(0)
+      setComment('')
+      setExistingRatingId(null)
+      setIsEditing(false)
+      setShowRatingMenu(false)
+      loadRatings()
+    } catch (error) {
+      console.error('Error al eliminar calificación:', error)
+      alert('Error al eliminar')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setIsEditing(false)
+    setShowRatingMenu(false)
+    // Recargar datos anteriores
+    const loadPreviousData = async () => {
+      if (activePhone && business?.id) {
+        try {
+          const prev = await getUserStoreRating(business.id, activePhone)
+          if (prev) {
+            setRating(prev.rating)
+            setComment(prev.comment || '')
+          }
+        } catch (e) {
+          console.error('Error reloading previous rating:', e)
+        }
+      }
+    }
+    loadPreviousData()
   }
 
   // Si no hay cliente logueado, mostrar login UI
@@ -1264,10 +1361,11 @@ function StoreRatingModal({
                             <button
                               key={star}
                               type="button"
-                              className={`text-base transition-all duration-300 transform ${star <= (hover || rating) ? 'text-yellow-400 scale-110' : 'text-gray-200'} hover:scale-125`}
+                              disabled={!!existingRatingId && !isEditing}
+                              className={`text-base transition-all duration-300 transform ${star <= (hover || rating) ? 'text-yellow-400 scale-110' : 'text-gray-200'} ${existingRatingId && !isEditing ? 'cursor-not-allowed opacity-60' : 'hover:scale-125'}`}
                               onClick={() => setRating(star)}
-                              onMouseEnter={() => setHover(star)}
-                              onMouseLeave={() => setHover(rating)}
+                              onMouseEnter={() => !existingRatingId || isEditing ? setHover(star) : null}
+                              onMouseLeave={() => !existingRatingId || isEditing ? setHover(rating) : null}
                             >
                               <i className={`bi ${star <= (hover || rating) ? 'bi-star-fill' : 'bi-star'}`}></i>
                             </button>
@@ -1281,6 +1379,7 @@ function StoreRatingModal({
                         placeholder="Comparte tu experiencia..."
                         value={comment}
                         onChange={(e) => setComment(e.target.value)}
+                        disabled={!!existingRatingId && !isEditing}
                       />
 
                       <div className="flex items-center justify-between">
@@ -1289,23 +1388,105 @@ function StoreRatingModal({
                           Público
                         </span>
                         
-                        <button
-                          type="submit"
-                          disabled={isSubmitting || rating === 0}
-                          className={`px-5 py-2 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all duration-300 flex items-center gap-2 ${rating === 0
-                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-red-500 text-white shadow-lg shadow-red-100 hover:bg-red-600 hover:scale-[1.02] active:scale-95'
-                            }`}
-                        >
-                          {isSubmitting ? (
-                            <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                          ) : (
-                            <>
-                              <span>Publicar</span>
-                              <i className="bi bi-send-fill"></i>
-                            </>
-                          )}
-                        </button>
+                        {/* Si existe calificación y no estamos editando, mostrar menú de 3 puntos */}
+                        {existingRatingId && !isEditing ? (
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setShowRatingMenu(!showRatingMenu)}
+                              className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all"
+                              title="Opciones"
+                            >
+                              <i className="bi bi-three-dots-vertical text-lg"></i>
+                            </button>
+
+                            {/* Menú desplegable */}
+                            {showRatingMenu && (
+                              <>
+                                {/* Overlay para cerrar menú */}
+                                <div 
+                                  className="fixed inset-0 z-[59]" 
+                                  onClick={() => setShowRatingMenu(false)}
+                                />
+                                
+                                {/* Menú */}
+                                <div className="absolute right-0 mt-1 w-40 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-[60] animate-in fade-in zoom-in duration-200">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setIsEditing(true)
+                                      setShowRatingMenu(false)
+                                    }}
+                                    className="w-full text-left px-4 py-2.5 hover:bg-gray-50 transition-colors flex items-center gap-3 text-sm font-medium text-gray-900"
+                                  >
+                                    <i className="bi bi-pencil text-blue-500"></i>
+                                    Editar
+                                  </button>
+                                  <div className="h-px bg-gray-100"></div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowRatingMenu(false)
+                                      handleDeleteMyRating()
+                                    }}
+                                    className="w-full text-left px-4 py-2.5 hover:bg-red-50 transition-colors flex items-center gap-3 text-sm font-medium text-red-600"
+                                  >
+                                    <i className="bi bi-trash3 text-red-500"></i>
+                                    Eliminar
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        ) : isEditing ? (
+                          /* Estamos editando - mostrar botones de Guardar y Cancelar */
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleCancelEdit}
+                              disabled={isSubmitting}
+                              className="px-4 py-2 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all duration-300 bg-gray-100 text-gray-900 hover:bg-gray-200 active:scale-95"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={isSubmitting || rating === 0}
+                              className={`px-5 py-2 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all duration-300 flex items-center gap-2 ${rating === 0
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                : 'bg-blue-500 text-white shadow-lg shadow-blue-100 hover:bg-blue-600 hover:scale-[1.02] active:scale-95'
+                                }`}
+                            >
+                              {isSubmitting ? (
+                                <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                              ) : (
+                                <>
+                                  <span>Guardar</span>
+                                  <i className="bi bi-check-lg"></i>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        ) : (
+                          /* No existe calificación - mostrar botón Publicar normal */
+                          <button
+                            type="submit"
+                            disabled={isSubmitting || rating === 0}
+                            className={`px-5 py-2 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all duration-300 flex items-center gap-2 ${rating === 0
+                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                              : 'bg-red-500 text-white shadow-lg shadow-red-100 hover:bg-red-600 hover:scale-[1.02] active:scale-95'
+                              }`}
+                          >
+                            {isSubmitting ? (
+                              <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                            ) : (
+                              <>
+                                <span>Publicar</span>
+                                <i className="bi bi-send-fill"></i>
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1390,7 +1571,23 @@ function StoreRatingModal({
                           </button>
                           
                           <button 
-                            onClick={() => setShowReplyFor(showReplyFor === r.id ? null : (r.id || null))}
+                            onClick={() => {
+                              if (showReplyFor === r.id) {
+                                setShowReplyFor(null)
+                                setReplyingAsType('client')
+                                setReplyText('')
+                              } else {
+                                setShowReplyFor(r.id || null)
+                                // Si es owner y tiene cliente activo, preguntar con cuál responder
+                                if (isOwner && activePhone) {
+                                  setReplyingAsType('business') // Por defecto como tienda si es owner
+                                } else if (isOwner) {
+                                  setReplyingAsType('business')
+                                } else {
+                                  setReplyingAsType('client')
+                                }
+                              }
+                            }}
                             className="flex items-center gap-1.5 text-[10px] font-black uppercase text-gray-400 hover:text-gray-600 transition-all"
                           >
                             <i className="bi bi-chat-dots-fill"></i>
@@ -1400,7 +1597,44 @@ function StoreRatingModal({
 
                         {/* Input de respuesta */}
                         {showReplyFor === r.id && (
-                          <div className="mt-4 bg-gray-50 p-2 rounded-xl flex gap-2">
+                          <div className="mt-4 bg-gray-50 p-2 rounded-xl flex gap-2 items-end">
+                            {/* Toggle Logo/Avatar - Solo si es owner Y tiene cliente activo */}
+                            {isOwner && activePhone && (
+                              <button
+                                type="button"
+                                onClick={() => setReplyingAsType(replyingAsType === 'business' ? 'client' : 'business')}
+                                className={`flex-shrink-0 w-10 h-10 rounded-full transition-all transform hover:scale-110 active:scale-95 flex items-center justify-center ${
+                                  replyingAsType === 'business' 
+                                    ? 'bg-blue-100 border-2 border-blue-500 shadow-md' 
+                                    : 'bg-gray-100 border-2 border-gray-300 hover:bg-gray-200'
+                                }`}
+                                title={replyingAsType === 'business' ? 'Respondiendo como tienda' : 'Respondiendo como cliente'}
+                              >
+                                {replyingAsType === 'business' ? (
+                                  business.image ? (
+                                    <img 
+                                      src={business.image} 
+                                      alt={business.name}
+                                      className="w-full h-full rounded-full object-cover"
+                                    />
+                                  ) : (
+                                    <i className="bi bi-shop text-lg text-blue-600"></i>
+                                  )
+                                ) : (
+                                  clientUser?.photoURL ? (
+                                    <img 
+                                      src={clientUser.photoURL}
+                                      alt={clientUser?.nombres}
+                                      className="w-full h-full rounded-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full bg-gradient-to-br from-red-500 to-rose-400 flex items-center justify-center text-white font-black text-sm rounded-full">
+                                      {(clientUser?.nombres || 'C').charAt(0).toUpperCase()}
+                                    </div>
+                                  )
+                                )}
+                              </button>
+                            )}
                             <input 
                               autoFocus
                               className="flex-1 bg-white border border-gray-100 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-red-500"
@@ -1412,36 +1646,55 @@ function StoreRatingModal({
                             <button 
                               disabled={isReplying || !replyText.trim()}
                               onClick={() => r.id && handleAddReply(r.id)}
-                              className="bg-red-500 text-white w-8 h-8 rounded-lg flex items-center justify-center disabled:bg-gray-100 disabled:text-gray-300"
+                              className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center font-black transition-all ${
+                                replyingAsType === 'business' && isOwner
+                                  ? 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-100 disabled:text-gray-300'
+                                  : 'bg-red-500 text-white hover:bg-red-600 disabled:bg-gray-100 disabled:text-gray-300'
+                              }`}
+                              title={replyingAsType === 'business' ? 'Enviar como respuesta oficial de tienda' : 'Enviar como cliente'}
                             >
                               {isReplying ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <i className="bi bi-send-fill text-xs"></i>}
                             </button>
                           </div>
+                        )}
+                        
+                        {/* Indicador del modo de respuesta */}
+                        {showReplyFor === r.id && isOwner && activePhone && (
+                          <p className="text-[8px] font-black text-gray-400 uppercase tracking-wider mt-1 ml-2">
+                            {replyingAsType === 'business' ? '🏪 Respondiendo como tienda' : '👤 Respondiendo como cliente'}
+                          </p>
                         )}
 
                         {/* Lista de respuestas */}
                         {r.replies && r.replies.length > 0 && (
                           <div className="mt-4 space-y-3 pl-2 border-l-2 border-gray-50">
                             {r.replies.map((reply, index) => (
-                              <div key={reply.id || index} className="flex gap-2 last:mb-0">
+                              <div key={reply.id || index} className={`flex gap-2 last:mb-0 p-2 rounded-lg ${reply.isBusinessReply ? 'bg-blue-50/50 border border-blue-100/30' : ''}`}>
                                 <div className="flex-shrink-0">
                                   {reply.userPhoto ? (
                                     <img src={reply.userPhoto} className="w-5 h-5 rounded-full object-cover" />
                                   ) : (
-                                    <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-[8px] font-black text-slate-500">
-                                      {reply.userName?.charAt(0) || 'C'}
+                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-black ${reply.isBusinessReply ? 'bg-blue-200 text-blue-600' : 'bg-slate-200 text-slate-500'}`}>
+                                      {(reply.isBusinessReply ? reply.businessReplyName : reply.userName)?.charAt(0) || 'C'}
                                     </div>
                                   )}
                                 </div>
                                 <div className="flex-1">
-                                  <p className="text-[10px] font-bold text-gray-900 leading-none mb-1">
-                                    {reply.userName}
-                                  </p>
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <p className="text-[10px] font-bold text-gray-900 leading-none">
+                                      {reply.isBusinessReply ? reply.businessReplyName : reply.userName}
+                                    </p>
+                                    {reply.isBusinessReply && (
+                                      <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+                                        <i className="bi bi-check text-white text-[8px]"></i>
+                                      </div>
+                                    )}
+                                  </div>
                                   <p className="text-[11px] text-gray-500 leading-tight">
                                     {reply.comment}
                                   </p>
                                 </div>
-                                {reply.userPhone === activePhone && (
+                                {((reply.userPhone === activePhone && !reply.isBusinessReply) || (reply.isBusinessReply && isOwner)) && (
                                   <button
                                     onClick={() => r.id && handleDeleteReply(r.id, reply.id)}
                                     className="text-[10px] text-gray-200 hover:text-red-500 transition-all self-start pt-1"
@@ -2119,6 +2372,8 @@ function RestaurantContent() {
           business={business}
           clientPhone={clientPhone}
           clientUser={clientUser}
+          businessUser={user}
+          businessOwnerId={business?.ownerId || null}
           onSuccess={(msg) => showNotification(msg)}
         />
 

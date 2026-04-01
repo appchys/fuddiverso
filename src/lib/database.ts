@@ -3639,6 +3639,9 @@ export interface BusinessRating {
     userPhoto?: string;
     comment: string;
     createdAt: any;
+    isBusinessReply?: boolean; // Indica si es respuesta del dueño de la tienda
+    businessReplyName?: string; // Nombre del restaurante (para mostrar en replies de tienda)
+    businessOwnerId?: string; // ownerId para validar permisos de eliminación
   }[];
   userAgent?: string;
   ipAddress?: string;
@@ -3755,6 +3758,9 @@ export async function addStoreRatingReply(
     userPhone: string;
     userPhoto?: string;
     comment: string;
+    isBusinessReply?: boolean;
+    businessReplyName?: string;
+    businessOwnerId?: string;
   }
 ): Promise<void> {
   try {
@@ -3779,7 +3785,8 @@ export async function deleteStoreRatingReply(
   businessId: string,
   ratingId: string,
   replyId: string,
-  clientPhone: string
+  clientPhone: string,
+  businessOwnerId?: string
 ): Promise<void> {
   try {
     const ratingRef = doc(db, 'businesses', businessId, 'ratings', ratingId);
@@ -3789,8 +3796,20 @@ export async function deleteStoreRatingReply(
     const data = docSnap.data() as BusinessRating;
     const currentReplies = data.replies || [];
     
-    // Solo permitir borrar si es el dueño
-    const newReplies = currentReplies.filter(r => !(r.id === replyId && r.userPhone === clientPhone));
+    // Permitir borrar si es:
+    // 1. Cliente que respondió (userPhone coincide)
+    // 2. Dueño de tienda que respondió como negocio (businessOwnerId coincide)
+    const newReplies = currentReplies.filter(r => {
+      if (r.id === replyId) {
+        // Si es respuesta de tienda, verificar businessOwnerId
+        if (r.isBusinessReply && r.businessOwnerId) {
+          return r.businessOwnerId !== businessOwnerId; // Eliminar si coincide
+        }
+        // Si es respuesta de cliente, verificar phone
+        return r.userPhone !== clientPhone; // Eliminar si coincide
+      }
+      return true;
+    });
     
     await updateDoc(ratingRef, {
       replies: newReplies,
