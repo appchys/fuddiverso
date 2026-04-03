@@ -1,6 +1,7 @@
+import { getWhatsAppTemplates } from '@/lib/database'
+import { renderWhatsAppTemplate, WHATSAPP_TEMPLATE_DEFAULTS } from '@/lib/whatsappTemplates'
 import { Order, Business } from '@/types'
 
-// Avanzar estado al siguiente en la cadena lógica
 export const getNextStatus = (status: Order['status']): Order['status'] | null => {
     const flow: Order['status'][] = ['pending', 'confirmed', 'preparing', 'ready', 'delivered']
     const idx = flow.indexOf(status)
@@ -8,58 +9,130 @@ export const getNextStatus = (status: Order['status']): Order['status'] | null =
     if (idx >= flow.length - 1) return null
     return flow[idx + 1]
 }
-// Helper para formatear la fecha programada
+
 const formatScheduledDate = (timing: Order['timing']): string => {
-    if (timing?.type !== 'scheduled') return '⚡ Inmediato';
+    if (timing?.type !== 'scheduled') return '⚡ Inmediato'
 
-    const time = timing.scheduledTime || '';
+    const time = timing.scheduledTime || ''
 
-    // Si no hay fecha, mantener comportamiento anterior
     if (!timing.scheduledDate) {
-        return `⏰ Programado para las ${time}`;
+        return `⏰ Programado para las ${time}`
     }
 
-    let date: Date;
-    const rawDate = timing.scheduledDate as any;
+    let date: Date
+    const rawDate = timing.scheduledDate as any
 
-    // Manejar diferentes formatos de fecha
     if (typeof rawDate.toDate === 'function') {
-        // Firestore Timestamp instance
-        date = rawDate.toDate();
+        date = rawDate.toDate()
     } else if (rawDate.seconds !== undefined) {
-        // Firestore Timestamp plain object (serialized)
-        date = new Date(rawDate.seconds * 1000);
+        date = new Date(rawDate.seconds * 1000)
     } else if (rawDate instanceof Date) {
-        // Native Date object
-        date = rawDate;
+        date = rawDate
     } else {
-        // Fallback (string o timestamp numérico)
-        date = new Date(rawDate);
+        date = new Date(rawDate)
     }
 
-    // Verificar si la fecha es válida
     if (isNaN(date.getTime())) {
-        return `⏰ Programado para las ${time}`;
+        return `⏰ Programado para las ${time}`
     }
 
-    const now = new Date();
-    // Normalizar a inicio del día para comparación
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
 
-    const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
 
     if (checkDate.getTime() === today.getTime()) {
-        return `⏰ Programado para hoy a las ${time}`;
-    } else if (checkDate.getTime() === tomorrow.getTime()) {
-        return `⏰ Programado para mañana a las ${time}`;
-    } else {
-        const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-        return `⏰ Programado para:\n${date.getDate()} de ${months[date.getMonth()]} a las ${time}`;
+        return `⏰ Programado para hoy a las ${time}`
     }
+
+    if (checkDate.getTime() === tomorrow.getTime()) {
+        return `⏰ Programado para mañana a las ${time}`
+    }
+
+    const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+    return `⏰ Programado para:\n${date.getDate()} de ${months[date.getMonth()]} a las ${time}`
 }
-// Función unificada para enviar mensajes de WhatsApp al delivery o tienda
+
+const buildProductsList = (order: Order, includeStorePrice = false) => {
+    const groupedProducts = new Map<string, { hasRealVariant: boolean; lines: string[] }>()
+
+    order.items?.forEach((item: any) => {
+        const productName = item.productName || item.product?.name || item.name || 'Producto'
+        const variantName = item.variant || item.variantName || item.name || productName
+        const hasRealVariant = Boolean(
+            item.variant ||
+            item.variantName ||
+            (item.productName && variantName !== productName)
+        )
+
+        let suffix = ''
+        if (includeStorePrice) {
+            suffix = ` - $${(item.storeReceives || 0).toFixed(2)}`
+        }
+
+        const existingGroup = groupedProducts.get(productName) || { hasRealVariant: false, lines: [] }
+
+        if (hasRealVariant) {
+            existingGroup.hasRealVariant = true
+            existingGroup.lines.push(`(${item.quantity || 1}) ${variantName}${suffix}`)
+        } else {
+            existingGroup.lines.push(`(${item.quantity || 1}) ${productName}${suffix}`)
+        }
+
+        groupedProducts.set(productName, existingGroup)
+    })
+
+    if (groupedProducts.size === 0) {
+        return 'Sin productos'
+    }
+
+    return Array.from(groupedProducts.entries())
+        .map(([productName, group]) => {
+            if (!group.hasRealVariant) {
+                return group.lines.join('\n')
+            }
+
+            return `${productName}\n${group.lines.join('\n')}`
+        })
+        .join('\n\n')
+}
+
+const buildLocationLink = (order: Order) => {
+    let locationLink = ''
+
+    if (order.delivery.type !== 'delivery') {
+        return locationLink
+    }
+
+    if (order.delivery?.latlong) {
+        const cleanCoords = order.delivery.latlong.replace(/\s+/g, '')
+        if (cleanCoords.startsWith('pluscode:')) {
+            const plusCode = cleanCoords.replace('pluscode:', '')
+            locationLink = `https://www.google.com/maps/place/${encodeURIComponent(plusCode)}`
+        } else if (cleanCoords.includes(',')) {
+            locationLink = `https://www.google.com/maps/place/${cleanCoords}`
+        } else {
+            locationLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`
+        }
+    } else if (order.delivery?.mapLocation) {
+        locationLink = `https://www.google.com/maps/place/${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}`
+    }
+
+    return locationLink
+}
+
+const normalizePhoneForWhatsApp = (phone: string) => {
+    const cleanPhone = phone.replace(/\D/g, '')
+    return `593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}`
+}
+
+const getSavedTemplate = async (key: string) => {
+    const savedTemplates = await getWhatsAppTemplates()
+    return savedTemplates[key] || WHATSAPP_TEMPLATE_DEFAULTS[key]
+}
+
 export const sendWhatsAppToDelivery = async (
     order: Order,
     availableDeliveries: any[],
@@ -67,17 +140,14 @@ export const sendWhatsAppToDelivery = async (
     onStatusUpdate?: (orderId: string, newStatus: Order['status']) => Promise<void>,
     updateLocalOrder?: (updatedOrder: Order) => void
 ) => {
-    // Calcular el siguiente estado para usarlo si es necesario
-    let nextStatus: Order['status'] | null = null;
+    let nextStatus: Order['status'] | null = null
     if (order.status !== 'ready' && onStatusUpdate && updateLocalOrder) {
-        nextStatus = getNextStatus(order.status);
+        nextStatus = getNextStatus(order.status)
     }
 
     let phone = ''
-    let title = ''
 
     if (order.delivery.type === 'delivery') {
-        // Para delivery, enviar al delivery asignado
         const assignedDeliveryId = order.delivery?.assignedDelivery || (order.delivery as any)?.selectedDelivery
         if (!assignedDeliveryId) {
             alert('Este pedido no tiene un delivery asignado')
@@ -91,361 +161,195 @@ export const sendWhatsAppToDelivery = async (
         }
 
         phone = delivery.celular
-        title = 'Enviar mensaje de WhatsApp al delivery'
     } else {
-        // Para retiro, enviar al número de la tienda
         if (!business?.phone) {
             alert('No se encontró el número de teléfono de la tienda')
             return
         }
 
         phone = business.phone
-        title = 'Enviar mensaje de WhatsApp a la tienda'
     }
 
-    // Construir el mensaje de WhatsApp
     const customerName = order.customer?.name || 'Cliente sin nombre'
     const customerPhone = order.customer?.phone || 'Sin teléfono'
     const references = order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'
-
-    // Crear enlace de Google Maps si hay coordenadas o Plus Code (solo para delivery)
-    let locationLink = ''
-    if (order.delivery.type === 'delivery') {
-        if (order.delivery?.latlong) {
-            const cleanCoords = order.delivery.latlong.replace(/\s+/g, '')
-            // Verificar si es un Plus Code
-            if (cleanCoords.startsWith('pluscode:')) {
-                const plusCode = cleanCoords.replace('pluscode:', '')
-                // Usar el formato de lugar para mejor compatibilidad con WhatsApp
-                locationLink = `https://www.google.com/maps/place/${encodeURIComponent(plusCode)}`
-            } else if (cleanCoords.includes(',')) {
-                // Es una coordenada tradicional
-                locationLink = `https://www.google.com/maps/place/${cleanCoords}`
-            } else {
-                // Si no es ninguno de los anteriores, intentar como búsqueda directa
-                locationLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`
-            }
-        } else if (order.delivery?.mapLocation) {
-            // Para compatibilidad con mapLocation existente
-            locationLink = `https://www.google.com/maps/place/${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}`
-        }
-    }
-
-    // Construir lista de productos con cantidades entre paréntesis
-    const productsList = order.items?.map((item: any) => {
-        const productName = item.productName || item.product?.name || '';
-        const variantName = item.variant || item.name || item.product?.name || 'Producto';
-        
-        // Si hay nombre de producto, mostrarlo en cursiva seguido de la variante
-        if (productName && productName !== variantName) {
-            return `<i>${productName}</i>\n(${item.quantity || 1}) ${variantName}`;
-        }
-        // Si no hay producto base, mostrar solo la variante
-        return `(${item.quantity || 1}) ${variantName}`;
-    }).join('\n\n') || 'Sin productos';
-
-    // Calcular totales
+    const locationLink = buildLocationLink(order)
+    const productsList = buildProductsList(order)
     const deliveryCost = order.delivery.type === 'delivery' ? (order.delivery?.deliveryCost || 1) : 0
     const subtotal = order.total - deliveryCost
-    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' :
-        order.payment?.method === 'transfer' ? 'Transferencia' :
-            order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
+    const orderType = formatScheduledDate(order.timing)
 
-    // Determinar el tipo de pedido (Inmediato o Programado)
-    const orderType = formatScheduledDate(order.timing);
-
-    // Construir mensaje
-    let message = `*Pedido de ${business?.name || 'Tienda'}*${business?.phone ? ` - ${business.phone}` : ''}\n\n`
-
-    message += `*Datos del cliente*\n`
-    message += `Cliente: ${customerName}\n`
-    message += `Celular: ${customerPhone}\n\n`
-
-    if (order.delivery.type === 'delivery') {
-        message += `*Detalles de la entrega*\n`
-        message += `${orderType}\n`
-        message += `Referencias: ${references}\n`
-        if (locationLink) {
-            message += `Ubicación: ${locationLink}\n\n`
-        } else {
-            message += `\n`
-        }
-    } else {
-        message += `*Tipo de entrega*\n`
-        message += `🏪 Retiro en tienda\n`
-        message += `${orderType}\n\n`
-    }
-
-    message += `*Detalle del pedido*\n`
-    message += `${productsList}\n\n`
-
-    message += `*Detalles del pago*\n`
-    message += `Valor del pedido: $${subtotal.toFixed(2)}\n`
-
-    if (order.delivery.type === 'delivery') {
-        message += `Envío: $${deliveryCost.toFixed(2)}\n\n`
-    } else {
-        message += `\n`
-    }
-
-    // Mostrar detalles de pago mixto si aplica
+    let paymentDetailsBlock = ''
     if (order.payment?.method === 'mixed') {
         const payment = order.payment as any
-        message += `🏦 Transferencia: $${(payment.transferAmount || 0).toFixed(2)}\n`
-        message += `💵 *Cobrar:* $${(payment.cashAmount || 0).toFixed(2)}`
+        paymentDetailsBlock = `🏦 Transferencia: $${(payment.transferAmount || 0).toFixed(2)}\n💵 *Cobrar:* $${(payment.cashAmount || 0).toFixed(2)}`
     } else if (order.payment?.method === 'cash') {
-        // Solo mostrar "Total a cobrar" si es efectivo
-        message += `💵 *Cobrar:* $${order.total.toFixed(2)}`
+        paymentDetailsBlock = `💵 *Cobrar:* $${order.total.toFixed(2)}`
     } else if (order.payment?.method === 'transfer') {
-        message += `🏦 Transferencia`
+        paymentDetailsBlock = '🏦 Transferencia'
     }
 
+    const deliverySection = order.delivery.type === 'delivery'
+        ? `*Detalles de la entrega*\n${orderType}\nReferencias: ${references}\n${locationLink ? `Ubicación: ${locationLink}\n` : ''}\n`
+        : ''
 
-    // Limpiar el número de teléfono (quitar espacios, guiones, etc.)
-    const cleanPhone = phone.replace(/\D/g, '')
+    const templateKey = order.delivery.type === 'delivery'
+        ? 'delivery_assignment'
+        : 'pickup_store_notification'
 
-    // Crear enlace de WhatsApp
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}&text=${encodeURIComponent(message)}`
+    const template = await getSavedTemplate(templateKey)
+    const message = renderWhatsAppTemplate(template, {
+        businessName: business?.name || 'Tienda',
+        businessPhoneLine: business?.phone ? ` - ${business.phone}` : '',
+        customerName,
+        customerPhone,
+        deliverySection,
+        pickupLine: '🏪 Retiro en tienda',
+        orderType,
+        productsList,
+        subtotal: subtotal.toFixed(2),
+        deliveryCostLine: order.delivery.type === 'delivery' ? `Envío: $${deliveryCost.toFixed(2)}\n` : '',
+        paymentDetailsBlock
+    })
 
-    // Abrir WhatsApp Web - PRIMERO abrir, luego hacer operaciones async
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(phone)}&text=${encodeURIComponent(message)}`
     window.open(whatsappUrl, '_blank')
 
-    // Ahora sí realizar las actualizaciones de estado si corresponde
     if (nextStatus && onStatusUpdate && updateLocalOrder) {
         try {
-            await onStatusUpdate(order.id, nextStatus);
-            // Actualizar el estado local de la orden para reflejar el cambio
-            const updatedOrder = { ...order, status: nextStatus };
-            updateLocalOrder(updatedOrder);
+            await onStatusUpdate(order.id, nextStatus)
+            const updatedOrder = { ...order, status: nextStatus }
+            updateLocalOrder(updatedOrder)
         } catch (error) {
-            console.error('Error al avanzar el estado del pedido:', error);
+            console.error('Error al avanzar el estado del pedido:', error)
         }
     }
 }
 
-// Enviar Whatsapp al cliente (número del cliente)
-export const sendWhatsAppToCustomer = (order: Order) => {
+export const sendWhatsAppToCustomer = async (order: Order) => {
     const customerPhoneRaw = order.customer?.phone || ''
-    const customerName = order.customer?.name || 'Cliente'
 
     if (!customerPhoneRaw) {
         alert('No se encontró el número del cliente')
         return
     }
 
-    // Normalizar y limpiar número
     const cleanPhone = customerPhoneRaw.replace(/\D/g, '')
     if (!cleanPhone) {
         alert('Número de cliente inválido')
         return
     }
 
-    // Construir breve mensaje con detalles del pedido
-    const productsList = order.items?.map((item: any) => {
-        const productName = item.productName || item.product?.name || '';
-        const variantName = item.variant || item.name || item.product?.name || 'Producto';
-        
-        // Si hay nombre de producto, mostrarlo en cursiva seguido de la variante
-        if (productName && productName !== variantName) {
-            return `<i>${productName}</i>\n(${item.quantity}) ${variantName}`;
-        }
-        // Si no hay producto base, mostrar solo la variante
-        return `(${item.quantity}) ${variantName}`;
-    }).join('\n\n') || 'Sin productos';
-    const deliveryInfo = order.delivery?.type === 'delivery' ? `${order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}` : 'Retiro en tienda'
-    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : order.payment?.method === 'mixed' ? 'Pago Mixto' : 'Sin especificar'
-
-    // Calcular subtotal (total de productos sin envío)
+    const productsList = buildProductsList(order)
+    const deliveryInfo = order.delivery?.type === 'delivery'
+        ? `${order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'}`
+        : 'Retiro en tienda'
+    const paymentMethod = order.payment?.method === 'cash'
+        ? 'Efectivo'
+        : order.payment?.method === 'transfer'
+            ? 'Transferencia'
+            : order.payment?.method === 'mixed'
+                ? 'Pago Mixto'
+                : 'Sin especificar'
     const subtotal = order.total - (order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0)
-
-    // Determinar el tipo de pedido (Inmediato o Programado)
-    const orderType = formatScheduledDate(order.timing);
-
-    // Construir mensaje en texto plano y luego aplicar encodeURIComponent al final
+    const orderType = formatScheduledDate(order.timing)
     const initialMessage = order.timing?.type === 'scheduled'
         ? 'Tu pedido está agendado!'
-        : 'Tu pedido está en preparación!';
-    let message = `${initialMessage}\n\n`;
-    message += `*Dirección:*\n${deliveryInfo}\n\n`;
-    message += `*Tipo de entrega:*\n${orderType}\n\n`;
-    message += `Detalle del pedido:\n${productsList}\n\n`;
-    message += `Subtotal: $${subtotal.toFixed(2)}\n`;
-    if (order.delivery?.type === 'delivery') {
-        message += `Envío: $${(order.delivery?.deliveryCost || 0).toFixed(2)}\n`;
-    }
+        : 'Tu pedido está en preparación!'
 
-    message += '\n';
-
-    // Solo mostrar total si es pago en efectivo
-    if (order.payment?.method === 'cash' || order.payment?.method === 'mixed') {
-        message += `*Total:* $${(order.total || 0).toFixed(2)}\n\n`;
-    }
-
-    message += `Forma de pago: ${paymentMethod}\n`;
-
-    // Agregar enlace público a la orden
+    let orderLinkLine = ''
     try {
-        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        const origin = typeof window !== 'undefined' ? window.location.origin : ''
         if (origin && order.id) {
-            const orderUrl = `${origin}/o/${encodeURIComponent(order.id)}`;
-            message += `\nVer tu orden: ${orderUrl}`;
+            orderLinkLine = `\nVer tu orden: ${origin}/o/${encodeURIComponent(order.id)}`
         }
     } catch (e) {
         // ignore
     }
 
-    // Armar URL y abrir (encodeURIComponent del mensaje)
-    const waPhone = `593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}`
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(message)}`
+    const template = await getSavedTemplate('customer_status')
+    const message = renderWhatsAppTemplate(template, {
+        initialMessage,
+        deliveryInfo,
+        orderType,
+        productsList,
+        subtotal: subtotal.toFixed(2),
+        deliveryCostLine: order.delivery?.type === 'delivery' ? `Envío: $${(order.delivery?.deliveryCost || 0).toFixed(2)}\n` : '',
+        customerTotalBlock: (order.payment?.method === 'cash' || order.payment?.method === 'mixed')
+            ? `*Total:* $${(order.total || 0).toFixed(2)}\n\n`
+            : '',
+        paymentMethod,
+        orderLinkLine
+    })
+
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(customerPhoneRaw)}&text=${encodeURIComponent(message)}`
     window.open(whatsappUrl, '_blank')
 }
 
-// Enviar mensaje a la tienda solicitando comprobante (versión cliente - plantilla original)
-export const sendOrderToStoreFromClient = (order: Order, business: Business) => {
-    // Usar el teléfono del negocio
-    const storePhone = business.phone || '0985985684' // Fallback al número viejo si no hay phone
-
+export const sendOrderToStoreFromClient = async (order: Order, business: Business) => {
+    const storePhone = business.phone || '0985985684'
     const customerName = order.customer?.name || 'Cliente'
-    const productsList = order.items?.map((item: any) => {
-        const productName = item.productName || item.product?.name || '';
-        const variantName = item.variant || item.name || item.product?.name || 'Producto';
-        
-        // Si hay nombre de producto, mostrarlo en cursiva seguido de la variante
-        if (productName && productName !== variantName) {
-            return `<i>${productName}</i>\n(${item.quantity}) ${variantName}`;
-        }
-        // Si no hay producto base, mostrar solo la variante
-        return `(${item.quantity}) ${variantName}`;
-    }).join('\n\n') || 'Sin productos';
+    const productsList = buildProductsList(order)
     const total = order.total?.toFixed(2) || '0.00'
     const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : 'Otro'
-
-    // Lógica de ubicación (reutilizada de sendWhatsAppToDelivery)
-    let locationLink = ''
-    if (order.delivery.type === 'delivery') {
-        if (order.delivery?.latlong) {
-            const cleanCoords = order.delivery.latlong.replace(/\s+/g, '')
-            if (cleanCoords.startsWith('pluscode:')) {
-                const plusCode = cleanCoords.replace('pluscode:', '')
-                locationLink = `https://www.google.com/maps/place/${encodeURIComponent(plusCode)}`
-            } else if (cleanCoords.includes(',')) {
-                locationLink = `https://www.google.com/maps/place/${cleanCoords}`
-            } else {
-                locationLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`
-            }
-        } else if (order.delivery?.mapLocation) {
-            locationLink = `https://www.google.com/maps/place/${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}`
-        }
-    }
-
-    const orderType = formatScheduledDate(order.timing);
-
+    const locationLink = buildLocationLink(order)
+    const orderType = formatScheduledDate(order.timing)
     const references = order.delivery.type === 'pickup'
         ? '🏪 Retira en tienda'
-        : (order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia');
+        : (order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia')
 
-    // Construir mensaje con el formato original completo
-    let message = `*Hola ${business.name}, he realizado un pedido!*\n\n`
-    message += `*Nombres:* ${customerName}\n\n`
-
-    message += `*Detalles de la entrega*\n`
-    message += `${orderType}\n`
-    message += `Referencias: ${references}\n`
-    if (locationLink) {
-        message += `Ubicación: ${locationLink}\n\n`
-    } else {
-        message += `\n`
-    }
-
-    message += `*Detalle del pedido*\n`
-    message += `${productsList}\n\n`
-
-    message += `*Total* $${total}\n`
-    message += `*Forma de pago:* ${paymentMethod}\n\n`
-
-    // Agregar enlace a la orden
+    let orderLinkLine = ''
     try {
-        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        const origin = typeof window !== 'undefined' ? window.location.origin : ''
         if (origin && order.id) {
-            const orderUrl = `${origin}/o/${encodeURIComponent(order.id)}`;
-            message += `${orderUrl}`;
+            orderLinkLine = `\n${origin}/o/${encodeURIComponent(order.id)}`
         }
     } catch (e) {
         // ignore
     }
 
-    const waPhone = `593${storePhone.startsWith('0') ? storePhone.slice(1) : storePhone}`
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(message)}`
+    const template = await getSavedTemplate('client_to_store')
+    const message = renderWhatsAppTemplate(template, {
+        businessName: business.name,
+        customerName,
+        orderType,
+        references,
+        locationLine: locationLink ? `Ubicación: ${locationLink}\n\n` : '',
+        productsList,
+        total,
+        paymentMethod,
+        orderLinkLine
+    })
+
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(storePhone)}&text=${encodeURIComponent(message)}`
     window.open(whatsappUrl, '_blank')
 }
 
-// Enviar mensaje a la tienda solicitando comprobante (versión admin - plantilla simplificada)
-export const sendOrderToStore = (order: Order, business: Business) => {
-    // Usar el teléfono del negocio
-    const storePhone = business.phone || '0985985684' // Fallback al número viejo si no hay phone
-
+export const sendOrderToStore = async (order: Order, business: Business) => {
+    const storePhone = business.phone || '0985985684'
     const customerName = order.customer?.name || 'Cliente'
-    const productsList = order.items?.map((item: any) => {
-        const productName = item.productName || item.product?.name || '';
-        const variantName = item.variant || item.name || item.product?.name || 'Producto';
-        const storePrice = (item.storeReceives || 0).toFixed(2);
-        
-        // Si hay nombre de producto, mostrarlo en cursiva seguido de la variante
-        if (productName && productName !== variantName) {
-            return `<i>${productName}</i>\n(${item.quantity}) ${variantName} - $${storePrice}`;
-        }
-        // Si no hay producto base, mostrar solo la variante
-        return `(${item.quantity}) ${variantName} - $${storePrice}`;
-    }).join('\n\n') || 'Sin productos';
-    // Calcular el valor que recibe la tienda
+    const productsList = buildProductsList(order, true)
     const storeReceives = order.items?.reduce((sum: number, item: any) => {
-        const itemStoreReceives = item.storeReceives || 0;
-        return sum + (itemStoreReceives * (item.quantity || 1));
-    }, 0) || order.total;
+        const itemStoreReceives = item.storeReceives || 0
+        return sum + (itemStoreReceives * (item.quantity || 1))
+    }, 0) || order.total
 
     const total = storeReceives.toFixed(2)
-    const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : 'Otro'
-
-    // Lógica de ubicación (reutilizada de sendWhatsAppToDelivery)
-    let locationLink = ''
-    if (order.delivery.type === 'delivery') {
-        if (order.delivery?.latlong) {
-            const cleanCoords = order.delivery.latlong.replace(/\s+/g, '')
-            if (cleanCoords.startsWith('pluscode:')) {
-                const plusCode = cleanCoords.replace('pluscode:', '')
-                locationLink = `https://www.google.com/maps/place/${encodeURIComponent(plusCode)}`
-            } else if (cleanCoords.includes(',')) {
-                locationLink = `https://www.google.com/maps/place/${cleanCoords}`
-            } else {
-                locationLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`
-            }
-        } else if (order.delivery?.mapLocation) {
-            locationLink = `https://www.google.com/maps/place/${order.delivery.mapLocation.lat},${order.delivery.mapLocation.lng}`
-        }
-    }
-
-    const orderType = formatScheduledDate(order.timing);
-
+    const orderType = formatScheduledDate(order.timing)
     const references = order.delivery.type === 'pickup'
         ? '🏪 Retira en tienda'
-        : (order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia');
+        : (order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia')
 
-    // Construir mensaje con el formato solicitado
-    let message = `*Hola ${business.name}, tienes un pedido por confirmar!*\n\n`
-    message += `*Nombres:* ${customerName}\n\n`
+    const template = await getSavedTemplate('admin_to_store')
+    const message = renderWhatsAppTemplate(template, {
+        businessName: business.name,
+        customerName,
+        orderType,
+        references,
+        productsList,
+        total
+    })
 
-    message += `*Detalles de la entrega*\n`
-    message += `${orderType}\n`
-    message += `Referencias: ${references}\n\n`
-
-    message += `*Detalle del pedido*\n`
-    message += `${productsList}\n\n`
-
-    message += `*Total* $${total}\n\n`
-    
-    message += `¿En qué tiempo estaría listo para recoger?`
-
-    const waPhone = `593${storePhone.startsWith('0') ? storePhone.slice(1) : storePhone}`
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(message)}`
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(storePhone)}&text=${encodeURIComponent(message)}`
     window.open(whatsappUrl, '_blank')
 }

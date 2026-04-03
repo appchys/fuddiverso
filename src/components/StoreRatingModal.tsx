@@ -469,25 +469,25 @@ export default function StoreRatingModal({
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
 
         <div className="flex items-end sm:items-center justify-center min-h-screen p-0 sm:p-4">
-          <div className="relative w-full max-w-md bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden transform transition-all animate-in slide-in-from-bottom sm:zoom-in duration-300 flex flex-col max-h-[90svh]">
+          <div className="relative w-full max-w-md bg-gray-50 rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-[0_32px_80px_rgba(15,23,42,0.22)] overflow-hidden transform transition-all animate-in slide-in-from-bottom sm:zoom-in duration-300 flex flex-col max-h-[90svh] border border-white/70">
             
-            <div className="px-6 pt-8 pb-4 text-center border-b border-gray-100 flex-shrink-0">
+            <div className="px-6 pt-8 pb-6 text-center border-b border-gray-100 flex-shrink-0 bg-white">
               <button
                 onClick={onClose}
                 className="absolute top-6 right-6 p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all"
               >
                 <i className="bi bi-x-lg"></i>
               </button>
-              <div className="w-16 h-16 bg-yellow-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl">
+              <div className="w-16 h-16 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl shadow-sm border border-red-100">
                 ⭐
               </div>
-              <h3 className="text-xl font-black text-gray-900 leading-tight">Inicia sesión para calificar</h3>
-              <p className="text-sm text-gray-400 mt-1 font-medium">Tu opinión ayuda mucho a {business.name}</p>
+              <h3 className="text-2xl font-black text-gray-900 tracking-tight leading-tight">Inicia sesión para calificar</h3>
+              <p className="text-sm text-gray-500 mt-2 leading-relaxed">Tu opinión ayuda mucho a {business.name}</p>
             </div>
 
-            <div className="p-6 pb-32 sm:pb-6 overflow-y-auto flex-1 no-scrollbar">
+            <div className="p-6 pb-32 sm:pb-6 overflow-y-auto flex-1 no-scrollbar bg-gray-50">
               <div className="space-y-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Número de Celular</label>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2 ml-1">Número de celular</label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
@@ -510,7 +510,7 @@ export default function StoreRatingModal({
                           setCustomerData({ ...customerData, phone: normalizedPhone })
                         }
                       }}
-                      className={`w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all ${phoneError ? 'ring-2 ring-red-100 border-red-300' : ''}`}
+                      className={`w-full pl-10 pr-4 py-3.5 bg-white border rounded-2xl text-sm text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-400 transition-all ${phoneError ? 'ring-2 ring-red-100 border-red-300' : 'border-gray-100 hover:border-red-100'}`}
                       placeholder="0999999999"
                       maxLength={10}
                       disabled={clientSearching}
@@ -525,19 +525,19 @@ export default function StoreRatingModal({
                         setPhoneError('')
                         setPhoneConfirmation('')
                       }}
-                      className="px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                      className="px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50 rounded-2xl transition-colors"
                       title="Cambiar número"
                     >
                       Cambiar
                     </button>
                   )}
                 </div>
-                {phoneError && <p className="text-red-500 text-xs mt-2 ml-1">{phoneError}</p>}
+                {phoneError && <p className="text-red-500 text-xs mt-2 ml-1 font-medium">{phoneError}</p>}
 
                 {/* Searching indicator */}
                 {clientSearching && (
-                  <div className="mt-3 flex items-center gap-2 text-blue-600 animate-fadeIn">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                  <div className="mt-3 flex items-center gap-2 text-red-500 animate-fadeIn text-sm font-medium">
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-red-200 border-t-red-500"></div>
                     <p className="text-sm">Buscando cliente...</p>
                   </div>
                 )}
@@ -545,19 +545,19 @@ export default function StoreRatingModal({
                 {/* Cliente encontrado - mostrar confirmación */}
                 {!clientSearching && clientFound && (
                   <div className="mt-4 pt-4 border-t border-gray-100 animate-fadeIn">
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                    <div className="bg-white border border-gray-100 rounded-2xl p-4 mb-4 shadow-sm">
                       <div className="flex items-center gap-3 mb-3">
-                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                          <i className="bi bi-person-check-fill text-green-600 text-xl"></i>
+                        <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center border border-red-100">
+                          <i className="bi bi-person-check-fill text-red-500 text-xl"></i>
                         </div>
                         <div>
-                          <p className="text-lg font-bold text-gray-900">¿Eres {clientFound.nombres}?</p>
-                          <p className="text-sm text-gray-600">Encontramos una cuenta con este número</p>
+                          <p className="text-lg font-black text-gray-900 tracking-tight">¿Eres {clientFound.nombres}?</p>
+                          <p className="text-sm text-gray-500">Encontramos una cuenta con este número</p>
                         </div>
                       </div>
                       <button
                         onClick={handleConfirmLogin}
-                        className="w-full py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                        className="w-full py-3.5 bg-gray-900 text-white font-black rounded-2xl hover:bg-black transition-colors flex items-center justify-center gap-2 shadow-[0_12px_30px_rgba(17,24,39,0.15)]"
                       >
                         <i className="bi bi-check-circle"></i>
                         Continuar como {clientFound.nombres}
@@ -570,7 +570,7 @@ export default function StoreRatingModal({
                           setPhoneError('')
                           setPhoneConfirmation('')
                         }}
-                        className="w-full mt-2 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                        className="w-full mt-2 py-2 text-sm text-gray-500 hover:text-gray-800 transition-colors font-medium"
                       >
                         No, soy otra persona
                       </button>
@@ -581,15 +581,15 @@ export default function StoreRatingModal({
                 {/* Cliente no encontrado - pedir nombre para registrar */}
                 {!clientSearching && !clientFound && showNameField && customerData.phone.trim() && validateEcuadorianPhone(normalizeEcuadorianPhone(customerData.phone)) && (
                   <div className="mt-4 pt-4 border-t border-gray-100 animate-fadeIn">
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-                      <p className="text-sm text-blue-800">
+                    <div className="bg-white border border-gray-100 rounded-2xl p-4 mb-4 shadow-sm">
+                      <p className="text-sm text-gray-600 leading-relaxed">
                         <i className="bi bi-info-circle mr-2"></i>
                         Número no registrado. Por favor ingresa tus datos para continuar.
                       </p>
                     </div>
 
                     {/* Campo de confirmación de teléfono */}
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Confirmar Celular *</label>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2 ml-1">Confirmar celular *</label>
                     <div className="relative mb-4">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                         <i className="bi bi-phone-fill"></i>
@@ -600,11 +600,11 @@ export default function StoreRatingModal({
                         pattern="[0-9]*"
                         value={phoneConfirmation}
                         onChange={(e) => setPhoneConfirmation(e.target.value)}
-                        className={`w-full pl-10 pr-12 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 transition-all ${phoneConfirmation.trim() && phoneConfirmation === customerData.phone
-                          ? 'border-green-300 ring-2 ring-green-100 focus:ring-green-900'
+                        className={`w-full pl-10 pr-12 py-3.5 bg-white border rounded-2xl text-sm shadow-sm focus:outline-none focus:ring-2 transition-all ${phoneConfirmation.trim() && phoneConfirmation === customerData.phone
+                          ? 'border-emerald-300 ring-2 ring-emerald-100 focus:ring-emerald-500/20'
                           : phoneConfirmation.trim() && phoneConfirmation !== customerData.phone
-                            ? 'border-red-300 ring-2 ring-red-100 focus:ring-red-900'
-                            : 'border-gray-200 focus:ring-gray-900'
+                            ? 'border-red-300 ring-2 ring-red-100 focus:ring-red-500/20'
+                            : 'border-gray-100 hover:border-red-100 focus:ring-red-500/20'
                           }`}
                         placeholder="Vuelve a escribir tu celular"
                         maxLength={10}
@@ -621,21 +621,21 @@ export default function StoreRatingModal({
                       )}
                     </div>
 
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2 ml-1">Nombre completo *</label>
                     <input
                       type="text"
                       required
                       value={customerData.name}
                       onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
-                      className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all ${nameError ? 'border-red-300 ring-red-100' : 'border-gray-200'}`}
+                      className={`w-full px-4 py-3.5 bg-white border rounded-2xl text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 transition-all ${nameError ? 'border-red-300 ring-red-100' : 'border-gray-100 hover:border-red-100'}`}
                       placeholder="Juan Pérez"
                     />
-                    {nameError && <p className="text-red-500 text-sm mt-1">{nameError}</p>}
+                    {nameError && <p className="text-red-500 text-sm mt-1 font-medium">{nameError}</p>}
 
                     <button
                       onClick={handleCreateClient}
                       disabled={!customerData.name.trim() || !phoneConfirmation.trim() || phoneConfirmation !== customerData.phone || isSubmitting}
-                      className="w-full mt-3 px-4 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
+                      className="w-full mt-3 px-4 py-3.5 bg-gray-900 text-white rounded-2xl hover:bg-black transition-colors disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed font-black shadow-[0_12px_30px_rgba(17,24,39,0.15)]"
                     >
                       {isSubmitting ? (
                         <div className="flex items-center justify-center gap-2">
@@ -660,7 +660,7 @@ export default function StoreRatingModal({
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
 
       <div className="flex items-end sm:items-center justify-center min-h-screen p-0 sm:p-4">
-        <div className="relative w-full max-w-md bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden transform transition-all animate-in slide-in-from-bottom sm:zoom-in duration-300 flex flex-col sm:max-h-[90svh] h-[100svh] sm:h-auto">
+        <div className="relative w-full max-w-md bg-gray-50 rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-[0_32px_80px_rgba(15,23,42,0.22)] overflow-hidden transform transition-all animate-in slide-in-from-bottom sm:zoom-in duration-300 flex flex-col sm:max-h-[90svh] h-[100svh] sm:h-auto border border-white/70">
           
           <button
             onClick={onClose}
@@ -669,13 +669,13 @@ export default function StoreRatingModal({
             <i className="bi bi-x-lg"></i>
           </button>
 
-          <div className="p-6 pt-8 pb-32 sm:pb-6 overflow-y-auto flex-1 no-scrollbar">
-            <div className="text-center border-b border-gray-100 pb-4 mb-6">
-              <div className="w-16 h-16 bg-yellow-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl">
+          <div className="p-6 pt-8 pb-32 sm:pb-6 overflow-y-auto flex-1 no-scrollbar bg-gray-50">
+            <div className="text-center border-b border-gray-100 pb-6 mb-6 bg-white -mx-6 px-6 pt-0">
+              <div className="w-16 h-16 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl shadow-sm border border-red-100">
                 ⭐
               </div>
-              <h3 className="text-xl font-black text-gray-900 leading-tight">¿Qué tal tu experiencia?</h3>
-              <p className="text-sm text-gray-400 mt-1 font-medium">Tu opinión ayuda mucho a {business.name}</p>
+              <h3 className="text-2xl font-black text-gray-900 tracking-tight leading-tight">¿Qué tal tu experiencia?</h3>
+              <p className="text-sm text-gray-500 mt-2 leading-relaxed">Tu opinión ayuda mucho a {business.name}</p>
             </div>
 
             {loadingInitial ? (
@@ -686,14 +686,14 @@ export default function StoreRatingModal({
             ) : (() => {
               const displayName = clientUser?.nombres || clientFound?.nombres || 'Cliente'
               return (
-                <form onSubmit={handleSubmit} className="bg-white border border-gray-100 rounded-3xl p-3 shadow-sm ring-1 ring-black/5 mb-6">
-                  <div className="flex gap-2.5">
+                <form onSubmit={handleSubmit} className="bg-white border border-gray-100 rounded-[1.75rem] p-4 shadow-sm mb-6">
+                  <div className="flex gap-3">
                     {/* Avatar Compacto */}
                     <div className="flex-shrink-0">
                       {clientUser?.photoURL ? (
-                        <img src={clientUser.photoURL} alt={displayName} className="w-9 h-9 rounded-full object-cover border border-gray-100 shadow-sm" />
+                        <img src={clientUser.photoURL} alt={displayName} className="w-11 h-11 rounded-2xl object-cover border border-gray-100 shadow-sm" />
                       ) : (
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-rose-400 flex items-center justify-center text-white font-black text-xs border border-red-100 shadow-sm">
+                        <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-red-500 to-rose-400 flex items-center justify-center text-white font-black text-sm border border-red-100 shadow-sm">
                           {displayName.charAt(0).toUpperCase()}
                         </div>
                       )}
@@ -719,14 +719,14 @@ export default function StoreRatingModal({
                                   onClick={() => setShowRatingMenu(false)}
                                 />
 
-                                <div className="absolute right-0 mt-1 w-40 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-[60] animate-in fade-in zoom-in duration-200">
+                                <div className="absolute right-0 mt-1 w-40 bg-white rounded-2xl shadow-lg border border-gray-100 py-1 z-[60] animate-in fade-in zoom-in duration-200">
                                   <button
                                     type="button"
                                     onClick={() => {
                                       setIsEditing(true)
                                       setShowRatingMenu(false)
                                     }}
-                                    className="w-full text-left px-4 py-2.5 hover:bg-gray-50 transition-colors flex items-center gap-3 text-sm font-medium text-gray-900"
+                                    className="w-full text-left px-4 py-2.5 hover:bg-gray-50 transition-colors flex items-center gap-3 text-sm font-bold text-gray-900"
                                   >
                                     <i className="bi bi-pencil text-blue-500"></i>
                                     Editar
@@ -738,7 +738,7 @@ export default function StoreRatingModal({
                                       setShowRatingMenu(false)
                                       handleDeleteMyRating()
                                     }}
-                                    className="w-full text-left px-4 py-2.5 hover:bg-red-50 transition-colors flex items-center gap-3 text-sm font-medium text-red-600"
+                                    className="w-full text-left px-4 py-2.5 hover:bg-red-50 transition-colors flex items-center gap-3 text-sm font-bold text-red-600"
                                   >
                                     <i className="bi bi-trash3 text-red-500"></i>
                                     Eliminar
@@ -750,15 +750,18 @@ export default function StoreRatingModal({
                         </div>
                       )}
 
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-2 pr-8">
-                        <p className="font-bold text-gray-900 text-xs truncate uppercase tracking-wider">{displayName}</p>
-                        <div className="flex items-center gap-0.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 pr-8">
+                        <div>
+                          <p className="font-bold text-base text-gray-900 truncate leading-tight">{displayName}</p>
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mt-1">Tu reseña</p>
+                        </div>
+                        <div className="flex items-center gap-1">
                           {[1, 2, 3, 4, 5].map((star) => (
                             <button
                               key={star}
                               type="button"
                               disabled={!!existingRatingId && !isEditing}
-                              className={`text-[15px] transition-all duration-300 transform ${star <= (hover || rating) ? 'text-yellow-400 scale-110' : 'text-gray-200'} ${existingRatingId && !isEditing ? 'cursor-not-allowed opacity-60' : 'hover:scale-125'}`}
+                              className={`text-lg transition-all duration-300 transform ${star <= (hover || rating) ? 'text-amber-400 scale-110' : 'text-gray-200'} ${existingRatingId && !isEditing ? 'cursor-not-allowed opacity-60' : 'hover:scale-125'}`}
                               onClick={() => setRating(star)}
                               onMouseEnter={() => !existingRatingId || isEditing ? setHover(star) : null}
                               onMouseLeave={() => !existingRatingId || isEditing ? setHover(rating) : null}
@@ -771,7 +774,7 @@ export default function StoreRatingModal({
 
                       <textarea
                         rows={2}
-                        className="w-full px-3.5 py-2 bg-gray-50/50 border border-gray-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none transition-all placeholder:text-gray-400 resize-none mb-2"
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm text-gray-700 focus:bg-white focus:ring-2 focus:ring-red-500/20 focus:border-red-400 outline-none transition-all placeholder:text-gray-400 resize-none mb-3"
                         placeholder="Comparte tu experiencia..."
                         value={comment}
                         onChange={(e) => setComment(e.target.value)}
@@ -792,16 +795,16 @@ export default function StoreRatingModal({
                               type="button"
                               onClick={handleCancelEdit}
                               disabled={isSubmitting}
-                              className="px-4 py-2 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all duration-300 bg-gray-100 text-gray-900 hover:bg-gray-200 active:scale-95"
+                              className="px-4 py-2.5 rounded-2xl font-black uppercase tracking-[0.18em] text-[10px] transition-all duration-300 bg-gray-100 text-gray-900 hover:bg-gray-200 active:scale-95"
                             >
                               Cancelar
                             </button>
                             <button
                               type="submit"
                               disabled={isSubmitting || rating === 0}
-                              className={`px-5 py-2 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all duration-300 flex items-center gap-2 ${rating === 0
+                              className={`px-5 py-2.5 rounded-2xl font-black uppercase tracking-[0.18em] text-[10px] transition-all duration-300 flex items-center gap-2 ${rating === 0
                                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                : 'bg-blue-500 text-white shadow-lg shadow-blue-100 hover:bg-blue-600 hover:scale-[1.02] active:scale-95'
+                                : 'bg-gray-900 text-white shadow-[0_12px_30px_rgba(17,24,39,0.15)] hover:bg-black hover:scale-[1.02] active:scale-95'
                                 }`}
                             >
                               {isSubmitting ? (
@@ -819,9 +822,9 @@ export default function StoreRatingModal({
                           <button
                             type="submit"
                             disabled={isSubmitting || rating === 0}
-                            className={`px-5 py-2 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all duration-300 flex items-center gap-2 ${rating === 0
+                            className={`px-5 py-2.5 rounded-2xl font-black uppercase tracking-[0.18em] text-[10px] transition-all duration-300 flex items-center gap-2 ${rating === 0
                               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                              : 'bg-red-500 text-white shadow-lg shadow-red-100 hover:bg-red-600 hover:scale-[1.02] active:scale-95'
+                              : 'bg-red-500 text-white shadow-[0_12px_30px_rgba(239,68,68,0.2)] hover:bg-red-600 hover:scale-[1.02] active:scale-95'
                               }`}
                           >
                             {isSubmitting ? (
@@ -860,12 +863,12 @@ export default function StoreRatingModal({
                   <div className="w-5 h-5 border-2 border-gray-100 border-t-red-500 rounded-full animate-spin"></div>
                 </div>
               ) : allRatings.length > 0 ? (
-                <div className="grid gap-6">
+                <div className="grid gap-4">
                   {allRatings.map((r) => (
                     <div key={r.id} className="relative pl-12 group">
                       {/* Avatar Absoluto */}
                       <div className="absolute left-0 top-0">
-                        <div className="w-10 h-10 rounded-2xl overflow-hidden border-2 border-white shadow-md ring-1 ring-gray-100 transform -rotate-3 group-hover:rotate-0 transition-transform duration-300">
+                        <div className="w-10 h-10 rounded-2xl overflow-hidden border-2 border-white shadow-md ring-1 ring-gray-100 transform -rotate-3 group-hover:rotate-0 transition-transform duration-300 bg-white">
                           {r.clientPhotoURL ? (
                             <img src={r.clientPhotoURL} alt={r.clientName} className="w-full h-full object-cover" />
                           ) : (
@@ -876,24 +879,24 @@ export default function StoreRatingModal({
                         </div>
                       </div>
 
-                      <div className="bg-white border border-gray-50 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-gray-100 transition-all">
-                        <div className="flex items-center justify-between mb-2">
+                      <div className="bg-white border border-gray-100 rounded-[1.5rem] p-4 shadow-sm hover:shadow-md hover:border-red-100 transition-all">
+                        <div className="flex items-start justify-between gap-3 mb-3">
                           <div>
-                            <p className="text-xs font-black text-gray-900 leading-none mb-1">{r.clientName || 'Cliente'}</p>
-                            <div className="flex text-[9px] text-yellow-400 gap-0.5">
+                            <p className="text-sm font-bold text-gray-900 leading-none mb-1">{r.clientName || 'Cliente'}</p>
+                            <div className="flex text-[10px] text-amber-400 gap-0.5">
                               {[...Array(5)].map((_, i) => (
                                 <i key={i} className={`bi ${i < r.rating ? 'bi-star-fill' : 'bi-star'}`}></i>
                               ))}
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-[9px] font-bold text-gray-300 uppercase tracking-tighter">
+                            <span className="text-[9px] font-black text-gray-300 uppercase tracking-[0.18em]">
                               {r.createdAt ? new Date(r.createdAt.seconds * 1000).toLocaleDateString('es-EC', { day: '2-digit', month: 'short' }) : ''}
                             </span>
                             {r.clientPhone === activePhone && (
                               <button
                                 onClick={() => r.id && handleDelete(r.id)}
-                                className="w-6 h-6 flex items-center justify-center text-gray-200 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                className="w-7 h-7 flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
                                 title="Eliminar mi calificación"
                               >
                                 <i className="bi bi-trash3 text-xs"></i>
@@ -902,16 +905,16 @@ export default function StoreRatingModal({
                           </div>
                         </div>
                         {r.comment && (
-                          <p className="text-sm text-gray-600 font-medium leading-relaxed italic border-l-2 border-red-100 pl-3 py-1">
+                          <p className="text-sm text-gray-600 leading-relaxed border-l-2 border-red-100 pl-3 py-1">
                             "{r.comment}"
                           </p>
                         )}
 
                         {/* Social Actions */}
-                        <div className="mt-2 pt-2 border-t border-gray-50 flex items-center gap-6">
+                        <div className="mt-3 pt-3 border-t border-gray-50 flex items-center gap-6">
                           <button 
                             onClick={() => r.id && handleToggleLike(r.id)}
-                            className={`flex items-center gap-1.5 text-[10px] font-black uppercase transition-all ${r.likes?.includes(activePhone || '') ? 'text-red-500 scale-110' : 'text-gray-400 hover:text-gray-600'}`}
+                            className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.16em] transition-all ${r.likes?.includes(activePhone || '') ? 'text-red-500 scale-110' : 'text-gray-400 hover:text-gray-600'}`}
                           >
                             <i className={`bi ${r.likes?.includes(activePhone || '') ? 'bi-heart-fill' : 'bi-heart'}`}></i>
                             <span>{r.likes?.length || 0}</span>
@@ -935,7 +938,7 @@ export default function StoreRatingModal({
                                 }
                               }
                             }}
-                            className="flex items-center gap-1.5 text-[10px] font-black uppercase text-gray-400 hover:text-gray-600 transition-all"
+                            className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-gray-400 hover:text-gray-600 transition-all"
                           >
                             <i className="bi bi-chat-dots-fill"></i>
                             <span>Comentar</span>
@@ -944,7 +947,7 @@ export default function StoreRatingModal({
 
                         {/* Input de respuesta */}
                         {showReplyFor === r.id && (
-                          <div className="mt-4 bg-gray-50 p-2 rounded-xl flex gap-2 items-end">
+                          <div className="mt-4 bg-gray-50 p-3 rounded-2xl flex gap-2 items-end border border-gray-100">
                             {/* Toggle Logo/Avatar - Solo si es owner Y tiene cliente activo */}
                             {isOwner && activePhone && (
                               <button
@@ -952,8 +955,8 @@ export default function StoreRatingModal({
                                 onClick={() => setReplyingAsType(replyingAsType === 'business' ? 'client' : 'business')}
                                 className={`flex-shrink-0 w-10 h-10 rounded-full transition-all transform hover:scale-110 active:scale-95 flex items-center justify-center ${
                                   replyingAsType === 'business' 
-                                    ? 'bg-blue-100 border-2 border-blue-500 shadow-md' 
-                                    : 'bg-gray-100 border-2 border-gray-300 hover:bg-gray-200'
+                                    ? 'bg-gray-900 border-2 border-gray-900 shadow-md' 
+                                    : 'bg-white border-2 border-gray-200 hover:bg-gray-100'
                                 }`}
                                 title={replyingAsType === 'business' ? 'Respondiendo como tienda' : 'Respondiendo como cliente'}
                               >
@@ -965,7 +968,7 @@ export default function StoreRatingModal({
                                       className="w-full h-full rounded-full object-cover"
                                     />
                                   ) : (
-                                    <i className="bi bi-shop text-lg text-blue-600"></i>
+                                    <i className="bi bi-shop text-lg text-white"></i>
                                   )
                                 ) : (
                                   clientUser?.photoURL ? (
@@ -984,7 +987,7 @@ export default function StoreRatingModal({
                             )}
                             <input 
                               autoFocus
-                              className="flex-1 bg-white border border-gray-100 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-red-500"
+                              className="flex-1 bg-white border border-gray-100 rounded-xl px-3 py-2 text-sm text-gray-700 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-500/20"
                               placeholder="Escribe un comentario..."
                               value={replyText}
                               onChange={(e) => setReplyText(e.target.value)}
@@ -993,9 +996,9 @@ export default function StoreRatingModal({
                             <button 
                               disabled={isReplying || !replyText.trim()}
                               onClick={() => r.id && handleAddReply(r.id)}
-                              className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center font-black transition-all ${
+                              className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center font-black transition-all ${
                                 replyingAsType === 'business' && isOwner
-                                  ? 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-100 disabled:text-gray-300'
+                                  ? 'bg-gray-900 text-white hover:bg-black disabled:bg-gray-100 disabled:text-gray-300'
                                   : 'bg-red-500 text-white hover:bg-red-600 disabled:bg-gray-100 disabled:text-gray-300'
                               }`}
                               title={replyingAsType === 'business' ? 'Enviar como respuesta oficial de tienda' : 'Enviar como cliente'}
@@ -1007,44 +1010,44 @@ export default function StoreRatingModal({
                         
                         {/* Indicador del modo de respuesta */}
                         {showReplyFor === r.id && isOwner && activePhone && (
-                          <p className="text-[8px] font-black text-gray-400 uppercase tracking-wider mt-1 ml-2">
+                          <p className="text-[8px] font-black text-gray-400 uppercase tracking-[0.16em] mt-2 ml-2">
                             {replyingAsType === 'business' ? '🏪 Respondiendo como tienda' : '👤 Respondiendo como cliente'}
                           </p>
                         )}
 
                         {/* Lista de respuestas */}
                         {r.replies && r.replies.length > 0 && (
-                          <div className="mt-4 space-y-3 pl-2 border-l-2 border-gray-50">
+                          <div className="mt-4 space-y-3 pl-3 border-l-2 border-gray-100">
                             {r.replies.map((reply, index) => (
-                              <div key={reply.id || index} className={`flex gap-2 last:mb-0 p-2 rounded-lg ${reply.isBusinessReply ? 'bg-blue-50/50 border border-blue-100/30' : ''}`}>
+                              <div key={reply.id || index} className={`flex gap-2.5 last:mb-0 p-3 rounded-2xl border ${reply.isBusinessReply ? 'bg-gray-900/[0.03] border-gray-200' : 'bg-white border-gray-100'}`}>
                                 <div className="flex-shrink-0">
                                   {reply.userPhoto ? (
                                     <img src={reply.userPhoto} className="w-5 h-5 rounded-full object-cover" />
                                   ) : (
-                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-black ${reply.isBusinessReply ? 'bg-blue-200 text-blue-600' : 'bg-slate-200 text-slate-500'}`}>
+                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-black ${reply.isBusinessReply ? 'bg-gray-900 text-white' : 'bg-slate-200 text-slate-500'}`}>
                                       {(reply.isBusinessReply ? reply.businessReplyName : reply.userName)?.charAt(0) || 'C'}
                                     </div>
                                   )}
                                 </div>
                                 <div className="flex-1">
                                   <div className="flex items-center gap-2 mb-1">
-                                    <p className="text-[10px] font-bold text-gray-900 leading-none">
+                                    <p className="text-[11px] font-bold text-gray-900 leading-none">
                                       {reply.isBusinessReply ? reply.businessReplyName : reply.userName}
                                     </p>
                                     {reply.isBusinessReply && (
-                                      <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+                                      <div className="w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
                                         <i className="bi bi-check text-white text-[8px]"></i>
                                       </div>
                                     )}
                                   </div>
-                                  <p className="text-[11px] text-gray-500 leading-tight">
+                                  <p className="text-xs text-gray-500 leading-relaxed">
                                     {reply.comment}
                                   </p>
                                 </div>
                                 {((reply.userPhone === activePhone && !reply.isBusinessReply) || (reply.isBusinessReply && isOwner)) && (
                                   <button
                                     onClick={() => r.id && handleDeleteReply(r.id, reply.id)}
-                                    className="text-[10px] text-gray-200 hover:text-red-500 transition-all self-start pt-1"
+                                    className="text-[10px] text-gray-300 hover:text-red-500 transition-all self-start pt-1"
                                     title="Eliminar comentario"
                                   >
                                     <i className="bi bi-x-circle-fill"></i>
@@ -1059,9 +1062,9 @@ export default function StoreRatingModal({
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-12 bg-gray-50 rounded-[2.5rem] border border-dashed border-gray-200">
-                  <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm">
-                    <i className="bi bi-chat-heart text-2xl text-gray-200"></i>
+                <div className="text-center py-12 bg-white rounded-[2rem] border border-dashed border-gray-200 shadow-sm">
+                  <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm border border-gray-100">
+                    <i className="bi bi-chat-heart text-2xl text-gray-300"></i>
                   </div>
                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Sé el primero en calificar</p>
                 </div>

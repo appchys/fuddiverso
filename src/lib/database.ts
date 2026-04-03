@@ -6018,3 +6018,49 @@ export async function getTelegramTemplates(): Promise<{
     return { templates: {}, buttons: {} }
   }
 }
+
+// ============================================================================
+// PLANTILLAS DE WHATSAPP
+// ============================================================================
+
+/**
+ * Guardar o actualizar una plantilla de WhatsApp
+ * Doc ID = key (ej: "delivery_assignment")
+ */
+export async function saveWhatsAppTemplate(
+  key: string,
+  template: string
+): Promise<void> {
+  try {
+    const docRef = doc(db, 'whatsAppTemplates', key)
+    await setDoc(docRef, {
+      key,
+      template,
+      updatedAt: serverTimestamp()
+    }, { merge: true })
+  } catch (error) {
+    console.error('Error saving WhatsApp template:', error)
+    throw error
+  }
+}
+
+/**
+ * Obtener todas las plantillas de WhatsApp
+ * Retorna { [key]: text }
+ */
+export async function getWhatsAppTemplates(): Promise<Record<string, string>> {
+  try {
+    const snapshot = await getDocs(collection(db, 'whatsAppTemplates'))
+    const templates: Record<string, string> = {}
+    snapshot.docs.forEach(d => {
+      const data = d.data()
+      if (data.key) {
+        templates[data.key] = data.template || ''
+      }
+    })
+    return templates
+  } catch (error) {
+    console.error('Error getting WhatsApp templates:', error)
+    return {}
+  }
+}

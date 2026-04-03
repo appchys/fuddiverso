@@ -3,6 +3,7 @@
 import { useState, useEffect, Fragment, lazy, Suspense } from 'react'
 
 const TelegramTemplateEditor = lazy(() => import('@/components/TelegramTemplateEditor'))
+const WhatsAppTemplateEditor = lazy(() => import('@/components/WhatsAppTemplateEditor'))
 const ProductsList = lazy(() => import('@/components/ProductsList'))
 import {
   getAllOrders,
@@ -46,6 +47,7 @@ export default function AdminDashboard() {
   const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'templates' | 'products' | 'orders'>('home')
+  const [activeTemplateTab, setActiveTemplateTab] = useState<'whatsapp' | 'telegram'>('whatsapp')
   const [coverageGroups, setCoverageGroups] = useState<any[]>([])
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [updatingBusinessId, setUpdatingBusinessId] = useState<string | null>(null)
@@ -1731,7 +1733,44 @@ export default function AdminDashboard() {
         renderCustomersTab()
       ) : activeTab === 'templates' ? (
         <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
-          <TelegramTemplateEditor />
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTemplateTab('whatsapp')}
+                  className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all ${
+                    activeTemplateTab === 'whatsapp'
+                      ? 'bg-green-600 text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <i className="bi bi-whatsapp me-2"></i>
+                  WhatsApp
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTemplateTab('telegram')}
+                  className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all ${
+                    activeTemplateTab === 'telegram'
+                      ? 'bg-sky-600 text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <i className="bi bi-telegram me-2"></i>
+                  Telegram
+                </button>
+              </div>
+            </div>
+
+            <div>
+              {activeTemplateTab === 'whatsapp' ? (
+                <WhatsAppTemplateEditor />
+              ) : (
+                <TelegramTemplateEditor />
+              )}
+            </div>
+          </div>
         </Suspense>
       ) : activeTab === 'products' ? (
         <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
