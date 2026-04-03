@@ -259,14 +259,12 @@ async function notifyAdminTelegramOnOrderCreation(orderData, orderId) {
       }
     }
 
-    const { text: telegramText } = await telegramServices.formatTelegramMessage(
-      { ...orderData, id: orderId }, 
-      businessName, 
-      true // Usar formato detallado
+    const { text: adminMessage } = await telegramServices.formatTelegramMessage(
+      { ...orderData, id: orderId },
+      businessName,
+      'admin_new_order'
     );
 
-    const adminMessage = `🚀 <b>¡NUEVA ORDEN EN FUDDI!</b>\nTienda: <b>${businessName}</b>\n\n${telegramText}`;
-    
     await telegramServices.sendAdminTelegramMessage(adminMessage);
     console.log(`✅ [Telegram Admin] Notificación enviada exitosamente para orden ${orderId}`);
   } catch (error) {

@@ -143,7 +143,7 @@ function ceWrapSelectionAt(tag: string, range: Range): Range {
 }
 
 // ─── Types ───────────────────────────────────────────────────
-type Recipient = 'store' | 'delivery' | 'customer'
+type Recipient = 'store' | 'delivery' | 'customer' | 'admin'
 type TemplateType = 'entry' | 'update'
 
 interface TemplateEvent {
@@ -169,6 +169,7 @@ const RECIPIENTS: { key: Recipient; label: string; icon: string }[] = [
     { key: 'store', label: 'Tienda', icon: 'bi-shop' },
     { key: 'delivery', label: 'Delivery', icon: 'bi-scooter' },
     { key: 'customer', label: 'Cliente', icon: 'bi-person' },
+    { key: 'admin', label: 'Admin', icon: 'bi-shield-lock' },
 ]
 
 const TEMPLATE_TYPES: { key: TemplateType; label: string; icon: string; desc: string }[] = [
@@ -193,6 +194,7 @@ const ENTRY_EVENTS: EventWithRecipients[] = [
         label: 'Nuevo Pedido',
         recipients: [
             { recipient: 'store', label: 'Tienda' },
+            { recipient: 'admin', label: 'Admin' },
         ],
     },
     {
@@ -331,6 +333,12 @@ const EVENTS_BY_RECIPIENT: Record<Recipient, Record<TemplateType, TemplateEvent[
             { key: 'delivered', label: 'Entregado' },
             { key: 'cancelled', label: 'Cancelado' },
         ],
+    },
+    admin: {
+        entry: [
+            { key: 'new_order', label: 'Nuevo Pedido' },
+        ],
+        update: [],
     },
 }
 
@@ -536,12 +544,36 @@ Envío: {{deliveryCost}}
 
 🎉 <b>Entregado</b>`,
 
-    delivery_discarded: `<b>{{businessName}}</b> · {{customerName}}
+    delivery_discarded: `<b>{{businessName}}</b> ? {{customerName}}
 
-❌ Descartado`,
+? Descartado`,
+
+    admin_new_order: `<b>NUEVA ORDEN EN FUDDI</b>
+Tienda: <b>{{businessName}}</b>
+
+<b>{{businessName}}</b>
+Hora estimada: {{scheduledDateTime}}
+
+<b>Datos del cliente</b>
+Nombres: {{customerName}}
+Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>
+
+<b>Datos de entrega</b>
+<a href="{{mapsLink}}">Ver en Google Maps</a>
+{{deliveryAddress}}
+
+<b>Detalles del pedido</b>
+{{items}}
+
+<b>Detalles del pago</b>
+Pedido: {{subtotal}}
+Envio: {{deliveryCost}}
+
+{{paymentMethod}}
+Valor a cobrar: {{total}}`,
 }
 
-// ─── Default Buttons (current hardcoded inline_keyboard) ─────
+// ??? Default Buttons (current hardcoded inline_keyboard) ?????
 const DEFAULT_BUTTONS: Record<string, ActionButton[][]> = {
     store_new_order: [
         [

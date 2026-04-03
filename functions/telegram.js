@@ -321,9 +321,11 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
 async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = false) {
     let templateKey = '';
     let isAccepted = false;
+    let isAdminNewOrder = false;
 
     if (typeof isAcceptedOrKey === 'string') {
         templateKey = isAcceptedOrKey;
+        isAdminNewOrder = templateKey === 'admin_new_order';
         // Para el fallback recordamos el comportamiento anterior:
         // delivery_assigned usaba false, store_new_order usaba true.
         // Otros estados (como accepted, on_way) suelen querer el detalle completo.
@@ -513,6 +515,10 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
                 text += `💰 Valor a cobrar: $${cashAmount.toFixed(2)}\n`;
             }
         }
+    }
+
+    if (isAdminNewOrder) {
+        text = `🚀 <b>¡NUEVA ORDEN EN FUDDI!</b>\nTienda: <b>${businessName}</b>\n\n${text}`;
     }
 
     return { text, mapsLink, locationImageLink };
