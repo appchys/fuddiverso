@@ -227,6 +227,7 @@ const UPDATE_EVENTS: EventWithRecipients[] = [
         label: 'Pedido Confirmado',
         recipients: [
             { recipient: 'store', label: 'Tienda' },
+            { recipient: 'admin', label: 'Admin' },
         ],
     },
     {
@@ -234,6 +235,7 @@ const UPDATE_EVENTS: EventWithRecipients[] = [
         label: 'Delivery Aceptó',
         recipients: [
             { recipient: 'store', label: 'Tienda' },
+            { recipient: 'admin', label: 'Admin' },
         ],
     },
     {
@@ -241,6 +243,7 @@ const UPDATE_EVENTS: EventWithRecipients[] = [
         label: 'Pedido Aceptado',
         recipients: [
             { recipient: 'delivery', label: 'Delivery' },
+            { recipient: 'admin', label: 'Admin' },
         ],
     },
     {
@@ -249,6 +252,7 @@ const UPDATE_EVENTS: EventWithRecipients[] = [
         recipients: [
             { recipient: 'delivery', label: 'Delivery' },
             { recipient: 'customer', label: 'Cliente' },
+            { recipient: 'admin', label: 'Admin' },
         ],
     },
     {
@@ -257,6 +261,7 @@ const UPDATE_EVENTS: EventWithRecipients[] = [
         recipients: [
             { recipient: 'delivery', label: 'Delivery' },
             { recipient: 'customer', label: 'Cliente' },
+            { recipient: 'admin', label: 'Admin' },
         ],
     },
     {
@@ -264,6 +269,7 @@ const UPDATE_EVENTS: EventWithRecipients[] = [
         label: 'Descartado',
         recipients: [
             { recipient: 'delivery', label: 'Delivery' },
+            { recipient: 'admin', label: 'Admin' },
         ],
     },
     {
@@ -271,6 +277,7 @@ const UPDATE_EVENTS: EventWithRecipients[] = [
         label: 'Preparando',
         recipients: [
             { recipient: 'customer', label: 'Cliente' },
+            { recipient: 'admin', label: 'Admin' },
         ],
     },
     {
@@ -278,6 +285,7 @@ const UPDATE_EVENTS: EventWithRecipients[] = [
         label: 'Listo',
         recipients: [
             { recipient: 'customer', label: 'Cliente' },
+            { recipient: 'admin', label: 'Admin' },
         ],
     },
     {
@@ -285,6 +293,7 @@ const UPDATE_EVENTS: EventWithRecipients[] = [
         label: 'Cancelado',
         recipients: [
             { recipient: 'customer', label: 'Cliente' },
+            { recipient: 'admin', label: 'Admin' },
         ],
     },
 ]
@@ -338,7 +347,17 @@ const EVENTS_BY_RECIPIENT: Record<Recipient, Record<TemplateType, TemplateEvent[
         entry: [
             { key: 'new_order', label: 'Nuevo Pedido' },
         ],
-        update: [],
+        update: [
+            { key: 'confirmed', label: 'Pedido Confirmado' },
+            { key: 'delivery_accepted', label: 'Delivery Aceptó' },
+            { key: 'accepted', label: 'Pedido Aceptado' },
+            { key: 'on_way', label: 'En Camino' },
+            { key: 'delivered', label: 'Entregado' },
+            { key: 'discarded', label: 'Descartado' },
+            { key: 'preparing', label: 'Preparando' },
+            { key: 'ready', label: 'Listo' },
+            { key: 'cancelled', label: 'Cancelado' },
+        ],
     },
 }
 
@@ -571,6 +590,137 @@ Envio: {{deliveryCost}}
 
 {{paymentMethod}}
 Valor a cobrar: {{total}}`,
+
+    // ── Admin Updates ──
+    admin_confirmed: `🔄 <b>ACTUALIZACIÓN DE ORDEN</b>
+Tienda: <b>{{businessName}}</b>
+
+<b>ESTADO ACTUALIZADO:</b> ✅ Confirmado
+
+<b>{{businessName}}</b>
+Hora estimada: {{scheduledDateTime}}
+
+<b>Datos del cliente</b>
+Nombres: {{customerName}}
+Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>
+
+<b>Datos de entrega</b>
+<a href="{{mapsLink}}">Ver en Google Maps</a>
+{{deliveryAddress}}
+
+<b>Detalles del pedido</b>
+{{items}}
+
+<b>Detalles del pago</b>
+Pedido: {{subtotal}}
+Envio: {{deliveryCost}}
+
+{{paymentMethod}}
+Valor a cobrar: {{total}}`,
+
+    admin_preparing: `🔄 <b>ACTUALIZACIÓN DE ORDEN</b>
+Tienda: <b>{{businessName}}</b>
+
+<b>ESTADO ACTUALIZADO:</b> 👨‍🍳 Preparando
+
+<b>{{businessName}}</b>
+Hora estimada: {{scheduledDateTime}}
+
+<b>Datos del cliente</b>
+Nombres: {{customerName}}
+Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>
+
+<b>Datos de entrega</b>
+<a href="{{mapsLink}}">Ver en Google Maps</a>
+{{deliveryAddress}}
+
+<b>Detalles del pedido</b>
+{{items}}
+
+<b>Detalles del pago</b>
+Pedido: {{subtotal}}
+Envio: {{deliveryCost}}
+
+{{paymentMethod}}
+Valor a cobrar: {{total}}`,
+
+    admin_on_way: `🔄 <b>ACTUALIZACIÓN DE ORDEN</b>
+Tienda: <b>{{businessName}}</b>
+
+<b>ESTADO ACTUALIZADO:</b> 🛵 En camino
+
+<b>{{businessName}}</b>
+Hora estimada: {{scheduledDateTime}}
+
+<b>Datos del cliente</b>
+Nombres: {{customerName}}
+Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>
+
+<b>Datos de entrega</b>
+<a href="{{mapsLink}}">Ver en Google Maps</a>
+{{deliveryAddress}}
+
+<b>Detalles del pedido</b>
+{{items}}
+
+<b>Detalles del pago</b>
+Pedido: {{subtotal}}
+Envio: {{deliveryCost}}
+
+{{paymentMethod}}
+Valor a cobrar: {{total}}`,
+
+    admin_delivered: `🔄 <b>ACTUALIZACIÓN DE ORDEN</b>
+Tienda: <b>{{businessName}}</b>
+
+<b>ESTADO ACTUALIZADO:</b> 🏁 Entregado
+
+<b>{{businessName}}</b>
+Hora estimada: {{scheduledDateTime}}
+
+<b>Datos del cliente</b>
+Nombres: {{customerName}}
+Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>
+
+<b>Datos de entrega</b>
+<a href="{{mapsLink}}">Ver en Google Maps</a>
+{{deliveryAddress}}
+
+<b>Detalles del pedido</b>
+{{items}}
+
+<b>Detalles del pago</b>
+Pedido: {{subtotal}}
+Envio: {{deliveryCost}}
+
+{{paymentMethod}}
+Valor a cobrar: {{total}}`,
+
+    admin_cancelled: `🔄 <b>ACTUALIZACIÓN DE ORDEN</b>
+Tienda: <b>{{businessName}}</b>
+
+<b>ESTADO ACTUALIZADO:</b> ❌ Cancelado
+
+<b>{{businessName}}</b>
+Hora estimada: {{scheduledDateTime}}
+
+<b>Datos del cliente</b>
+Nombres: {{customerName}}
+Whatsapp: <a href="{{whatsappLink}}">{{customerPhone}}</a>
+
+<b>Datos de entrega</b>
+<a href="{{mapsLink}}">Ver en Google Maps</a>
+{{deliveryAddress}}
+
+<b>Detalles del pedido</b>
+{{items}}
+
+<b>Detalles del pago</b>
+Pedido: {{subtotal}}
+Envio: {{deliveryCost}}
+
+{{paymentMethod}}
+Valor a cobrar: {{total}}`,
 }
 
 // ??? Default Buttons (current hardcoded inline_keyboard) ?????
@@ -596,6 +746,13 @@ const DEFAULT_BUTTONS: Record<string, ActionButton[][]> = {
     store_reminder: [
         [
             { text: '👨‍🍳 Preparando', type: 'callback', value: 'store_preparing|{token}' },
+        ],
+    ],
+    admin_new_order: [
+        [
+            { text: 'Whatsapp Tienda', type: 'callback', value: 'admin_whatsapp_store|{token}' },
+            { text: 'Whatsapp Delivery', type: 'callback', value: 'admin_whatsapp_delivery|{token}' },
+            { text: 'Confirmación manual', type: 'callback', value: 'admin_manual_confirm|{token}' },
         ],
     ],
 }
@@ -666,6 +823,31 @@ const CALLBACK_TO_TEMPLATE: Record<string, CallbackMapping> = {
         dbActions: [
             'status → "preparing"',
             'statusHistory.preparingAt → timestamp',
+        ],
+    },
+    'admin_manual_confirm': {
+        recipient: 'admin', event: 'confirmed', templateType: 'update',
+        dbIcon: '✅',
+        dbActions: [
+            'status → "confirmed"',
+            'confirmedBy → "admin_manual"',
+            'statusHistory.confirmedAt → timestamp',
+        ],
+    },
+    'admin_whatsapp_store': {
+        recipient: 'store', event: 'whatsapp_notification', templateType: 'update',
+        dbIcon: '📱',
+        dbActions: [
+            'sendWhatsAppMessage(admin_to_store_template)',
+            'statusHistory.whatsappSentAt → timestamp',
+        ],
+    },
+    'admin_whatsapp_delivery': {
+        recipient: 'delivery', event: 'whatsapp_notification', templateType: 'update',
+        dbIcon: '🛵',
+        dbActions: [
+            'sendWhatsAppMessage(delivery_assignment_template)',
+            'statusHistory.whatsappSentAt → timestamp',
         ],
     },
 }

@@ -10,7 +10,8 @@ export const WHATSAPP_TEMPLATE_DEFINITIONS: WhatsAppTemplateDefinition[] = [
     key: 'delivery_assignment',
     label: 'Asignacion al delivery',
     description: 'Mensaje que recibe el delivery cuando se le asigna un pedido.',
-    defaultTemplate: `*Pedido de {{businessName}}*{{businessPhoneLine}}
+    defaultTemplate: `*Pedido de {{businessName}}*
+{{businessPhoneLine}}
 
 *Datos del cliente*
 Cliente: {{customerName}}
@@ -29,7 +30,8 @@ Valor del pedido: \${{subtotal}}
     key: 'pickup_store_notification',
     label: 'Notificacion a tienda por retiro',
     description: 'Mensaje interno a la tienda cuando el pedido es para retiro.',
-    defaultTemplate: `*Pedido de {{businessName}}*{{businessPhoneLine}}
+    defaultTemplate: `*Pedido de {{businessName}}*
+{{businessPhoneLine}}
 
 *Datos del cliente*
 Cliente: {{customerName}}
@@ -133,9 +135,9 @@ export function renderWhatsAppTemplate(
 
 export const WHATSAPP_TEMPLATE_VARIABLES: Array<{ key: string; label: string; example: string }> = [
   { key: 'businessName', label: 'Nombre del negocio', example: 'Pizza House' },
-  { key: 'businessPhoneLine', label: 'Linea de telefono negocio', example: ' - 0999999999' },
+  { key: 'businessPhoneLine', label: 'Linea de telefono negocio', example: '+593999999999' },
   { key: 'customerName', label: 'Nombre del cliente', example: 'Juan Perez' },
-  { key: 'customerPhone', label: 'Telefono del cliente', example: '0999999999' },
+  { key: 'customerPhone', label: 'Telefono del cliente', example: '+593999999999' },
   { key: 'deliverySection', label: 'Bloque de entrega', example: '*Detalles de la entrega*\n⚡ Inmediato\nReferencias: Frente al parque\nUbicacion: https://maps.google.com/...' },
   { key: 'pickupLine', label: 'Linea de retiro', example: '🏪 Retiro en tienda' },
   { key: 'orderType', label: 'Tipo / horario del pedido', example: '⚡ Inmediato' },

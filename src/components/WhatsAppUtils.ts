@@ -174,6 +174,7 @@ export const sendWhatsAppToDelivery = async (
     const customerPhone = order.customer?.phone || 'Sin teléfono'
     const references = order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia'
     const locationLink = buildLocationLink(order)
+    const locationLine = locationLink ? `Ubicación: ${locationLink}\n\n` : ''
     const productsList = buildProductsList(order)
     const deliveryCost = order.delivery.type === 'delivery' ? (order.delivery?.deliveryCost || 1) : 0
     const subtotal = order.total - deliveryCost
@@ -190,7 +191,7 @@ export const sendWhatsAppToDelivery = async (
     }
 
     const deliverySection = order.delivery.type === 'delivery'
-        ? `*Detalles de la entrega*\n${orderType}\nReferencias: ${references}\n${locationLink ? `Ubicación: ${locationLink}\n` : ''}\n`
+        ? `*Detalles de la entrega*\n${orderType}\nReferencias: ${references}\n${locationLink ? `Ubicación: ${locationLink}\n` : ''}`
         : ''
 
     const templateKey = order.delivery.type === 'delivery'
@@ -200,16 +201,19 @@ export const sendWhatsAppToDelivery = async (
     const template = await getSavedTemplate(templateKey)
     const message = renderWhatsAppTemplate(template, {
         businessName: business?.name || 'Tienda',
-        businessPhoneLine: business?.phone ? ` - ${business.phone}` : '',
+        businessPhoneLine: business?.phone ? `+593${business.phone.replace(/\D/g, '').startsWith('0') ? business.phone.replace(/\D/g, '').slice(1) : business.phone.replace(/\D/g, '')}` : '',
         customerName,
-        customerPhone,
+        customerPhone: `+593${customerPhone.replace(/\D/g, '').startsWith('0') ? customerPhone.replace(/\D/g, '').slice(1) : customerPhone.replace(/\D/g, '')}`,
         deliverySection,
         pickupLine: '🏪 Retiro en tienda',
         orderType,
+        references,
+        locationLine,
         productsList,
         subtotal: subtotal.toFixed(2),
         deliveryCostLine: order.delivery.type === 'delivery' ? `Envío: $${deliveryCost.toFixed(2)}\n` : '',
-        paymentDetailsBlock
+        paymentDetailsBlock,
+        total: (order.total || 0).toFixed(2)
     })
 
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(phone)}&text=${encodeURIComponent(message)}`
@@ -290,13 +294,22 @@ export const sendOrderToStoreFromClient = async (order: Order, business: Busines
     const storePhone = business.phone || '0985985684'
     const customerName = order.customer?.name || 'Cliente'
     const productsList = buildProductsList(order)
-    const total = order.total?.toFixed(2) || '0.00'
+    
+    // Calculate total as fallback if order.total is not available
+    const calculatedTotal = order.items?.reduce((sum: number, item: any) => {
+        const price = item.price || item.product?.price || 0
+        return sum + (price * (item.quantity || 1))
+    }, 0) || 0
+    
+    const total = (order.total || calculatedTotal).toFixed(2)
     const paymentMethod = order.payment?.method === 'cash' ? 'Efectivo' : order.payment?.method === 'transfer' ? 'Transferencia' : 'Otro'
     const locationLink = buildLocationLink(order)
     const orderType = formatScheduledDate(order.timing)
     const references = order.delivery.type === 'pickup'
         ? '🏪 Retira en tienda'
         : (order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia')
+    
+    const locationLine = locationLink ? `Ubicación: ${locationLink}\n\n` : ''
 
     let orderLinkLine = ''
     try {
@@ -314,7 +327,7 @@ export const sendOrderToStoreFromClient = async (order: Order, business: Busines
         customerName,
         orderType,
         references,
-        locationLine: locationLink ? `Ubicación: ${locationLink}\n\n` : '',
+        locationLine,
         productsList,
         total,
         paymentMethod,
@@ -332,7 +345,7 @@ export const sendOrderToStore = async (order: Order, business: Business) => {
     const storeReceives = order.items?.reduce((sum: number, item: any) => {
         const itemStoreReceives = item.storeReceives || 0
         return sum + (itemStoreReceives * (item.quantity || 1))
-    }, 0) || order.total
+    }, 0) || order.total || 0
 
     const total = storeReceives.toFixed(2)
     const orderType = formatScheduledDate(order.timing)

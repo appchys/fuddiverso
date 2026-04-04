@@ -11,9 +11,9 @@ import {
 
 const SAMPLE_VALUES: Record<string, string> = {
   businessName: 'Fuddi Burger',
-  businessPhoneLine: ' - 0987654321',
+  businessPhoneLine: '+593987654321',
   customerName: 'Juan Perez',
-  customerPhone: '0991234567',
+  customerPhone: '+593991234567',
   deliverySection: '*Detalles de la entrega*\n⚡ Inmediato\nReferencias: Frente al parque\nUbicacion: https://maps.google.com/...',
   pickupLine: '🏪 Retiro en tienda',
   orderType: '⏰ Programado para hoy a las 19:30',
