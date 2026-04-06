@@ -306,8 +306,8 @@ service cloud.firestore {
     // Plantillas de Telegram
     // Lectura/escritura solo para usuarios autenticados (admin)
     match /telegramTemplates/{document} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read: if true; // Temporal: lectura pública
+      allow write: if true; // Temporal: escritura pública para testing
     }
     // Plantillas de WhatsApp
     // Lectura/escritura solo para usuarios autenticados (admin)

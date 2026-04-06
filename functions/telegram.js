@@ -45,17 +45,30 @@ async function getTemplatesFromFirestore() {
     try {
         const snapshot = await admin.firestore().collection('telegramTemplates').get();
         const templates = {};
+        const buttons = {};
         snapshot.docs.forEach(doc => {
             const data = doc.data();
             const key = `${data.recipient}_${data.event}`;
             templates[key] = data.template || '';
+            if (data.buttons) {
+                // Reconstruct 2D array from flat structure with row indices
+                const buttonRows = {};
+                data.buttons.forEach(btn => {
+                    if (!buttonRows[btn.row]) buttonRows[btn.row] = [];
+                    buttonRows[btn.row].push({
+                        text: btn.text,
+                        callback_data: btn.value // Telegram necesita callback_data
+                    });
+                });
+                buttons[key] = Object.values(buttonRows);
+            }
         });
-        _templateCache = templates;
+        _templateCache = { templates, buttons };
         _templateCacheTime = now;
-        return templates;
+        return _templateCache;
     } catch (error) {
         console.error('Error fetching telegram templates:', error);
-        return _templateCache || {};
+        return _templateCache || { templates: {}, buttons: {} };
     }
 }
 
@@ -337,8 +350,10 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
 
     // ─── Try template from Firestore ───
     try {
-        const templates = await getTemplatesFromFirestore();
-        const template = templates[templateKey];
+        const templateData = await getTemplatesFromFirestore();
+        const template = templateData.templates[templateKey];
+        const buttons = templateData.buttons[templateKey];
+        
         if (template) {
             const variables = buildTemplateVariables(orderData, businessName);
             const rendered = renderTemplate(template, variables);
@@ -352,7 +367,14 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
                         locationImageLink = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=400x200&markers=color:red%7C${lat},${lng}&key=`;
                     }
                 }
-                return { text: rendered, mapsLink, locationImageLink };
+                
+                // Build replyMarkup if buttons exist
+                let replyMarkup = null;
+                if (buttons && buttons.length > 0) {
+                    replyMarkup = { inline_keyboard: buttons };
+                }
+                
+                return { text: rendered, mapsLink, locationImageLink, replyMarkup };
             }
         }
     } catch (err) {

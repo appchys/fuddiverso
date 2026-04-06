@@ -259,13 +259,16 @@ async function notifyAdminTelegramOnOrderCreation(orderData, orderId) {
       }
     }
 
-    const { text: adminMessage } = await telegramServices.formatTelegramMessage(
+    const { text: adminMessage, replyMarkup: adminReplyMarkup } = await telegramServices.formatTelegramMessage(
       { ...orderData, id: orderId },
       businessName,
       'admin_new_order'
     );
 
-    await telegramServices.sendAdminTelegramMessage(adminMessage);
+    console.log(`📋 [Telegram Admin] Template obtenido. replyMarkup:`, adminReplyMarkup);
+    console.log(`📋 [Telegram Admin] Mensaje length: ${adminMessage?.length || 0}`);
+
+    await telegramServices.sendAdminTelegramMessage(adminMessage, adminReplyMarkup);
     console.log(`✅ [Telegram Admin] Notificación enviada exitosamente para orden ${orderId}`);
   } catch (error) {
     console.error(`❌ Error enviando notificación de Telegram a Admin para orden ${orderId}:`, error);
