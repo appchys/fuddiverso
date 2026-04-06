@@ -302,11 +302,23 @@ export default function LocationSelectionModal({
     }
 
     const sortedLocations = useMemo(() => {
-        return [...clientLocations].sort((a, b) => {
-            if (a.isFavorite && !b.isFavorite) return -1;
-            if (!a.isFavorite && b.isFavorite) return 1;
-            return 0;
-        });
+        return [...clientLocations]
+            .filter(location => {
+                // Filter out locations without valid coordinates
+                if (!location.latlong) return false;
+                
+                try {
+                    const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()));
+                    return !isNaN(lat) && !isNaN(lng);
+                } catch {
+                    return false;
+                }
+            })
+            .sort((a, b) => {
+                if (a.isFavorite && !b.isFavorite) return -1;
+                if (!a.isFavorite && b.isFavorite) return 1;
+                return 0;
+            });
     }, [clientLocations]);
 
     if (!isOpen) return null
