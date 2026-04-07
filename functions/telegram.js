@@ -338,7 +338,7 @@ async function formatTelegramMessage(orderData, businessName, isAcceptedOrKey = 
 
     if (typeof isAcceptedOrKey === 'string') {
         templateKey = isAcceptedOrKey;
-        isAdminNewOrder = templateKey === 'admin_new_order';
+        isAdminNewOrder = templateKey === 'admin_new_order' || templateKey === 'admin_to_store';
         // Para el fallback recordamos el comportamiento anterior:
         // delivery_assigned usaba false, store_new_order usaba true.
         // Otros estados (como accepted, on_way) suelen querer el detalle completo.
@@ -1676,11 +1676,26 @@ async function getWhatsAppTemplate(key) {
  * Construir variables para la plantilla de WhatsApp
  */
 function buildWhatsAppTemplateVariables(orderData, businessName) {
-    const total = orderData.total || 0;
-    const subtotal = orderData.subtotal || 0;
+    // Calcular totales basados en lo que recibe la tienda (basePrice - comisiones si aplica)
+    let storeSubtotal = 0;
+    let storeTotal = 0;
+    
+    if (Array.isArray(orderData.items) && orderData.items.length > 0) {
+        storeSubtotal = orderData.items.reduce((sum, item) => {
+            const itemStoreReceives = item.storeReceives || item.basePrice || 0;
+            return sum + (itemStoreReceives * (item.quantity || 1));
+        }, 0);
+    }
+    
     const deliveryCost = orderData.delivery?.deliveryCost !== undefined
         ? orderData.delivery.deliveryCost
-        : Math.max(0, total - subtotal);
+        : 0;
+    
+    storeTotal = storeSubtotal + deliveryCost;
+    
+    // Mantener compatibilidad con variables existentes
+    const total = storeTotal;
+    const subtotal = storeSubtotal;
     
     const customerName = orderData.customer?.name || 'Cliente';
     const customerPhone = orderData.customer?.phone || '';
@@ -1719,12 +1734,12 @@ function buildWhatsAppTemplateVariables(orderData, businessName) {
     const paymentMethod = orderData.payment?.method || 'No especificado';
     let paymentDetailsBlock = '';
     if (paymentMethod === 'cash') {
-        paymentDetailsBlock = `💵 *Cobrar:* $${total.toFixed(2)}`;
+        paymentDetailsBlock = `💵 *Cobrar:* $${storeTotal.toFixed(2)}`;
     } else if (paymentMethod === 'transfer') {
-        paymentDetailsBlock = `🏦 *Transferencia*`;
+        paymentDetailsBlock = `🏦 *Transferencia: $${storeTotal.toFixed(2)}*`;
     } else if (paymentMethod === 'mixed') {
         const cashAmount = orderData.payment?.cashAmount || 0;
-        paymentDetailsBlock = `💵 Efectivo: $${cashAmount.toFixed(2)}\n🏦 Transferencia`;
+        paymentDetailsBlock = `💵 *Efectivo: $${cashAmount.toFixed(2)}*\n🏦 *Transferencia: $${(storeTotal - cashAmount).toFixed(2)}*`;
     }
     
     return {
@@ -1764,7 +1779,7 @@ async function sendAdminNewOrderNotification(businessData, orderData, orderId) {
     const businessPhone = businessData.phone || businessData.celular || '';
 
     // Generar mensaje base para Telegram
-    const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, 'admin_new_order');
+    const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, 'admin_to_store');
     console.log(`📝 [Admin Notification] Mensaje Telegram formateado. Longitud: ${telegramText.length}`);
 
     // ─── Obtener y renderizar plantilla de WhatsApp ───
