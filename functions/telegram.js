@@ -1638,6 +1638,251 @@ async function sendBusinessReminderNotification(businessData, orderData, orderId
 
 
 /**
+ * Renderizar plantilla de WhatsApp con variables
+ */
+function renderWhatsAppTemplate(template, variables) {
+    if (!template) return '';
+    let result = template;
+    
+    // Reemplazar variables {{variable}}
+    for (const [key, value] of Object.entries(variables)) {
+        const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+        result = result.replace(regex, value !== null && value !== undefined ? String(value) : '');
+    }
+    
+    // Limpiar saltos de línea múltiples
+    result = result.replace(/\n{3,}/g, '\n\n').trim();
+    
+    return result;
+}
+
+/**
+ * Obtener plantilla de WhatsApp desde Firestore
+ */
+async function getWhatsAppTemplate(key) {
+    try {
+        const docRef = admin.firestore().collection('whatsAppTemplates').doc(key);
+        const docSnap = await docRef.get();
+        if (docSnap.exists) {
+            return docSnap.data().template || '';
+        }
+    } catch (error) {
+        console.warn(`⚠️ Error obteniendo plantilla WhatsApp '${key}':`, error.message);
+    }
+    return null;
+}
+
+/**
+ * Construir variables para la plantilla de WhatsApp
+ */
+function buildWhatsAppTemplateVariables(orderData, businessName) {
+    const total = orderData.total || 0;
+    const subtotal = orderData.subtotal || 0;
+    const deliveryCost = orderData.delivery?.deliveryCost !== undefined
+        ? orderData.delivery.deliveryCost
+        : Math.max(0, total - subtotal);
+    
+    const customerName = orderData.customer?.name || 'Cliente';
+    const customerPhone = orderData.customer?.phone || '';
+    const address = orderData.delivery?.references || 'Sin dirección';
+    const deliveryType = orderData.delivery?.type === 'pickup' ? '🏪 Retiro en tienda' : 'A Domicilio';
+    
+    // Timing
+    let orderType = '⚡ Inmediato';
+    if (orderData.timing?.type === 'scheduled') {
+        const scheduledTime = orderData.timing.scheduledTime || '';
+        orderType = `⏰ ${scheduledTime}`;
+    }
+    
+    // Productos
+    let productsList = '';
+    if (Array.isArray(orderData.items) && orderData.items.length > 0) {
+        const groupedItems = {};
+        orderData.items.forEach(item => {
+            const productName = item.name || 'Producto';
+            if (!groupedItems[productName]) groupedItems[productName] = [];
+            groupedItems[productName].push(item);
+        });
+        
+        Object.keys(groupedItems).forEach(productName => {
+            const items = groupedItems[productName];
+            const qty = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
+            if (items[0].variant) {
+                productsList += `(${qty}) ${productName} - ${items[0].variant}\n`;
+            } else {
+                productsList += `(${qty}) ${productName}\n`;
+            }
+        });
+    }
+    
+    // Forma de pago
+    const paymentMethod = orderData.payment?.method || 'No especificado';
+    let paymentDetailsBlock = '';
+    if (paymentMethod === 'cash') {
+        paymentDetailsBlock = `💵 *Cobrar:* $${total.toFixed(2)}`;
+    } else if (paymentMethod === 'transfer') {
+        paymentDetailsBlock = `🏦 *Transferencia*`;
+    } else if (paymentMethod === 'mixed') {
+        const cashAmount = orderData.payment?.cashAmount || 0;
+        paymentDetailsBlock = `💵 Efectivo: $${cashAmount.toFixed(2)}\n🏦 Transferencia`;
+    }
+    
+    return {
+        businessName: businessName || 'Tienda',
+        customerName,
+        customerPhone,
+        references: address,
+        orderType,
+        productsList: productsList.trim(),
+        subtotal: subtotal.toFixed(2),
+        deliveryCostLine: deliveryCost > 0 ? `Envío: $${deliveryCost.toFixed(2)}\n` : '',
+        total: total.toFixed(2),
+        paymentDetailsBlock,
+        pickupLine: deliveryType,
+        paymentMethod: paymentMethod === 'cash' ? 'Efectivo' : paymentMethod === 'transfer' ? 'Transferencia' : 'Mixto'
+    };
+}
+
+/**
+ * Enviar notificación de admin con URLs de WhatsApp directas
+ */
+async function sendAdminNewOrderNotification(businessData, orderData, orderId) {
+    console.log(`🔍 [sendAdminNewOrderNotification] Iniciando para orden ${orderId}`);
+
+    if (!businessData) {
+        console.warn(`⚠️ [Telegram] No se encontró datos del negocio para orden ${orderId}`);
+        return;
+    }
+
+    // VALIDAR TOKEN
+    if (!ADMIN_BOT_TOKEN) {
+        console.error(`❌ [Telegram] ADMIN_BOT_TOKEN no está configurado.`);
+        return;
+    }
+
+    const businessName = businessData.name || 'Tienda';
+    const businessPhone = businessData.phone || businessData.celular || '';
+
+    // Generar mensaje base para Telegram
+    const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, 'admin_new_order');
+    console.log(`📝 [Admin Notification] Mensaje Telegram formateado. Longitud: ${telegramText.length}`);
+
+    // ─── Obtener y renderizar plantilla de WhatsApp ───
+    let whatsappStoreMessage = '';
+    try {
+        const template = await getWhatsAppTemplate('admin_to_store');
+        if (template) {
+            const variables = buildWhatsAppTemplateVariables(orderData, businessName);
+            whatsappStoreMessage = renderWhatsAppTemplate(template, variables);
+            console.log(`✅ [WhatsApp Template] Plantilla 'admin_to_store' renderizada. Longitud: ${whatsappStoreMessage.length}`);
+        } else {
+            console.warn(`⚠️ [WhatsApp Template] Plantilla 'admin_to_store' no encontrada, se usará fallback`);
+        }
+    } catch (error) {
+        console.error(`❌ [WhatsApp Template] Error obteniendo plantilla:`, error.message);
+    }
+
+    // ─── Fallback: si no hay plantilla, construir mensaje ───
+    if (!whatsappStoreMessage) {
+        const orderId_short = orderId.slice(0, 6);
+        const customerName = orderData.customer?.name || 'Cliente';
+        const customerPhone = orderData.customer?.phone || '';
+        const address = orderData.delivery?.references || 'Sin dirección';
+        const deliveryType = orderData.delivery?.type === 'pickup' ? 'Retiro en tienda' : 'A Domicilio';
+        const total = orderData.total || 0;
+        const subtotal = orderData.subtotal || 0;
+        const deliveryCost = orderData.delivery?.deliveryCost !== undefined
+            ? orderData.delivery.deliveryCost
+            : Math.max(0, total - subtotal);
+
+        whatsappStoreMessage = `*ORDEN FUDDI #${orderId_short}*\n\n`;
+        whatsappStoreMessage += `*Cliente:* ${customerName}\n`;
+        whatsappStoreMessage += `*Teléfono:* ${customerPhone}\n`;
+        whatsappStoreMessage += `*Tipo Entrega:* ${deliveryType}\n`;
+        whatsappStoreMessage += `*Dirección:* ${address}\n`;
+        
+        // Items formateados
+        if (Array.isArray(orderData.items) && orderData.items.length > 0) {
+            const groupedItems = {};
+            orderData.items.forEach(item => {
+                const productName = item.name || 'Producto';
+                if (!groupedItems[productName]) groupedItems[productName] = [];
+                groupedItems[productName].push(item);
+            });
+            whatsappStoreMessage += `*Items:*`;
+            Object.keys(groupedItems).forEach(productName => {
+                const items = groupedItems[productName];
+                const qty = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
+                if (items[0].variant) {
+                    whatsappStoreMessage += `\n• (${qty}) ${productName} - ${items[0].variant}`;
+                } else {
+                    whatsappStoreMessage += `\n• (${qty}) ${productName}`;
+                }
+            });
+            whatsappStoreMessage += '\n';
+        }
+        
+        whatsappStoreMessage += `\n*Detalles:*\n`;
+        whatsappStoreMessage += `Subtotal: $${subtotal.toFixed(2)}\n`;
+        whatsappStoreMessage += `Envío: $${deliveryCost.toFixed(2)}\n`;
+        whatsappStoreMessage += `*TOTAL: $${total.toFixed(2)}*`;
+        console.log(`ℹ️ [WhatsApp] Usando mensaje fallback (plantilla no encontrada)`);
+    }
+
+    // Generar URLs
+    let whatsappStoreUrl = '';
+    if (businessPhone) {
+        const formattedPhone = businessPhone.replace(/^0/, '').trim();
+        if (formattedPhone.length > 0) {
+            whatsappStoreUrl = `https://wa.me/593${formattedPhone}?text=${encodeURIComponent(whatsappStoreMessage)}`;
+            console.log(`✅ URL WhatsApp Tienda generada`);
+        }
+    } else {
+        console.warn(`⚠️ Negocio sin teléfono registrado`);
+    }
+
+    // Construir botones con URLs
+    let replyMarkup = null;
+    if (whatsappStoreUrl) {
+        replyMarkup = {
+            inline_keyboard: [
+                [
+                    { text: '💬 Whatsapp Tienda', url: whatsappStoreUrl }
+                ]
+            ]
+        };
+    }
+
+    // Obtener Chat ID del admin desde Firestore
+    try {
+        const adminDoc = await admin.firestore().collection('settings').doc('admin_telegram').get();
+        if (!adminDoc.exists || !adminDoc.data().chatId) {
+            console.warn('⚠️ [Telegram] Chat ID de admin no encontrado en settings/admin_telegram.');
+            return;
+        }
+
+        const chatId = adminDoc.data().chatId;
+        const linkPreviewOptions = { is_disabled: true };
+
+        const result = await sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, telegramText, replyMarkup, linkPreviewOptions);
+
+        if (result && result.ok && result.result) {
+            console.log(`✅ Notificación (Admin Bot) enviada exitosamente para orden ${orderId}`);
+        } else if (result) {
+            console.error(`❌ [Telegram] Error en respuesta para admin:`, {
+                ok: result.ok,
+                errorCode: result.error_code,
+                description: result.description
+            });
+        } else {
+            console.error(`❌ [Telegram] Fallo al enviar notificación a admin`);
+        }
+    } catch (error) {
+        console.error(`❌ [Telegram] Error en sendAdminNewOrderNotification:`, error);
+    }
+}
+
+/**
  * Webhook para el bot de ADMIN
  */
 async function handleAdminWebhook(req, res) {
@@ -1659,6 +1904,7 @@ async function handleAdminWebhook(req, res) {
                 await sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, "✅ <b>¡Bot de Admin vinculado con éxito!</b>\n\nDesde ahora recibirás notificaciones aquí de cada orden creada en Fuddi.");
             }
         }
+
         return res.status(200).send('ok');
     } catch (error) {
         console.error('❌ Error en Admin Webhook:', error);
@@ -1679,5 +1925,6 @@ module.exports = {
     sendBusinessTelegramNotification,
     sendBusinessReminderNotification,
     updateBusinessTelegramMessage,
-    sendCustomerTelegramNotification
+    sendCustomerTelegramNotification,
+    sendAdminNewOrderNotification  // Exportado - Nueva función para admin con URLs
 };

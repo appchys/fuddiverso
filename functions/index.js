@@ -250,25 +250,21 @@ async function notifyAdminTelegramOnOrderCreation(orderData, orderId) {
 
     console.log(`📨 [Telegram Admin] Preparando notificación para Admin de orden ${orderId}...`);
     
-    // Obtener nombre del negocio para el mensaje
-    let businessName = 'Negocio';
+    // Obtener datos del negocio
+    let businessData = {};
     if (orderData.businessId) {
       const businessDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
       if (businessDoc.exists) {
-        businessName = businessDoc.data().name || businessName;
+        businessData = businessDoc.data();
       }
     }
 
-    const { text: adminMessage, replyMarkup: adminReplyMarkup } = await telegramServices.formatTelegramMessage(
-      { ...orderData, id: orderId },
-      businessName,
-      'admin_new_order'
-    );
+    if (!businessData.name) {
+      businessData.name = 'Negocio';
+    }
 
-    console.log(`📋 [Telegram Admin] Template obtenido. replyMarkup:`, adminReplyMarkup);
-    console.log(`📋 [Telegram Admin] Mensaje length: ${adminMessage?.length || 0}`);
-
-    await telegramServices.sendAdminTelegramMessage(adminMessage, adminReplyMarkup);
+    // Usar la nueva función que genera URLs de WhatsApp
+    await telegramServices.sendAdminNewOrderNotification(businessData, orderData, orderId);
     console.log(`✅ [Telegram Admin] Notificación enviada exitosamente para orden ${orderId}`);
   } catch (error) {
     console.error(`❌ Error enviando notificación de Telegram a Admin para orden ${orderId}:`, error);
