@@ -7,6 +7,7 @@ import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalPro
 import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
+import { isStoreOpen } from '@/lib/store-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
 import ProductDetailSidebar from '@/components/ProductDetailSidebar'
@@ -593,6 +594,12 @@ function HomePageContent() {
             ) : (
               businesses
                 .filter(b => !b.isHidden && b.businessType !== 'distributor')
+                .sort((a, b) => {
+                  const aOpen = isStoreOpen(a)
+                  const bOpen = isStoreOpen(b)
+                  if (aOpen === bOpen) return 0.5 - Math.random()
+                  return aOpen ? -1 : 1
+                })
                 .map((b) => {
                   return (
                     <button 
@@ -600,7 +607,9 @@ function HomePageContent() {
                       onClick={() => handleOpenStory(b)}
                       className="flex flex-col items-center gap-1.5 flex-shrink-0 w-20 group transition-transform active:scale-95 text-left"
                     >
-                      <div className="relative p-[2.5px] rounded-full bg-gradient-to-tr from-[#FFB800] via-[#FF005C] to-[#7A00FF] shadow-sm group-hover:shadow-md transition-all">
+                      <div className={`relative p-[2.5px] rounded-full shadow-sm group-hover:shadow-md transition-all ${isStoreOpen(b) 
+                        ? 'bg-emerald-400' 
+                        : 'bg-gray-200'}`}>
                         <div className="p-0.5 bg-white rounded-full">
                           <div className="w-16 h-16 rounded-full overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center">
                             {b.image ? (
