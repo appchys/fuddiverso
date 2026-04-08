@@ -1287,13 +1287,24 @@ function HomePageContent() {
                   </div>
 
                   {/* Product Info & Action (Using current index for dynamic info) */}
-                  <div className="absolute bottom-24 left-0 right-0 px-6 flex flex-col items-center">
+                  <div className="absolute bottom-32 left-0 right-0 px-6 flex flex-col items-center">
                     <h3 className="text-white text-xl font-bold mb-1 text-center drop-shadow-md">
                       {storyProducts[currentStoryIndex].name}
                     </h3>
-                    <p className="text-white/90 text-sm mb-6 font-bold bg-white/20 backdrop-blur-md px-4 py-1 rounded-full border border-white/20">
-                      {formatPrice(getProductPublicPrice(storyProducts[currentStoryIndex]))}
-                    </p>
+                    {storyProducts[currentStoryIndex].variants && storyProducts[currentStoryIndex].variants.length > 0 ? (
+                      <div className="flex flex-col items-center gap-1.5 mb-6">
+                        {storyProducts[currentStoryIndex].variants.slice(0, 2).map((variant, vIdx) => (
+                          <div key={vIdx} className="text-white/95 text-[11px] font-black bg-white/10 backdrop-blur-md px-4 py-1 rounded-full border border-white/10 flex gap-2 items-center">
+                            <span className="opacity-70 uppercase tracking-tighter">{variant.name}</span>
+                            <span className="text-white">{formatPrice(getProductPublicPrice(variant))}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-white/90 text-sm mb-6 font-bold bg-white/20 backdrop-blur-md px-4 py-1 rounded-full border border-white/20">
+                        {formatPrice(getProductPublicPrice(storyProducts[currentStoryIndex]))}
+                      </p>
+                    )}
                     
                     <button
                       onClick={() => {
