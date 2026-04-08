@@ -750,10 +750,9 @@ const DEFAULT_BUTTONS: Record<string, ActionButton[][]> = {
     ],
     admin_new_order: [
         [
-            { text: 'Whatsapp Tienda', type: 'callback', value: 'admin_whatsapp_store|{token}' },
-            { text: 'Whatsapp Delivery', type: 'callback', value: 'admin_whatsapp_delivery|{token}' },
-            { text: 'Confirmación manual', type: 'callback', value: 'admin_manual_confirm|{token}' },
-        ],
+            { text: 'Whatsapp Tienda', type: 'url', value: '{dinámico: teléfono del negocio + mensaje}' },
+            { text: 'Whatsapp Delivery', type: 'url', value: '{dinámico: teléfono del delivery + mensaje}' },
+        ]
     ],
 }
 
@@ -838,16 +837,17 @@ const CALLBACK_TO_TEMPLATE: Record<string, CallbackMapping> = {
         recipient: 'store', event: 'whatsapp_notification', templateType: 'update',
         dbIcon: '📱',
         dbActions: [
-            'sendWhatsAppMessage(admin_to_store_template)',
-            'statusHistory.whatsappSentAt → timestamp',
+            'Genera URL de WhatsApp con plantilla admin_to_store',
+            'URL: https://wa.me/{businessPhone}?text={mensajeEncriptado}',
         ],
     },
     'admin_whatsapp_delivery': {
         recipient: 'delivery', event: 'whatsapp_notification', templateType: 'update',
         dbIcon: '🛵',
         dbActions: [
-            'sendWhatsAppMessage(delivery_assignment_template)',
-            'statusHistory.whatsappSentAt → timestamp',
+            'Genera URL de WhatsApp con plantilla delivery_assignment',
+            'URL: https://wa.me/{deliveryPhone}?text={mensajeEncriptado}',
+            '⚠️ Solo disponible si hay delivery asignado',
         ],
     },
 }

@@ -1856,15 +1856,104 @@ async function sendAdminNewOrderNotification(businessData, orderData, orderId) {
         console.warn(`⚠️ Negocio sin teléfono registrado`);
     }
 
+    // ─── Generar WhatsApp Delivery (si está asignado) ───
+    let whatsappDeliveryUrl = '';
+    if (orderData.delivery?.assignedDelivery) {
+        try {
+            const deliveryDoc = await admin.firestore().collection('deliveries').doc(orderData.delivery.assignedDelivery).get();
+            if (deliveryDoc.exists) {
+                const deliveryPhone = deliveryDoc.data().phone || '';
+                if (deliveryPhone) {
+                    // Obtener y renderizar plantilla de WhatsApp delivery
+                    let whatsappDeliveryMessage = '';
+                    try {
+                        const template = await getWhatsAppTemplate('delivery_assignment');
+                        if (template) {
+                            const variables = buildWhatsAppTemplateVariables(orderData, businessName);
+                            whatsappDeliveryMessage = renderWhatsAppTemplate(template, variables);
+                            console.log(`✅ [WhatsApp Template] Plantilla 'delivery_assignment' renderizada. Longitud: ${whatsappDeliveryMessage.length}`);
+                        } else {
+                            console.warn(`⚠️ [WhatsApp Template] Plantilla 'delivery_assignment' no encontrada, se usará fallback`);
+                        }
+                    } catch (error) {
+                        console.error(`❌ [WhatsApp Template] Error obteniendo plantilla delivery:`, error.message);
+                    }
+
+                    // Fallback si no hay plantilla
+                    if (!whatsappDeliveryMessage) {
+                        const orderId_short = orderId.slice(0, 6);
+                        const customerName = orderData.customer?.name || 'Cliente';
+                        const customerPhone = orderData.customer?.phone || '';
+                        const address = orderData.delivery?.references || 'Sin dirección';
+                        const deliveryType = orderData.delivery?.type === 'pickup' ? 'Retiro en tienda' : 'A Domicilio';
+                        const total = orderData.total || 0;
+                        const subtotal = orderData.subtotal || 0;
+                        const deliveryCost = orderData.delivery?.deliveryCost !== undefined
+                            ? orderData.delivery.deliveryCost
+                            : Math.max(0, total - subtotal);
+
+                        whatsappDeliveryMessage = `*🛵 ORDEN DE ENTREGA PARA ${businessName}*\n\n`;
+                        whatsappDeliveryMessage += `*Cliente:* ${customerName}\n`;
+                        whatsappDeliveryMessage += `*Teléfono:* ${customerPhone}\n`;
+                        whatsappDeliveryMessage += `*Dirección:* ${address}\n`;
+                        
+                        if (Array.isArray(orderData.items) && orderData.items.length > 0) {
+                            const groupedItems = {};
+                            orderData.items.forEach(item => {
+                                const productName = item.name || 'Producto';
+                                if (!groupedItems[productName]) groupedItems[productName] = [];
+                                groupedItems[productName].push(item);
+                            });
+                            whatsappDeliveryMessage += `*Items:*`;
+                            Object.keys(groupedItems).forEach(productName => {
+                                const items = groupedItems[productName];
+                                const qty = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
+                                if (items[0].variant) {
+                                    whatsappDeliveryMessage += `\n• (${qty}) ${productName} - ${items[0].variant}`;
+                                } else {
+                                    whatsappDeliveryMessage += `\n• (${qty}) ${productName}`;
+                                }
+                            });
+                            whatsappDeliveryMessage += '\n';
+                        }
+                        
+                        whatsappDeliveryMessage += `\n*Detalles:*\n`;
+                        whatsappDeliveryMessage += `Subtotal: $${subtotal.toFixed(2)}\n`;
+                        whatsappDeliveryMessage += `Envío: $${deliveryCost.toFixed(2)}\n`;
+                        whatsappDeliveryMessage += `*TOTAL: $${total.toFixed(2)}*`;
+                    }
+
+                    const formattedDeliveryPhone = deliveryPhone.replace(/^0/, '').trim();
+                    if (formattedDeliveryPhone.length > 0) {
+                        whatsappDeliveryUrl = `https://wa.me/593${formattedDeliveryPhone}?text=${encodeURIComponent(whatsappDeliveryMessage)}`;
+                        console.log(`✅ URL WhatsApp Delivery generada`);
+                    }
+                } else {
+                    console.warn(`⚠️ Delivery sin teléfono registrado`);
+                }
+            } else {
+                console.warn(`⚠️ Delivery no encontrado: ${orderData.delivery.assignedDelivery}`);
+            }
+        } catch (error) {
+            console.error(`❌ Error al generar URL WhatsApp Delivery:`, error.message);
+        }
+    }
+
     // Construir botones con URLs
     let replyMarkup = null;
+    const buttonRow = [];
+    
     if (whatsappStoreUrl) {
+        buttonRow.push({ text: '💬 Whatsapp Tienda', url: whatsappStoreUrl });
+    }
+    
+    if (whatsappDeliveryUrl) {
+        buttonRow.push({ text: '🛵 Whatsapp Delivery', url: whatsappDeliveryUrl });
+    }
+
+    if (buttonRow.length > 0) {
         replyMarkup = {
-            inline_keyboard: [
-                [
-                    { text: '💬 Whatsapp Tienda', url: whatsappStoreUrl }
-                ]
-            ]
+            inline_keyboard: [buttonRow]
         };
     }
 

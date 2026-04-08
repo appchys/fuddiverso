@@ -125,23 +125,6 @@ const adminWebhookNew = `async function handleAdminWebhook(req, res) {
                 } catch (e) {
                     await sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, \`❌ Error al obtener datos del negocio: \${e.message}\`);
                 }
-            } else if (actionType === 'admin_whatsapp_delivery') {
-                try {
-                    const deliveryDoc = await admin.firestore().collection('deliveries').doc(value).get();
-                    if (deliveryDoc.exists) {
-                        const phone = deliveryDoc.data().phone || '';
-                        if (phone) {
-                            const waLink = \`https://wa.me/593\${phone.replace(/^0/, '')}\`;
-                            await sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, \`📱 Whatsapp Delivery (\${deliveryDoc.data().name}):\\n\${waLink}\`);
-                        } else {
-                             await sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, '❌ El repartidor no tiene teléfono configurado.');
-                        }
-                    } else {
-                        await sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, '❌ Repartidor no encontrado.');
-                    }
-                } catch (e) {
-                    await sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, \`❌ Error al obtener datos del delivery: \${e.message}\`);
-                }
             }
         }
         return res.status(200).send('ok');
