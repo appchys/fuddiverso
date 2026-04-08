@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, Suspense } from 'react'
+import React, { useState, useEffect, Suspense, useRef } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest } from '@/lib/database'
@@ -10,6 +10,7 @@ import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
 import ProductDetailSidebar from '@/components/ProductDetailSidebar'
+import StoryProductDetail from '@/components/StoryProductDetail'
 import CartSidebar from '@/components/CartSidebar' // Added import for CartSidebar
 
 export default function HomePage() {
@@ -38,6 +39,12 @@ function HomePageContent() {
 
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [loading, setLoading] = useState(true)
+  
+  // Swipe State for Stories
+  const touchStartXRef = useRef<number>(0)
+  const touchStartYRef = useRef<number>(0)
+  const touchStartTimeRef = useRef<number>(0)
+  
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [followedBusinesses, setFollowedBusinesses] = useState<Set<string>>(new Set())
@@ -57,6 +64,64 @@ function HomePageContent() {
   const [requestName, setRequestName] = useState('')
   const [requestWhatsapp, setRequestWhatsapp] = useState('')
   const [isSubmittingSurvey, setIsSubmittingSurvey] = useState(false)
+ 
+  // Story Modal State
+  const [isStoryModalOpen, setIsStoryModalOpen] = useState(false)
+  const [isStoryPaused, setIsStoryPaused] = useState(false) // Modal de detalle abierto
+  const [isStoryHeld, setIsStoryHeld] = useState(false) // Pantalla presionada
+  const [selectedStoryBusiness, setSelectedStoryBusiness] = useState<Business | null>(null)
+  const [storyProducts, setStoryProducts] = useState<Product[]>([])
+  const [currentStoryIndex, setCurrentStoryIndex] = useState(0)
+  const [loadingStoryProducts, setLoadingStoryProducts] = useState(false)
+
+  // Automatic Story Progression
+  useEffect(() => {
+    let interval: NodeJS.Timeout
+    if (isStoryModalOpen && storyProducts.length > 0 && !loadingStoryProducts && !isStoryPaused && !isStoryHeld) {
+      interval = setInterval(() => {
+        if (currentStoryIndex < storyProducts.length - 1) {
+          setCurrentStoryIndex(prev => prev + 1)
+        } else {
+          openNextBusinessStory()
+        }
+      }, 5000)
+    }
+    return () => clearInterval(interval)
+  }, [isStoryModalOpen, currentStoryIndex, storyProducts.length, loadingStoryProducts, isStoryPaused, isStoryHeld])
+ 
+  // Disable pull-to-refresh and history navigation when story is open
+  useEffect(() => {
+    if (isStoryModalOpen) {
+      document.body.style.overscrollBehaviorY = 'none'
+      document.body.style.overscrollBehaviorX = 'none'
+    } else {
+      document.body.style.overscrollBehaviorY = ''
+      document.body.style.overscrollBehaviorX = ''
+    }
+    return () => {
+      document.body.style.overscrollBehaviorY = ''
+      document.body.style.overscrollBehaviorX = ''
+    }
+  }, [isStoryModalOpen])
+
+  // Pre-load next story images for smoother navigation
+  useEffect(() => {
+    if (isStoryModalOpen && storyProducts.length > 0) {
+      // Pre-cargar la siguiente imagen
+      const nextIndex = currentStoryIndex + 1
+      if (nextIndex < storyProducts.length && storyProducts[nextIndex].image) {
+        const img = new Image()
+        img.src = storyProducts[nextIndex].image!
+      }
+      
+      // Pre-cargar la subsiguiente para mayor fluidez
+      const nextNextIndex = currentStoryIndex + 2
+      if (nextNextIndex < storyProducts.length && storyProducts[nextNextIndex].image) {
+        const img2 = new Image()
+        img2.src = storyProducts[nextNextIndex].image!
+      }
+    }
+  }, [currentStoryIndex, storyProducts, isStoryModalOpen])
 
   // Cart State
   const [cart, setCart] = useState<any[]>([])
@@ -357,7 +422,6 @@ function HomePageContent() {
 
         setBusinesses(filtered)
         setLoading(false)
-
         if (user) loadFollowedBusinesses()
       } catch (err) {
         console.error('Error in init:', err)
@@ -455,15 +519,54 @@ function HomePageContent() {
       // Intentar encontrar el negocio si no se pasa explícitamente (para random products)
       business = businesses.find(b => b.id === product.businessId)
     }
-
+ 
     if (business) {
       setSelectedProduct(product)
       setSelectedProductBusiness(business)
-      setIsProductSidebarOpen(true)
+      if (isStoryModalOpen) {
+        setIsStoryPaused(true)
+      } else {
+        setIsProductSidebarOpen(true)
+      }
     } else {
       // Fallback a navegación si no se encuentra el negocio (no debería pasar)
       const productLink = `/product/${product.id}` // Link genérico o manejar error
       router.push(productLink)
+    }
+  }
+
+  const handleOpenStory = async (business: Business) => {
+    setSelectedStoryBusiness(business)
+    setIsStoryModalOpen(true)
+    setCurrentStoryIndex(0)
+    setLoadingStoryProducts(true)
+    try {
+      const products = await getProductsByBusiness(business.id)
+      // Filter only products with images for stories, max 10
+      const productsWithImage = products.filter(p => p.image && p.isAvailable).slice(0, 10)
+      setStoryProducts(productsWithImage)
+    } catch (error) {
+      console.error("Error loading story products:", error)
+    } finally {
+      setLoadingStoryProducts(false)
+    }
+  }
+
+  const openPrevBusinessStory = () => {
+    const visibleBusinesses = businesses.filter(b => !b.isHidden && b.businessType !== 'distributor')
+    const currentIndex = visibleBusinesses.findIndex(b => b.id === selectedStoryBusiness?.id)
+    if (currentIndex > 0) {
+      handleOpenStory(visibleBusinesses[currentIndex - 1])
+    }
+  }
+
+  const openNextBusinessStory = () => {
+    const visibleBusinesses = businesses.filter(b => !b.isHidden && b.businessType !== 'distributor')
+    const currentIndex = visibleBusinesses.findIndex(b => b.id === selectedStoryBusiness?.id)
+    if (currentIndex > -1 && currentIndex < visibleBusinesses.length - 1) {
+      handleOpenStory(visibleBusinesses[currentIndex + 1])
+    } else {
+      setIsStoryModalOpen(false)
     }
   }
 
@@ -474,6 +577,54 @@ function HomePageContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+
+      {/* STORE STORIES (Instagram style) */}
+      <section className="pt-6 pb-2 bg-white overflow-hidden">
+        <div className="max-w-6xl mx-auto px-4">
+          <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 px-2 items-start">
+            {loading ? (
+              // Story Skeletons
+              Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="flex flex-col items-center gap-2 flex-shrink-0 w-20 animate-pulse">
+                  <div className="w-[72px] h-[72px] rounded-full bg-gray-100 border-2 border-gray-50"></div>
+                  <div className="w-12 h-2 bg-gray-100 rounded"></div>
+                </div>
+              ))
+            ) : (
+              businesses
+                .filter(b => !b.isHidden && b.businessType !== 'distributor')
+                .map((b) => {
+                  return (
+                    <button 
+                      key={b.id} 
+                      onClick={() => handleOpenStory(b)}
+                      className="flex flex-col items-center gap-1.5 flex-shrink-0 w-20 group transition-transform active:scale-95 text-left"
+                    >
+                      <div className="relative p-[2.5px] rounded-full bg-gradient-to-tr from-[#FFB800] via-[#FF005C] to-[#7A00FF] shadow-sm group-hover:shadow-md transition-all">
+                        <div className="p-0.5 bg-white rounded-full">
+                          <div className="w-16 h-16 rounded-full overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center">
+                            {b.image ? (
+                              <img 
+                                src={b.image} 
+                                alt={b.name} 
+                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
+                              />
+                            ) : (
+                              <i className="bi bi-shop text-2xl text-gray-400"></i>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-bold text-gray-600 text-center line-clamp-1 w-full px-1 group-hover:text-[#aa1918] transition-colors">
+                        {b.name}
+                      </span>
+                    </button>
+                  )
+                })
+            )}
+          </div>
+        </div>
+      </section>
 
       {/* CATEGORÍAS */}
       <section className="py-6 bg-white border-b border-gray-100">
@@ -993,13 +1144,191 @@ function HomePageContent() {
         </div>
       </footer>
 
+      {/* MODALES ADICIONALES */}
+      {isStoryModalOpen && selectedStoryBusiness && (
+        <div className="fixed inset-0 z-[100] bg-black flex items-center justify-center overflow-hidden touch-none h-screen w-screen select-none" style={{ overscrollBehaviorX: 'none' }}>
+          <div className="relative w-full h-full max-w-lg mx-auto bg-black flex flex-col items-center justify-center">
+            {/* Progress Bars */}
+            <div className="absolute top-4 left-0 right-0 z-20 flex gap-1 px-4">
+              {storyProducts.length > 0 ? (
+                storyProducts.map((_, i) => (
+                  <div key={i} className="flex-1 h-0.5 bg-white/30 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full bg-white ${
+                        i < currentStoryIndex 
+                          ? 'w-full' 
+                          : i === currentStoryIndex 
+                            ? 'animate-story-progress' 
+                            : 'w-0'
+                      }`}
+                      style={{
+                        animationPlayState: (isStoryPaused || isStoryHeld) ? 'paused' : 'running'
+                      }}
+                    ></div>
+                  </div>
+                ))
+              ) : (
+                <div className="flex-1 h-0.5 bg-white/30 rounded-full"></div>
+              )}
+            </div>
+
+            {/* Header */}
+            <div className="absolute top-10 left-0 right-0 z-20 flex items-center justify-between px-4">
+              <Link 
+                href={selectedStoryBusiness.username ? `/${selectedStoryBusiness.username}` : `/restaurant/${selectedStoryBusiness.id}`}
+                className="flex items-center gap-3 transition-opacity active:opacity-70"
+              >
+                <div className="w-10 h-10 rounded-full border-2 border-white overflow-hidden bg-white shadow-lg">
+                  <img src={selectedStoryBusiness.image} alt={selectedStoryBusiness.name} className="w-full h-full object-cover" />
+                </div>
+                <div className="text-white drop-shadow-md">
+                  <h4 className="text-sm font-bold leading-none">{selectedStoryBusiness.name}</h4>
+                  <p className="text-[10px] opacity-70">Hace un momento</p>
+                </div>
+              </Link>
+              <button 
+                onClick={() => setIsStoryModalOpen(false)}
+                className="w-10 h-10 flex items-center justify-center text-white drop-shadow-md"
+              >
+                <i className="bi bi-x-lg text-2xl"></i>
+              </button>
+            </div>
+
+            {/* Content Player */}
+            <div className="w-full h-full relative overflow-hidden flex items-center justify-center bg-black">
+              {loadingStoryProducts ? (
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-8"></div>
+              ) : storyProducts.length > 0 ? (
+                <>
+                  {/* Layered Images for Zero Flicker */}
+                  {storyProducts.map((p, idx) => (
+                    <img 
+                      key={p.id}
+                      src={p.image} 
+                      alt={p.name}
+                      className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${idx === currentStoryIndex ? 'opacity-100' : 'opacity-0'}`}
+                    />
+                  ))}
+
+                  {/* Overlay Gradient Background (Subtle) */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 pointer-events-none"></div>
+
+                  {/* Navigation Zones */}
+                  <div 
+                    className="absolute inset-0 flex"
+                    onMouseDown={() => setIsStoryHeld(true)}
+                    onMouseUp={() => setIsStoryHeld(false)}
+                    onMouseLeave={() => setIsStoryHeld(false)}
+                    onTouchStart={(e) => {
+                      touchStartXRef.current = e.touches[0].clientX
+                      touchStartYRef.current = e.touches[0].clientY
+                      touchStartTimeRef.current = Date.now()
+                      setIsStoryHeld(true)
+                    }}
+                    onTouchMove={(e) => {
+                      // Prevenir la navegación del navegador si es un deslizamiento horizontal
+                      const currentX = e.touches[0].clientX
+                      const deltaX = currentX - touchStartXRef.current
+                      if (Math.abs(deltaX) > 10) {
+                        // Solo prevenimos si el movimiento es principalmente horizontal
+                        const deltaY = e.touches[0].clientY - touchStartYRef.current
+                        if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                          if (e.cancelable) e.preventDefault()
+                        }
+                      }
+                    }}
+                    onTouchEnd={(e) => {
+                      setIsStoryHeld(false)
+                      const deltaX = e.changedTouches[0].clientX - touchStartXRef.current
+                      const deltaY = e.changedTouches[0].clientY - touchStartYRef.current
+                      const deltaTime = Date.now() - touchStartTimeRef.current
+
+                      // Si es un deslizamiento horizontal claro (más que vertical y mayor a 60px)
+                      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 60) {
+                        if (deltaX > 0) {
+                          openPrevBusinessStory()
+                        } else {
+                          openNextBusinessStory()
+                        }
+                      } 
+                      // Si es un deslizamiento vertical hacia abajo para cerrar
+                      else if (deltaY > 100 && Math.abs(deltaX) < 50) {
+                        setIsStoryModalOpen(false)
+                      }
+                    }}
+                  >
+                    <div 
+                      className="w-1/3 h-full cursor-pointer"
+                      onClick={(e) => {
+                        if (currentStoryIndex > 0) {
+                          setCurrentStoryIndex(prev => prev - 1)
+                        }
+                      }}
+                    ></div>
+                    <div 
+                      className="w-2/3 h-full cursor-pointer"
+                      onClick={(e) => {
+                        if (currentStoryIndex < storyProducts.length - 1) {
+                          setCurrentStoryIndex(prev => prev + 1)
+                        } else {
+                          openNextBusinessStory()
+                        }
+                      }}
+                    ></div>
+                  </div>
+
+                  {/* Product Info & Action (Using current index for dynamic info) */}
+                  <div className="absolute bottom-24 left-0 right-0 px-6 flex flex-col items-center">
+                    <h3 className="text-white text-xl font-bold mb-1 text-center drop-shadow-md">
+                      {storyProducts[currentStoryIndex].name}
+                    </h3>
+                    <p className="text-white/90 text-sm mb-6 font-bold bg-white/20 backdrop-blur-md px-4 py-1 rounded-full border border-white/20">
+                      {formatPrice(getProductPublicPrice(storyProducts[currentStoryIndex]))}
+                    </p>
+                    
+                    <button
+                      onClick={() => {
+                        handleProductClick(storyProducts[currentStoryIndex], selectedStoryBusiness)
+                      }}
+                      className="w-full bg-white text-black font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all text-sm uppercase tracking-wider"
+                    >
+                      Ver Detalle / Comprar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center text-white px-10">
+                  <i className="bi bi-image text-5xl mb-4 opacity-30"></i>
+                  <h4 className="text-xl font-bold mb-2">Próximamente...</h4>
+                  <p className="text-sm opacity-70 mb-8">Esta tienda pronto tendrá nuevas historias para ti.</p>
+                  <button 
+                    onClick={() => setIsStoryModalOpen(false)}
+                    className="w-full bg-white text-black font-bold py-3 rounded-xl"
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <ProductDetailSidebar
         isOpen={isProductSidebarOpen}
         onClose={() => setIsProductSidebarOpen(false)}
         product={selectedProduct}
-        business={selectedProductBusiness}
-        onProductSelect={setSelectedProduct}
+        business={selectedProductBusiness!}
+        onProductSelect={handleProductClick}
         onOpenCart={() => setIsCartOpen(true)}
+      />
+
+      <StoryProductDetail
+        isOpen={isStoryPaused}
+        onClose={() => setIsStoryPaused(false)}
+        product={selectedProduct}
+        business={selectedProductBusiness}
+        onAddToCart={addItemToCart}
       />
 
       <CartSidebar

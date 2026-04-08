@@ -54,6 +54,15 @@
   .floating-pulse {
     animation: pulse 2s infinite;
   }
+
+  @keyframes story-progress {
+    from { width: 0; }
+    to { width: 100%; }
+  }
+
+  .animate-story-progress {
+    animation: story-progress 5s linear;
+  }
 }
 
 @keyframes slideInRight {
