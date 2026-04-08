@@ -133,6 +133,8 @@ export default function ManualOrderSidebar({
   // Estados para búsqueda mejorada
   const [searchResults, setSearchResults] = useState<Client[]>([])
   const [showSearchResults, setShowSearchResults] = useState(false)
+  const [showNameSearchModal, setShowNameSearchModal] = useState(false)
+  const [nameSearchTerm, setNameSearchTerm] = useState('')
 
   // Estados para modal de variantes
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<Product | null>(null)
@@ -484,20 +486,49 @@ export default function ManualOrderSidebar({
     }
   }
 
-  // Búsqueda mejorada de cliente (por teléfono o nombre)
-  const handleSearchClient = async (searchTerm: string) => {
-    setManualOrderData(prev => ({ ...prev, customerPhone: searchTerm }))
+  // Búsqueda instantánea por teléfono (sin debounce)
+  const handlePhoneSearchInstant = async (phone: string) => {
     setShowSearchResults(false)
-    setSearchResults([])
 
-    if (!searchTerm || searchTerm.trim().length < 2) {
+    if (!phone || phone.trim().length < 9) {
       setClientFound(false)
+      setShowCreateClient(false)
       setManualOrderData(prev => ({
         ...prev,
         customerName: '',
         customerLocations: [],
         selectedLocation: null
       }))
+      return
+    }
+
+    setSearchingClient(true)
+    try {
+      const normalizedPhone = normalizePhone(phone)
+      const client = await searchClientByPhone(normalizedPhone)
+
+      if (client) {
+        await handleSelectClient(client)
+        setShowCreateClient(false)
+      } else {
+        setClientFound(false)
+        setShowCreateClient(true)
+      }
+    } catch (error) {
+      console.error('Error searching client by phone:', error)
+      setClientFound(false)
+    } finally {
+      setSearchingClient(false)
+    }
+  }
+
+  // Búsqueda por nombre (con debounce)
+  const handleNameSearchDebounced = (name: string) => {
+    setNameSearchTerm(name)
+    setShowSearchResults(false)
+    setSearchResults([])
+
+    if (!name || name.trim().length < 2) {
       return
     }
 
@@ -508,29 +539,16 @@ export default function ManualOrderSidebar({
     const timeout = setTimeout(async () => {
       setSearchingClient(true)
       try {
-        // Normalizar el término de búsqueda si parece ser un teléfono
-        const normalizedSearchTerm = /^\d/.test(searchTerm.replace(/[\s\-\(\)]/g, '')) 
-          ? normalizePhone(searchTerm) 
-          : searchTerm
-
-        const results = await searchClients(normalizedSearchTerm, 'auto')
-
+        const results = await searchClients(name, 'name')
         if (results.length > 0) {
           setSearchResults(results as Client[])
           setShowSearchResults(true)
-
-          // Si hay solo un resultado exacto por teléfono, seleccionarlo automáticamente
-          if (results.length === 1 && /^\d{7,}$/.test(normalizedSearchTerm.replace(/[\s\-\(\)]/g, ''))) {
-            await handleSelectClient(results[0] as Client)
-          }
         } else {
-          setClientFound(false)
-          setShowCreateClient(true)
-          setShowSearchResults(false)
+          setSearchResults([])
+          setShowSearchResults(true) // Mostrar estado vacío
         }
       } catch (error) {
-        console.error('Error searching client:', error)
-        setClientFound(false)
+        console.error('Error searching by name:', error)
       } finally {
         setSearchingClient(false)
       }
@@ -577,7 +595,8 @@ export default function ManualOrderSidebar({
 
   // Búsqueda de cliente por teléfono (mantener para compatibilidad)
   const handlePhoneSearch = async (phone: string) => {
-    await handleSearchClient(phone)
+    setManualOrderData(prev => ({ ...prev, customerPhone: phone }))
+    await handlePhoneSearchInstant(phone)
   }
 
   // Abrir modal para editar cliente
@@ -1524,39 +1543,107 @@ export default function ManualOrderSidebar({
         <div className="flex-1 overflow-y-auto p-4 pb-24">
           {/* Búsqueda de cliente */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-black mb-2">
-              Búsqueda por celular o nombre
-            </label>
+            <div className="flex justify-between items-center mb-2">
+              <label className="block text-sm font-medium text-black">
+                Teléfono del cliente
+              </label>
+              {!showNameSearchModal && (
+                <button
+                  type="button"
+                  onClick={() => setShowNameSearchModal(true)}
+                  className="text-xs text-blue-600 hover:text-blue-700 flex items-center bg-blue-50 px-2 py-1 rounded transition-colors"
+                >
+                  <i className="bi bi-search me-1"></i>
+                  Buscar por nombre
+                </button>
+              )}
+            </div>
+
+            {/* Expansión de búsqueda por nombre */}
+            {showNameSearchModal && (
+              <div className="mb-3 p-3 border border-blue-200 bg-blue-50 rounded-md relative z-20">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-sm font-medium text-blue-800">
+                    Búsqueda por nombre
+                  </label>
+                  <button
+                    onClick={() => {
+                      setShowNameSearchModal(false)
+                      setNameSearchTerm('')
+                      setShowSearchResults(false)
+                    }}
+                    className="text-blue-500 hover:text-blue-700 p-1"
+                    type="button"
+                  >
+                    <i className="bi bi-x-lg"></i>
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={nameSearchTerm}
+                    onChange={(e) => handleNameSearchDebounced(e.target.value)}
+                    placeholder="Escriba el nombre a buscar..."
+                    className="w-full px-3 py-2 border border-blue-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    autoFocus
+                  />
+                  {searchingClient && nameSearchTerm && (
+                    <div className="absolute right-3 top-2.5">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                    </div>
+                  )}
+                  {/* Dropdown de resultados de búsqueda por nombre */}
+                  {showSearchResults && nameSearchTerm.length >= 2 && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-64 overflow-y-auto">
+                      {searchResults.length > 0 ? (
+                        searchResults.map((client) => (
+                          <button
+                            key={client.id}
+                            onClick={() => {
+                              handleSelectClient(client)
+                              setShowNameSearchModal(false)
+                              setNameSearchTerm('')
+                            }}
+                            className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b last:border-b-0 transition-colors flex flex-col"
+                            type="button"
+                          >
+                            <p className="font-medium text-gray-900">{client.nombres}</p>
+                            <p className="text-xs text-gray-500">{client.celular}</p>
+                          </button>
+                        ))
+                      ) : (
+                        !searchingClient && (
+                          <div className="p-3 text-center text-sm text-gray-500">
+                            No se encontraron clientes
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="relative">
               <div className="relative">
                 <input
-                  type="text"
+                  type="tel"
                   value={manualOrderData.customerPhone}
-                  onChange={(e) => handleSearchClient(e.target.value)}
-                  placeholder="0912345678 o Nombre del cliente"
-                  className="w-full px-3 py-2 pr-16 sm:pr-20 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                  onFocus={() => searchResults.length > 0 && setShowSearchResults(true)}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '')
+                    setManualOrderData(prev => ({ ...prev, customerPhone: val }))
+                    handlePhoneSearchInstant(val)
+                  }}
+                  placeholder="Ej: 0912345678"
+                  className="w-full px-3 py-2 pr-16 sm:pr-20 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-mono tracking-wide"
                   onPaste={(e) => {
                     e.preventDefault()
                     const text = e.clipboardData.getData('text') || ''
-                    const trimmed = text.trim()
-
-                    if (!trimmed) {
-                      return
-                    }
-
-                    // Detectar si parece un teléfono (similar a searchClients auto)
-                    const digitsOnly = trimmed.replace(/[\s\-\(\)]/g, '')
-                    const looksLikePhone =
-                      /^\d{7,}$/.test(digitsOnly) ||
-                      trimmed.startsWith('+593') ||
-                      trimmed.startsWith('593')
-
-                    if (looksLikePhone) {
-                      const normalizedPhone = normalizePhone(trimmed)
-                      handlePhoneSearch(normalizedPhone)
-                    } else {
-                      handleSearchClient(trimmed)
+                    const digitsOnly = text.replace(/\D/g, '')
+                    
+                    if (digitsOnly) {
+                      setManualOrderData(prev => ({ ...prev, customerPhone: digitsOnly }))
+                      handlePhoneSearchInstant(digitsOnly)
                     }
                   }}
                 />
@@ -1569,34 +1656,17 @@ export default function ManualOrderSidebar({
                   >
                     <i className="bi bi-clipboard"></i>
                   </button>
-                  {searchingClient && (
+                  {searchingClient && !showNameSearchModal && (
                     <div className="flex items-center justify-center w-6 h-6">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
                     </div>
                   )}
                 </div>
               </div>
-
-              {/* Dropdown de resultados de búsqueda */}
-              {showSearchResults && searchResults.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 max-h-64 overflow-y-auto">
-                  {searchResults.map((client) => (
-                    <button
-                      key={client.id}
-                      onClick={() => handleSelectClient(client)}
-                      className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b last:border-b-0 transition-colors flex flex-col"
-                      type="button"
-                    >
-                      <p className="font-medium text-gray-900">{client.nombres}</p>
-                      <p className="text-xs text-gray-500">{client.celular}</p>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
 
             {/* Campo de nombre del cliente - solo visible cuando no se encuentra */}
-            {showCreateClient && manualOrderData.customerPhone.length >= 2 && (
+            {showCreateClient && manualOrderData.customerPhone.length >= 9 && (
               <div className="mt-3">
                 <input
                   type="text"
@@ -1615,16 +1685,23 @@ export default function ManualOrderSidebar({
                 onClick={handleEditClient}
               >
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-green-800">
-                    <i className="bi bi-check-circle me-2"></i>
-                    <span className="font-medium">{manualOrderData.customerName}</span>
-                  </p>
+                  <div>
+                    <p className="text-sm text-green-800">
+                      <i className="bi bi-check-circle me-2"></i>
+                      <span className="font-medium">{manualOrderData.customerName}</span>
+                    </p>
+                    {manualOrderData.customerPhone && (
+                      <p className="text-xs text-green-700 ml-6 opacity-80 font-mono tracking-wide">
+                        {manualOrderData.customerPhone}
+                      </p>
+                    )}
+                  </div>
                   <i className="bi bi-pencil-square text-green-600 hover:text-green-800"></i>
                 </div>
               </div>
-            ) : showCreateClient && manualOrderData.customerPhone.length >= 2 ? (
+            ) : showCreateClient && manualOrderData.customerPhone.length >= 9 ? (
               <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                <p className="text-sm text-yellow-800 mb-2">Cliente no encontrado</p>
+                <p className="text-sm text-yellow-800 mb-2">Cliente no encontrado. Llene el nombre para crearlo.</p>
                 <button
                   onClick={handleCreateClient}
                   disabled={creatingClient || !manualOrderData.customerName}
