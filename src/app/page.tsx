@@ -40,6 +40,18 @@ function HomePageContent() {
 
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Use useMemo for story businesses to ensure a stable random order per session/businesses-update
+  const storyBusinesses = React.useMemo(() => {
+    return businesses
+      .filter(b => !b.isHidden && b.businessType !== 'distributor')
+      .sort((a, b) => {
+        const aOpen = isStoreOpen(a)
+        const bOpen = isStoreOpen(b)
+        if (aOpen !== bOpen) return aOpen ? -1 : 1
+        return 0.5 - Math.random()
+      })
+  }, [businesses])
   
   // Swipe State for Stories
   const touchStartXRef = useRef<number>(0)
@@ -74,6 +86,17 @@ function HomePageContent() {
   const [storyProducts, setStoryProducts] = useState<Product[]>([])
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0)
   const [loadingStoryProducts, setLoadingStoryProducts] = useState(false)
+  const [storyProgress, setStoryProgress] = useState<Record<string, number>>({})
+
+  // Update progress when story index changes
+  useEffect(() => {
+    if (selectedStoryBusiness && isStoryModalOpen) {
+      setStoryProgress(prev => ({
+        ...prev,
+        [selectedStoryBusiness.id]: currentStoryIndex
+      }))
+    }
+  }, [currentStoryIndex, selectedStoryBusiness?.id, isStoryModalOpen])
 
   // Automatic Story Progression
   useEffect(() => {
@@ -130,12 +153,15 @@ function HomePageContent() {
 
   // Load Cart Logic
   useEffect(() => {
-    if (selectedProductBusiness?.id) {
+    // Priorizar el negocio de la historia si está abierta, sino usar el de productos seleccionados
+    const currentBusinessId = selectedStoryBusiness?.id || selectedProductBusiness?.id
+    
+    if (currentBusinessId) {
       const loadCart = () => {
         const savedCarts = localStorage.getItem('carts')
         if (savedCarts) {
           const allCarts = JSON.parse(savedCarts)
-          const businessCart = allCarts[selectedProductBusiness.id] || []
+          const businessCart = allCarts[currentBusinessId] || []
           setCart(businessCart)
         } else {
           setCart([])
@@ -153,7 +179,7 @@ function HomePageContent() {
         window.removeEventListener('cart-updated', handleStorageChange)
       }
     }
-  }, [selectedProductBusiness?.id, isCartOpen])
+  }, [selectedStoryBusiness?.id, selectedProductBusiness?.id, isCartOpen])
 
   const updateCartInStorage = (businessId: string, businessCart: any[]) => {
     const savedCarts = localStorage.getItem('carts')
@@ -171,7 +197,9 @@ function HomePageContent() {
   }
 
   const updateQuantity = (productId: string, quantity: number, variantName?: string | null) => {
-    if (!selectedProductBusiness?.id) return
+    // Priorizar el negocio de la historia si está abierta, sino usar el de productos seleccionados
+    const currentBusinessId = selectedStoryBusiness?.id || selectedProductBusiness?.id
+    if (!currentBusinessId) return
 
     if (quantity <= 0) {
       removeFromCart(productId, variantName)
@@ -185,29 +213,33 @@ function HomePageContent() {
     )
 
     setCart(newCart)
-    updateCartInStorage(selectedProductBusiness.id, newCart)
+    updateCartInStorage(currentBusinessId, newCart)
   }
 
   const removeFromCart = (productId: string, variantName?: string | null) => {
-    if (!selectedProductBusiness?.id) return
+    // Priorizar el negocio de la historia si está abierta, sino usar el de productos seleccionados
+    const currentBusinessId = selectedStoryBusiness?.id || selectedProductBusiness?.id
+    if (!currentBusinessId) return
 
     // Note: unredeem logic normally here, but for now we implement basic removal
     // (CartSidebar handles unredeem logic for QR prizes internally via useEffects usually, or we can copy it if needed)
 
     const newCart = cart.filter(item => !(item.id === productId && item.variantName === variantName))
     setCart(newCart)
-    updateCartInStorage(selectedProductBusiness.id, newCart)
+    updateCartInStorage(currentBusinessId, newCart)
   }
 
   const addItemToCart = (item: any) => {
-    if (!selectedProductBusiness?.id) return
+    // Priorizar el negocio de la historia si está abierta, sino usar el de productos seleccionados
+    const currentBusinessId = selectedStoryBusiness?.id || selectedProductBusiness?.id
+    if (!currentBusinessId) return
 
     const existingItemIndex = cart.findIndex((cartItem) =>
       cartItem.id === item.id && cartItem.variantName === item.variantName
     )
 
-    let newCart
-    if (existingItemIndex > -1) {
+    let newCart: any[]
+    if (existingItemIndex >= 0) {
       newCart = [...cart]
       newCart[existingItemIndex].quantity += 1
   } else {
@@ -216,13 +248,15 @@ function HomePageContent() {
     }
 
     setCart(newCart)
-    updateCartInStorage(selectedProductBusiness.id, newCart)
+    updateCartInStorage(currentBusinessId, newCart)
   }
 
   const clearCart = () => {
-    if (!selectedProductBusiness?.id) return
+    // Priorizar el negocio de la historia si está abierta, sino usar el de productos seleccionados
+    const currentBusinessId = selectedStoryBusiness?.id || selectedProductBusiness?.id
+    if (!currentBusinessId) return
     setCart([])
-    updateCartInStorage(selectedProductBusiness.id, [])
+    updateCartInStorage(currentBusinessId, [])
   }
 
   // Cargar productos de proveedores de forma paralela y eficiente
@@ -539,13 +573,22 @@ function HomePageContent() {
   const handleOpenStory = async (business: Business) => {
     setSelectedStoryBusiness(business)
     setIsStoryModalOpen(true)
-    setCurrentStoryIndex(0)
+    
+    // Set initial index from saved progress
+    const savedIndex = storyProgress[business.id] || 0
+    setCurrentStoryIndex(savedIndex)
+    
     setLoadingStoryProducts(true)
     try {
       const products = await getProductsByBusiness(business.id)
       // Filter only products with images for stories, max 10
       const productsWithImage = products.filter(p => p.image && p.isAvailable).slice(0, 10)
       setStoryProducts(productsWithImage)
+      
+      // Safety check: if saved index is now out of bounds because products changed
+      if (savedIndex >= productsWithImage.length && productsWithImage.length > 0) {
+        setCurrentStoryIndex(0)
+      }
     } catch (error) {
       console.error("Error loading story products:", error)
     } finally {
@@ -554,18 +597,16 @@ function HomePageContent() {
   }
 
   const openPrevBusinessStory = () => {
-    const visibleBusinesses = businesses.filter(b => !b.isHidden && b.businessType !== 'distributor')
-    const currentIndex = visibleBusinesses.findIndex(b => b.id === selectedStoryBusiness?.id)
+    const currentIndex = storyBusinesses.findIndex(b => b.id === selectedStoryBusiness?.id)
     if (currentIndex > 0) {
-      handleOpenStory(visibleBusinesses[currentIndex - 1])
+      handleOpenStory(storyBusinesses[currentIndex - 1])
     }
   }
 
   const openNextBusinessStory = () => {
-    const visibleBusinesses = businesses.filter(b => !b.isHidden && b.businessType !== 'distributor')
-    const currentIndex = visibleBusinesses.findIndex(b => b.id === selectedStoryBusiness?.id)
-    if (currentIndex > -1 && currentIndex < visibleBusinesses.length - 1) {
-      handleOpenStory(visibleBusinesses[currentIndex + 1])
+    const currentIndex = storyBusinesses.findIndex(b => b.id === selectedStoryBusiness?.id)
+    if (currentIndex > -1 && currentIndex < storyBusinesses.length - 1) {
+      handleOpenStory(storyBusinesses[currentIndex + 1])
     } else {
       setIsStoryModalOpen(false)
     }
@@ -592,15 +633,7 @@ function HomePageContent() {
                 </div>
               ))
             ) : (
-              businesses
-                .filter(b => !b.isHidden && b.businessType !== 'distributor')
-                .sort((a, b) => {
-                  const aOpen = isStoreOpen(a)
-                  const bOpen = isStoreOpen(b)
-                  if (aOpen === bOpen) return 0.5 - Math.random()
-                  return aOpen ? -1 : 1
-                })
-                .map((b) => {
+              storyBusinesses.map((b) => {
                   return (
                     <button 
                       key={b.id} 
@@ -1306,14 +1339,33 @@ function HomePageContent() {
                       </p>
                     )}
                     
-                    <button
-                      onClick={() => {
-                        handleProductClick(storyProducts[currentStoryIndex], selectedStoryBusiness)
-                      }}
-                      className="w-full bg-white text-black font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all text-sm uppercase tracking-wider"
-                    >
-                      Ver Detalle / Comprar
-                    </button>
+                    <div className="flex gap-3 w-full">
+                      <button
+                        onClick={() => {
+                          handleProductClick(storyProducts[currentStoryIndex], selectedStoryBusiness)
+                        }}
+                        className="flex-1 bg-white text-black font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all text-sm uppercase tracking-wider"
+                      >
+                        Ver Detalle / Comprar
+                      </button>
+                      
+                      {cart.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setIsCartOpen(true)
+                            setIsStoryModalOpen(false)
+                          }}
+                          className="bg-black text-white font-black py-4 px-4 rounded-2xl shadow-xl active:scale-95 transition-all relative"
+                        >
+                          <i className="bi bi-cart3 text-lg"></i>
+                          {cart.length > 0 && (
+                            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
+                              {cart.reduce((sum, item) => sum + item.quantity, 0)}
+                            </span>
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </>
               ) : (
