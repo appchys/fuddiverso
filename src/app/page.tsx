@@ -1401,6 +1401,10 @@ function HomePageContent() {
         product={selectedProduct}
         business={selectedProductBusiness}
         onAddToCart={addItemToCart}
+        onOpenCart={() => {
+          setIsCartOpen(true)
+          setIsStoryModalOpen(false)
+        }}
       />
 
       <CartSidebar

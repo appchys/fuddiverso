@@ -10,9 +10,10 @@ interface StoryProductDetailProps {
     product: Product | null
     business: Business | null
     onAddToCart: (item: any) => void
+    onOpenCart?: () => void
 }
 
-export default function StoryProductDetail({ isOpen, onClose, product, business, onAddToCart }: StoryProductDetailProps) {
+export default function StoryProductDetail({ isOpen, onClose, product, business, onAddToCart, onOpenCart }: StoryProductDetailProps) {
     const [selectedVariant, setSelectedVariant] = useState<string | null>(null)
     const [cart, setCart] = useState<any[]>([])
     const [notification, setNotification] = useState<{ show: boolean; message: string }>({ show: false, message: '' })
@@ -195,31 +196,50 @@ export default function StoryProductDetail({ isOpen, onClose, product, business,
                         </div>
                     )}
 
-                    {/* Add to Cart Button */}
-                    <button
-                        onClick={() => {
-                            const variant = selectedVariant ? product.variants?.find(v => v.name === selectedVariant) : null
-                            const itemToAdd = {
-                                id: product.id,
-                                name: product.name,
-                                variantName: selectedVariant,
-                                price: getProductPublicPrice(variant || product),
-                                ...getPriceMetadata(variant || product),
-                                image: product.image,
-                                businessId: business.id,
-                                businessName: business.name,
-                                businessImage: business.image,
-                                category: product.category
-                            }
-                            onAddToCart(itemToAdd)
-                            showNotification('¡Agregado al carrito!')
-                        }}
-                        disabled={!product.isAvailable}
-                        className="w-full bg-[#aa1918] text-white font-black py-4 rounded-2xl shadow-lg shadow-red-900/10 hover:shadow-red-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-3 uppercase tracking-wider text-sm"
-                    >
-                        <i className="bi bi-bag-plus-fill"></i>
-                        Agregar al Pedido
-                    </button>
+                    {/* Action Buttons */}
+                    <div className="flex gap-3">
+                        <button
+                            onClick={() => {
+                                const variant = selectedVariant ? product.variants?.find(v => v.name === selectedVariant) : null
+                                const itemToAdd = {
+                                    id: product.id,
+                                    name: product.name,
+                                    variantName: selectedVariant,
+                                    price: getProductPublicPrice(variant || product),
+                                    ...getPriceMetadata(variant || product),
+                                    image: product.image,
+                                    businessId: business.id,
+                                    businessName: business.name,
+                                    businessImage: business.image,
+                                    category: product.category
+                                }
+                                onAddToCart(itemToAdd)
+                                showNotification('¡Agregado al carrito!')
+                            }}
+                            disabled={!product.isAvailable}
+                            className="flex-1 bg-[#aa1918] text-white font-black py-4 rounded-2xl shadow-lg shadow-red-900/10 hover:shadow-red-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-3 uppercase tracking-wider text-sm"
+                        >
+                            <i className="bi bi-bag-plus-fill"></i>
+                            Agregar al Pedido
+                        </button>
+                        
+                        {cart.length > 0 && (
+                            <button
+                                onClick={() => {
+                                    onOpenCart?.()
+                                    onClose()
+                                }}
+                                className="bg-gray-900 text-white font-black py-4 px-4 rounded-2xl shadow-lg shadow-gray-900/10 hover:shadow-gray-900/20 active:scale-[0.98] transition-all relative"
+                            >
+                                <i className="bi bi-cart3 text-lg"></i>
+                                {cart.length > 0 && (
+                                    <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
+                                        {cart.reduce((sum, item) => sum + item.quantity, 0)}
+                                    </span>
+                                )}
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
 
