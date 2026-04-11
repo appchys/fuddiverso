@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { Flame } from 'lucide-react'
 import { getOrdersByClient, getBusiness } from '@/lib/database'
 import OrderSidebar from '@/components/OrderSidebar'
 
@@ -203,8 +204,20 @@ export default function BottomNavigation() {
             <span className="text-[10px] font-bold tracking-tight">Favoritos</span>
           </Link>
 
+          {/* RECOMENDACIONES */}
+          <Link
+            href={user ? "/profile?tab=recommendations" : "/"}
+            onClick={() => user && setActiveUrl('/profile?tab=recommendations')}
+            className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-all ${isActive('tab=recommendations') ? 'text-[#aa1918]' : 'text-gray-400 hover:text-gray-900'}`}
+          >
+            <div className={`relative p-1 rounded-xl transition-all ${isActive('tab=recommendations') ? 'bg-red-50' : ''}`}>
+              <Flame size={20} strokeWidth={isActive('tab=recommendations') ? 2.5 : 1.5} />
+            </div>
+            <span className="text-[10px] font-bold tracking-tight">Recomendados</span>
+          </Link>
+
           {/* PEDIDOS - AHORA ABRE EL MODAL */}
-          <button 
+          <button
             onClick={() => {
               if (user) {
                 setShowOrdersSheet(true)
@@ -224,18 +237,6 @@ export default function BottomNavigation() {
             </div>
             <span className="text-[10px] font-bold tracking-tight">Pedidos</span>
           </button>
-
-          {/* RECOMENDACIONES */}
-          <Link 
-            href={user ? "/profile?tab=recommendations" : "/"} 
-            onClick={() => user && setActiveUrl('/profile?tab=recommendations')}
-            className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-all ${isActive('tab=recommendations') ? 'text-[#aa1918]' : 'text-gray-400 hover:text-gray-900'}`}
-          >
-            <div className={`relative p-1 rounded-xl transition-all ${isActive('tab=recommendations') ? 'bg-red-50' : ''}`}>
-              <i className={`bi bi-hand-thumbs-up${isActive('tab=recommendations') ? '-fill' : ''} text-xl leading-none`}></i>
-            </div>
-            <span className="text-[10px] font-bold tracking-tight">Recomendados</span>
-          </Link>
         </div>
       </div>
 

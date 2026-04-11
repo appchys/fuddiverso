@@ -14,7 +14,6 @@ import ProductDetailSidebar from '@/components/ProductDetailSidebar'
 import StoryProductDetail from '@/components/StoryProductDetail'
 import CartSidebar from '@/components/CartSidebar' // Added import for CartSidebar
 import ReferralModal from '@/components/ReferralModal'
-import ActiveOrdersBubble from '@/components/ActiveOrdersBubble'
 import ClientLoginModal from '@/components/ClientLoginModal'
 import { Flame } from 'lucide-react'
 
