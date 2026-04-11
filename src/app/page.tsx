@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense, useRef } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest } from '@/lib/database'
+import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct } from '@/lib/database'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product, CoverageGroup } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
@@ -13,6 +13,8 @@ import StarRating from '@/components/StarRating'
 import ProductDetailSidebar from '@/components/ProductDetailSidebar'
 import StoryProductDetail from '@/components/StoryProductDetail'
 import CartSidebar from '@/components/CartSidebar' // Added import for CartSidebar
+import ReferralModal from '@/components/ReferralModal'
+import { Flame } from 'lucide-react'
 
 export default function HomePage() {
   return (
@@ -154,11 +156,18 @@ function HomePageContent() {
   const [cart, setCart] = useState<any[]>([])
   const [isCartOpen, setIsCartOpen] = useState(false)
 
+  // Referral Modal State
+  const [referralModalOpen, setReferralModalOpen] = useState(false)
+  const [selectedProductForReferral, setSelectedProductForReferral] = useState<any>(null)
+  const [generatedReferralLink, setGeneratedReferralLink] = useState<string>('')
+  const [referralBusinessName, setReferralBusinessName] = useState<string>('')
+  const [generatedReferralProducts, setGeneratedReferralProducts] = useState<Set<string>>(new Set())
+
   // Load Cart Logic
   useEffect(() => {
     // Priorizar el negocio de la historia si está abierta, sino usar el de productos seleccionados
     const currentBusinessId = selectedStoryBusiness?.id || selectedProductBusiness?.id
-    
+
     if (currentBusinessId) {
       const loadCart = () => {
         const savedCarts = localStorage.getItem('carts')
@@ -183,6 +192,29 @@ function HomePageContent() {
       }
     }
   }, [selectedStoryBusiness?.id, selectedProductBusiness?.id, isCartOpen])
+
+  // Cargar productos que el usuario ya ha recomendado
+  useEffect(() => {
+    const loadRecommendedProducts = async () => {
+      if (!user?.id || Object.keys(productsByBusiness).length === 0) return
+
+      const productIds = Object.values(productsByBusiness).flat().map(p => p.id)
+      const recommendedSet = new Set<string>()
+
+      await Promise.all(
+        productIds.map(async (productId) => {
+          const hasReferral = await userHasReferralForProduct(user.id, productId)
+          if (hasReferral) {
+            recommendedSet.add(productId)
+          }
+        })
+      )
+
+      setGeneratedReferralProducts(recommendedSet)
+    }
+
+    loadRecommendedProducts()
+  }, [user?.id, productsByBusiness])
 
   const updateCartInStorage = (businessId: string, businessCart: any[]) => {
     const savedCarts = localStorage.getItem('carts')
@@ -260,6 +292,33 @@ function HomePageContent() {
     if (!currentBusinessId) return
     setCart([])
     updateCartInStorage(currentBusinessId, [])
+  }
+
+  // Función para generar link de referido
+  const handleGenerateReferral = async (product: any, business: Business) => {
+    if (!business?.id) return
+
+    try {
+      const code = await generateReferralLink(
+        product.id,
+        business.id,
+        user?.id || undefined,
+        product.name,
+        product.image,
+        business.name,
+        business.username,
+        product.slug
+      )
+
+      const referralUrl = `${window.location.origin}/${business.username}/${product.slug}?ref=${code}`
+      setGeneratedReferralLink(referralUrl)
+      setSelectedProductForReferral(product)
+      setReferralBusinessName(business.name)
+      setGeneratedReferralProducts(prev => new Set(prev).add(product.id))
+      setReferralModalOpen(true)
+    } catch (error) {
+      console.error('Error generating referral:', error)
+    }
   }
 
   // Cargar productos de negocios (tanto restaurantes como proveedores)
@@ -1109,9 +1168,43 @@ function HomePageContent() {
                               </div>
                               <div className="p-4">
                                 <h4 className="text-sm font-bold text-gray-900 line-clamp-1 group-hover/product:text-[#aa1918] transition-colors mb-1">{product.name}</h4>
-                                <p className="text-xs text-gray-500 line-clamp-2 leading-snug">
-                                  {product.description || 'Delicioso plato preparado con los mejores ingredientes.'}
-                                </p>
+                                <div className="flex items-start justify-between gap-2">
+                                  <p className="text-xs text-gray-500 line-clamp-2 leading-snug flex-1">
+                                    {product.description || 'Delicioso plato preparado con los mejores ingredientes.'}
+                                  </p>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        const price = getProductPublicPrice(product)
+                                        addItemToCart({
+                                          id: product.id,
+                                          name: product.name,
+                                          price: price,
+                                          image: product.image,
+                                          businessId: product.businessId,
+                                          variantName: null,
+                                        })
+                                      }}
+                                      className="w-7 h-7 rounded-full flex items-center justify-center text-gray-400 hover:text-[#aa1918] hover:bg-red-50 transition-all"
+                                      title="Añadir al carrito"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
+                                      </svg>
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleGenerateReferral(product, b)
+                                      }}
+                                      className={`w-7 h-7 rounded-full flex items-center justify-center hover:bg-red-50 transition-all ${generatedReferralProducts.has(product.id) ? '' : 'text-gray-400 hover:text-[#aa1918]'}`}
+                                      title="Recomendar"
+                                    >
+                                      <Flame size={16} strokeWidth={generatedReferralProducts.has(product.id) ? 3 : 1.5} color={generatedReferralProducts.has(product.id) ? '#F59E0B' : undefined} />
+                                    </button>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           ))
@@ -1500,6 +1593,14 @@ function HomePageContent() {
         updateQuantity={updateQuantity}
         clearCart={clearCart}
         addItemToCart={addItemToCart}
+      />
+
+      <ReferralModal
+        isOpen={referralModalOpen}
+        onClose={() => setReferralModalOpen(false)}
+        product={selectedProductForReferral}
+        referralLink={generatedReferralLink}
+        businessName={referralBusinessName}
       />
     </div>
   )

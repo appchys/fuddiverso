@@ -5335,6 +5335,25 @@ export async function getUserReferrals(userId: string): Promise<any[]> {
 }
 
 /**
+ * Verifica si un usuario ya tiene un link de referido para un producto
+ */
+export async function userHasReferralForProduct(userId: string, productId: string): Promise<boolean> {
+  try {
+    if (!userId) return false
+    const q = query(
+      collection(db, 'referralLinks'),
+      where('createdBy', '==', userId),
+      where('productId', '==', productId)
+    )
+    const snapshot = await getDocs(q)
+    return !snapshot.empty
+  } catch (error) {
+    console.error('Error checking user referral for product:', error)
+    return false
+  }
+}
+
+/**
  * Obtiene todos los créditos de un usuario en todas las tiendas
  */
 export async function getAllUserCredits(userId: string): Promise<any[]> {
