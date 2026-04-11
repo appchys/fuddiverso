@@ -5264,7 +5264,7 @@ export async function generateReferralLink(
   businessName?: string,
   businessUsername?: string,
   productSlug?: string
-): Promise<string> {
+): Promise<{ code: string; isNew: boolean }> {
   console.log('🚀 Debug Referral - Generating link:', { productId, businessId, userId, productName })
   try {
     // Si hay un userId, buscar si ya existe un referral para este producto
@@ -5280,7 +5280,7 @@ export async function generateReferralLink(
         // Ya existe un link para este producto, retornar el código existente
         const existingLink = existingSnapshot.docs[0].data()
         console.log('🚀 Debug Referral - Found existing link:', existingLink.code)
-        return existingLink.code
+        return { code: existingLink.code, isNew: false }
       }
     }
 
@@ -5304,7 +5304,7 @@ export async function generateReferralLink(
 
     console.log('🚀 Debug Referral - Saving new to Firestore:', referralData)
     await addDoc(collection(db, 'referralLinks'), referralData)
-    return code
+    return { code, isNew: true }
   } catch (error) {
     console.error('❌ Error generating referral link:', error)
     throw error
@@ -5350,6 +5350,66 @@ export async function userHasReferralForProduct(userId: string, productId: strin
   } catch (error) {
     console.error('Error checking user referral for product:', error)
     return false
+  }
+}
+
+/**
+ * Obtiene el conteo de personas que han recomendado un producto
+ */
+export async function getProductReferralCount(productId: string): Promise<number> {
+  try {
+    const q = query(
+      collection(db, 'referralLinks'),
+      where('productId', '==', productId)
+    )
+    const snapshot = await getDocs(q)
+    return snapshot.size
+  } catch (error) {
+    console.error('Error getting product referral count:', error)
+    return 0
+  }
+}
+
+/**
+ * Obtiene los contadores de recomendaciones para múltiples productos en una sola query
+ */
+export async function getProductsReferralCounts(productIds: string[]): Promise<Record<string, number>> {
+  try {
+    if (productIds.length === 0) return {}
+    
+    // Firestore 'in' query limita a 10 elementos, así que hacemos batches
+    const counts: Record<string, number> = {}
+    const batches: string[][] = []
+    
+    for (let i = 0; i < productIds.length; i += 10) {
+      batches.push(productIds.slice(i, i + 10))
+    }
+    
+    for (const batch of batches) {
+      const q = query(
+        collection(db, 'referralLinks'),
+        where('productId', 'in', batch)
+      )
+      const snapshot = await getDocs(q)
+      
+      // Contar por producto
+      const productCounts: Record<string, number> = {}
+      batch.forEach(id => productCounts[id] = 0)
+      
+      snapshot.docs.forEach(doc => {
+        const data = doc.data()
+        if (data.productId && productCounts.hasOwnProperty(data.productId)) {
+          productCounts[data.productId]++
+        }
+      })
+      
+      Object.assign(counts, productCounts)
+    }
+    
+    return counts
+  } catch (error) {
+    console.error('Error getting products referral counts:', error)
+    return {}
   }
 }
 

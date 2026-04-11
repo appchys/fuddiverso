@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Product, Business } from '@/types'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata } from '@/lib/price-utils'
+import { Flame } from 'lucide-react'
 
 interface StoryProductDetailProps {
     isOpen: boolean
@@ -11,9 +12,12 @@ interface StoryProductDetailProps {
     business: Business | null
     onAddToCart: (item: any) => void
     onOpenCart?: () => void
+    onGenerateReferral?: () => void
+    hasRecommended?: boolean
+    referralCount?: number
 }
 
-export default function StoryProductDetail({ isOpen, onClose, product, business, onAddToCart, onOpenCart }: StoryProductDetailProps) {
+export default function StoryProductDetail({ isOpen, onClose, product, business, onAddToCart, onOpenCart, onGenerateReferral, hasRecommended, referralCount }: StoryProductDetailProps) {
     const [selectedVariant, setSelectedVariant] = useState<string | null>(null)
     const [cart, setCart] = useState<any[]>([])
     const [notification, setNotification] = useState<{ show: boolean; message: string }>({ show: false, message: '' })
@@ -154,6 +158,24 @@ export default function StoryProductDetail({ isOpen, onClose, product, business,
                                 {formatPrice(getProductPublicPrice(selectedVariant ? product.variants?.find(v => v.name === selectedVariant) || product : product))}
                             </p>
                         </div>
+                        {onGenerateReferral && (
+                            <button
+                                onClick={onGenerateReferral}
+                                className={`flex items-center gap-1 flex-shrink-0 transition-all ${
+                                    hasRecommended
+                                        ? 'text-amber-500'
+                                        : 'text-gray-400 hover:text-amber-500 hover:bg-gray-50 rounded-xl p-2'
+                                }`}
+                                title="Recomendar"
+                            >
+                                <Flame size={16} strokeWidth={hasRecommended ? 3 : 1.5} />
+                                {referralCount !== undefined && referralCount > 0 && (
+                                    <span className="text-[11px] font-bold">
+                                        {referralCount}
+                                    </span>
+                                )}
+                            </button>
+                        )}
                     </div>
                 </div>
 

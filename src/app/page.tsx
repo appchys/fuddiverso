@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense, useRef } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct } from '@/lib/database'
+import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product, CoverageGroup } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
@@ -164,6 +164,7 @@ function HomePageContent() {
   const [generatedReferralLink, setGeneratedReferralLink] = useState<string>('')
   const [referralBusinessName, setReferralBusinessName] = useState<string>('')
   const [generatedReferralProducts, setGeneratedReferralProducts] = useState<Set<string>>(new Set())
+  const [referralCounts, setReferralCounts] = useState<Record<string, number>>({})
 
   // Load Cart Logic
   useEffect(() => {
@@ -195,12 +196,13 @@ function HomePageContent() {
     }
   }, [selectedStoryBusiness?.id, selectedProductBusiness?.id, isCartOpen])
 
-  // Cargar productos que el usuario ya ha recomendado
+  // Cargar productos que el usuario ya ha recomendado + contadores globales
   useEffect(() => {
     const loadRecommendedProducts = async () => {
       if (!user?.id || Object.keys(productsByBusiness).length === 0) return
 
-      const productIds = Object.values(productsByBusiness).flat().map(p => p.id)
+      const allProducts = Object.values(productsByBusiness).flat()
+      const productIds = allProducts.map(p => p.id)
       const recommendedSet = new Set<string>()
 
       await Promise.all(
@@ -213,6 +215,10 @@ function HomePageContent() {
       )
 
       setGeneratedReferralProducts(recommendedSet)
+
+      // Cargar contadores de recomendaciones
+      const counts = await getProductsReferralCounts(productIds)
+      setReferralCounts(counts)
     }
 
     loadRecommendedProducts()
@@ -301,7 +307,7 @@ function HomePageContent() {
     if (!business?.id) return
 
     try {
-      const code = await generateReferralLink(
+      const { code, isNew } = await generateReferralLink(
         product.id,
         business.id,
         user?.id || undefined,
@@ -317,6 +323,13 @@ function HomePageContent() {
       setSelectedProductForReferral(product)
       setReferralBusinessName(business.name)
       setGeneratedReferralProducts(prev => new Set(prev).add(product.id))
+      // Actualizar contador local solo si es nuevo
+      if (isNew) {
+        setReferralCounts(prev => ({
+          ...prev,
+          [product.id]: (prev[product.id] || 0) + 1
+        }))
+      }
       setReferralModalOpen(true)
     } catch (error) {
       console.error('Error generating referral:', error)
@@ -817,21 +830,21 @@ function HomePageContent() {
             ) : (
               storyBusinesses.map((b) => {
                   return (
-                    <button 
-                      key={b.id} 
+                    <button
+                      key={b.id}
                       onClick={() => handleOpenStory(b)}
                       className="flex flex-col items-center gap-1.5 flex-shrink-0 w-20 group transition-transform active:scale-95 text-left"
                     >
-                      <div className={`relative p-[2.5px] rounded-full shadow-sm group-hover:shadow-md transition-all ${isStoreOpen(b) 
-                        ? 'bg-emerald-400' 
+                      <div className={`relative p-[2.5px] rounded-full shadow-sm group-hover:shadow-md transition-all ${isStoreOpen(b)
+                        ? 'bg-emerald-400'
                         : 'bg-gray-200'}`}>
                         <div className="p-0.5 bg-white rounded-full">
                           <div className="w-16 h-16 rounded-full overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center">
                             {b.image ? (
-                              <img 
-                                src={b.image} 
-                                alt={b.name} 
-                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
+                              <img
+                                src={b.image}
+                                alt={b.name}
+                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                               />
                             ) : (
                               <i className="bi bi-shop text-2xl text-gray-400"></i>
@@ -1183,38 +1196,21 @@ function HomePageContent() {
                                   <p className="text-xs text-gray-500 line-clamp-2 leading-snug flex-1">
                                     {product.description || 'Delicioso plato preparado con los mejores ingredientes.'}
                                   </p>
-                                  <div className="flex items-center gap-2 flex-shrink-0">
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        const price = getProductPublicPrice(product)
-                                        addItemToCart({
-                                          id: product.id,
-                                          name: product.name,
-                                          price: price,
-                                          image: product.image,
-                                          businessId: product.businessId,
-                                          variantName: null,
-                                        })
-                                      }}
-                                      className="w-7 h-7 rounded-full flex items-center justify-center text-gray-400 hover:text-[#aa1918] hover:bg-red-50 transition-all"
-                                      title="Añadir al carrito"
-                                    >
-                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
-                                      </svg>
-                                    </button>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleGenerateReferral(product, b)
-                                      }}
-                                      className={`w-7 h-7 rounded-full flex items-center justify-center hover:bg-red-50 transition-all ${generatedReferralProducts.has(product.id) ? '' : 'text-gray-400 hover:text-[#aa1918]'}`}
-                                      title="Recomendar"
-                                    >
-                                      <Flame size={16} strokeWidth={generatedReferralProducts.has(product.id) ? 3 : 1.5} color={generatedReferralProducts.has(product.id) ? '#F59E0B' : undefined} />
-                                    </button>
-                                  </div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleGenerateReferral(product, b)
+                                    }}
+                                    className={`flex items-center gap-1 flex-shrink-0 transition-all ${generatedReferralProducts.has(product.id) ? '' : 'text-gray-400 hover:text-[#aa1918]'}`}
+                                    title="Recomendar"
+                                  >
+                                    <Flame size={16} strokeWidth={generatedReferralProducts.has(product.id) ? 3 : 1.5} color={generatedReferralProducts.has(product.id) ? '#F59E0B' : undefined} />
+                                    {referralCounts[product.id] !== undefined && referralCounts[product.id] > 0 && (
+                                      <span className="text-[10px] font-bold text-gray-500">
+                                        {referralCounts[product.id]}
+                                      </span>
+                                    )}
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -1404,19 +1400,27 @@ function HomePageContent() {
 
             {/* Header */}
             <div className="absolute top-10 left-0 right-0 z-20 flex items-center justify-between px-4">
-              <Link 
-                href={selectedStoryBusiness.username ? `/${selectedStoryBusiness.username}` : `/restaurant/${selectedStoryBusiness.id}`}
-                className="flex items-center gap-3 transition-opacity active:opacity-70"
-              >
-                <div className="w-10 h-10 rounded-full border-2 border-white overflow-hidden bg-white shadow-lg">
-                  <img src={selectedStoryBusiness.image} alt={selectedStoryBusiness.name} className="w-full h-full object-cover" />
-                </div>
-                <div className="text-white drop-shadow-md">
-                  <h4 className="text-sm font-bold leading-none">{selectedStoryBusiness.name}</h4>
-                  <p className="text-[10px] opacity-70">Hace un momento</p>
-                </div>
-              </Link>
-              <button 
+              <div className="flex items-center gap-3">
+                <Link
+                  href={selectedStoryBusiness.username ? `/${selectedStoryBusiness.username}` : `/restaurant/${selectedStoryBusiness.id}`}
+                  className="flex items-center gap-3 transition-opacity active:opacity-70"
+                >
+                  <div className="w-10 h-10 rounded-full border-2 border-white overflow-hidden bg-white shadow-lg">
+                    <img src={selectedStoryBusiness.image} alt={selectedStoryBusiness.name} className="w-full h-full object-cover" />
+                  </div>
+                  <div className="drop-shadow-md">
+                    <h4 className="text-white text-sm font-bold leading-none">{selectedStoryBusiness.name}</h4>
+                    <p className="text-[10px] text-white/70">Hace un momento</p>
+                  </div>
+                </Link>
+                <button
+                  onClick={(e) => handleFollowToggle(selectedStoryBusiness.id, e)}
+                  className={`w-10 h-10 flex items-center justify-center transition-all ${followedBusinesses.has(selectedStoryBusiness.id) ? 'text-[#aa1918]' : 'text-white/70 hover:text-[#aa1918]'}`}
+                >
+                  <i className={`bi bi-heart${followedBusinesses.has(selectedStoryBusiness.id) ? '-fill' : ''} text-xl`}></i>
+                </button>
+              </div>
+              <button
                 onClick={() => setIsStoryModalOpen(false)}
                 className="w-10 h-10 flex items-center justify-center text-white drop-shadow-md"
               >
@@ -1509,24 +1513,53 @@ function HomePageContent() {
 
                   {/* Product Info & Action (Using current index for dynamic info) */}
                   <div className="absolute bottom-32 left-0 right-0 px-6 flex flex-col items-center">
-                    <h3 className="text-white text-xl font-bold mb-1 text-center drop-shadow-md">
-                      {storyProducts[currentStoryIndex].name}
-                    </h3>
+                    <div className="flex items-center gap-1 mb-1">
+                      <h3 className="text-white text-xl font-bold text-center drop-shadow-md">
+                        {storyProducts[currentStoryIndex].name}
+                      </h3>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleGenerateReferral(storyProducts[currentStoryIndex], selectedStoryBusiness)
+                        }}
+                        className={`flex items-center gap-1 flex-shrink-0 transition-all ${
+                          generatedReferralProducts.has(storyProducts[currentStoryIndex].id)
+                            ? 'text-amber-400'
+                            : 'text-white/60 hover:text-amber-400'
+                        }`}
+                        title="Recomendar"
+                      >
+                        <Flame size={16} strokeWidth={generatedReferralProducts.has(storyProducts[currentStoryIndex].id) ? 3 : 1.5} />
+                        {referralCounts[storyProducts[currentStoryIndex].id] !== undefined && referralCounts[storyProducts[currentStoryIndex].id] > 0 && (
+                          <span className="text-xs font-bold text-white/70">
+                            {referralCounts[storyProducts[currentStoryIndex].id]}
+                          </span>
+                        )}
+                      </button>
+                    </div>
                     {storyProducts[currentStoryIndex].variants && storyProducts[currentStoryIndex].variants.length > 0 ? (
                       <div className="flex flex-col items-center gap-1.5 mb-6">
                         {storyProducts[currentStoryIndex].variants.slice(0, 2).map((variant, vIdx) => (
-                          <div key={vIdx} className="text-white/95 text-[11px] font-black bg-white/10 backdrop-blur-md px-4 py-1 rounded-full border border-white/10 flex gap-2 items-center">
-                            <span className="opacity-70 uppercase tracking-tighter">{variant.name}</span>
+                          <div key={vIdx} className="text-[11px] font-bold text-white/80 flex gap-2 items-center">
+                            <span className="text-white/60 uppercase tracking-tighter">{variant.name}</span>
                             <span className="text-white">{formatPrice(getProductPublicPrice(variant))}</span>
                           </div>
                         ))}
+                        {storyProducts[currentStoryIndex].variants.length > 2 && (
+                          <button
+                            onClick={() => handleProductClick(storyProducts[currentStoryIndex], selectedStoryBusiness)}
+                            className="text-white/70 text-[11px] font-bold flex items-center gap-1 mt-1 hover:text-white transition-colors"
+                          >
+                            Ver más <i className="bi bi-chevron-down text-[10px]"></i>
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <p className="text-white/90 text-sm mb-6 font-bold bg-white/20 backdrop-blur-md px-4 py-1 rounded-full border border-white/20">
                         {formatPrice(getProductPublicPrice(storyProducts[currentStoryIndex]))}
                       </p>
                     )}
-                    
+
                     <div className="flex gap-3 w-full">
                       <button
                         onClick={() => {
@@ -1536,7 +1569,7 @@ function HomePageContent() {
                       >
                         Ver Detalle / Comprar
                       </button>
-                      
+
                       {cart.length > 0 && (
                         <button
                           onClick={() => {
@@ -1593,6 +1626,9 @@ function HomePageContent() {
           setIsCartOpen(true)
           setIsStoryModalOpen(false)
         }}
+        onGenerateReferral={selectedProduct && selectedProductBusiness ? () => handleGenerateReferral(selectedProduct, selectedProductBusiness) : undefined}
+        hasRecommended={selectedProduct ? generatedReferralProducts.has(selectedProduct.id) : false}
+        referralCount={selectedProduct ? referralCounts[selectedProduct.id] : undefined}
       />
 
       <CartSidebar

@@ -719,7 +719,7 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
         slug: item.product?.slug || item.slug || generateProductSlug(business.username, item.productId || item.id)
       }
 
-      const code = await generateReferralLink(
+      const { code } = await generateReferralLink(
         productData.id,
         business.id,
         clientUser?.id || undefined,

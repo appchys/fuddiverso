@@ -881,7 +881,7 @@ function RestaurantContent() {
     if (!business?.id) return
 
     try {
-      const code = await generateReferralLink(
+      const { code } = await generateReferralLink(
         product.id,
         business.id,
         clientUser?.id || clientPhone || undefined,
