@@ -75,10 +75,14 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
             }
 
             loadCart()
-            // Listen for storage changes in case cart is updated elsewhere
+            // Listen for storage changes and custom cart updates
             const handleStorageChange = () => loadCart()
             window.addEventListener('storage', handleStorageChange)
-            return () => window.removeEventListener('storage', handleStorageChange)
+            window.addEventListener('cart-updated', handleStorageChange)
+            return () => {
+                window.removeEventListener('storage', handleStorageChange)
+                window.removeEventListener('cart-updated', handleStorageChange)
+            }
         }
     }, [business?.id, isOpen])
 
@@ -161,8 +165,9 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
         }
 
         localStorage.setItem('carts', JSON.stringify(allCarts))
-        // Dispatch storage event for other components to update
+        // Dispatch events for other components to update
         window.dispatchEvent(new Event('storage'))
+        window.dispatchEvent(new Event('cart-updated'))
     }
 
     const handleCopyProductLink = async () => {

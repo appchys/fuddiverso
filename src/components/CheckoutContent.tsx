@@ -436,10 +436,20 @@ export function CheckoutContent({
     return getCartItems()
   })
 
-  // Sincronizar si cambian los props embebidos
+  // Sincronizar si cambian los props embebidos o localStorage
   useEffect(() => {
     if (isEmbedded) {
       setCartItems(embeddedCartItems || [])
+    } else {
+      const handleStorageChange = () => {
+        setCartItems(getCartItems())
+      }
+      window.addEventListener('storage', handleStorageChange)
+      window.addEventListener('cart-updated', handleStorageChange)
+      return () => {
+        window.removeEventListener('storage', handleStorageChange)
+        window.removeEventListener('cart-updated', handleStorageChange)
+      }
     }
   }, [embeddedCartItems, isEmbedded])
 
@@ -486,6 +496,7 @@ export function CheckoutContent({
             allCarts[businessId] = newItems
             localStorage.setItem('carts', JSON.stringify(allCarts))
             window.dispatchEvent(new Event('storage'))
+            window.dispatchEvent(new Event('cart-updated'))
           }
         } catch (e) {
           console.error('Error updating cart:', e)

@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import 'bootstrap-icons/font/bootstrap-icons.css'
 import { AuthProvider } from '@/contexts/AuthContext'
@@ -10,6 +10,13 @@ export const metadata: Metadata = {
   description: 'Plataforma de delivery de comida para negocios y clientes',
 }
 
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+}
+
 export default function RootLayout({
   children,
 }: {
@@ -19,6 +26,7 @@ export default function RootLayout({
     <html lang="es" suppressHydrationWarning>
       <head>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poetsen+One&display=swap" />
       </head>
       <body className="bg-gray-50 min-h-screen">
         <AuthProvider>

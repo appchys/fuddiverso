@@ -58,7 +58,11 @@ export default function StoryProductDetail({ isOpen, onClose, product, business,
             }
             loadCart()
             window.addEventListener('storage', loadCart)
-            return () => window.removeEventListener('storage', loadCart)
+            window.addEventListener('cart-updated', loadCart)
+            return () => {
+                window.removeEventListener('storage', loadCart)
+                window.removeEventListener('cart-updated', loadCart)
+            }
         }
     }, [business?.id, isOpen])
 

@@ -8,6 +8,9 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        poetsen: ['"Poetsen One"', 'cursive'],
+      },
       colors: {
         primary: {
           50: '#fef2f2',

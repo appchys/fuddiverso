@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest } from '@/lib/database'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
-import { Business, Product } from '@/types'
+import { Business, Product, CoverageGroup } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
 import { isStoreOpen } from '@/lib/store-utils'
 import { useAuth } from '@/contexts/AuthContext'
@@ -64,12 +64,15 @@ function HomePageContent() {
   const [categories, setCategories] = useState<string[]>(['all'])
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [randomProducts, setRandomProducts] = useState<Product[]>([])
-  const [supplierProducts, setSupplierProducts] = useState<Record<string, Product[]>>({})
+  const [productsByBusiness, setProductsByBusiness] = useState<Record<string, Product[]>>({})
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedProductBusiness, setSelectedProductBusiness] = useState<Business | null>(null)
   const [isProductSidebarOpen, setIsProductSidebarOpen] = useState(false)
   const [groupId, setGroupId] = useState<string | null>(null)
-  const [detectedGroupName, setDetectedGroupName] = useState<string | null>(null)
+  const [detectedGroupName, setDetectedGroupName] = useState<string | null>('Daule')
+  const [coverageGroups, setCoverageGroups] = useState<CoverageGroup[]>([])
+  const [showGroupSelector, setShowGroupSelector] = useState(false)
+  const groupSelectorRef = useRef<HTMLDivElement>(null)
   const [isOutOfCoverage, setIsOutOfCoverage] = useState(false)
   const [locationError, setLocationError] = useState(false)
   const [showAllRestaurants, setShowAllRestaurants] = useState(false)
@@ -259,98 +262,136 @@ function HomePageContent() {
     updateCartInStorage(currentBusinessId, [])
   }
 
-  // Cargar productos de proveedores de forma paralela y eficiente
+  // Cargar productos de negocios (tanto restaurantes como proveedores)
   useEffect(() => {
-    const fetchSupplierProducts = async () => {
-      const suppliers = businesses.filter(b => b.businessType === 'distributor')
-      if (suppliers.length === 0) return
+    const fetchBusinessProducts = async () => {
+      if (businesses.length === 0) return
 
       try {
         const productsMap: Record<string, Product[]> = {}
-        // Ejecutamos en paralelo para máxima velocidad
-        await Promise.all(suppliers.map(async (supplier) => {
-          const products = await getProductsByBusiness(supplier.id)
-          productsMap[supplier.id] = products.filter(p => p.isAvailable).slice(0, 4)
+        // Ejecutamos en paralelo para máxima velocidad, pero limitamos a los negocios visibles
+        const targetBusinesses = businesses.slice(0, 30); // Limitar para evitar saturación de red
+        
+        await Promise.all(targetBusinesses.map(async (business) => {
+          const products = await getProductsByBusiness(business.id)
+          // Barajar aleatoriamente los productos disponibles
+          const availableProducts = products.filter(p => p.isAvailable && p.image)
+          const shuffled = [...availableProducts].sort(() => 0.5 - Math.random())
+          productsMap[business.id] = shuffled.slice(0, 10)
         }))
-        setSupplierProducts(productsMap)
+        setProductsByBusiness(prev => ({ ...prev, ...productsMap }))
       } catch (error) {
-        console.error("Error loading distributor products:", error)
+        console.error("Error loading business products:", error)
       }
     }
 
     if (businesses.length > 0) {
-      fetchSupplierProducts()
+      fetchBusinessProducts()
     }
   }, [businesses])
 
   // Helper: detectar grupo por coordenadas y actualizar estado
-  const detectGroupFromCoords = async (coords: { lat: number; lng: number }) => {
+  const detectGroupFromCoords = async (coords: { lat: number; lng: number }, groupsReference?: CoverageGroup[]) => {
     try {
-      console.log('[DEBUG] detectGroupFromCoords - Coords:', coords)
+      console.log('[LOCATION] Detecting group for:', coords)
       const zone = await getCoverageZoneForLocation(coords)
-      console.log('[DEBUG] detectGroupFromCoords - Zone found:', zone)
-      
+      console.log('[LOCATION] Zone found:', zone)
+
       if (zone?.groupId) {
-        console.log('[DEBUG] detectGroupFromCoords - Setting groupId:', zone.groupId)
         setGroupId(zone.groupId)
         setIsOutOfCoverage(false)
         localStorage.setItem('lastDetectedGroupId', zone.groupId)
-        // Obtener el nombre del grupo para mostrarlo en la UI
-        getCoverageGroups().then(groups => {
-          const found = groups.find(g => g.id === zone.groupId)
-          console.log('[DEBUG] detectGroupFromCoords - Group name:', found?.name)
-          setDetectedGroupName(found?.name || null)
-        }).catch(err => console.error('[DEBUG] detectGroupFromCoords - Error loading groups:', err))
+        
+        // Usar los grupos pasados o los del estado
+        const groups = groupsReference || (coverageGroups.length > 0 ? coverageGroups : await getCoverageGroups())
+        const found = groups.find(g => g.id === zone.groupId)
+        console.log('[LOCATION] Group confirmed:', found?.name)
+        setDetectedGroupName(found?.name || null)
       } else {
-        console.log('[DEBUG] detectGroupFromCoords - No groupId for these coords')
+        console.log('[LOCATION] No coverage for these coords')
+        // Si hay coordenadas pero no hay zona, mostramos fuera de cobertura
         setGroupId(null)
         setIsOutOfCoverage(true)
         setDetectedGroupName(null)
         localStorage.removeItem('lastDetectedGroupId')
       }
     } catch (err) {
-      console.error('[DEBUG] detectGroupFromCoords - Error:', err)
+      console.error('[LOCATION] Error in detection:', err)
     }
   }
 
+  // Cerrar dropdown al hacer clic fuera
   useEffect(() => {
-    // Prioridad 1: Coordenadas guardadas por UserSidebar (ubicación activa del usuario)
-    const savedCoords = localStorage.getItem('userCoordinates')
-    if (savedCoords) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (groupSelectorRef.current && !groupSelectorRef.current.contains(event.target as Node)) {
+        setShowGroupSelector(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Sistema de inicialización de grupos y ubicación (Refacturado)
+  useEffect(() => {
+    const initLocation = async () => {
       try {
-        const coords = JSON.parse(savedCoords)
-        setUserLocation(coords)
-        detectGroupFromCoords(coords)
-        return // No necesitamos GPS si ya tenemos coordenadas guardadas
-      } catch (e) {
-        console.warn('Error parsing saved userCoordinates:', e)
+        // 1. Cargar grupos de cobertura
+        const groups = await getCoverageGroups()
+        const activeGroups = groups.filter(g => g.isActive)
+        setCoverageGroups(activeGroups)
+        
+        // Buscar el grupo Daule por defecto
+        const daule = activeGroups.find(g => g.name.toLowerCase().includes('daule'))
+
+        // 2. Comprobar si hay ubicación guardada (Preferencia del usuario)
+        const savedCoords = localStorage.getItem('userCoordinates')
+        if (savedCoords) {
+          try {
+            const coords = JSON.parse(savedCoords)
+            setUserLocation(coords)
+            await detectGroupFromCoords(coords, activeGroups)
+            return // Si ya tenemos ubicación explícita, no autodisparamos GPS
+          } catch (e) {
+            console.warn('Error parsing saved location:', e)
+          }
+        }
+
+        // 3. Fallback inicial: Establecer Daule mientras se pide GPS o si se niega
+        if (daule) {
+          setGroupId(daule.id)
+          setDetectedGroupName(daule.name)
+        }
+
+        // 4. Pedir permiso de GPS (A petición del usuario: "Pide permiso a la ubicación")
+        if ('geolocation' in navigator) {
+          navigator.geolocation.getCurrentPosition(
+            async (position) => {
+              const newLocation = {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude,
+              }
+              setUserLocation(newLocation)
+              // Esto actualizará el grupo automáticamente si hay cobertura
+              await detectGroupFromCoords(newLocation, activeGroups)
+            },
+            (error) => {
+              console.warn('GPS Error o Permiso denegado:', error)
+              // Se queda en Daule (ya establecido arriba como fallback)
+              setLocationError(true)
+            },
+            { enableHighAccuracy: false, timeout: 6000 }
+          )
+        } else {
+          setLocationError(true)
+        }
+      } catch (err) {
+        console.error('Error in location system init:', err)
       }
     }
 
-    // Prioridad 2: GPS del navegador (si no hay coordenadas guardadas)
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const newLocation = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          }
-          setUserLocation(newLocation)
-          detectGroupFromCoords(newLocation)
-        },
-        (error) => {
-          console.warn('Ubicación no disponible:', error)
-          setLocationError(true)
-        },
-        { enableHighAccuracy: false, timeout: 5000 }
-      )
-    } else {
-      setLocationError(true)
-    }
-  }, [])
+    initLocation()
 
-  // Escuchar cambios en localStorage: cuando el usuario cambia su ubicación activa en UserSidebar
-  useEffect(() => {
+    // Listeners para cambios externos
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'userCoordinates' && e.newValue) {
         try {
@@ -358,7 +399,7 @@ function HomePageContent() {
           setUserLocation(coords)
           detectGroupFromCoords(coords)
         } catch (err) {
-          console.warn('Error parsing updated userCoordinates:', err)
+          console.warn('Error parsing updated coordinates:', err)
         }
       }
     }
@@ -620,8 +661,76 @@ function HomePageContent() {
   return (
     <div className="min-h-screen bg-gray-50">
 
+      {/* Indicador de zona (FUERA de la sección de stories para evitar overflow-hidden) */}
+      {(detectedGroupName || coverageGroups.length > 0) && (
+        <div className="max-w-6xl mx-auto px-4 pt-4 pb-2 relative">
+          <div className="flex items-center justify-end gap-2">
+            {showAllRestaurants && (
+              <button
+                onClick={() => {
+                  setShowAllRestaurants(false)
+                  setShowGroupSelector(false)
+                }}
+                className="text-[10px] font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors"
+              >
+                Ver solo mi zona
+              </button>
+            )}
+            <button
+              onClick={() => setShowGroupSelector(!showGroupSelector)}
+              className="text-xs font-black text-[#aa1918] bg-red-50 px-3 py-1 rounded-full hover:bg-red-100 transition-colors flex items-center gap-1"
+            >
+              <i className="bi bi-geo-alt-fill text-sm"></i>
+              {detectedGroupName || 'Daule'}
+              <i className={`bi bi-chevron-${showGroupSelector ? 'up' : 'down'} text-[10px]`}></i>
+            </button>
+          </div>
+
+          {/* Dropdown de grupos */}
+          {showGroupSelector && coverageGroups.length > 0 && (
+            <div ref={groupSelectorRef} className="absolute top-full right-4 mt-1 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-[9999] min-w-[200px]">
+              {coverageGroups.map(group => (
+                <button
+                  key={group.id}
+                  onClick={() => {
+                    setGroupId(group.id)
+                    setDetectedGroupName(group.name)
+                    setShowGroupSelector(false)
+                    setShowAllRestaurants(false)
+                    localStorage.setItem('lastDetectedGroupId', group.id)
+                  }}
+                  className={`w-full text-left px-4 py-2 text-sm font-medium hover:bg-gray-50 transition-colors flex items-center gap-2 ${
+                    groupId === group.id ? 'text-[#aa1918] bg-red-50' : 'text-gray-700'
+                  }`}
+                >
+                  <i className={`bi bi-${groupId === group.id ? 'check-circle-fill text-[#aa1918]' : 'circle text-gray-300'} text-xs`}></i>
+                  {group.name}
+                </button>
+              ))}
+              <div className="border-t border-gray-100 mt-1 pt-1">
+                <button
+                  onClick={() => {
+                    setGroupId(null)
+                    setDetectedGroupName(null)
+                    setShowAllRestaurants(true)
+                    setShowGroupSelector(false)
+                    localStorage.removeItem('lastDetectedGroupId')
+                  }}
+                  className={`w-full text-left px-4 py-2 text-sm font-medium hover:bg-gray-50 transition-colors flex items-center gap-2 ${
+                    !groupId && showAllRestaurants ? 'text-[#aa1918] bg-red-50' : 'text-gray-500'
+                  }`}
+                >
+                  <i className="bi bi-globe text-xs"></i>
+                  Todos los restaurantes
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* STORE STORIES (Instagram style) */}
-      <section className="pt-6 pb-2 bg-white overflow-hidden">
+      <section className="pt-1 pb-1 bg-gray-50">
         <div className="max-w-6xl mx-auto px-4">
           <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 px-2 items-start">
             {loading ? (
@@ -668,37 +777,8 @@ function HomePageContent() {
         </div>
       </section>
 
-      {/* CATEGORÍAS */}
-      <section className="py-6 bg-white border-b border-gray-100">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-            <button
-              onClick={() => handleCategoryChange('all')}
-              className={`inline-flex items-center px-4 py-2 rounded-full text-xs font-bold transition-all whitespace-nowrap ${selectedCategory === 'all'
-                ? 'bg-[#aa1918] text-white shadow-sm'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-            >
-              Todo
-            </button>
-            {categories.slice(1).map((cat) => (
-              <button
-                key={cat}
-                onClick={() => handleCategoryChange(cat)}
-                className={`inline-flex items-center px-4 py-2 rounded-full text-xs font-bold transition-all whitespace-nowrap ${selectedCategory === cat
-                  ? 'bg-[#aa1918] text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* PRODUCTOS ALEATORIOS */}
-      <section className="py-6 bg-white">
+      <section className="py-2 pb-1">
         <div className="max-w-6xl mx-auto px-6">
           <div className="relative">
             <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 random-products-carousel">
@@ -797,7 +877,7 @@ function HomePageContent() {
 
 
       {/* LISTA DE RESTAURANTES */}
-      <section className="py-12 bg-gray-50">
+      <section className="py-4 bg-gray-50">
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex justify-between items-end mb-8">
             <div>
@@ -811,7 +891,6 @@ function HomePageContent() {
                 </p>
               )}
             </div>
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-100 px-3 py-1 rounded-full">{businesses.filter(b => b.businessType !== 'distributor').length} locales</span>
           </div>
 
           {loading ? (
@@ -941,122 +1020,127 @@ function HomePageContent() {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+            <div className="flex flex-col gap-12">
               {businesses.filter(b => b.businessType !== 'distributor').map((b) => {
                 const link = b.username ? `/${b.username}` : `/restaurant/${b.id}`
                 const followed = followedBusinesses.has(b.id)
+                const products = productsByBusiness[b.id] || []
+                
                 return (
-                  <Link
-                    href={link}
-                    key={b.id}
-                    className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100 group"
-                  >
-                    <div className="relative h-40 bg-gray-100 flex items-center justify-center">
-                      {b.image ? (
-                        <img
-                          src={b.image}
-                          alt={b.name}
-                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                        />
-                      ) : (
-                        <i className="bi bi-shop text-5xl text-gray-400"></i>
-                      )}
-                      <button
-                        onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                          e.preventDefault()
-                          handleFollowToggle(b.id)
-                        }}
-                        className="absolute top-3 right-3"
-                      >
-                        {followed ? (
-                          <i className="bi bi-heart-fill text-xl text-[#aa1918]"></i>
-                        ) : (
-                          <i className="bi bi-heart text-xl text-white drop-shadow-md"></i>
-                        )}
-                      </button>
-                    </div>
-                    <div className="p-4">
-                      <h3 className="text-sm font-bold text-gray-900 line-clamp-1 group-hover:text-[#aa1918] transition-colors">{b.name}</h3>
-                      {b.categories && b.categories.length > 0 && (
-                        <div className="flex gap-1 my-2 overflow-x-auto scrollbar-hide">
-                          {b.categories.map((cat, i) => (
-                            <span
-                              key={i}
-                              className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600 whitespace-nowrap flex-shrink-0"
-                            >
-                              {cat}
-                            </span>
-                          ))}
+                  <div key={b.id} className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+                    {/* Header del Restaurante: Logo, Nombre y Reseñas */}
+                    <div className="flex items-center justify-between mb-5 px-1">
+                      <Link href={link} className="flex items-center gap-4 group">
+                        <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white shadow-xl bg-gray-50 flex-shrink-0 group-hover:scale-105 transition-transform duration-300">
+                          {b.image ? (
+                            <img
+                              src={b.image}
+                              alt={b.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <i className="bi bi-shop text-3xl text-gray-300"></i>
+                            </div>
+                          )}
                         </div>
-                      )}
-                      <div className="mb-2">
-                        {b.ratingAverage ? (
-                          <div className="flex items-center">
-                            <StarRating rating={b.ratingAverage} size="sm" />
-                            <span className="text-xs text-gray-500 ml-1">({b.ratingCount || 0})</span>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-xl font-black text-gray-900 line-clamp-1 group-hover:text-[#aa1918] transition-colors tracking-tight">
+                            {b.name}
+                          </h3>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                            {b.ratingAverage ? (
+                              <div className="flex items-center">
+                                <StarRating rating={b.ratingAverage} size="sm" />
+                                <span className="text-xs font-bold text-gray-400 ml-1">({b.ratingCount || 0})</span>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Sin reseñas</span>
+                            )}
                           </div>
-                        ) : (
-                          <div className="text-[10px] font-bold text-gray-300 uppercase letter tracking-widest">Sin reseñas</div>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-600 line-clamp-2 mb-3 leading-relaxed">{b.description}</p>
-                      <div className="text-xs text-gray-500 flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                          {(() => {
-                            const getBusinessLocation = (business: Business) => {
-                              if (business.pickupSettings?.latlong) {
-                                const [lat, lng] = business.pickupSettings.latlong
-                                  .split(',')
-                                  .map((s) => parseFloat(s.trim()))
-                                if (!isNaN(lat) && !isNaN(lng)) return { lat, lng }
-                              }
-                              if (business.mapLocation?.lat && business.mapLocation?.lng) {
-                                return business.mapLocation
-                              }
-                              return null
-                            }
-
-                            const businessLoc = getBusinessLocation(b)
-                            if (userLocation && businessLoc) {
-                              const calcDist = (
-                                lat1: number,
-                                lon1: number,
-                                lat2: number,
-                                lon2: number
-                              ) => {
-                                const R = 6371
-                                const dLat = ((lat2 - lat1) * Math.PI) / 180
-                                const dLon = ((lon2 - lon1) * Math.PI) / 180
-                                const a =
-                                  Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                                  Math.cos((lat1 * Math.PI) / 180) *
-                                  Math.cos((lat2 * Math.PI) / 180) *
-                                  Math.sin(dLon / 2) *
-                                  Math.sin(dLon / 2)
-                                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-                                return R * c
-                              }
-                              const dist = calcDist(
-                                userLocation.lat,
-                                userLocation.lng,
-                                businessLoc.lat,
-                                businessLoc.lng
-                              )
-                              return (
-                                <span className="text-[#aa1918] font-bold whitespace-nowrap text-[10px] uppercase bg-red-50 px-3 py-1 rounded-full">
-                                  {dist.toFixed(1)} km
-                                </span>
-                              )
-                            }
-                            return null
-                          })()}
-                          <span className="text-[#aa1918] font-bold whitespace-nowrap text-[10px] uppercase ml-2 bg-red-50 px-3 py-1 rounded-full">
-                            Envío $1
-                          </span>
+                          {b.description && (
+                            <p className="text-xs text-gray-400 mt-2 line-clamp-1">
+                              {b.description}
+                            </p>
+                          )}
                         </div>
+                      </Link>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            handleFollowToggle(b.id)
+                          }}
+                          className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${followed ? 'bg-red-50 text-[#aa1918]' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
+                        >
+                          <i className={`bi bi-heart${followed ? '-fill' : ''} text-lg`}></i>
+                        </button>
                       </div>
                     </div>
-                  </Link>
+
+                    {/* Carrusel de Productos Aleatorios */}
+                    <div className="relative group/carousel">
+                      <div className={`flex gap-4 overflow-x-auto scrollbar-hide pb-2 px-1 ${products.length === 0 ? 'animate-pulse' : ''}`}>
+                        {products.length > 0 ? (
+                          products.map((product) => (
+                            <div
+                              key={product.id}
+                              onClick={() => handleProductClick(product, b)}
+                              className="flex-shrink-0 w-72 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100 cursor-pointer group/product"
+                            >
+                              <div className="relative h-40 bg-gray-100 flex items-center justify-center">
+                                {product.image ? (
+                                  <img
+                                    src={product.image}
+                                    alt={product.name}
+                                    className="w-full h-full object-cover group-hover/product:scale-105 transition-transform duration-500"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+                                    <i className="bi bi-bag text-3xl text-gray-300"></i>
+                                  </div>
+                                )}
+                                {product.price > 0 && (
+                                  <div className="absolute top-3 right-3 bg-[#aa1918] text-white px-2 py-1 rounded-full text-xs font-bold shadow-sm">
+                                    {formatPrice(getProductPublicPrice(product))}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="p-4">
+                                <h4 className="text-sm font-bold text-gray-900 line-clamp-1 group-hover/product:text-[#aa1918] transition-colors mb-1">{product.name}</h4>
+                                <p className="text-xs text-gray-500 line-clamp-2 leading-snug">
+                                  {product.description || 'Delicioso plato preparado con los mejores ingredientes.'}
+                                </p>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          // Skeletons de productos
+                          Array.from({ length: 4 }).map((_, i) => (
+                            <div key={i} className="flex-shrink-0 w-40 sm:w-48 aspect-[4/5] bg-gray-100 rounded-3xl border border-dashed border-gray-200 flex flex-col items-center justify-center p-4">
+                              <div className="w-full aspect-square bg-gray-200 rounded-2xl mb-3"></div>
+                              <div className="w-2/3 h-2 bg-gray-200 rounded mb-2"></div>
+                              <div className="w-1/2 h-2 bg-gray-200 rounded"></div>
+                            </div>
+                          ))
+                        )}
+                        
+                        {/* Botón "Ver Todos" al final del carrusel */}
+                        {products.length > 0 && (
+                          <Link
+                            href={link}
+                            className="flex-shrink-0 w-24 sm:w-28 flex flex-col items-center justify-center group/all"
+                          >
+                            <div className="w-12 h-12 rounded-full bg-red-50 text-[#aa1918] flex items-center justify-center mb-2 group-hover/all:bg-[#aa1918] group-hover/all:text-white transition-all shadow-sm">
+                              <i className="bi bi-arrow-right text-xl"></i>
+                            </div>
+                            <span className="text-[10px] font-black text-gray-400 line-clamp-1 uppercase tracking-widest text-center">Ver todo el menú</span>
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 )
               })}
             </div>
@@ -1108,7 +1192,7 @@ function HomePageContent() {
             <div className="space-y-10">
               {businesses.filter(b => b.businessType === 'distributor').map((b) => {
                 const link = b.username ? `/${b.username}` : `/restaurant/${b.id}`
-                const products = supplierProducts[b.id] || []
+                const products = productsByBusiness[b.id] || []
 
                 return (
                   <div key={b.id} className="group">

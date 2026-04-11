@@ -124,11 +124,13 @@ export default function ProductPageByUsername() {
 
       const handleStorageChange = () => loadCart()
       window.addEventListener('storage', handleStorageChange)
+      window.addEventListener('cart-updated', handleStorageChange)
 
       const interval = setInterval(loadCart, 1000)
 
       return () => {
         window.removeEventListener('storage', handleStorageChange)
+        window.removeEventListener('cart-updated', handleStorageChange)
         clearInterval(interval)
       }
     }
@@ -249,6 +251,8 @@ export default function ProductPageByUsername() {
 
       allCarts[businessIdForCart] = currentCart
       localStorage.setItem('carts', JSON.stringify(allCarts))
+      window.dispatchEvent(new Event('storage'))
+      window.dispatchEvent(new Event('cart-updated'))
       setCart([...currentCart])
 
       showNotification(`${product.name}${finalVariantName ? ` - ${finalVariantName}` : ''} agregado al carrito`)
@@ -347,6 +351,8 @@ export default function ProductPageByUsername() {
     }
 
     localStorage.setItem('carts', JSON.stringify(allCarts))
+    window.dispatchEvent(new Event('storage'))
+    window.dispatchEvent(new Event('cart-updated'))
   }
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
