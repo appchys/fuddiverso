@@ -751,7 +751,8 @@ export function CheckoutContent({
           },
           timingData,
           paymentData,
-          currentStep
+          currentStep,
+          referralCode: typeof window !== 'undefined' ? localStorage.getItem('pendingReferral') : null
         }
 
         console.log('🔄 Checkout Sync Debug - Sincronizando datos:', progressData)
@@ -1626,9 +1627,13 @@ export function CheckoutContent({
       // Normalizar metadatos de precios de todos los ítems del carrito
       const normalizedItems = (cartItems || []).map((item: any) => ensureCartItemMetadata(item))
 
+      // Obtener referido pendiente
+      const pendingReferral = typeof window !== 'undefined' ? localStorage.getItem('pendingReferral') : null;
+
       // Luego crear el objeto orderData - USAR ESTRUCTURA IDÉNTICA A ÓRDENES MANUALES
       const orderData = {
         businessId: businessId,
+        referralCode: pendingReferral || undefined,
         items: normalizedItems.map((item: any) => ({
           productId: item.id.split('-')[0],
           name: item.productName || item.name,
