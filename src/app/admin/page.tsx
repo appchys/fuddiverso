@@ -5,6 +5,7 @@ import { useState, useEffect, Fragment, lazy, Suspense } from 'react'
 const TelegramTemplateEditor = lazy(() => import('@/components/TelegramTemplateEditor'))
 const WhatsAppTemplateEditor = lazy(() => import('@/components/WhatsAppTemplateEditor'))
 const ProductsList = lazy(() => import('@/components/ProductsList'))
+const RecommendersTab = lazy(() => import('@/components/admin/RecommendersTab'))
 import {
   getAllOrders,
   getAllBusinesses,
@@ -14,7 +15,6 @@ import {
   getAllReferralLinksGlobal,
   getAllClientsGlobal,
   getAllDeliveries,
-  addWalletBalance,
   getCoverageGroups,
   updateBusiness,
   getCoverageZoneForLocation,
@@ -78,11 +78,6 @@ export default function AdminDashboard() {
   const [todayVisitsChartData, setTodayVisitsChartData] = useState<any[]>([])
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
-
-  // WALLET CREDIT FORM STATE
-  const [walletForm, setWalletForm] = useState({ phone: '', amount: '', concept: '' })
-  const [walletLoading, setWalletLoading] = useState(false)
-  const [walletMessage, setWalletMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Estados para rango de fechas del gráfico
   const [dateRange, setDateRange] = useState({
@@ -521,51 +516,7 @@ export default function AdminDashboard() {
     }
   }
 
-  // ── WALLET CREDIT HANDLER ──────────────────────────────────────────────────
-  const handleCreditWallet = async () => {
-    setWalletMessage(null)
-    const { phone, amount, concept } = walletForm
 
-    if (!phone.trim()) return setWalletMessage({ type: 'error', text: 'Ingresa un número de celular.' })
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0)
-      return setWalletMessage({ type: 'error', text: 'Ingresa un monto válido mayor a 0.' })
-    if (!concept.trim()) return setWalletMessage({ type: 'error', text: 'Ingresa un concepto.' })
-
-    const normalizedPhone = normalizeEcuadorianPhone(phone.trim())
-
-    setWalletLoading(true)
-    try {
-      // Buscar el cliente para obtener su ID real
-      const allClients = await getAllClientsGlobal()
-      const client = allClients.find(
-        c => normalizeEcuadorianPhone(c.celular || '') === normalizedPhone
-      )
-
-      const userId = client?.id || normalizedPhone // fallback: usar el teléfono normalizado como userId
-
-      // Usar el primer negocio disponible o 'global' si no hay negocios
-      const businessId = businesses[0]?.id || 'global'
-
-      await addWalletBalance(
-        userId,
-        businessId,
-        Number(amount),
-        concept.trim(),
-        'admin' // createdBy
-      )
-
-      setWalletMessage({
-        type: 'success',
-        text: `✅ Se acreditaron $${Number(amount).toFixed(2)} a ${client?.nombres || normalizedPhone} correctamente.`
-      })
-      setWalletForm({ phone: '', amount: '', concept: '' })
-    } catch (err) {
-      console.error('Error crediting wallet:', err)
-      setWalletMessage({ type: 'error', text: 'Ocurrió un error al acreditar el saldo.' })
-    } finally {
-      setWalletLoading(false)
-    }
-  }
 
   const handleRefreshBusinessGroup = async (business: Business) => {
     if (!business.id || updatingBusinessId) return
@@ -956,179 +907,6 @@ export default function AdminDashboard() {
     );
   };
 
-  const renderRecommendersTab = () => {
-    // Buscar nombre del cliente al vuelo si está escribiendo un celular
-    const normalizedWalletPhone = walletForm.phone ? normalizeEcuadorianPhone(walletForm.phone.trim()) : '';
-    const foundClientName = normalizedWalletPhone ? (
-      globalClients.find(c => c.celular && normalizeEcuadorianPhone(c.celular) === normalizedWalletPhone)?.nombres ||
-      customers.find(c => c.phone && normalizeEcuadorianPhone(c.phone) === normalizedWalletPhone)?.name
-    ) : null;
-
-    return (
-      <div className="space-y-6">
-        {/* ACREDITAR SALDO */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
-              <i className="bi bi-wallet2 text-lg"></i>
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-gray-900">Acreditar Saldo</h3>
-              <p className="text-xs text-gray-500">Acredita saldo manualmente a la billetera de un usuario</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
-                Celular del usuario
-              </label>
-              <input
-                type="tel"
-                placeholder="0990000000 o +593 99 000 0000"
-                value={walletForm.phone}
-                onChange={e => setWalletForm(prev => ({ ...prev, phone: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              {walletForm.phone.trim() !== '' && (
-                <div className="mt-1 text-[11px] font-semibold">
-                  {foundClientName ? (
-                    <span className="text-emerald-600 flex items-center gap-1">
-                      <i className="bi bi-person-check-fill"></i> {foundClientName}
-                    </span>
-                  ) : (
-                    <span className="text-amber-600/70 flex items-center gap-1">
-                      <i className="bi bi-info-circle"></i> Usuario no registrado
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
-                Monto ($)
-              </label>
-              <input
-                type="number"
-                placeholder="0.00"
-                min="0.01"
-                step="0.01"
-                value={walletForm.amount}
-                onChange={e => setWalletForm(prev => ({ ...prev, amount: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
-                Concepto
-              </label>
-              <input
-                type="text"
-                placeholder="Ej: Devolución entrega fallida"
-                value={walletForm.concept}
-                onChange={e => setWalletForm(prev => ({ ...prev, concept: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-
-          {walletMessage && (
-            <div className={`mb-4 p-3 rounded-lg text-sm font-medium ${walletMessage.type === 'success'
-              ? 'bg-green-50 text-green-700 border border-green-200'
-              : 'bg-red-50 text-red-700 border border-red-200'
-              }`}>
-              {walletMessage.text}
-            </div>
-          )}
-
-          <button
-            onClick={handleCreditWallet}
-            disabled={walletLoading}
-            className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {walletLoading ? (
-              <>
-                <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
-                Acreditando...
-              </>
-            ) : (
-              <>
-                <i className="bi bi-plus-circle"></i>
-                Acreditar Saldo
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* TOP RECOMENDADORES */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          <div className="p-6 border-b border-gray-100">
-            <h3 className="text-lg font-semibold text-gray-900">Top Recomendadores</h3>
-            <p className="text-sm text-gray-500">Usuarios que más comparten y generan ventas</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuario</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Créditos</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Links Creados</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Clicks</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-center font-bold text-red-600">Ventas (Conv)</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {recommenders.map((r) => (
-                  <tr key={r.phone} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-gray-100 rounded-full overflow-hidden border border-gray-200 flex items-center justify-center">
-                          {r.image ? (
-                            <img
-                              src={r.image}
-                              alt={r.name}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(r.name)}&background=random`
-                              }}
-                            />
-                          ) : (
-                            <i className="bi bi-person text-xl text-gray-400"></i>
-                          )}
-                        </div>
-                        <div>
-                          <div className="text-sm font-bold text-gray-900">{r.name}</div>
-                          <div className="text-xs text-gray-500">{r.phone}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <div className="text-sm font-bold text-gray-900">{r.totalCredits}</div>
-                      <div className="text-xs text-gray-400">({r.credits} disp)</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-500">{r.linksCount}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-500">{r.clicks}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800">
-                        {r.conversions} ventas
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-                {recommenders.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-10 text-center text-gray-500">
-                      No hay datos de recomendaciones registrados aún.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="space-y-4 md:space-y-8">
@@ -1779,7 +1557,14 @@ export default function AdminDashboard() {
       ) : activeTab === 'orders' ? (
         renderOrdersHistoryTab()
       ) : (
-        renderRecommendersTab()
+        <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
+          <RecommendersTab
+            customers={customers}
+            globalClients={globalClients}
+            recommenders={recommenders}
+            businesses={businesses}
+          />
+        </Suspense>
       )}
 
       {/* Modal para Selección Manual de Zona */}

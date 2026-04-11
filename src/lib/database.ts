@@ -5444,6 +5444,27 @@ export async function getReferralByCode(code: string): Promise<any | null> {
 }
 
 /**
+ * Obtiene las órdenes asociadas a un código de referido
+ */
+export async function getOrdersByReferralCode(referralCode: string): Promise<any[]> {
+  try {
+    const q = query(
+      collection(db, 'orders'),
+      where('referralCode', '==', referralCode),
+      orderBy('createdAt', 'desc')
+    )
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }))
+  } catch (error) {
+    console.error('Error getting orders by referral code:', error)
+    return []
+  }
+}
+
+/**
  * Obtiene o crea el registro de créditos de un usuario
  */
 export async function getUserCredits(
