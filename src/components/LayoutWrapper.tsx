@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation'
 import Header from './Header'
+import BottomNavigation from './BottomNavigation'
 
 export default function LayoutWrapper({
   children,
@@ -34,6 +35,7 @@ export default function LayoutWrapper({
       <main className={`min-h-screen ${showHeader ? 'pt-16' : ''}`}>
         {children}
       </main>
+      <BottomNavigation />
     </>
   )
 }

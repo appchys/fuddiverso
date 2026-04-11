@@ -14,6 +14,8 @@ import ProductDetailSidebar from '@/components/ProductDetailSidebar'
 import StoryProductDetail from '@/components/StoryProductDetail'
 import CartSidebar from '@/components/CartSidebar' // Added import for CartSidebar
 import ReferralModal from '@/components/ReferralModal'
+import ActiveOrdersBubble from '@/components/ActiveOrdersBubble'
+import ClientLoginModal from '@/components/ClientLoginModal'
 import { Flame } from 'lucide-react'
 
 export default function HomePage() {
@@ -82,6 +84,7 @@ function HomePageContent() {
   const [requestName, setRequestName] = useState('')
   const [requestWhatsapp, setRequestWhatsapp] = useState('')
   const [isSubmittingSurvey, setIsSubmittingSurvey] = useState(false)
+  const [showLoginModal, setShowLoginModal] = useState(false)
  
   // Story Modal State
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false)
@@ -638,9 +641,21 @@ function HomePageContent() {
     }
   }
 
-  const handleFollowToggle = (id: string) => {
+  // Sincronizar lectura de favoritos al cargar el usuario (Auth asíncrono)
+  useEffect(() => {
+    if (user) {
+      loadFollowedBusinesses()
+    }
+  }, [user])
+
+  const handleFollowToggle = (id: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    
     if (!user) {
-      alert('Inicia sesión para seguir restaurantes')
+      setShowLoginModal(true)
       return
     }
     const updated = new Set(followedBusinesses)
@@ -1127,10 +1142,7 @@ function HomePageContent() {
 
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={(e) => {
-                            e.preventDefault()
-                            handleFollowToggle(b.id)
-                          }}
+                          onClick={(e) => handleFollowToggle(b.id, e)}
                           className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${followed ? 'bg-red-50 text-[#aa1918]' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
                         >
                           <i className={`bi bi-heart${followed ? '-fill' : ''} text-lg`}></i>
@@ -1601,6 +1613,12 @@ function HomePageContent() {
         product={selectedProductForReferral}
         referralLink={generatedReferralLink}
         businessName={referralBusinessName}
+      />
+
+      <ClientLoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onLoginSuccess={() => setShowLoginModal(false)}
       />
     </div>
   )
