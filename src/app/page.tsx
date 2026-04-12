@@ -15,13 +15,17 @@ import StoryProductDetail from '@/components/StoryProductDetail'
 import CartSidebar from '@/components/CartSidebar' // Added import for CartSidebar
 import ReferralModal from '@/components/ReferralModal'
 import ClientLoginModal from '@/components/ClientLoginModal'
+import StoreRatingModal from '@/components/StoreRatingModal'
+import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { Flame } from 'lucide-react'
 
 export default function HomePage() {
   return (
-    <Suspense fallback={<HomePageLoading />}>
-      <HomePageContent />
-    </Suspense>
+    <BusinessAuthProvider>
+      <Suspense fallback={<HomePageLoading />}>
+        <HomePageContent />
+      </Suspense>
+    </BusinessAuthProvider>
   )
 }
 
@@ -38,11 +42,15 @@ function HomePageLoading() {
 
 function HomePageContent() {
   const { user } = useAuth()
+  const { user: businessUser } = useBusinessAuth()
   const searchParams = useSearchParams()
   const router = useRouter()
 
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [loading, setLoading] = useState(true)
+  const [isRatingModalOpen, setIsRatingModalOpen] = useState(false)
+  const [selectedRatingBusiness, setSelectedRatingBusiness] = useState<Business | null>(null)
+  const [ratingNotification, setRatingNotification] = useState<{ show: boolean; message: string }>({ show: false, message: '' })
 
   // Use useMemo for story businesses to ensure a stable random order per session/businesses-update
   const storyBusinesses = React.useMemo(() => {
@@ -646,6 +654,16 @@ function HomePageContent() {
     await loadBusinessesWithParams(searchTerm, category)
   }
 
+  const handleOpenRatingModal = (business: Business) => {
+    setSelectedRatingBusiness(business)
+    setIsRatingModalOpen(true)
+  }
+
+  const handleRatingSuccess = (message: string) => {
+    setRatingNotification({ show: true, message })
+    setTimeout(() => setRatingNotification({ show: false, message: '' }), 3000)
+  }
+
   const loadFollowedBusinesses = () => {
     if (typeof window !== 'undefined' && user) {
       const saved = localStorage.getItem(`followedBusinesses_${user.id}`)
@@ -749,27 +767,34 @@ function HomePageContent() {
 
       {/* Indicador de zona (FUERA de la sección de stories para evitar overflow-hidden) */}
       {(detectedGroupName || coverageGroups.length > 0) && (
-        <div className="max-w-6xl mx-auto px-4 pt-4 pb-2 relative">
-          <div className="flex items-center justify-end gap-2">
-            {showAllRestaurants && (
+        <div className="max-w-6xl mx-auto px-6 pt-4 pb-2 relative">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">
+                
+              </h2>
+            </div>
+            <div className="flex items-center gap-2">
+              {showAllRestaurants && (
+                <button
+                  onClick={() => {
+                    setShowAllRestaurants(false)
+                    setShowGroupSelector(false)
+                  }}
+                  className="text-[10px] font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors"
+                >
+                  Ver solo mi zona
+                </button>
+              )}
               <button
-                onClick={() => {
-                  setShowAllRestaurants(false)
-                  setShowGroupSelector(false)
-                }}
-                className="text-[10px] font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors"
+                onClick={() => setShowGroupSelector(!showGroupSelector)}
+                className="text-xs font-black text-[#aa1918] bg-red-50 px-3 py-1 rounded-full hover:bg-red-100 transition-colors flex items-center gap-1"
               >
-                Ver solo mi zona
+                <i className="bi bi-geo-alt-fill text-sm"></i>
+                {detectedGroupName || 'Daule'}
+                <i className={`bi bi-chevron-${showGroupSelector ? 'up' : 'down'} text-[10px]`}></i>
               </button>
-            )}
-            <button
-              onClick={() => setShowGroupSelector(!showGroupSelector)}
-              className="text-xs font-black text-[#aa1918] bg-red-50 px-3 py-1 rounded-full hover:bg-red-100 transition-colors flex items-center gap-1"
-            >
-              <i className="bi bi-geo-alt-fill text-sm"></i>
-              {detectedGroupName || 'Daule'}
-              <i className={`bi bi-chevron-${showGroupSelector ? 'up' : 'down'} text-[10px]`}></i>
-            </button>
+            </div>
           </div>
 
           {/* Dropdown de grupos */}
@@ -1115,44 +1140,63 @@ function HomePageContent() {
                 return (
                   <div key={b.id} className="animate-in fade-in slide-in-from-bottom-4 duration-700">
                     {/* Header del Restaurante: Logo, Nombre y Reseñas */}
-                    <div className="flex items-center justify-between mb-5 px-1">
-                      <Link href={link} className="flex items-center gap-4 group">
-                        <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white shadow-xl bg-gray-50 flex-shrink-0 group-hover:scale-105 transition-transform duration-300">
-                          {b.image ? (
-                            <img
-                              src={b.image}
-                              alt={b.name}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <i className="bi bi-shop text-3xl text-gray-300"></i>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-xl font-black text-gray-900 line-clamp-1 group-hover:text-[#aa1918] transition-colors tracking-tight">
-                            {b.name}
-                          </h3>
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
-                            {b.ratingAverage ? (
-                              <div className="flex items-center">
-                                <StarRating rating={b.ratingAverage} size="sm" />
-                                <span className="text-xs font-bold text-gray-400 ml-1">({b.ratingCount || 0})</span>
-                              </div>
+                    <div className="flex items-start justify-between mb-5 px-1">
+                      <div className="flex items-start gap-4">
+                        <Link href={link} className="group">
+                          <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white shadow-xl bg-gray-50 flex-shrink-0 group-hover:scale-105 transition-transform duration-300">
+                            {b.image ? (
+                              <img
+                                src={b.image}
+                                alt={b.name}
+                                className="w-full h-full object-cover"
+                              />
                             ) : (
-                              <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Sin reseñas</span>
+                              <div className="w-full h-full flex items-center justify-center">
+                                <i className="bi bi-shop text-3xl text-gray-300"></i>
+                              </div>
                             )}
                           </div>
+                        </Link>
+                        <div className="flex-1 min-w-0">
+                          <Link href={link} className="group">
+                            <h3 className="text-xl font-black text-gray-900 line-clamp-1 group-hover:text-[#aa1918] transition-colors tracking-tight">
+                              {b.name}
+                            </h3>
+                          </Link>
                           {b.description && (
-                            <p className="text-xs text-gray-400 mt-2 line-clamp-1">
+                            <p className="text-xs text-gray-400 mt-1 line-clamp-1">
                               {b.description}
                             </p>
                           )}
+                          {/* Estrellas justo debajo del nombre y descripción */}
+                          <div>
+                            {b.ratingAverage ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleOpenRatingModal(b)
+                                }}
+                                className="flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer"
+                              >
+                                <StarRating rating={b.ratingAverage} size="sm" />
+                                <span className="text-xs font-bold text-gray-400 ml-1">({b.ratingCount || 0})</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleOpenRatingModal(b)
+                                }}
+                                className="text-[10px] font-bold text-gray-300 uppercase tracking-widest hover:text-gray-500 transition-colors cursor-pointer"
+                              >
+                                Sin reseñas · Sé el primero
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </Link>
+                      </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col items-end gap-1">
                         <button
                           onClick={(e) => handleFollowToggle(b.id, e)}
                           className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${followed ? 'bg-red-50 text-[#aa1918]' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
@@ -1655,6 +1699,29 @@ function HomePageContent() {
         onClose={() => setShowLoginModal(false)}
         onLoginSuccess={() => setShowLoginModal(false)}
       />
+
+      {/* Rating Modal */}
+      {selectedRatingBusiness && (
+        <StoreRatingModal
+          isOpen={isRatingModalOpen}
+          onClose={() => setIsRatingModalOpen(false)}
+          business={selectedRatingBusiness}
+          clientPhone={null}
+          clientUser={user}
+          businessUser={businessUser}
+          businessOwnerId={selectedRatingBusiness.ownerId || null}
+          onSuccess={handleRatingSuccess}
+        />
+      )}
+
+      {/* Rating Notification */}
+      {ratingNotification.show && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[250] animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="bg-gray-900 text-white px-6 py-3 rounded-full text-xs font-black uppercase tracking-widest shadow-2xl">
+            {ratingNotification.message}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
