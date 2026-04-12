@@ -29,6 +29,7 @@ export default function AdminSettlementsTab({
   const [settlementsView, setSettlementsView] = useState<'pending' | 'history'>('pending')
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [showOrdersReviewFilters, setShowOrdersReviewFilters] = useState(false)
+  const [expandedSettlementCard, setExpandedSettlementCard] = useState<'store' | 'fuddi' | null>(null)
   const [ordersReviewFilters, setOrdersReviewFilters] = useState<{
     businessId: string
     paymentMethod: 'all' | 'cash' | 'transfer' | 'mixed'
@@ -474,14 +475,14 @@ export default function AdminSettlementsTab({
 
   const { settlementsByBusiness, pendingOrders, pendingDeliveryOrders, deliveriesSummary } = useMemo(() => {
     const pending = orders.filter(o => {
-      if (['borrador', 'pending', 'cancelled'].includes(o.status as any)) return false
-      if (o.settlementStatus && o.settlementStatus !== 'pending') return false
+      if (['borrador', 'cancelled'].includes(o.status as any)) return false
+      if (o.settlementStatus === 'settled') return false
       return true
     })
 
     const pendingDelivery = orders.filter(o => {
-      if (['borrador', 'pending', 'cancelled'].includes(o.status as any)) return false
-      if (o.deliverySettlementStatus && o.deliverySettlementStatus !== 'pending') return false
+      if (['borrador', 'cancelled'].includes(o.status as any)) return false
+      if (o.deliverySettlementStatus === 'settled') return false
       return true
     })
 
@@ -730,6 +731,18 @@ export default function AdminSettlementsTab({
     }
   }
 
+  const handleSettleSingleOrder = async (order: Order) => {
+    if (!confirm(`¿Liquidar orden #${order.id.slice(0, 8)} por $${(order.total || 0).toFixed(2)}?`)) return
+
+    try {
+      await updateOrderSettlementStatus(order.id, { settlementStatus: 'settled' })
+      setOrders(prevOrders => prevOrders.filter(o => o.id !== order.id))
+    } catch (error) {
+      console.error('Error liquidando orden:', error)
+      alert('Error al liquidar la orden')
+    }
+  }
+
   const handleCreateSettlement = async (businessId: string, ordersToSettle: Order[], financials: any) => {
     if (!confirm(`¿Confirmas generar el corte por $${financials.netAmount.toFixed(2)}?`)) return
 
@@ -817,6 +830,9 @@ export default function AdminSettlementsTab({
 
           const netSettlement = summary.storeReceives - summary.fuddiReceives
 
+          const storeOrders = selectedData.orders.filter((o: Order) => o.paymentCollector === 'store')
+          const fuddiOrders = selectedData.orders.filter((o: Order) => o.paymentCollector !== 'store')
+
           return (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -825,15 +841,311 @@ export default function AdminSettlementsTab({
                   <div className="text-2xl font-black text-gray-900">${summary.totalAmount.toFixed(2)}</div>
                   <div className="text-[10px] text-gray-400 mt-1">{summary.totalOrders} pedidos finalizados</div>
                 </div>
-                <div className="bg-blue-50 p-5 rounded-2xl border border-blue-100">
-                  <div className="text-xs font-black text-blue-400 uppercase tracking-widest mb-1">Tienda Recauda</div>
-                  <div className="text-2xl font-black text-blue-700">${summary.collectedByStore.toFixed(2)}</div>
-                  <div className="text-[10px] text-blue-500 mt-1">Debe comisión: ${summary.fuddiReceives.toFixed(2)}</div>
+                <div
+                  className={`bg-blue-50 rounded-2xl border border-blue-100 transition-all ${expandedSettlementCard === 'store' ? 'col-span-1 md:col-span-2 lg:col-span-3 ring-2 ring-blue-400' : 'cursor-pointer hover:shadow-md'}`}
+                >
+                  <div
+                    className="p-5"
+                    onClick={() => setExpandedSettlementCard(expandedSettlementCard === 'store' ? null : 'store')}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-black text-blue-400 uppercase tracking-widest mb-1">Tienda Recauda</div>
+                        <div className="text-2xl font-black text-blue-700">${summary.collectedByStore.toFixed(2)}</div>
+                        <div className="text-[10px] text-blue-500 mt-1">Debe comisión: ${summary.fuddiReceives.toFixed(2)}</div>
+                        <div className="text-[10px] text-blue-400 mt-1">{storeOrders.length} órdenes</div>
+                      </div>
+                      {expandedSettlementCard === 'store' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setExpandedSettlementCard(null)
+                          }}
+                          className="p-1 hover:bg-blue-100 rounded-full transition-colors"
+                        >
+                          <i className="bi bi-x-lg text-blue-500"></i>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {expandedSettlementCard === 'store' && (
+                    <div className="border-t border-blue-100 overflow-x-auto">
+                      <div className="min-w-[1000px]">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-blue-100/50 border-b border-blue-100">
+                            <th className="px-6 py-3 text-[10px] font-black text-blue-400 uppercase tracking-widest">Fecha</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-blue-400 uppercase tracking-widest">Monto</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-blue-400 uppercase tracking-widest">Cliente</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-blue-400 uppercase tracking-widest">Pago</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-blue-400 uppercase tracking-widest">Delivery</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-blue-400 uppercase tracking-widest text-center">Estado</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-blue-400 uppercase tracking-widest text-center">Recaudado</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-blue-400 uppercase tracking-widest text-center">Detalle Liq.</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-blue-400 uppercase tracking-widest text-center">Liquidar</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-blue-50">
+                          {storeOrders
+                            .sort((a: Order, b: Order) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime())
+                            .map((order: Order) => {
+                              const info = getSettlementOrderInfo(order)
+                              const isPickup = order.delivery?.type === 'pickup'
+                              const assignedDelivery = order.delivery?.assignedDelivery
+                              const delivery = deliveries.find(d => d.id === assignedDelivery || (d as any).uid === assignedDelivery)
+                              const deliveryName = isPickup ? 'Retiro' : (delivery ? delivery.nombres : (assignedDelivery ? 'Sin asignar' : 'Sin asignar'))
+
+                              const statusLabels: Record<string, string> = {
+                                confirmed: 'Confirmado',
+                                preparing: 'Preparando',
+                                ready: 'Listo',
+                                on_way: 'En camino',
+                                delivered: 'Entregado',
+                                cancelled: 'Cancelado',
+                                borrador: 'Borrador'
+                              }
+
+                              const statusColors: Record<string, string> = {
+                                confirmed: 'bg-yellow-100 text-yellow-700',
+                                preparing: 'bg-orange-100 text-orange-700',
+                                ready: 'bg-cyan-100 text-cyan-700',
+                                on_way: 'bg-indigo-100 text-indigo-700',
+                                delivered: 'bg-green-100 text-green-700',
+                                cancelled: 'bg-red-100 text-red-700',
+                                borrador: 'bg-gray-100 text-gray-600'
+                              }
+
+                              return (
+                                <tr key={order.id} className="hover:bg-blue-50/50">
+                                  <td className="px-6 py-3 whitespace-nowrap text-xs text-blue-600">
+                                    <div className="flex items-center gap-2">
+                                      <div
+                                        className={`inline-flex items-center justify-center w-4 h-4 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}
+                                        title={order.createdByAdmin ? 'Pedido Manual (Tienda)' : 'Pedido Automático (Cliente)'}
+                                      >
+                                        <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[8px]`}></i>
+                                      </div>
+                                      {new Date(order.createdAt as any).toLocaleDateString()}
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-xs font-bold text-blue-900">
+                                    ${(order.total || 0).toFixed(2)}
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-xs text-blue-700">
+                                    <div className="font-medium">{order.customer.name}</div>
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-xs text-blue-600">
+                                    {order.payment.method === 'cash' ? 'Efectivo' : (
+                                      (order.payment as any).receiptImageUrl ? (
+                                        <button
+                                          onClick={() => setSelectedOrderForProof(order)}
+                                          className="text-blue-700 hover:text-blue-900 underline flex items-center gap-1 group"
+                                        >
+                                          {order.payment.method === 'transfer' ? 'Transf.' : 'Mixto'}
+                                          <i className="bi bi-image group-hover:scale-110 transition-transform"></i>
+                                        </button>
+                                      ) : (
+                                        <span>{order.payment.method === 'transfer' ? 'Transf.' : 'Mixto'}</span>
+                                      )
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-xs text-blue-600">
+                                    <div className="flex items-center gap-1">
+                                      <i className={`bi ${isPickup ? 'bi-shop' : 'bi-scooter'} text-[10px]`}></i>
+                                      <span className="truncate max-w-[100px]">{deliveryName}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-center">
+                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${statusColors[order.status] || 'bg-gray-100 text-gray-600'}`}>
+                                      {statusLabels[order.status] || order.status}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-center">
+                                    <button
+                                      onClick={() => handleToggleCollector(order)}
+                                      className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 ${order.paymentCollector === 'store'
+                                        ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                        }`}
+                                    >
+                                      {order.paymentCollector === 'store' ? '🏢 Tienda' : '🦅 Fuddi'}
+                                    </button>
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-center">
+                                    <div className="flex flex-col items-center">
+                                      <div className="text-[9px] font-bold text-red-600">Comi: -${info.commission.toFixed(2)}</div>
+                                      <div className="text-[9px] font-bold text-green-700">Tienda: ${info.storeReceives.toFixed(2)}</div>
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-center">
+                                    <button
+                                      onClick={() => handleSettleSingleOrder(order)}
+                                      className="px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-green-600 text-white hover:bg-green-700 transition-all active:scale-95"
+                                    >
+                                      Liquidar
+                                    </button>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                        </tbody>
+                      </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="bg-green-50 p-5 rounded-2xl border border-green-100">
-                  <div className="text-xs font-black text-green-400 uppercase tracking-widest mb-1">Fuddi Recauda</div>
-                  <div className="text-2xl font-black text-green-700">${summary.collectedByFuddi.toFixed(2)}</div>
-                  <div className="text-[10px] text-green-500 mt-1">Debe producto: ${summary.storeReceives.toFixed(2)}</div>
+                <div
+                  className={`bg-green-50 rounded-2xl border border-green-100 transition-all ${expandedSettlementCard === 'fuddi' ? 'col-span-1 md:col-span-2 lg:col-span-3 ring-2 ring-green-400' : 'cursor-pointer hover:shadow-md'}`}
+                >
+                  <div
+                    className="p-5"
+                    onClick={() => setExpandedSettlementCard(expandedSettlementCard === 'fuddi' ? null : 'fuddi')}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-black text-green-400 uppercase tracking-widest mb-1">Fuddi Recauda</div>
+                        <div className="text-2xl font-black text-green-700">${summary.collectedByFuddi.toFixed(2)}</div>
+                        <div className="text-[10px] text-green-500 mt-1">Debe producto: ${summary.storeReceives.toFixed(2)}</div>
+                        <div className="text-[10px] text-green-400 mt-1">{fuddiOrders.length} órdenes</div>
+                      </div>
+                      {expandedSettlementCard === 'fuddi' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setExpandedSettlementCard(null)
+                          }}
+                          className="p-1 hover:bg-green-100 rounded-full transition-colors"
+                        >
+                          <i className="bi bi-x-lg text-green-500"></i>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {expandedSettlementCard === 'fuddi' && (
+                    <div className="border-t border-green-100 overflow-x-auto">
+                      <div className="min-w-[1000px]">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-green-100/50 border-b border-green-100">
+                            <th className="px-6 py-3 text-[10px] font-black text-green-400 uppercase tracking-widest">Fecha</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-green-400 uppercase tracking-widest">Monto</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-green-400 uppercase tracking-widest">Cliente</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-green-400 uppercase tracking-widest">Pago</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-green-400 uppercase tracking-widest">Delivery</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-green-400 uppercase tracking-widest text-center">Estado</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-green-400 uppercase tracking-widest text-center">Recaudado</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-green-400 uppercase tracking-widest text-center">Detalle Liq.</th>
+                            <th className="px-6 py-3 text-[10px] font-black text-green-400 uppercase tracking-widest text-center">Liquidar</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-green-50">
+                          {fuddiOrders
+                            .sort((a: Order, b: Order) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime())
+                            .map((order: Order) => {
+                              const info = getSettlementOrderInfo(order)
+                              const isPickup = order.delivery?.type === 'pickup'
+                              const assignedDelivery = order.delivery?.assignedDelivery
+                              const delivery = deliveries.find(d => d.id === assignedDelivery || (d as any).uid === assignedDelivery)
+                              const deliveryName = isPickup ? 'Retiro' : (delivery ? delivery.nombres : (assignedDelivery ? 'Sin asignar' : 'Sin asignar'))
+
+                              const statusLabels: Record<string, string> = {
+                                confirmed: 'Confirmado',
+                                preparing: 'Preparando',
+                                ready: 'Listo',
+                                on_way: 'En camino',
+                                delivered: 'Entregado',
+                                cancelled: 'Cancelado',
+                                borrador: 'Borrador'
+                              }
+
+                              const statusColors: Record<string, string> = {
+                                confirmed: 'bg-yellow-100 text-yellow-700',
+                                preparing: 'bg-orange-100 text-orange-700',
+                                ready: 'bg-cyan-100 text-cyan-700',
+                                on_way: 'bg-indigo-100 text-indigo-700',
+                                delivered: 'bg-green-100 text-green-700',
+                                cancelled: 'bg-red-100 text-red-700',
+                                borrador: 'bg-gray-100 text-gray-600'
+                              }
+
+                              return (
+                                <tr key={order.id} className="hover:bg-green-50/50">
+                                  <td className="px-6 py-3 whitespace-nowrap text-xs text-green-600">
+                                    <div className="flex items-center gap-2">
+                                      <div
+                                        className={`inline-flex items-center justify-center w-4 h-4 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-green-100 text-green-600'}`}
+                                        title={order.createdByAdmin ? 'Pedido Manual (Tienda)' : 'Pedido Automático (Cliente)'}
+                                      >
+                                        <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[8px]`}></i>
+                                      </div>
+                                      {new Date(order.createdAt as any).toLocaleDateString()}
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-xs font-bold text-green-900">
+                                    ${(order.total || 0).toFixed(2)}
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-xs text-green-700">
+                                    <div className="font-medium">{order.customer.name}</div>
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-xs text-green-600">
+                                    {order.payment.method === 'cash' ? 'Efectivo' : (
+                                      (order.payment as any).receiptImageUrl ? (
+                                        <button
+                                          onClick={() => setSelectedOrderForProof(order)}
+                                          className="text-green-700 hover:text-green-900 underline flex items-center gap-1 group"
+                                        >
+                                          {order.payment.method === 'transfer' ? 'Transf.' : 'Mixto'}
+                                          <i className="bi bi-image group-hover:scale-110 transition-transform"></i>
+                                        </button>
+                                      ) : (
+                                        <span>{order.payment.method === 'transfer' ? 'Transf.' : 'Mixto'}</span>
+                                      )
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-xs text-green-600">
+                                    <div className="flex items-center gap-1">
+                                      <i className={`bi ${isPickup ? 'bi-shop' : 'bi-scooter'} text-[10px]`}></i>
+                                      <span className="truncate max-w-[100px]">{deliveryName}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-center">
+                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${statusColors[order.status] || 'bg-gray-100 text-gray-600'}`}>
+                                      {statusLabels[order.status] || order.status}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-center">
+                                    <button
+                                      onClick={() => handleToggleCollector(order)}
+                                      className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 ${order.paymentCollector === 'store'
+                                        ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                        }`}
+                                    >
+                                      {order.paymentCollector === 'store' ? '🏢 Tienda' : '🦅 Fuddi'}
+                                    </button>
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-center">
+                                    <div className="flex flex-col items-center">
+                                      <div className="text-[9px] font-bold text-red-600">Comi: -${info.commission.toFixed(2)}</div>
+                                      <div className="text-[9px] font-bold text-green-700">Tienda: ${info.storeReceives.toFixed(2)}</div>
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-3 whitespace-nowrap text-center">
+                                    <button
+                                      onClick={() => handleSettleSingleOrder(order)}
+                                      className="px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-green-600 text-white hover:bg-green-700 transition-all active:scale-95"
+                                    >
+                                      Liquidar
+                                    </button>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                        </tbody>
+                      </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className={`p-5 rounded-2xl border ${netSettlement >= 0 ? 'bg-amber-50 border-amber-100' : 'bg-red-50 border-red-100'}`}>
                   <div className="text-xs font-black uppercase tracking-widest mb-1">{netSettlement >= 0 ? 'Fuddi paga a Tienda' : 'Tienda paga a Fuddi'}</div>
@@ -842,143 +1154,6 @@ export default function AdminSettlementsTab({
                   </div>
                   <div className="text-[10px] text-gray-500 mt-1">Liquidación Neta</div>
                 </div>
-              </div>
-
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100">
-                      <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Fecha</th>
-                      <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Monto</th>
-                      <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Cliente</th>
-                      <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Pago</th>
-                      <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-center">Recaudado</th>
-                      <th className="px-6 py-4 text-xs font-black text-gray-400 uppercase tracking-widest text-center">Detalle Liq.</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {(() => {
-                      const groups = selectedData.orders.reduce((acc: any, order: Order) => {
-                        const assignedId = order.delivery?.type === 'pickup' ? 'pickup' : (order.delivery?.assignedDelivery || 'unassigned')
-                        if (!acc[assignedId]) acc[assignedId] = []
-                        acc[assignedId].push(order)
-                        return acc
-                      }, {} as Record<string, Order[]>)
-
-                      return Object.entries(groups)
-                        .sort(([idA], [idB]) => {
-                          if (idA === 'pickup') return 1
-                          if (idB === 'pickup') return -1
-                          return 0
-                        })
-                        .map(([groupId, groupOrders]: [string, any]) => {
-                          const delivery = deliveries.find(d => d.id === groupId || (d as any).uid === groupId)
-                          const groupTitle = groupId === 'pickup' ? 'Retiros en Tienda' : (delivery ? `Delivery: ${delivery.nombres}` : 'Delivery: Sin asignar')
-                          const groupIcon = groupId === 'pickup' ? 'bi-person-fill' : 'bi-scooter'
-                          const isCollapsed = collapsedGroups[groupId] !== false
-
-                          return (
-                            <Fragment key={groupId}>
-                              {(() => {
-                                const gTotal = groupOrders.reduce((sum: number, o: Order) => sum + (o.total || 0), 0)
-                                const gInfo = groupOrders.reduce((acc2: any, o: Order) => {
-                                  const info = getSettlementOrderInfo(o)
-                                  acc2.commission += info.commission
-                                  acc2.storeReceives += info.storeReceives
-                                  return acc2
-                                }, { commission: 0, storeReceives: 0 })
-
-                                return (
-                                  <tr
-                                    className="bg-gray-50/50 cursor-pointer hover:bg-gray-100 transition-colors"
-                                    onClick={() => setCollapsedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }))}
-                                  >
-                                    <td colSpan={6} className="px-6 py-2">
-                                      <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                          <i className={`bi ${groupIcon}`}></i>
-                                          {groupTitle}
-
-                                          <div className="flex items-center gap-1.5 ml-4">
-                                            <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-[10px] font-bold" title="Total Grupo">
-                                              ${gTotal.toFixed(2)}
-                                            </span>
-                                            <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-[10px] font-bold" title="Comisión Total Grupo">
-                                              Liq: -${gInfo.commission.toFixed(2)}
-                                            </span>
-                                          </div>
-                                        </div>
-                                        <i className={`bi bi-chevron-${isCollapsed ? 'down' : 'up'} text-gray-400`}></i>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )
-                              })()}
-
-                              {!isCollapsed && groupOrders.map((order: Order) => {
-                                const info = getSettlementOrderInfo(order)
-                                const isStoreCollector = order.paymentCollector === 'store'
-
-                                return (
-                                  <tr key={order.id} className="hover:bg-gray-50 border-b border-gray-50">
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                      <div className="flex items-center gap-2">
-                                        <div
-                                          className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${order.createdByAdmin ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}
-                                          title={order.createdByAdmin ? 'Pedido Manual (Tienda)' : 'Pedido Automático (Cliente)'}
-                                        >
-                                          <i className={`bi ${order.createdByAdmin ? 'bi-person-badge' : 'bi-phone'} text-[10px]`}></i>
-                                        </div>
-                                        {new Date(order.createdAt as any).toLocaleDateString()}
-                                      </div>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                                      ${(order.total || 0).toFixed(2)}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                      <div className="text-gray-900 font-medium">{order.customer.name}</div>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                      {order.payment.method === 'cash' ? 'Efectivo' : (
-                                        (order.payment as any).receiptImageUrl ? (
-                                          <button
-                                            onClick={() => setSelectedOrderForProof(order)}
-                                            className="text-blue-600 hover:text-blue-800 underline flex items-center gap-1 group"
-                                          >
-                                            {order.payment.method === 'transfer' ? 'Transf.' : 'Mixto'}
-                                            <i className="bi bi-image group-hover:scale-110 transition-transform"></i>
-                                          </button>
-                                        ) : (
-                                          <span>{order.payment.method === 'transfer' ? 'Transf.' : 'Mixto'}</span>
-                                        )
-                                      )}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                                      <button
-                                        onClick={() => handleToggleCollector(order)}
-                                        className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${isStoreCollector
-                                          ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                                          : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                                          }`}
-                                      >
-                                        {isStoreCollector ? '🏢 Tienda' : '🦅 Fuddi'}
-                                      </button>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                                      <div className="flex flex-col items-center">
-                                        <div className="text-[10px] font-bold text-red-500">Comi: -${info.commission.toFixed(2)}</div>
-                                        <div className="text-[10px] font-bold text-green-600">Tienda: ${info.storeReceives.toFixed(2)}</div>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )
-                              })}
-                            </Fragment>
-                          )
-                        })
-                    })()}
-                  </tbody>
-                </table>
               </div>
 
               <div className="flex justify-end pt-2">
@@ -1062,7 +1237,25 @@ export default function AdminSettlementsTab({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {settlementsByBusiness.map((item: any) => (
+                  {settlementsByBusiness.map((item: any) => {
+                    const storeOrdersCount = item.orders.filter((o: Order) => o.paymentCollector === 'store').length
+                    const fuddiOrdersCount = item.orders.filter((o: Order) => o.paymentCollector !== 'store').length
+
+                    let storeReceivesTotal = 0
+                    let fuddiReceivesTotal = 0
+
+                    item.orders.forEach((order: Order) => {
+                      const info = getSettlementOrderInfo(order)
+                      if (order.paymentCollector === 'store') {
+                        fuddiReceivesTotal += info.commission
+                      } else {
+                        storeReceivesTotal += info.storeReceives
+                      }
+                    })
+
+                    const netSettlement = storeReceivesTotal - fuddiReceivesTotal
+
+                    return (
                     <div key={item.business.id} className="bg-white border boundary-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-all">
                       <div className="flex items-center gap-3 mb-3">
                         <div className="w-10 h-10 rounded-full bg-gray-100 overflow-hidden">
@@ -1079,18 +1272,17 @@ export default function AdminSettlementsTab({
                       </div>
                       <div className="space-y-2 mb-4">
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-500">Ventas (Subtotal)</span>
-                          <span className="font-semibold">${item.financials.totalSubtotal.toFixed(2)}</span>
+                          <span className="text-gray-500">Comisiones ganadas</span>
+                          <span className="text-green-600 font-semibold">+${item.financials.totalCommission.toFixed(2)}</span>
                         </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-500">Comisiones</span>
-                          <span className="text-red-500 font-semibold">-${item.financials.totalCommission.toFixed(2)}</span>
+                      </div>
+                      <div className={`mb-4 p-3 rounded-xl border ${netSettlement >= 0 ? 'bg-amber-50 border-amber-100' : 'bg-red-50 border-red-100'}`}>
+                        <div className="text-[10px] font-black uppercase tracking-widest mb-1">{netSettlement >= 0 ? 'Fuddi paga a Tienda' : 'Tienda paga a Fuddi'}</div>
+                        <div className={`text-xl font-black ${netSettlement >= 0 ? 'text-amber-700' : 'text-red-700'}`}>
+                          ${Math.abs(netSettlement).toFixed(2)}
                         </div>
-                        <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
-                          <span className="text-xs font-bold text-gray-500 uppercase">A Transferir</span>
-                          <span className={`text-lg font-bold ${item.financials.netAmount >= 0 ? 'text-green-600' : 'text-orange-600'}`}>
-                            ${item.financials.netAmount.toFixed(2)}
-                          </span>
+                        <div className="text-[9px] text-gray-500 mt-0.5">
+                          Tienda recibe: ${storeReceivesTotal.toFixed(2)} · Fuddi recibe: ${fuddiReceivesTotal.toFixed(2)}
                         </div>
                       </div>
                       <button
@@ -1100,7 +1292,8 @@ export default function AdminSettlementsTab({
                         Ver Detalles
                       </button>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
