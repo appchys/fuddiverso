@@ -6,13 +6,14 @@ import Link from 'next/link'
 import Head from 'next/head'
 import { getProductPublicPrice, formatPrice, getPriceMetadata } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick } from '@/lib/database'
+import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
 import { collection, query, where, onSnapshot, doc, limit } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import CartSidebar from '@/components/CartSidebar'
 import LocationMap from '@/components/LocationMap'
 import { CheckoutContent } from '@/components/CheckoutContent'
 import UserSidebar from '@/components/UserSidebar'
+import { Flame } from 'lucide-react'
 import ClientLoginModal from '@/components/ClientLoginModal'
 import { isStoreOpen, getNextOpeningMessage } from '@/lib/store-utils'
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
@@ -90,7 +91,7 @@ function BusinessStructuredData({ business }: { business: Business }) {
   )
 }
 
-function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartItemQuantity, updateQuantity, businessImage, businessUsername, onGenerateReferral }: {
+function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartItemQuantity, updateQuantity, businessImage, businessUsername, onGenerateReferral, hasRecommended, referralCount }: {
   product: any,
   onAddToCart: (item: any) => void,
   onShowDetails: (product: any) => void,
@@ -98,57 +99,12 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
   updateQuantity: (id: string, quantity: number, variantName?: string | null) => void,
   businessImage?: string,
   businessUsername?: string,
-  onGenerateReferral: (product: any) => void
+  onGenerateReferral: (product: any) => void,
+  hasRecommended?: boolean,
+  referralCount?: number
 }) {
   const [imgLoaded, setImgLoaded] = useState(false)
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const [copySuccess, setCopySuccess] = useState(false)
-  const menuContainerRef = useRef<HTMLDivElement | null>(null)
   const handleCardClick = () => onShowDetails(product)
-
-  useEffect(() => {
-    if (!isMenuOpen) return
-
-    const onPointerDown = (event: PointerEvent) => {
-      const container = menuContainerRef.current
-      if (!container) return
-
-      const target = event.target as Node | null
-      if (target && !container.contains(target)) {
-        setIsMenuOpen(false)
-      }
-    }
-
-    window.addEventListener('pointerdown', onPointerDown, true)
-    return () => window.removeEventListener('pointerdown', onPointerDown, true)
-  }, [isMenuOpen])
-
-  const handleCopyProductLink = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    const productUrl = `${window.location.origin}/${businessUsername}/${product.slug || product.id}`
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(productUrl)
-      } else {
-        const textArea = document.createElement('textarea')
-        textArea.value = productUrl
-        textArea.style.position = 'fixed'
-        textArea.style.opacity = '0'
-        document.body.appendChild(textArea)
-        textArea.focus()
-        textArea.select()
-        document.execCommand('copy')
-        document.body.removeChild(textArea)
-      }
-      setCopySuccess(true)
-      setTimeout(() => {
-        setCopySuccess(false)
-        setIsMenuOpen(false)
-      }, 1500)
-    } catch (err) {
-      console.error('Error al copiar enlace:', err)
-    }
-  }
 
   const quantity = getCartItemQuantity(product.id, null)
   const hasVariants = product.variants && product.variants.length > 0
@@ -158,56 +114,28 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
     <div
       onClick={handleCardClick}
       className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 cursor-pointer active:scale-[0.98] ${quantity > 0 ? 'border-red-200 shadow-md ring-1 ring-red-50' : 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
-        } ${isMenuOpen ? 'z-50' : ''}`}
+        }`}
     >
-      {isMenuOpen && (
-        <div
-          className="fixed inset-0 z-[55]"
-          onClick={() => setIsMenuOpen(false)}
-        />
-      )}
-      {/* Botón de menú de 3 puntos */}
-      <div ref={menuContainerRef} className="absolute top-3 right-3 z-[60]">
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            setIsMenuOpen(!isMenuOpen)
-          }}
-          className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all"
-          title="Opciones"
-        >
-          <i className="bi bi-three-dots-vertical text-lg"></i>
-        </button>
-
-        {/* Menú desplegable */}
-        {isMenuOpen && (
-          <>
-            {/* Menú */}
-            <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-[60] animate-in fade-in zoom-in duration-200">
-              <button
-                onClick={handleCopyProductLink}
-                className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-3"
-              >
-                <i className={`bi ${copySuccess ? 'bi-check-circle text-emerald-500' : 'bi-link-45deg text-gray-400'} text-lg`}></i>
-                <span className="font-medium">{copySuccess ? '¡Enlace copiado!' : 'Copiar enlace'}</span>
-              </button>
-
-              {/* NUEVA OPCIÓN: Recomendar */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onGenerateReferral(product)
-                  setIsMenuOpen(false)
-                }}
-                className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-3"
-              >
-                <span className="text-lg">🔥</span>
-                <span className="font-medium">Recomendar</span>
-              </button>
-            </div>
-          </>
+      {/* Botón de recomendar */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          onGenerateReferral(product)
+        }}
+        className={`absolute top-3 right-3 flex items-center gap-1 z-10 transition-all ${
+          hasRecommended
+            ? 'text-amber-500'
+            : 'text-gray-400 hover:text-amber-500 hover:bg-gray-50 rounded-lg p-1'
+        }`}
+        title="Recomendar"
+      >
+        <Flame size={16} strokeWidth={hasRecommended ? 3 : 1.5} color={hasRecommended ? '#F59E0B' : undefined} />
+        {referralCount !== undefined && referralCount > 0 && (
+          <span className="text-[10px] font-bold text-gray-500">
+            {referralCount}
+          </span>
         )}
-      </div>
+      </button>
 
       {/* Imagen cuadrada con diseño redondeado */}
       <div
@@ -617,6 +545,8 @@ function RestaurantContent() {
   const [selectedProductForReferral, setSelectedProductForReferral] = useState<any>(null)
   const [generatedReferralLink, setGeneratedReferralLink] = useState<string>('')
   const [referralCode, setReferralCode] = useState<string | null>(null)
+  const [generatedReferralProducts, setGeneratedReferralProducts] = useState<Set<string>>(new Set())
+  const [referralCounts, setReferralCounts] = useState<Record<string, number>>({})
   const [isRatingModalOpen, setIsRatingModalOpen] = useState(false)
 
 
@@ -658,6 +588,21 @@ function RestaurantContent() {
         const productsData = await getProductsByBusiness(businessData.id)
         const availableProducts = productsData.filter(product => product.isAvailable)
         setProducts(availableProducts)
+
+        // Load user recommended products and referral counts
+        if (clientUser?.id && availableProducts.length > 0) {
+          const productIds = availableProducts.map(p => p.id)
+          const recommendedSet = new Set<string>()
+          await Promise.all(
+            productIds.map(async (productId) => {
+              const hasReferral = await userHasReferralForProduct(clientUser.id, productId)
+              if (hasReferral) recommendedSet.add(productId)
+            })
+          )
+          setGeneratedReferralProducts(recommendedSet)
+          const counts = await getProductsReferralCounts(productIds)
+          setReferralCounts(counts)
+        }
 
         // Load other businesses
         try {
@@ -881,7 +826,7 @@ function RestaurantContent() {
     if (!business?.id) return
 
     try {
-      const { code } = await generateReferralLink(
+      const { code, isNew } = await generateReferralLink(
         product.id,
         business.id,
         clientUser?.id || clientPhone || undefined,
@@ -895,6 +840,13 @@ function RestaurantContent() {
       const referralUrl = `${window.location.origin}/${business.username}/${product.slug}?ref=${code}`
       setGeneratedReferralLink(referralUrl)
       setSelectedProductForReferral(product)
+      setGeneratedReferralProducts(prev => new Set(prev).add(product.id))
+      if (isNew) {
+        setReferralCounts(prev => ({
+          ...prev,
+          [product.id]: (prev[product.id] || 0) + 1
+        }))
+      }
       setReferralModalOpen(true)
     } catch (error) {
       console.error('Error generating referral:', error)
@@ -915,6 +867,25 @@ function RestaurantContent() {
       document.body.style.overflow = ''
     }
   }, [isCartOpen, isUserSidebarOpen, showLoginModal, isVariantModalOpen, referralModalOpen])
+
+  // Cargar datos de referidos cuando el usuario inicia sesión después de que los productos ya están cargados
+  useEffect(() => {
+    const loadReferralData = async () => {
+      if (!clientUser?.id || products.length === 0) return
+      const productIds = products.map(p => p.id)
+      const recommendedSet = new Set<string>()
+      await Promise.all(
+        productIds.map(async (productId) => {
+          const hasReferral = await userHasReferralForProduct(clientUser.id, productId)
+          if (hasReferral) recommendedSet.add(productId)
+        })
+      )
+      setGeneratedReferralProducts(recommendedSet)
+      const counts = await getProductsReferralCounts(productIds)
+      setReferralCounts(counts)
+    }
+    loadReferralData()
+  }, [clientUser?.id, products.length])
 
   const addToCart = (product: any) => {
     if (!business?.id) return;
@@ -1598,6 +1569,8 @@ function RestaurantContent() {
                       businessImage={business?.image}
                       businessUsername={business?.username}
                       onGenerateReferral={handleGenerateReferral}
+                      hasRecommended={generatedReferralProducts.has(product.id)}
+                      referralCount={referralCounts[product.id]}
                     />
                   ))}
                 </div>
