@@ -19,6 +19,38 @@ import StoreRatingModal from '@/components/StoreRatingModal'
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { Flame } from 'lucide-react'
 
+// Componente para imágenes con carga progresiva
+const ProgressiveImage: React.FC<{
+  src: string
+  alt: string
+  className?: string
+  placeholderClassName?: string
+  onLoad?: () => void
+  loading?: 'lazy' | 'eager'
+}> = ({ src, alt, className = '', placeholderClassName = '', onLoad, loading = 'lazy' }) => {
+  const [isLoaded, setIsLoaded] = useState(false)
+  
+  return (
+    <div className={`relative overflow-hidden ${placeholderClassName}`}>
+      {/* Placeholder mientras carga */}
+      {!isLoaded && (
+        <div className="absolute inset-0 bg-gray-200 animate-pulse" />
+      )}
+      {/* Imagen real */}
+      <img
+        src={src}
+        alt={alt}
+        loading={loading}
+        className={`transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'} ${className}`}
+        onLoad={() => {
+          setIsLoaded(true)
+          onLoad?.()
+        }}
+      />
+    </div>
+  )
+}
+
 export default function HomePage() {
   return (
     <BusinessAuthProvider>
@@ -85,7 +117,6 @@ function HomePageContent() {
   const [showGroupSelector, setShowGroupSelector] = useState(false)
   const groupSelectorRef = useRef<HTMLDivElement>(null)
   const [isOutOfCoverage, setIsOutOfCoverage] = useState(false)
-  const [locationError, setLocationError] = useState(false)
   const [showAllRestaurants, setShowAllRestaurants] = useState(false)
   const [surveySubmitted, setSurveySubmitted] = useState(false)
   const [requestName, setRequestName] = useState('')
@@ -413,7 +444,7 @@ function HomePageContent() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Sistema de inicialización de grupos y ubicación (Refacturado)
+  // Sistema de inicialización de grupos y ubicación (Solo selector manual)
   useEffect(() => {
     const initLocation = async () => {
       try {
@@ -422,49 +453,12 @@ function HomePageContent() {
         const activeGroups = groups.filter(g => g.isActive)
         setCoverageGroups(activeGroups)
         
-        // Buscar el grupo Daule por defecto
+        // 2. Buscar el grupo Daule por defecto y establecerlo
         const daule = activeGroups.find(g => g.name.toLowerCase().includes('daule'))
-
-        // 2. Comprobar si hay ubicación guardada (Preferencia del usuario)
-        const savedCoords = localStorage.getItem('userCoordinates')
-        if (savedCoords) {
-          try {
-            const coords = JSON.parse(savedCoords)
-            setUserLocation(coords)
-            await detectGroupFromCoords(coords, activeGroups)
-            return // Si ya tenemos ubicación explícita, no autodisparamos GPS
-          } catch (e) {
-            console.warn('Error parsing saved location:', e)
-          }
-        }
-
-        // 3. Fallback inicial: Establecer Daule mientras se pide GPS o si se niega
         if (daule) {
           setGroupId(daule.id)
           setDetectedGroupName(daule.name)
-        }
-
-        // 4. Pedir permiso de GPS (A petición del usuario: "Pide permiso a la ubicación")
-        if ('geolocation' in navigator) {
-          navigator.geolocation.getCurrentPosition(
-            async (position) => {
-              const newLocation = {
-                lat: position.coords.latitude,
-                lng: position.coords.longitude,
-              }
-              setUserLocation(newLocation)
-              // Esto actualizará el grupo automáticamente si hay cobertura
-              await detectGroupFromCoords(newLocation, activeGroups)
-            },
-            (error) => {
-              console.warn('GPS Error o Permiso denegado:', error)
-              // Se queda en Daule (ya establecido arriba como fallback)
-              setLocationError(true)
-            },
-            { enableHighAccuracy: false, timeout: 6000 }
-          )
-        } else {
-          setLocationError(true)
+          localStorage.setItem('lastDetectedGroupId', daule.id)
         }
       } catch (err) {
         console.error('Error in location system init:', err)
@@ -486,25 +480,10 @@ function HomePageContent() {
       }
     }
 
-    const handleLocationChanged = () => {
-      const savedCoords = localStorage.getItem('userCoordinates')
-      if (savedCoords) {
-        try {
-          const coords = JSON.parse(savedCoords)
-          setUserLocation(coords)
-          detectGroupFromCoords(coords)
-        } catch (err) {
-          console.warn('Error parsing location-changed event:', err)
-        }
-      }
-    }
-
     window.addEventListener('storage', handleStorageChange)
-    window.addEventListener('location-changed', handleLocationChanged)
     
     return () => {
       window.removeEventListener('storage', handleStorageChange)
-      window.removeEventListener('location-changed', handleLocationChanged)
     }
   }, [])
 
@@ -845,13 +824,7 @@ function HomePageContent() {
         <div className="max-w-6xl mx-auto px-4">
           <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 px-2 items-start">
             {loading ? (
-              // Story Skeletons
-              Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="flex flex-col items-center gap-2 flex-shrink-0 w-20 animate-pulse">
-                  <div className="w-[72px] h-[72px] rounded-full bg-gray-100 border-2 border-gray-50"></div>
-                  <div className="w-12 h-2 bg-gray-100 rounded"></div>
-                </div>
-              ))
+              <div className="w-full h-20 flex items-center justify-center text-gray-400"></div>
             ) : (
               storyBusinesses.map((b) => {
                   return (
@@ -866,10 +839,11 @@ function HomePageContent() {
                         <div className="p-0.5 bg-white rounded-full">
                           <div className="w-16 h-16 rounded-full overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center">
                             {b.image ? (
-                              <img
+                              <ProgressiveImage
                                 src={b.image}
                                 alt={b.name}
-                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 absolute inset-0"
+                                placeholderClassName="w-full h-full"
                               />
                             ) : (
                               <i className="bi bi-shop text-2xl text-gray-400"></i>
@@ -904,12 +878,14 @@ function HomePageContent() {
                     onClick={() => handleProductClick(product, business)}
                     className="flex-shrink-0 w-64 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100 cursor-pointer"
                   >
-                    <div className="relative h-40 bg-gray-100 flex items-center justify-center">
+                    <div className="relative h-40 bg-gray-100 flex items-center justify-center overflow-hidden">
                       {product.image ? (
-                        <img
+                        <ProgressiveImage
                           src={product.image}
                           alt={product.name}
                           className="w-full h-full object-cover"
+                          placeholderClassName="w-full h-full"
+                          loading="lazy"
                         />
                       ) : (
                         <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
@@ -926,10 +902,12 @@ function HomePageContent() {
                       <div className="flex gap-3 mb-2">
                         <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-100 flex-shrink-0 bg-white">
                           {business?.image ? (
-                            <img
+                            <ProgressiveImage
                               src={business.image}
                               alt={business.name}
-                              className="w-full h-full object-cover"
+                              className="w-full h-full object-cover absolute inset-0"
+                              placeholderClassName="w-full h-full"
+                              loading="lazy"
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center bg-gray-50">
@@ -1008,25 +986,6 @@ function HomePageContent() {
             <div className="text-center py-16">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#aa1918] mx-auto"></div>
               <p className="mt-4 text-gray-600">Cargando restaurantes...</p>
-            </div>
-          ) : locationError && !showAllRestaurants ? (
-            <div className="max-w-xl mx-auto py-12 px-6 bg-white rounded-3xl shadow-sm border border-gray-100 text-center animate-in fade-in zoom-in duration-500">
-              <div className="text-6xl mb-6">📍</div>
-              <h3 className="text-2xl font-black text-gray-900 mb-3 leading-tight">
-                No podemos obtener tu ubicación
-              </h3>
-              <p className="text-gray-500 mb-8 font-medium">Activa el GPS para mostrarte los restaurantes más cercanos a ti.</p>
-              
-              <button
-                onClick={() => {
-                  setLocationError(false)
-                  setShowAllRestaurants(true)
-                }}
-                className="w-full bg-[#aa1918] text-white font-black py-4 rounded-2xl shadow-lg shadow-red-900/10 hover:shadow-red-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group"
-              >
-                Ver todos los restaurantes
-                <i className="bi bi-arrow-right group-hover:translate-x-1 transition-transform"></i>
-              </button>
             </div>
           ) : (isOutOfCoverage || businesses.filter(b => b.businessType !== 'distributor').length === 0) ? (
             <div className="max-w-xl mx-auto py-12 px-6 bg-white rounded-3xl shadow-sm border border-gray-100">
@@ -1148,6 +1107,7 @@ function HomePageContent() {
                               <img
                                 src={b.image}
                                 alt={b.name}
+                                loading="lazy"
                                 className="w-full h-full object-cover"
                               />
                             ) : (
@@ -1208,7 +1168,7 @@ function HomePageContent() {
 
                     {/* Carrusel de Productos Aleatorios */}
                     <div className="relative group/carousel">
-                      <div className={`flex gap-4 overflow-x-auto scrollbar-hide pb-2 px-1 ${products.length === 0 ? 'animate-pulse' : ''}`}>
+                      <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 px-1">
                         {products.length > 0 ? (
                           products.map((product) => (
                             <div
@@ -1216,12 +1176,14 @@ function HomePageContent() {
                               onClick={() => handleProductClick(product, b)}
                               className="flex-shrink-0 w-72 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100 cursor-pointer group/product"
                             >
-                              <div className="relative h-40 bg-gray-100 flex items-center justify-center">
+                              <div className="relative h-40 bg-gray-100 flex items-center justify-center overflow-hidden">
                                 {product.image ? (
-                                  <img
+                                  <ProgressiveImage
                                     src={product.image}
                                     alt={product.name}
                                     className="w-full h-full object-cover group-hover/product:scale-105 transition-transform duration-500"
+                                    placeholderClassName="w-full h-full"
+                                    loading="lazy"
                                   />
                                 ) : (
                                   <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
@@ -1259,16 +1221,7 @@ function HomePageContent() {
                               </div>
                             </div>
                           ))
-                        ) : (
-                          // Skeletons de productos
-                          Array.from({ length: 4 }).map((_, i) => (
-                            <div key={i} className="flex-shrink-0 w-40 sm:w-48 aspect-[4/5] bg-gray-100 rounded-3xl border border-dashed border-gray-200 flex flex-col items-center justify-center p-4">
-                              <div className="w-full aspect-square bg-gray-200 rounded-2xl mb-3"></div>
-                              <div className="w-2/3 h-2 bg-gray-200 rounded mb-2"></div>
-                              <div className="w-1/2 h-2 bg-gray-200 rounded"></div>
-                            </div>
-                          ))
-                        )}
+                        ) : null}
                         
                         {/* Botón "Ver Todos" al final del carrusel */}
                         {products.length > 0 && (
@@ -1344,7 +1297,7 @@ function HomePageContent() {
                     <div className="mb-4 px-2">
                       <Link href={link} className="flex items-center gap-3 hover:opacity-80 transition-all group/header">
                         <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-orange-50 bg-orange-50 shadow-sm flex-shrink-0 group-hover/header:border-orange-500 transition-colors">
-                          {b.image ? <img src={b.image} alt={b.name} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center bg-orange-50 text-orange-200"><i className="bi bi-shop text-xl"></i></div>}
+                          {b.image ? <ProgressiveImage src={b.image} alt={b.name} className="w-full h-full object-cover absolute inset-0" placeholderClassName="w-full h-full" loading="lazy" /> : <div className="w-full h-full flex items-center justify-center bg-orange-50 text-orange-200"><i className="bi bi-shop text-xl"></i></div>}
                         </div>
                         <div>
                           <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter leading-none mb-1 group-hover/header:text-orange-600 transition-colors">{b.name}</h3>
@@ -1365,9 +1318,9 @@ function HomePageContent() {
                               onClick={() => handleProductClick(product, b)}
                               className="flex-shrink-0 w-36 sm:w-44 bg-white rounded-2xl p-3 border border-gray-100 shadow-sm hover:shadow-xl hover:scale-[1.02] transition-all duration-300 group/product cursor-pointer"
                             >
-                              <div className="aspect-square rounded-xl overflow-hidden bg-gray-50 mb-3 relative">
+                              <div className="aspect-square rounded-xl overflow-hidden bg-gray-50 mb-3 relative flex items-center justify-center">
                                 {product.image ? (
-                                  <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover/product:scale-110 transition-transform duration-500" />
+                                  <ProgressiveImage src={product.image} alt={product.name} loading="lazy" className="w-full h-full object-cover group-hover/product:scale-110 transition-transform duration-500" placeholderClassName="w-full h-full" />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center text-gray-200 bg-gray-50">
                                     <i className="bi bi-box text-5xl"></i>
@@ -1450,7 +1403,7 @@ function HomePageContent() {
                   className="flex items-center gap-3 transition-opacity active:opacity-70"
                 >
                   <div className="w-10 h-10 rounded-full border-2 border-white overflow-hidden bg-white shadow-lg">
-                    <img src={selectedStoryBusiness.image} alt={selectedStoryBusiness.name} className="w-full h-full object-cover" />
+                    <img src={selectedStoryBusiness.image} alt={selectedStoryBusiness.name} loading="lazy" className="w-full h-full object-cover" />
                   </div>
                   <div className="drop-shadow-md">
                     <h4 className="text-white text-sm font-bold leading-none">{selectedStoryBusiness.name}</h4>
@@ -1484,6 +1437,7 @@ function HomePageContent() {
                       key={p.id}
                       src={p.image} 
                       alt={p.name}
+                      loading={idx === currentStoryIndex ? "eager" : "lazy"}
                       className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${idx === currentStoryIndex ? 'opacity-100' : 'opacity-0'}`}
                     />
                   ))}
