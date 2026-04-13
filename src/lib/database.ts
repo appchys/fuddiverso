@@ -6119,6 +6119,58 @@ export async function getTelegramTemplates(): Promise<{
   }
 }
 
+/**
+ * Enviar un mensaje broadcast a todos los clientes por Telegram
+ */
+export async function sendTelegramBroadcast(message: string): Promise<{
+  success: boolean
+  message?: string
+  error?: string
+  stats?: {
+    total: number
+    successful: number
+    failed: number
+  }
+  errors?: Array<{ clientId?: string; chatId?: string; clientName?: string; error: string }>
+}> {
+  try {
+    // Obtener el token de autenticación del usuario actual
+    const user = auth.currentUser
+    if (!user) {
+      throw new Error('Usuario no autenticado')
+    }
+
+    const token = await user.getIdToken()
+
+    // Llamar al endpoint de Cloud Functions
+    const response = await fetch(
+      'https://us-central1-fuddiverso.cloudfunctions.net/sendTelegramBroadcast',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ message })
+      }
+    )
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || `HTTP ${response.status}`)
+    }
+
+    const result = await response.json()
+    return result
+  } catch (error) {
+    console.error('Error sending telegram broadcast:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    }
+  }
+}
+
 // ============================================================================
 // PLANTILLAS DE WHATSAPP
 // ============================================================================

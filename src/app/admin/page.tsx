@@ -4,6 +4,7 @@ import { useState, useEffect, Fragment, lazy, Suspense } from 'react'
 
 const TelegramTemplateEditor = lazy(() => import('@/components/TelegramTemplateEditor'))
 const WhatsAppTemplateEditor = lazy(() => import('@/components/WhatsAppTemplateEditor'))
+const CustomerBroadcastPanel = lazy(() => import('@/components/CustomerBroadcastPanel'))
 const ProductsList = lazy(() => import('@/components/ProductsList'))
 const RecommendersTab = lazy(() => import('@/components/admin/RecommendersTab'))
 import {
@@ -47,7 +48,7 @@ export default function AdminDashboard() {
   const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'templates' | 'products' | 'orders'>('home')
-  const [activeTemplateTab, setActiveTemplateTab] = useState<'whatsapp' | 'telegram'>('whatsapp')
+  const [activeTemplateTab, setActiveTemplateTab] = useState<'whatsapp' | 'telegram' | 'broadcast'>('whatsapp')
   const [coverageGroups, setCoverageGroups] = useState<any[]>([])
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [updatingBusinessId, setUpdatingBusinessId] = useState<string | null>(null)
@@ -1536,7 +1537,19 @@ export default function AdminDashboard() {
                   }`}
                 >
                   <i className="bi bi-telegram me-2"></i>
-                  Telegram
+                  Telegram - Plantillas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTemplateTab('broadcast')}
+                  className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all ${
+                    activeTemplateTab === 'broadcast'
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <i className="bi bi-megaphone me-2"></i>
+                  Broadcast a Clientes
                 </button>
               </div>
             </div>
@@ -1544,8 +1557,10 @@ export default function AdminDashboard() {
             <div>
               {activeTemplateTab === 'whatsapp' ? (
                 <WhatsAppTemplateEditor />
-              ) : (
+              ) : activeTemplateTab === 'telegram' ? (
                 <TelegramTemplateEditor />
+              ) : (
+                <CustomerBroadcastPanel />
               )}
             </div>
           </div>

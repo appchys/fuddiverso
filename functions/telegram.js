@@ -1636,6 +1636,147 @@ async function sendBusinessReminderNotification(businessData, orderData, orderId
     return sendBusinessTelegramNotification(businessData, orderData, orderId, 'store_reminder');
 }
 
+/**
+ * Enviar un mensaje de broadcast a todos los clientes con Telegram vinculado
+ * @param {string} message - Mensaje a enviar (puede incluir HTML)
+ * @returns {Promise<Object>} Estadísticas de envío {total, successful, failed, errors}
+ */
+async function sendBroadcastToCustomers(message) {
+    // VALIDAR TOKEN ANTES DE CONTINUAR
+    if (!CUSTOMER_BOT_TOKEN) {
+        console.error(`❌ [Telegram Broadcast] CUSTOMER_BOT_TOKEN no está configurado.`);
+        return {
+            success: false,
+            error: 'CUSTOMER_BOT_TOKEN no configurado',
+            total: 0,
+            successful: 0,
+            failed: 0,
+            errors: []
+        };
+    }
+
+    if (!message || message.trim().length === 0) {
+        console.error(`❌ [Telegram Broadcast] Mensaje vacío`);
+        return {
+            success: false,
+            error: 'Mensaje vacío',
+            total: 0,
+            successful: 0,
+            failed: 0,
+            errors: []
+        };
+    }
+
+    console.log(`📢 [Telegram Broadcast] Iniciando envío de mensaje a todos los clientes`);
+    console.log(`📝 [Telegram Broadcast] Longitud del mensaje: ${message.length} caracteres`);
+
+    try {
+        // Obtener todos los clientes con telegramChatId
+        const clientsSnapshot = await admin.firestore()
+            .collection('clients')
+            .where('telegramChatId', '!=', null)
+            .get();
+
+        const totalClients = clientsSnapshot.size;
+        console.log(`👥 [Telegram Broadcast] Clientes encontrados con Telegram: ${totalClients}`);
+
+        if (totalClients === 0) {
+            console.warn(`⚠️ [Telegram Broadcast] No hay clientes con Telegram vinculado`);
+            return {
+                success: true,
+                message: 'Sin clientes con Telegram vinculado',
+                total: 0,
+                successful: 0,
+                failed: 0,
+                errors: []
+            };
+        }
+
+        let successful = 0;
+        let failed = 0;
+        const errors = [];
+
+        // Enviar mensaje a cada cliente
+        const sendPromises = clientsSnapshot.docs.map(async (doc) => {
+            const clientData = doc.data();
+            const chatId = clientData.telegramChatId;
+            const clientName = clientData.nombres || 'Cliente';
+
+            try {
+                console.log(`📤 [Telegram Broadcast] Enviando a ${clientName} (${chatId})`);
+                const result = await sendCustomerTelegramMessage(chatId, message);
+
+                if (result && result.ok && result.result) {
+                    successful++;
+                    console.log(`✅ [Telegram Broadcast] Mensaje enviado a ${clientName}`);
+                    return { success: true, clientId: doc.id, chatId };
+                } else {
+                    failed++;
+                    const errorMsg = `Error en respuesta: ${result?.description || 'Desconocido'}`;
+                    errors.push({
+                        clientId: doc.id,
+                        chatId,
+                        clientName,
+                        error: errorMsg
+                    });
+                    console.error(`❌ [Telegram Broadcast] Error enviando a ${clientName}:`, errorMsg);
+                    return { success: false, clientId: doc.id, error: errorMsg };
+                }
+            } catch (error) {
+                failed++;
+                const errorMsg = error.message || 'Error desconocido';
+                errors.push({
+                    clientId: doc.id,
+                    chatId,
+                    clientName,
+                    error: errorMsg
+                });
+                console.error(`❌ [Telegram Broadcast] Excepción enviando a ${clientName}:`, errorMsg);
+                return { success: false, clientId: doc.id, error: errorMsg };
+            }
+        });
+
+        // Ejecutar todos los envíos en paralelo
+        const results = await Promise.allSettled(sendPromises);
+
+        // Guardar registro del broadcast en Firestore
+        try {
+            await admin.firestore().collection('telegramBroadcasts').add({
+                message: message,
+                totalRecipients: totalClients,
+                successful: successful,
+                failed: failed,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: new Date().toISOString(),
+                errors: errors.length > 0 ? errors.slice(0, 10) : [] // Guardar los primeros 10 errores
+            });
+            console.log(`📝 [Telegram Broadcast] Registro guardado en Firestore`);
+        } catch (err) {
+            console.error(`⚠️ [Telegram Broadcast] Error guardando registro:`, err.message);
+        }
+
+        console.log(`📊 [Telegram Broadcast] Resultado final - Exitosos: ${successful}/${totalClients}, Fallidos: ${failed}`);
+
+        return {
+            success: true,
+            message: `Broadcast completado. ${successful}/${totalClients} mensajes enviados exitosamente.`,
+            total: totalClients,
+            successful: successful,
+            failed: failed,
+            errors: errors
+        };
+    } catch (error) {
+        console.error(`❌ [Telegram Broadcast] Error crítico:`, error);
+        return {
+            success: false,
+            error: error.message || 'Error desconocido',
+            total: 0,
+            successful: 0,
+            failed: 0,
+            errors: [{ error: error.message }]
+        };
+    }
+}
 
 /**
  * Renderizar plantilla de WhatsApp con variables
@@ -2021,6 +2162,7 @@ module.exports = {
     sendStoreTelegramMessage,
     sendDeliveryTelegramMessage,
     sendAdminTelegramMessage, // Exportado
+    sendCustomerTelegramMessage,
     handleStoreWebhook,
     handleDeliveryWebhook,
     handleCustomerWebhook,
@@ -2030,5 +2172,6 @@ module.exports = {
     sendBusinessReminderNotification,
     updateBusinessTelegramMessage,
     sendCustomerTelegramNotification,
-    sendAdminNewOrderNotification  // Exportado - Nueva función para admin con URLs
+    sendAdminNewOrderNotification,  // Exportado - Nueva función para admin con URLs
+    sendBroadcastToCustomers  // Exportado - Enviar mensajes a todos los clientes
 };
