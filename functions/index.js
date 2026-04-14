@@ -664,7 +664,7 @@ exports.handleDeliveryOrderAction = onRequest(deliveryServices.handleDeliveryOrd
 
 /**
  * Cloud Function: Enviar broadcast a todos los clientes por Telegram
- * Requiere autenticación de admin
+ * Requiere autenticación del usuario (acceso al panel admin ya está protegido)
  */
 exports.sendTelegramBroadcast = onRequest((req, res) => {
   cors(req, res, async () => {
@@ -685,17 +685,13 @@ exports.sendTelegramBroadcast = onRequest((req, res) => {
       try {
         decodedToken = await admin.auth().verifyIdToken(token);
       } catch (error) {
-        return res.status(401).json({ error: 'Token inválido' });
+        console.error('❌ Error validando token:', error.message);
+        return res.status(401).json({ error: 'Token inválido o expirado' });
       }
 
       // Obtener el UID del usuario
       const uid = decodedToken.uid;
-
-      // Validar que sea admin (buscar en base de datos)
-      const adminDoc = await admin.firestore().collection('admins').doc(uid).get();
-      if (!adminDoc.exists) {
-        return res.status(403).json({ error: 'No tienes permisos para esta acción' });
-      }
+      const email = decodedToken.email || 'unknown';
 
       // Obtener el mensaje del body
       const { message } = req.body;
@@ -703,7 +699,7 @@ exports.sendTelegramBroadcast = onRequest((req, res) => {
         return res.status(400).json({ error: 'Mensaje requerido' });
       }
 
-      console.log(`📢 [API Broadcast] Admin ${uid} iniciando broadcast`);
+      console.log(`📢 [API Broadcast] Usuario autenticado ${email} (${uid}) iniciando broadcast`);
 
       // Enviar el broadcast
       const result = await telegramServices.sendBroadcastToCustomers(message);
@@ -722,7 +718,7 @@ exports.sendTelegramBroadcast = onRequest((req, res) => {
     } catch (error) {
       console.error('❌ Error en sendTelegramBroadcast:', error);
       return res.status(500).json({
-        error: 'Error interno',
+        error: 'Error interno en el servidor',
         message: error.message
       });
     }

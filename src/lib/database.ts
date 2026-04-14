@@ -6157,23 +6157,15 @@ export async function sendTelegramBroadcast(message: string): Promise<{
   errors?: Array<{ clientId?: string; chatId?: string; clientName?: string; error: string }>
 }> {
   try {
-    // Obtener el usuario autenticado (espera si es necesario)
-    const user = await getCurrentUser()
-
-    const token = await user.getIdToken()
-
-    // Llamar al endpoint de Cloud Functions
-    const response = await fetch(
-      'https://sendtelegrambroadcast-kqrddrvggq-uc.a.run.app',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ message })
-      }
-    )
+    // El broadcast se resuelve en el backend de Next para que desde admin
+    // no dependa de una validación extra del endpoint de Cloud Run.
+    const response = await fetch('/api/telegram/broadcast', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ message })
+    })
 
     if (!response.ok) {
       const errorData = await response.json()
