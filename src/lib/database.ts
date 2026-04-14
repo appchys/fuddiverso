@@ -31,7 +31,8 @@ import {
   getRedirectResult,
   UserCredential,
   GoogleAuthProvider,
-  signInWithPopup
+  signInWithPopup,
+  onAuthStateChanged
 } from 'firebase/auth'
 import {
   Business,
@@ -6120,6 +6121,28 @@ export async function getTelegramTemplates(): Promise<{
 }
 
 /**
+ * Obtener usuario autenticado esperando si es necesario
+ */
+function getCurrentUser(): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const unsubscribe = auth.onAuthStateChanged(
+      (user) => {
+        unsubscribe()
+        if (user) {
+          resolve(user)
+        } else {
+          reject(new Error('Usuario no autenticado'))
+        }
+      },
+      (error) => {
+        unsubscribe()
+        reject(error)
+      }
+    )
+  })
+}
+
+/**
  * Enviar un mensaje broadcast a todos los clientes por Telegram
  */
 export async function sendTelegramBroadcast(message: string): Promise<{
@@ -6134,11 +6157,8 @@ export async function sendTelegramBroadcast(message: string): Promise<{
   errors?: Array<{ clientId?: string; chatId?: string; clientName?: string; error: string }>
 }> {
   try {
-    // Obtener el token de autenticación del usuario actual
-    const user = auth.currentUser
-    if (!user) {
-      throw new Error('Usuario no autenticado')
-    }
+    // Obtener el usuario autenticado (espera si es necesario)
+    const user = await getCurrentUser()
 
     const token = await user.getIdToken()
 
