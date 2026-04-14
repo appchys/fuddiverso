@@ -9,6 +9,7 @@ const { onDocumentCreated, onDocumentUpdated, onDocumentWritten } = require("fir
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onRequest } = require("firebase-functions/v2/https");
 const admin = require('firebase-admin');
+const cors = require('cors')({ origin: true });
 
 // Inicializar la app antes que cualquier otro módulo
 admin.initializeApp();
@@ -665,63 +666,65 @@ exports.handleDeliveryOrderAction = onRequest(deliveryServices.handleDeliveryOrd
  * Cloud Function: Enviar broadcast a todos los clientes por Telegram
  * Requiere autenticación de admin
  */
-exports.sendTelegramBroadcast = onRequest(async (req, res) => {
-  // Solo permitir POST
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  try {
-    // Validar autenticación del usuario
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No autorizado' });
+exports.sendTelegramBroadcast = onRequest((req, res) => {
+  cors(req, res, async () => {
+    // Solo permitir POST
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const token = authHeader.substring(7);
-    let decodedToken;
     try {
-      decodedToken = await admin.auth().verifyIdToken(token);
+      // Validar autenticación del usuario
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'No autorizado' });
+      }
+
+      const token = authHeader.substring(7);
+      let decodedToken;
+      try {
+        decodedToken = await admin.auth().verifyIdToken(token);
+      } catch (error) {
+        return res.status(401).json({ error: 'Token inválido' });
+      }
+
+      // Obtener el UID del usuario
+      const uid = decodedToken.uid;
+
+      // Validar que sea admin (buscar en base de datos)
+      const adminDoc = await admin.firestore().collection('admins').doc(uid).get();
+      if (!adminDoc.exists) {
+        return res.status(403).json({ error: 'No tienes permisos para esta acción' });
+      }
+
+      // Obtener el mensaje del body
+      const { message } = req.body;
+      if (!message || typeof message !== 'string' || message.trim().length === 0) {
+        return res.status(400).json({ error: 'Mensaje requerido' });
+      }
+
+      console.log(`📢 [API Broadcast] Admin ${uid} iniciando broadcast`);
+
+      // Enviar el broadcast
+      const result = await telegramServices.sendBroadcastToCustomers(message);
+
+      return res.status(200).json({
+        success: result.success,
+        message: result.message || result.error,
+        stats: {
+          total: result.total,
+          successful: result.successful,
+          failed: result.failed
+        },
+        errors: result.errors || []
+      });
+
     } catch (error) {
-      return res.status(401).json({ error: 'Token inválido' });
+      console.error('❌ Error en sendTelegramBroadcast:', error);
+      return res.status(500).json({
+        error: 'Error interno',
+        message: error.message
+      });
     }
-
-    // Obtener el UID del usuario
-    const uid = decodedToken.uid;
-
-    // Validar que sea admin (buscar en base de datos)
-    const adminDoc = await admin.firestore().collection('admins').doc(uid).get();
-    if (!adminDoc.exists) {
-      return res.status(403).json({ error: 'No tienes permisos para esta acción' });
-    }
-
-    // Obtener el mensaje del body
-    const { message } = req.body;
-    if (!message || typeof message !== 'string' || message.trim().length === 0) {
-      return res.status(400).json({ error: 'Mensaje requerido' });
-    }
-
-    console.log(`📢 [API Broadcast] Admin ${uid} iniciando broadcast`);
-
-    // Enviar el broadcast
-    const result = await telegramServices.sendBroadcastToCustomers(message);
-
-    return res.status(200).json({
-      success: result.success,
-      message: result.message || result.error,
-      stats: {
-        total: result.total,
-        successful: result.successful,
-        failed: result.failed
-      },
-      errors: result.errors || []
-    });
-
-  } catch (error) {
-    console.error('❌ Error en sendTelegramBroadcast:', error);
-    return res.status(500).json({
-      error: 'Error interno',
-      message: error.message
-    });
-  }
+  });
 });
