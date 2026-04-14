@@ -6164,7 +6164,7 @@ export async function sendTelegramBroadcast(message: string): Promise<{
 
     // Llamar al endpoint de Cloud Functions
     const response = await fetch(
-      'https://us-central1-fuddiverso.cloudfunctions.net/sendTelegramBroadcast',
+      'https://sendtelegrambroadcast-kqrddrvggq-uc.a.run.app',
       {
         method: 'POST',
         headers: {
