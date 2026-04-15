@@ -303,6 +303,18 @@ function OrderCard({
             <i className="bi bi-shop text-xs"></i>
           </button>
 
+          {order.customer?.phone && (
+            <a
+              href={`https://wa.me/${order.customer.phone.replace(/\D/g, '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 bg-green-50 text-green-600 border-green-200 hover:bg-green-100"
+              title="WhatsApp del cliente"
+            >
+              <i className="bi bi-person-fill text-xs"></i>
+            </a>
+          )}
+
           <button
             onClick={() => handleEditPayment(order)}
             className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 ${order.payment?.paymentStatus === 'paid'
@@ -325,8 +337,8 @@ function OrderCard({
               <i className={`bi ${statusStyle.icon} text-xs`}></i>
             </button>
 
-            {/* Dropdown de Estados Minimal */}
-            {statusMenuOrderId === order.id && !['delivered', 'cancelled'].includes(order.status) && (
+            {/* Dropdown de Estados Completo */}
+            {statusMenuOrderId === order.id && (
               <>
                 <div
                   className="fixed inset-0 z-40"
@@ -336,33 +348,120 @@ function OrderCard({
                   }}
                 />
                 <div
-                  className="absolute left-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
+                  className="absolute left-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <button
-                    onClick={() => {
-                      handleStatusUpdate(order.id!, 'delivered')
-                      setStatusMenuOrderId(null)
-                    }}
-                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 transition-colors"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
-                      <i className="bi bi-check2-circle text-lg"></i>
-                    </div>
-                    <span>MARCAR ENTREGADO</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      handleStatusUpdate(order.id!, 'cancelled')
-                      setStatusMenuOrderId(null)
-                    }}
-                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors mt-1"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-                      <i className="bi bi-x-lg"></i>
-                    </div>
-                    <span>CANCELAR PEDIDO</span>
-                  </button>
+                  {/* Pending */}
+                  {order.status !== 'pending' && (
+                    <button
+                      onClick={() => {
+                        handleStatusUpdate(order.id!, 'pending')
+                        setStatusMenuOrderId(null)
+                      }}
+                      className="w-full px-4 py-2.5 text-left text-xs font-bold text-yellow-600 hover:bg-yellow-50 flex items-center gap-3 transition-colors"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-yellow-100 flex items-center justify-center">
+                        <i className="bi bi-clock-history text-lg"></i>
+                      </div>
+                      <span>PENDIENTE</span>
+                    </button>
+                  )}
+                  
+                  {/* Confirmed */}
+                  {order.status !== 'confirmed' && (
+                    <button
+                      onClick={() => {
+                        handleStatusUpdate(order.id!, 'confirmed')
+                        setStatusMenuOrderId(null)
+                      }}
+                      className="w-full px-4 py-2.5 text-left text-xs font-bold text-blue-600 hover:bg-blue-50 flex items-center gap-3 transition-colors"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                        <i className="bi bi-check2-circle text-lg"></i>
+                      </div>
+                      <span>CONFIRMADO</span>
+                    </button>
+                  )}
+
+                  {/* Preparing */}
+                  {order.status !== 'preparing' && (
+                    <button
+                      onClick={() => {
+                        handleStatusUpdate(order.id!, 'preparing')
+                        setStatusMenuOrderId(null)
+                      }}
+                      className="w-full px-4 py-2.5 text-left text-xs font-bold text-orange-600 hover:bg-orange-50 flex items-center gap-3 transition-colors"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
+                        <i className="bi bi-fire text-lg"></i>
+                      </div>
+                      <span>PREPARANDO</span>
+                    </button>
+                  )}
+
+                  {/* Ready */}
+                  {order.status !== 'ready' && (
+                    <button
+                      onClick={() => {
+                        handleStatusUpdate(order.id!, 'ready')
+                        setStatusMenuOrderId(null)
+                      }}
+                      className="w-full px-4 py-2.5 text-left text-xs font-bold text-emerald-600 hover:bg-emerald-50 flex items-center gap-3 transition-colors"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                        <i className="bi bi-bag-check text-lg"></i>
+                      </div>
+                      <span>LISTO</span>
+                    </button>
+                  )}
+
+                  {/* On Way */}
+                  {order.status !== 'on_way' && (
+                    <button
+                      onClick={() => {
+                        handleStatusUpdate(order.id!, 'on_way')
+                        setStatusMenuOrderId(null)
+                      }}
+                      className="w-full px-4 py-2.5 text-left text-xs font-bold text-indigo-600 hover:bg-indigo-50 flex items-center gap-3 transition-colors"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
+                        <i className="bi bi-bicycle text-lg"></i>
+                      </div>
+                      <span>EN CAMINO</span>
+                    </button>
+                  )}
+
+                  {/* Delivered */}
+                  {order.status !== 'delivered' && (
+                    <button
+                      onClick={() => {
+                        handleStatusUpdate(order.id!, 'delivered')
+                        setStatusMenuOrderId(null)
+                      }}
+                      className="w-full px-4 py-2.5 text-left text-xs font-bold text-green-600 hover:bg-green-50 flex items-center gap-3 transition-colors"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                        <i className="bi bi-house-check text-lg"></i>
+                      </div>
+                      <span>ENTREGADO</span>
+                    </button>
+                  )}
+
+                  {/* Cancelled */}
+                  {order.status !== 'cancelled' && (
+                    <button
+                      onClick={() => {
+                        handleStatusUpdate(order.id!, 'cancelled')
+                        setStatusMenuOrderId(null)
+                      }}
+                      className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors mt-1"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
+                        <i className="bi bi-x-lg"></i>
+                      </div>
+                      <span>CANCELADO</span>
+                    </button>
+                  )}
                 </div>
               </>
             )}
