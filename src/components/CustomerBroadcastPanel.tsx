@@ -14,6 +14,8 @@ const EMOJI_GROUPS = [
 
 export default function CustomerBroadcastPanel() {
     const [message, setMessage] = useState('')
+    const [buttonText, setButtonText] = useState('')
+    const [buttonUrl, setButtonUrl] = useState('')
     const [sending, setSending] = useState(false)
     const [result, setResult] = useState<any>(null)
     const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -57,11 +59,41 @@ export default function CustomerBroadcastPanel() {
             return
         }
 
+        const trimmedButtonText = buttonText.trim()
+        const trimmedButtonUrl = buttonUrl.trim()
+        const hasButton = trimmedButtonText.length > 0 || trimmedButtonUrl.length > 0
+
+        if (hasButton) {
+            if (!trimmedButtonText || !trimmedButtonUrl) {
+                alert('Si configuras un botón, completa el texto y la URL')
+                return
+            }
+
+            try {
+                const parsedUrl = new URL(trimmedButtonUrl)
+                if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+                    alert('La URL del botón debe comenzar con http:// o https://')
+                    return
+                }
+            } catch {
+                alert('La URL del botón no es válida')
+                return
+            }
+        }
+
         setSending(true)
         setResult(null)
 
         try {
-            const response = await sendTelegramBroadcast(message)
+            const response = await sendTelegramBroadcast(
+                message,
+                hasButton
+                    ? {
+                          text: trimmedButtonText,
+                          url: trimmedButtonUrl
+                      }
+                    : undefined
+            )
 
             setResult({
                 success: response.success,
@@ -93,6 +125,7 @@ export default function CustomerBroadcastPanel() {
 
     const characterCount = message.length
     const maxCharacters = 4096 // Límite de Telegram
+    const buttonPreviewEnabled = buttonText.trim().length > 0 && buttonUrl.trim().length > 0
 
     return (
         <div className="space-y-6 bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
@@ -214,6 +247,63 @@ export default function CustomerBroadcastPanel() {
                     </div>
                 </div>
             )}
+
+            {/* Botón Inline */}
+            <div className="space-y-3 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <div>
+                    <h4 className="text-sm font-semibold text-gray-800">Botón inline opcional</h4>
+                    <p className="text-xs text-gray-500 mt-1">
+                        Si completas ambos campos, el mensaje de Telegram incluirá un botón que llevará a la URL indicada.
+                    </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                        <label className="block text-xs font-semibold text-gray-600">
+                            Texto del botón
+                        </label>
+                        <input
+                            type="text"
+                            value={buttonText}
+                            onChange={(e) => setButtonText(e.target.value)}
+                            placeholder="Ver promoción"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        />
+                    </div>
+                    <div className="space-y-1">
+                        <label className="block text-xs font-semibold text-gray-600">
+                            URL del botón
+                        </label>
+                        <input
+                            type="url"
+                            value={buttonUrl}
+                            onChange={(e) => setButtonUrl(e.target.value)}
+                            placeholder="https://tusitio.com/promocion"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        />
+                    </div>
+                </div>
+
+                {buttonPreviewEnabled ? (
+                    <div className="pt-2">
+                        <p className="text-xs font-semibold text-gray-600 mb-2">Vista previa del botón</p>
+                        <div className="inline-flex">
+                            <a
+                                href={buttonUrl.trim()}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg shadow-sm"
+                            >
+                                {buttonText.trim()}
+                            </a>
+                        </div>
+                    </div>
+                ) : (
+                    <p className="text-xs text-gray-500">
+                        Puedes dejar estos campos vacíos si el mensaje no necesita botón.
+                    </p>
+                )}
+            </div>
 
             {/* Botón Enviar */}
             <div className="flex gap-3 pt-4 border-t border-gray-200">

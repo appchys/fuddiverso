@@ -47,9 +47,29 @@ function ensureAdminDb() {
   return adminDb
 }
 
-async function sendTelegramMessage(chatId: string, message: string) {
+async function sendTelegramMessage(
+  chatId: string,
+  message: string,
+  replyMarkup?: {
+    inline_keyboard: Array<Array<{
+      text: string
+      url: string
+    }>>
+  }
+) {
   if (!customerBotToken) {
     throw new Error('CUSTOMER_BOT_TOKEN no configurado')
+  }
+
+  const payload: any = {
+    chat_id: chatId,
+    text: message,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true
+  }
+
+  if (replyMarkup) {
+    payload.reply_markup = replyMarkup
   }
 
   const response = await fetch(`https://api.telegram.org/bot${customerBotToken}/sendMessage`, {
@@ -57,12 +77,7 @@ async function sendTelegramMessage(chatId: string, message: string) {
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: message,
-      parse_mode: 'HTML',
-      disable_web_page_preview: true
-    })
+    body: JSON.stringify(payload)
   })
 
   const data = await response.json().catch(() => null)
@@ -75,10 +90,50 @@ async function sendTelegramMessage(chatId: string, message: string) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { message } = await request.json()
+    const { message, button } = await request.json()
 
     if (!message || typeof message !== 'string' || !message.trim()) {
       return NextResponse.json({ error: 'Mensaje requerido' }, { status: 400 })
+    }
+
+    let replyMarkup: {
+      inline_keyboard: Array<Array<{
+        text: string
+        url: string
+      }>>
+    } | undefined
+
+    if (button != null) {
+      const buttonText = typeof button?.text === 'string' ? button.text.trim() : ''
+      const buttonUrl = typeof button?.url === 'string' ? button.url.trim() : ''
+
+      if (!buttonText || !buttonUrl) {
+        return NextResponse.json(
+          { error: 'Si configuras un botón, debes indicar texto y URL' },
+          { status: 400 }
+        )
+      }
+
+      try {
+        const parsedUrl = new URL(buttonUrl)
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+          throw new Error('La URL debe usar http o https')
+        }
+      } catch {
+        return NextResponse.json(
+          { error: 'La URL del botón no es válida' },
+          { status: 400 }
+        )
+      }
+
+      replyMarkup = {
+        inline_keyboard: [[
+          {
+            text: buttonText,
+            url: buttonUrl
+          }
+        ]]
+      }
     }
 
     const db = ensureAdminDb()
@@ -112,7 +167,7 @@ export async function POST(request: NextRequest) {
       const clientName = client.nombres || client.name || 'Cliente'
 
       try {
-        await sendTelegramMessage(chatId, message.trim())
+        await sendTelegramMessage(chatId, message.trim(), replyMarkup)
         successful += 1
       } catch (error) {
         failed += 1

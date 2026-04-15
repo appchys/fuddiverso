@@ -6145,7 +6145,13 @@ function getCurrentUser(): Promise<any> {
 /**
  * Enviar un mensaje broadcast a todos los clientes por Telegram
  */
-export async function sendTelegramBroadcast(message: string): Promise<{
+export async function sendTelegramBroadcast(
+  message: string,
+  button?: {
+    text: string
+    url: string
+  }
+): Promise<{
   success: boolean
   message?: string
   error?: string
@@ -6164,7 +6170,7 @@ export async function sendTelegramBroadcast(message: string): Promise<{
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ message })
+      body: JSON.stringify({ message, button })
     })
 
     if (!response.ok) {
