@@ -338,6 +338,7 @@ export interface QRCode {
   prize?: string
   image?: string
   color?: string // Color de fondo personalizable en formato hexadecimal
+  campaign?: string // Nombre de la campaña para agrupación temática
   isActive: boolean
   businessId: string
   createdAt: Date

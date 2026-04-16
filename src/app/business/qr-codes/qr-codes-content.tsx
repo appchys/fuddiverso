@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
@@ -10,6 +10,121 @@ import QRStatistics from '@/components/QRStatistics'
 
 interface QRCodesContentProps {
   businessId?: string | null
+}
+
+interface CampaignSectionProps {
+  campaignName: string
+  qrCodes: QRCode[]
+  qrImages: { [key: string]: string }
+  openMenuId: string | null
+  setOpenMenuId: (id: string | null) => void
+  onCopyLink: (qrId: string) => void
+  onDownloadQR: (qr: QRCode) => void
+  onEdit: (qr: QRCode) => void
+  onDelete: (qrId: string, qrName: string) => void
+}
+
+function CampaignSection({
+  campaignName,
+  qrCodes,
+  qrImages,
+  openMenuId,
+  setOpenMenuId,
+  onCopyLink,
+  onDownloadQR,
+  onEdit,
+  onDelete
+}: CampaignSectionProps) {
+  const [isExpanded, setIsExpanded] = useState(true)
+  const activeCount = qrCodes.filter(qr => qr.isActive).length
+
+  return (
+    <div className="bg-gray-50 rounded-2xl overflow-hidden border border-gray-200">
+      {/* Campaign Header */}
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full p-4 flex items-center justify-between hover:bg-gray-100 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+            <i className="bi bi-chevron-right text-gray-600"></i>
+          </div>
+          <div className="text-left">
+            <h3 className="font-bold text-gray-900 text-lg">
+              {campaignName}
+            </h3>
+            <p className="text-sm text-gray-500">
+              {qrCodes.length} códigos ({activeCount} activos)
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {campaignName !== 'Sin campaña' && (
+            <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">
+              Campaña
+            </span>
+          )}
+        </div>
+      </button>
+
+      {/* Campaign Content */}
+      {isExpanded && (
+        <div className="p-4 pt-0">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {qrCodes.map((qr) => (
+              <div key={qr.id} className={`relative rounded-xl shadow-md p-4 transition-all ${!qr.isActive ? 'opacity-60 grayscale' : ''}`} style={{ backgroundColor: qr.color || '#f3f4f6' }}>
+                {!qr.isActive && (
+                  <div className="absolute top-2 left-2 z-10">
+                    <span className="bg-gray-800 text-white text-[8px] px-2 py-1 rounded-full font-bold">INACTIVO</span>
+                  </div>
+                )}
+                <div className="absolute top-2 right-2 z-10">
+                  <button onClick={() => setOpenMenuId(openMenuId === qr.id ? null : qr.id)} className="bg-white/90 rounded-full p-1 shadow-sm"><i className="bi bi-three-dots-vertical"></i></button>
+                  {openMenuId === qr.id && (
+                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border p-2 z-30">
+                      <button onClick={() => { onCopyLink(qr.id); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-gray-50 text-sm flex items-center gap-2 font-medium">
+                        <i className="bi bi-link-45deg"></i> Copiar enlace
+                      </button>
+                      <button onClick={() => { onDownloadQR(qr); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-gray-50 text-sm flex items-center gap-2 font-medium">
+                        <i className="bi bi-download"></i> Descargar
+                      </button>
+                      <hr className="my-1 border-gray-100" />
+                      <button onClick={() => { onEdit(qr); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-gray-50 text-sm flex items-center gap-2 font-medium">
+                        <i className="bi bi-pencil"></i> Editar
+                      </button>
+                      <button onClick={() => { onDelete(qr.id, qr.name); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-red-50 text-sm text-red-600 flex items-center gap-2 font-medium">
+                        <i className="bi bi-trash"></i> Eliminar
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-center mb-3">
+                  <div className="w-16 h-16 rounded-full border-4 border-white shadow-sm overflow-hidden bg-white flex items-center justify-center">
+                    {qr.image ? (
+                      <img src={qr.image} className="w-full h-full object-cover" alt={qr.name} />
+                    ) : (
+                      <i className="bi bi-qr-code text-gray-200 text-xl"></i>
+                    )}
+                  </div>
+                </div>
+                <h3 className="text-center font-bold text-sm truncate px-1">{qr.name}</h3>
+                {qr.prize && (
+                  <p className="text-center text-xs text-gray-600 mt-1 line-clamp-2 px-1">{qr.prize}</p>
+                )}
+                <div className="bg-white rounded-lg p-2 mt-3 flex justify-center border aspect-square items-center">
+                  {qrImages[qr.id] ? (
+                    <img src={qrImages[qr.id]} className="w-full h-full object-contain" alt="QR Code" />
+                  ) : (
+                    <i className="bi bi-qr-code text-gray-100 text-4xl"></i>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function generateLocalShortId(length: number = 6): string {
@@ -38,14 +153,36 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
   const [newCodePoints, setNewCodePoints] = useState(10)
   const [newCodeIsActive, setNewCodeIsActive] = useState(true)
   const [newCodeColor, setNewCodeColor] = useState('#f3f4f6')
+  const [newCodeCampaign, setNewCodeCampaign] = useState('')
   const [newCodeImage, setNewCodeImage] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [nameError, setNameError] = useState('')
   const [modalTitle, setModalTitle] = useState('Generar Nuevo Código QR')
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const [showCampaignDropdown, setShowCampaignDropdown] = useState(false)
+  const [campaignFilter, setCampaignFilter] = useState('')
 
   const lastLoadedId = useRef<string | null>(null)
+
+  // Get unique campaigns from existing QR codes
+  const existingCampaigns = useMemo(() => {
+    const campaignSet = new Set<string>()
+    qrCodes.forEach(qr => {
+      if (qr.campaign) {
+        campaignSet.add(qr.campaign)
+      }
+    })
+    return Array.from(campaignSet).sort()
+  }, [qrCodes])
+
+  // Filter campaigns based on input
+  const filteredCampaigns = useMemo(() => {
+    if (!campaignFilter) return existingCampaigns
+    return existingCampaigns.filter((campaign: string) => 
+      campaign.toLowerCase().includes(campaignFilter.toLowerCase())
+    )
+  }, [existingCampaigns, campaignFilter])
 
   const loadQRCodes = useCallback(async (bizId: string) => {
     if (!bizId) {
@@ -55,7 +192,7 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
 
     try {
       setLoading(true)
-      const codes = await getQRCodesByBusiness(bizId)
+      const codes = await getQRCodesByBusiness(bizId, true)
       setQrCodes(codes)
       lastLoadedId.current = bizId
       setLoading(false)
@@ -159,6 +296,7 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
       setNewCodePoints(code.points)
       setNewCodeIsActive(code.isActive)
       setNewCodeColor(code.color || '#f3f4f6')
+      setNewCodeCampaign(code.campaign || '')
       setImagePreview(code.image || null)
       setNewCodeImage(null)
       setModalTitle('Editar Código QR')
@@ -169,11 +307,14 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
       setNewCodePoints(10)
       setNewCodeIsActive(true)
       setNewCodeColor('#f3f4f6')
+      setNewCodeCampaign('')
       setImagePreview(null)
       setNewCodeImage(null)
       setModalTitle('Generar Nuevo Código QR')
     }
     setNameError('')
+    setCampaignFilter('')
+    setShowCampaignDropdown(false)
     setShowModal(true)
   }, [])
 
@@ -196,6 +337,7 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
         points: newCodePoints,
         isActive: newCodeIsActive,
         color: newCodeColor,
+        campaign: newCodeCampaign.trim() || undefined,
         businessId: businessId,
         image: imageUrl
       }
@@ -243,6 +385,26 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
     })
   }
 
+  // Group QR codes by campaign
+  const groupedQRCodes = useMemo(() => {
+    const groups: { [key: string]: QRCode[] } = {}
+    
+    qrCodes.forEach(qr => {
+      const campaign = qr.campaign || 'Sin campaña'
+      if (!groups[campaign]) {
+        groups[campaign] = []
+      }
+      groups[campaign].push(qr)
+    })
+    
+    // Sort codes within each group by name
+    Object.keys(groups).forEach(campaign => {
+      groups[campaign].sort((a, b) => a.name.localeCompare(b.name))
+    })
+    
+    return groups
+  }, [qrCodes])
+
   const handleCopyLink = useCallback((qrId: string) => {
     if (typeof window === 'undefined') return
     const baseUrl = window.location.origin
@@ -278,52 +440,20 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
             <p className="font-bold">No hay códigos configurados para este negocio</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {qrCodes.map((qr) => (
-              <div key={qr.id} className="relative rounded-xl shadow-md p-4 transition-all" style={{ backgroundColor: qr.color || '#f3f4f6' }}>
-                <div className="absolute top-2 right-2 z-10">
-                  <button onClick={() => setOpenMenuId(openMenuId === qr.id ? null : qr.id)} className="bg-white/90 rounded-full p-1 shadow-sm"><i className="bi bi-three-dots-vertical"></i></button>
-                  {openMenuId === qr.id && (
-                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border p-2 z-30">
-                      <button onClick={() => { handleCopyLink(qr.id); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-gray-50 text-sm flex items-center gap-2 font-medium">
-                        <i className="bi bi-link-45deg"></i> Copiar enlace
-                      </button>
-                      <button onClick={() => { handleDownloadQR(qr); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-gray-50 text-sm flex items-center gap-2 font-medium">
-                        <i className="bi bi-download"></i> Descargar
-                      </button>
-                      <hr className="my-1 border-gray-100" />
-                      <button onClick={() => { openModal(qr); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-gray-50 text-sm flex items-center gap-2 font-medium">
-                        <i className="bi bi-pencil"></i> Editar
-                      </button>
-                      <button onClick={() => { handleDeleteQR(qr.id, qr.name); setOpenMenuId(null); }} className="w-full text-left p-2 hover:bg-red-50 text-sm text-red-600 flex items-center gap-2 font-medium">
-                        <i className="bi bi-trash"></i> Eliminar
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div className="flex justify-center mb-3">
-                  <div className="w-16 h-16 rounded-full border-4 border-white shadow-sm overflow-hidden bg-white flex items-center justify-center">
-                    {qr.image ? (
-                      <img src={qr.image} className="w-full h-full object-cover" alt={qr.name} />
-                    ) : (
-                      <i className="bi bi-qr-code text-gray-200 text-xl"></i>
-                    )}
-                  </div>
-                </div>
-                <h3 className="text-center font-bold text-sm truncate px-1">{qr.name}</h3>
-                <div className="bg-white rounded-lg p-2 mt-3 flex justify-center border aspect-square items-center">
-                  {qrImages[qr.id] ? (
-                    <img src={qrImages[qr.id]} className="w-full h-full object-contain" alt="QR Code" />
-                  ) : (
-                    <i className="bi bi-qr-code text-gray-100 text-4xl"></i>
-                  )}
-                </div>
-                <div className="mt-2 text-center">
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${qr.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                    {qr.isActive ? 'ACTIVO' : 'INACTIVO'}
-                  </span>
-                </div>
-              </div>
+          <div className="space-y-6">
+            {Object.entries(groupedQRCodes).map(([campaignName, campaignQRCodes]) => (
+              <CampaignSection 
+                key={campaignName}
+                campaignName={campaignName}
+                qrCodes={campaignQRCodes}
+                qrImages={qrImages}
+                openMenuId={openMenuId}
+                setOpenMenuId={setOpenMenuId}
+                onCopyLink={handleCopyLink}
+                onDownloadQR={handleDownloadQR}
+                onEdit={openModal}
+                onDelete={handleDeleteQR}
+              />
             ))}
           </div>
         )}
@@ -345,6 +475,43 @@ export default function QRCodesContent({ businessId: initialBusinessId }: QRCode
                 <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Nombre</label>
                 <input type="text" value={newCodeName} onChange={(e) => { setNewCodeName(e.target.value); setNameError(''); }} className="w-full p-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-red-500 outline-none font-bold" />
                 {nameError && <p className="text-red-500 text-xs mt-1">{nameError}</p>}
+              </div>
+              <div className="relative">
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Campaña (Opcional)</label>
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    value={newCodeCampaign} 
+                    onChange={(e) => {
+                      setNewCodeCampaign(e.target.value)
+                      setCampaignFilter(e.target.value)
+                      setShowCampaignDropdown(true)
+                    }}
+                    onFocus={() => setShowCampaignDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowCampaignDropdown(false), 200)}
+                    placeholder="Ej: Navidad, Verano, 2x1..."
+                    className="w-full p-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-red-500 outline-none font-bold" 
+                  />
+                  {showCampaignDropdown && filteredCampaigns.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-10 max-h-40 overflow-y-auto">
+                      {filteredCampaigns.map((campaign) => (
+                        <button
+                          key={campaign}
+                          type="button"
+                          onClick={() => {
+                            setNewCodeCampaign(campaign)
+                            setCampaignFilter(campaign)
+                            setShowCampaignDropdown(false)
+                          }}
+                          className="w-full text-left px-4 py-2 hover:bg-gray-50 text-sm font-medium transition-colors"
+                        >
+                          {campaign}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <p className="text-gray-400 text-xs mt-1">Agrupa códigos por temática o campaña</p>
               </div>
               <div>
                 <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Premio (Opcional)</label>

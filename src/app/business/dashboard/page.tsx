@@ -62,6 +62,7 @@ const IngredientStockManagement = dynamic(() => import('@/components/IngredientS
 const CostReports = dynamic(() => import('@/components/CostReports'), { ssr: false })
 const BusinessProfileDashboard = dynamic(() => import('@/components/BusinessProfileDashboard'), { ssr: false })
 const BusinessProfileEditor = dynamic(() => import('@/components/BusinessProfileEditor'), { ssr: false })
+const QRCodesContent = dynamic(() => import('@/app/business/qr-codes/qr-codes-content'), { ssr: false })
 
 // Auto-assign logic
 const autoAssignDeliveryForOrder = async (order: Order, defaultDeliveryId?: string): Promise<string | undefined> => {
@@ -1195,6 +1196,10 @@ export default function TodayOrdersPage() {
                     ) : activeTab === 'reports' ? (
                         <div className="p-4 sm:p-6">
                             <CostReports key={reportsSubTab} business={business} initialReportType={reportsSubTab as any} />
+                        </div>
+                    ) : activeTab === 'qrcodes' ? (
+                        <div className="p-4 sm:p-6">
+                            <QRCodesContent businessId={businessId} />
                         </div>
                     ) : activeTab === 'profile' && profileSubTab === 'general' ? (
                         <div className="p-4 sm:p-6">
