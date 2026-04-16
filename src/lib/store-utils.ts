@@ -25,16 +25,9 @@ export function calculateManualStatusExpiry(business: Business): Date | null {
   const todayKey = scheduleKeys.find(k => k.toLowerCase() === currentDay)
   const todaySchedule = todayKey ? business.schedule[todayKey] : null
 
-  console.log('🔍 Calculating manual expiry:', {
-    currentDay,
-    todayKey,
-    hasTodaySchedule: !!todaySchedule,
-    currentMinutes
-  })
 
   if (!todaySchedule || !todaySchedule.isOpen) {
     // Si hoy está cerrado (o no hay horario), buscar próxima apertura en los próximos 7 días
-    console.log('📅 Store closed today (or no schedule), looking for next open day...')
     for (let i = 1; i <= 7; i++) {
       const nextDayIndex = (now.getDay() + i) % 7
       const nextDayName = dayNames[nextDayIndex]
@@ -46,11 +39,9 @@ export function calculateManualStatusExpiry(business: Business): Date | null {
         expiryDate.setDate(now.getDate() + i)
         const [openH, openM] = normalizeTime(nextDaySchedule.open).split(':').map(Number)
         expiryDate.setHours(openH, openM, 0, 0)
-        console.log(`✅ Next opening found: ${nextDayName} at ${nextDaySchedule.open}`, { expiryDate })
         return expiryDate
       }
     }
-    console.warn('❌ No open day found in the next 7 days')
     return null
   }
 
@@ -64,14 +55,11 @@ export function calculateManualStatusExpiry(business: Business): Date | null {
   if (currentMinutes < openMinutes) {
     // Antes de hora de apertura: expirar a la hora de apertura
     expiryDate.setHours(openH, openM, 0, 0)
-    console.log('⏰ Expiry set to today opening time:', expiryDate.toLocaleString('es-EC'))
   } else if (currentMinutes < closeMinutes) {
     // Durante horario abierto: expirar a la hora de cierre
     expiryDate.setHours(closeH, closeM, 0, 0)
-    console.log('⏰ Expiry set to today closing time:', expiryDate.toLocaleString('es-EC'))
   } else {
     // Después de hora de cierre: expirar mañana (o el próximo día que se abra) a la hora de apertura
-    console.log('🌙 After closing time today, looking for next opening...')
     for (let i = 1; i <= 7; i++) {
       const nextDayIndex = (now.getDay() + i) % 7
       const nextDayName = dayNames[nextDayIndex]
@@ -82,11 +70,9 @@ export function calculateManualStatusExpiry(business: Business): Date | null {
         expiryDate.setDate(now.getDate() + i)
         const [nextOpenH, nextOpenM] = normalizeTime(nextDaySchedule.open).split(':').map(Number)
         expiryDate.setHours(nextOpenH, nextOpenM, 0, 0)
-        console.log(`✅ Next opening found: ${nextDayName} at ${nextDaySchedule.open}`, { expiryDate })
         return expiryDate
       }
     }
-    console.warn('❌ No future open day found')
     return null
   }
 
@@ -109,30 +95,22 @@ export function isStoreOpen(business: Business | null): boolean {
                     : new Date(business.manualStatusExpiry)
             
             if (now >= expiryTime) {
-                console.log('⏰ Manual status expired:', {
-                    now: now.toLocaleString('es-EC'),
-                    expiry: expiryTime.toLocaleString('es-EC')
-                })
                 // El control manual ha expirado, continuar con lógica automática
             } else {
                 // El control manual todavía está activo
                 if (business.manualStoreStatus === 'open') {
-                    console.log('🟢 Store OPEN (manual override Active)')
                     return true
                 }
                 if (business.manualStoreStatus === 'closed') {
-                    console.log('🔴 Store CLOSED (manual override Active)')
                     return false
                 }
             }
         } else {
             // Caso antiguo o sin fecha: control manual sin expiración
             if (business.manualStoreStatus === 'open') {
-                console.log('🟢 Store OPEN (manual override - no expiry)')
                 return true
             }
             if (business.manualStoreStatus === 'closed') {
-                console.log('🔴 Store CLOSED (manual override - no expiry)')
                 return false
             }
         }

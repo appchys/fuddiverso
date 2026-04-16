@@ -1,4 +1,4 @@
-# Sistema de cast de Mensajes Telegram para Clientes
+# Sistema de Broadcast de Mensajes Telegram para Clientes
 
 ## 📋 Descripción General
 

@@ -458,8 +458,14 @@ export async function updateBusiness(businessId: string, data: Partial<Business>
       if (value === null) {
         updateData[key] = deleteField()
         console.log(`🗑️ Converting ${key} to deleteField()`)
-      } else if (key === 'manualStatusExpiry' && value instanceof Date) {
-        // Convertir Date a Firestore Timestamp
+      } else if (value instanceof Date) {
+        // Check if it's an invalid date
+        if (isNaN(value.getTime())) {
+          console.warn(`⚠️ Skipping ${key} - Invalid Date detected:`, value)
+          // Skip invalid dates entirely
+          continue
+        }
+        // Convertir Date a Firestore Timestamp for all date fields
         updateData[key] = Timestamp.fromDate(value)
         console.log(`📅 Converting ${key} to Firestore Timestamp:`, value)
       } else {
