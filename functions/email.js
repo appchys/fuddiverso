@@ -253,10 +253,33 @@ async function sendOrderCreatedEmail(order, orderId) {
 
           <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
           
+          <!-- Botones de Acción Rápida -->
+          <div style="text-align: center; margin: 20px 0;">
+            <p style="margin: 0 0 12px 0; font-size: 14px; color: #666; font-weight: bold;">
+              🚀 Acciones Rápidas
+            </p>
+            <div style="display: flex; gap: 12px; justify-content: center;">
+              <!-- Botón Confirmar -->
+              <a href="https://fuddi.shop/api/order/status?action=confirm&orderId=${orderId}&token=${Buffer.from(orderId + '|confirm').toString('base64')}" 
+                 style="display: inline-block; background-color: #22c55e; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(34, 197, 94, 0.3);">
+                ✅ Confirmar Pedido
+              </a>
+              
+              <!-- Botón Descartar -->
+              <a href="https://fuddi.shop/api/order/status?action=discard&orderId=${orderId}&token=${Buffer.from(orderId + '|discard').toString('base64')}" 
+                 style="display: inline-block; background-color: #ef4444; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);">
+                ❌ Descartar Pedido
+              </a>
+            </div>
+            <p style="margin: 12px 0 0 0; font-size: 11px; color: #999;">
+              O revisa tu panel para más detalles
+            </p>
+          </div>
+
           <p style="font-size: 12px; color: #666; margin: 0;">
             <strong>Nota:</strong> Revisa tu panel de administración en 
             <a href="https://fuddi.shop/business/dashboard" style="color: #aa1918;">Fuddi Dashboard</a>
-            para más opciones y confirmar este pedido.
+            para más opciones y gestionar este pedido.
           </p>
         </div>
 

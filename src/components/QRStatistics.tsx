@@ -35,6 +35,7 @@ export default function QRStatistics({ businessId, qrCodes, initialTab = 'overvi
     completionRate: 0
   })
   const [activeTab, setActiveTab] = useState<'overview' | 'scans' | 'users'>(initialTab)
+  const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set(['Sin campaña']))
 
   useEffect(() => {
     loadStatistics()
@@ -80,6 +81,38 @@ export default function QRStatistics({ businessId, qrCodes, initialTab = 'overvi
   const getQRCodeColor = (codeId: string) => {
     const code = qrCodes.find((q) => q.id === codeId)
     return code?.color || '#f3f4f6'
+  }
+
+  // Agrupar códigos QR por campaña para estadísticas
+  const groupedQRStats = qrCodes.reduce((groups, code) => {
+    const campaign = code.campaign || 'Sin campaña'
+    if (!groups[campaign]) {
+      groups[campaign] = []
+    }
+    groups[campaign].push(code)
+    return groups
+  }, {} as { [key: string]: QRCode[] })
+
+  // Ordenar campañas alfabéticamente
+  const sortedCampaigns = Object.keys(groupedQRStats).sort()
+
+  // Funciones para manejar expansión de campañas
+  const toggleCampaignExpansion = (campaign: string) => {
+    const newExpanded = new Set(expandedCampaigns)
+    if (newExpanded.has(campaign)) {
+      newExpanded.delete(campaign)
+    } else {
+      newExpanded.add(campaign)
+    }
+    setExpandedCampaigns(newExpanded)
+  }
+
+  // Calcular estadísticas por campaña
+  const getCampaignStats = (campaign: string) => {
+    const campaignCodes = groupedQRStats[campaign] || []
+    const totalScans = campaignCodes.reduce((sum, code) => sum + (scanStats[code.id] || 0), 0)
+    const activeCodes = campaignCodes.filter(code => code.isActive).length
+    return { totalScans, activeCodes, totalCodes: campaignCodes.length }
   }
 
   return (
@@ -201,7 +234,7 @@ export default function QRStatistics({ businessId, qrCodes, initialTab = 'overvi
               Cantidad de Escaneos por Código QR
             </h3>
             <p className="text-sm text-gray-600 mt-1">
-              Número de veces que se ha escaneado cada código
+              Escaneos agrupados por campaña
             </p>
           </div>
 
@@ -211,44 +244,85 @@ export default function QRStatistics({ businessId, qrCodes, initialTab = 'overvi
               <p>No hay códigos QR creados aún</p>
             </div>
           ) : (
-            <div className="divide-y">
-              {qrCodes.map((code) => {
-                const scanCount = scanStats[code.id] || 0
-                const maxScans = Math.max(...qrCodes.map(q => scanStats[q.id] || 0), 1)
-                const percentage = (scanCount / maxScans) * 100
+            <div className="space-y-4">
+              {sortedCampaigns.map((campaign) => {
+                const stats = getCampaignStats(campaign)
+                const isExpanded = expandedCampaigns.has(campaign)
+                const campaignCodes = groupedQRStats[campaign] || []
+                const maxScans = Math.max(...campaignCodes.map(q => scanStats[q.id] || 0), 1)
 
                 return (
-                  <div key={code.id} className="p-4 hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center justify-between mb-2">
+                  <div key={campaign} className="border border-gray-200 rounded-lg overflow-hidden">
+                    {/* Header de campaña */}
+                    <button
+                      onClick={() => toggleCampaignExpansion(campaign)}
+                      className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                    >
                       <div className="flex items-center gap-3">
-                        <div
-                          className="w-4 h-4 rounded-full"
-                          style={{ backgroundColor: code.color || '#f3f4f6' }}
-                        ></div>
-                        <span className="font-medium text-gray-800">{code.name}</span>
-                        {!code.isActive && (
-                          <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded">
-                            Inactivo
+                        <div className={`w-6 h-6 rounded flex items-center justify-center transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+                          <i className="bi bi-chevron-right text-gray-600 text-sm"></i>
+                        </div>
+                        <div className="text-left">
+                          <h4 className="font-bold text-gray-900">{campaign}</h4>
+                          <p className="text-sm text-gray-500">
+                            {stats.totalCodes} códigos ({stats.activeCodes} activos) - {stats.totalScans} escaneos totales
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-bold text-red-600">{stats.totalScans}</span>
+                        {campaign !== 'Sin campaña' && (
+                          <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">
+                            Campaña
                           </span>
                         )}
                       </div>
-                      <span className="font-bold text-lg text-red-600">{scanCount}</span>
-                    </div>
+                    </button>
 
-                    {/* Barra de progreso */}
-                    <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-red-500 to-red-600 h-full transition-all duration-300"
-                        style={{ width: `${percentage}%` }}
-                      ></div>
-                    </div>
+                    {/* Contenido de campaña */}
+                    {isExpanded && (
+                      <div className="border-t border-gray-200">
+                        {campaignCodes.map((code) => {
+                          const scanCount = scanStats[code.id] || 0
+                          const percentage = (scanCount / maxScans) * 100
 
-                    {/* Información adicional */}
-                    <div className="text-xs text-gray-500 mt-2">
-                      {scanCount === 0
-                        ? 'Sin escaneos'
-                        : `${percentage.toFixed(0)}% del máximo`}
-                    </div>
+                          return (
+                            <div key={code.id} className="p-4 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-3">
+                                  <div
+                                    className="w-4 h-4 rounded-full"
+                                    style={{ backgroundColor: code.color || '#f3f4f6' }}
+                                  ></div>
+                                  <span className="font-medium text-gray-800">{code.name}</span>
+                                  {!code.isActive && (
+                                    <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded">
+                                      Inactivo
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="font-bold text-lg text-red-600">{scanCount}</span>
+                              </div>
+
+                              {/* Barra de progreso */}
+                              <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                                <div
+                                  className="bg-gradient-to-r from-red-500 to-red-600 h-full transition-all duration-300"
+                                  style={{ width: `${percentage}%` }}
+                                ></div>
+                              </div>
+
+                              {/* Información adicional */}
+                              <div className="text-xs text-gray-500 mt-2">
+                                {scanCount === 0
+                                  ? 'Sin escaneos'
+                                  : `${percentage.toFixed(0)}% del máximo de esta campaña`}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 )
               })}
