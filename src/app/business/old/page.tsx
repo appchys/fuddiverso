@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -97,7 +97,7 @@ export default function BusinessDashboard() {
   const [historicalOrders, setHistoricalOrders] = useState<Order[]>([])
   const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist'>('orders')
+  const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses'>('orders')
 
   // ... (other state variables remain the same)
 
@@ -138,7 +138,7 @@ export default function BusinessDashboard() {
     const tab = query.get('tab');
     const subtab = query.get('subtab');
 
-    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes', 'stats', 'wallet', 'checklist'].includes(tab)) {
+    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes', 'stats', 'wallet', 'checklist', 'expenses'].includes(tab)) {
 
       setActiveTab(tab as any);
       if (tab === 'profile') {
@@ -576,7 +576,7 @@ export default function BusinessDashboard() {
     const tab = query.get('tab');
     const subtab = query.get('subtab');
 
-    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes', 'stats', 'wallet'].includes(tab)) {
+    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes', 'stats', 'wallet', 'expenses'].includes(tab)) {
 
       setActiveTab(tab as any);
       if (tab === 'profile') {
