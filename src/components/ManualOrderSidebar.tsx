@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
-import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation } from '@/lib/database'
+import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation } from '@/lib/database'
 import { searchClients } from '@/lib/client-search'
 import { getProductPublicPrice, getPriceMetadata } from '@/lib/price-utils'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
@@ -154,6 +154,10 @@ export default function ManualOrderSidebar({
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null)
   const [locationImageFile, setLocationImageFile] = useState<File | null>(null)
   const [locationImagePreview, setLocationImagePreview] = useState<string>('')
+  
+  // Estados para cálculo automático de tarifas
+  const [calculatingTariff, setCalculatingTariff] = useState(false)
+  const [calculatedDistance, setCalculatedDistance] = useState<number | null>(null)
   // Estados para modal de deliveries
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
 
@@ -175,12 +179,58 @@ export default function ManualOrderSidebar({
     }
   }, [searchTimeout])
 
+  // Helper para calcular tarifa usando la función compartida en lib/database
+  const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
+    try {
+      if (!business?.id) return 0
+      const { fee, distance } = await getDeliveryDetailsForLocation({ lat, lng }, business.id);
+      if (distance !== undefined) {
+        setCalculatedDistance(distance);
+      } else {
+        setCalculatedDistance(null);
+      }
+      return fee
+    } catch (error) {
+      console.error('Error calculating delivery fee:', error)
+      return 0
+    }
+  }
+
   // Recalcular total cuando cambie la ubicación seleccionada o el tipo de entrega
   useEffect(() => {
     if (manualOrderData.selectedProducts.length > 0) {
       calculateTotal(manualOrderData.selectedProducts)
     }
   }, [manualOrderData.selectedLocation, manualOrderData.deliveryType])
+
+  // Calcular tarifa automáticamente al activar delivery si ya hay ubicación seleccionada
+  useEffect(() => {
+    const ensureTariffForSelected = async () => {
+      if (manualOrderData.deliveryType !== 'delivery') return
+      if (!manualOrderData.selectedLocation?.latlong) return
+      const currentTariff = manualOrderData.selectedLocation.tarifa
+      const needsCalculation = currentTariff == null || Number(currentTariff) <= 0
+      if (!needsCalculation || calculatingTariff || !business?.id) return
+
+      try {
+        setCalculatingTariff(true)
+        const [lat, lng] = manualOrderData.selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
+        if (isNaN(lat) || isNaN(lng)) return
+        const fee = await calculateDeliveryFee({ lat, lng })
+        // Normalizar tarifa fuera de cobertura: si fee es 0, usar 1.50
+        const normalizedFee = fee === 0 ? 1.5 : fee
+        const updated = { ...manualOrderData.selectedLocation, tarifa: normalizedFee.toString() }
+        setManualOrderData(prev => ({ ...prev, selectedLocation: updated }))
+        calculateTotal(manualOrderData.selectedProducts)
+      } catch (e) {
+        console.error('Error ensuring tariff for selected location:', e)
+      } finally {
+        setCalculatingTariff(false)
+      }
+    }
+
+    void ensureTariffForSelected()
+  }, [manualOrderData.deliveryType, manualOrderData.selectedLocation?.id, manualOrderData.selectedLocation?.latlong, business?.id, calculatingTariff])
 
   // Cargar deliveries activos
   useEffect(() => {
@@ -362,8 +412,9 @@ export default function ManualOrderSidebar({
   }
 
   // Manejar selección de delivery
-  const handleDeliverySelect = () => {
+  const handleDeliverySelect = async () => {
     setManualOrderData(prev => ({ ...prev, deliveryType: 'delivery' }))
+    await reloadClientLocations() // Recargar ubicaciones más actualizadas
     setShowLocationModal(true)
   }
 
@@ -588,6 +639,28 @@ export default function ManualOrderSidebar({
       setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
     } catch (error) {
       console.error('Error loading client locations:', error)
+    } finally {
+      setLoadingClientLocations(false)
+    }
+  }
+
+  // Función para recargar ubicaciones del cliente
+  const reloadClientLocations = async () => {
+    if (!manualOrderData.customerPhone) return
+    
+    setLoadingClientLocations(true)
+    try {
+      const client = await searchClientByPhone(manualOrderData.customerPhone)
+      if (client) {
+        const locations = await getClientLocations(client.id)
+        console.log('[ManualOrder] Reloaded locations for client:', {
+          clientId: client.id,
+          locationsCount: locations.length
+        })
+        setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
+      }
+    } catch (error) {
+      console.error('Error reloading client locations:', error)
     } finally {
       setLoadingClientLocations(false)
     }
@@ -1000,9 +1073,33 @@ export default function ManualOrderSidebar({
         loc.referencia === newLocationData.referencia.trim()
       );
       if (newLocation) {
-        setManualOrderData(prev => ({ ...prev, selectedLocation: newLocation }));
-        calculateTotal(manualOrderData.selectedProducts);
-        findDeliveryForLocation(newLocation);
+        // Calcular tarifa automáticamente para la nueva ubicación
+        if (newLocation.latlong) {
+          try {
+            const [lat, lng] = newLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
+            if (!isNaN(lat) && !isNaN(lng)) {
+              const calculatedFee = await calculateDeliveryFee({ lat, lng })
+              const normalizedFee = calculatedFee === 0 ? 1.5 : calculatedFee
+              const updatedLocation = { ...newLocation, tarifa: normalizedFee.toString() }
+              setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }));
+              calculateTotal(manualOrderData.selectedProducts);
+              findDeliveryForLocation(updatedLocation);
+            } else {
+              setManualOrderData(prev => ({ ...prev, selectedLocation: newLocation }));
+              calculateTotal(manualOrderData.selectedProducts);
+              findDeliveryForLocation(newLocation);
+            }
+          } catch (error) {
+            console.error('Error calculating delivery fee for new location:', error)
+            setManualOrderData(prev => ({ ...prev, selectedLocation: newLocation }));
+            calculateTotal(manualOrderData.selectedProducts);
+            findDeliveryForLocation(newLocation);
+          }
+        } else {
+          setManualOrderData(prev => ({ ...prev, selectedLocation: newLocation }));
+          calculateTotal(manualOrderData.selectedProducts);
+          findDeliveryForLocation(newLocation);
+        }
       }
 
       // Limpiar formulario y cerrar modal
@@ -1122,6 +1219,36 @@ export default function ManualOrderSidebar({
       if (client) {
         const locations = await getClientLocations(client.id)
         setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
+        
+        // Si la ubicación editada es la que está seleccionada actualmente, actualizarla
+        if (manualOrderData.selectedLocation?.id === editingLocationId) {
+          const updatedLocation = locations.find(loc => loc.id === editingLocationId)
+          if (updatedLocation) {
+            // Calcular tarifa automáticamente para la ubicación actualizada
+            if (updatedLocation.latlong) {
+              try {
+                const [lat, lng] = updatedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
+                if (!isNaN(lat) && !isNaN(lng)) {
+                  const calculatedFee = await calculateDeliveryFee({ lat, lng })
+                  const normalizedFee = calculatedFee === 0 ? 1.5 : calculatedFee
+                  const locationWithFee = { ...updatedLocation, tarifa: normalizedFee.toString() }
+                  setManualOrderData(prev => ({ ...prev, selectedLocation: locationWithFee }))
+                  calculateTotal(manualOrderData.selectedProducts)
+                } else {
+                  setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }))
+                  calculateTotal(manualOrderData.selectedProducts)
+                }
+              } catch (error) {
+                console.error('Error calculating delivery fee for updated location:', error)
+                setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }))
+                calculateTotal(manualOrderData.selectedProducts)
+              }
+            } else {
+              setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }))
+              calculateTotal(manualOrderData.selectedProducts)
+            }
+          }
+        }
       }
 
       setEditingLocationId(null)
@@ -1914,7 +2041,10 @@ export default function ManualOrderSidebar({
               ) : manualOrderData.selectedLocation ? (
                 <div
                   className="p-3 bg-green-50 border border-green-200 rounded-md mb-3 relative cursor-pointer hover:bg-green-100 transition-colors"
-                  onClick={() => setShowLocationModal(true)}
+                  onClick={async () => {
+                    await reloadClientLocations() // Recargar ubicaciones más actualizadas
+                    setShowLocationModal(true)
+                  }}
                 >
                   {/* Información de la ubicación */}
                   <div className="flex justify-between items-center mb-2">
@@ -1958,7 +2088,10 @@ export default function ManualOrderSidebar({
 
               {!manualOrderData.selectedLocation && (
                 <button
-                  onClick={() => setShowLocationModal(true)}
+                  onClick={async () => {
+                    await reloadClientLocations() // Recargar ubicaciones más actualizadas
+                    setShowLocationModal(true)
+                  }}
                   className="w-full p-3 rounded-lg border-2 border-gray-300 hover:border-gray-400 transition-all flex items-center justify-center space-x-2 text-gray-700"
                   disabled={!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10}
                 >
@@ -2477,7 +2610,13 @@ export default function ManualOrderSidebar({
                           type="radio"
                           name="selectedLocation"
                           checked={manualOrderData.selectedLocation?.id === location.id}
-                          onChange={() => {
+                          onChange={async () => {
+                            // Forzar la recarga siempre, incluso si ya está seleccionada
+                            // Esto permite actualizar los datos después de editar una ubicación
+                            if (manualOrderData.selectedLocation?.id === location.id) {
+                              // Si es la misma ubicación, forzar recarga de todos modos
+                              console.log('[ManualOrder] Re-selecting location to refresh data:', location.id);
+                            }
                             console.log('[ManualOrder] Selected location:', {
                               id: location.id,
                               referencia: location.referencia,
@@ -2486,6 +2625,33 @@ export default function ManualOrderSidebar({
                               hasPhoto: !!location.photo,
                               photoValue: location.photo
                             })
+                            
+                            // Si hay coordenadas, calcular la tarifa automáticamente
+                            if (location.latlong) {
+                              setCalculatingTariff(true)
+                              try {
+                                const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
+                                if (!isNaN(lat) && !isNaN(lng)) {
+                                  const calculatedFee = await calculateDeliveryFee({ lat, lng })
+                                  
+                                  // Normalizar tarifa fuera de cobertura: si calculatedFee es 0, usar 1.50
+                                  const normalizedFee = calculatedFee === 0 ? 1.5 : calculatedFee
+                                  
+                                  const updatedLocation = { ...location, tarifa: normalizedFee.toString() }
+                                  setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }));
+                                  setShowLocationModal(false);
+                                  calculateTotal(manualOrderData.selectedProducts);
+                                  findDeliveryForLocation(updatedLocation);
+                                  return;
+                                }
+                              } catch (error) {
+                                console.error('Error calculating delivery fee:', error)
+                              } finally {
+                                setCalculatingTariff(false)
+                              }
+                            }
+                            
+                            // Fallback: si no hay coordenadas o falló el cálculo, usar lo que haya en location.tarifa
                             setManualOrderData(prev => ({ ...prev, selectedLocation: location }));
                             setShowLocationModal(false);
                             calculateTotal(manualOrderData.selectedProducts);
@@ -2544,7 +2710,6 @@ export default function ManualOrderSidebar({
 
                         <div className="flex-1">
                           <p className="text-sm font-medium text-gray-900">{location.referencia}</p>
-                          <p className="text-xs text-gray-500">Tarifa: ${parseFloat(location.tarifa)}</p>
                         </div>
                         <div className="ml-3 flex flex-col items-end gap-2">
                           <button
@@ -2703,19 +2868,17 @@ export default function ManualOrderSidebar({
                     </div>
                   )}
 
-                  {/* Tarifa */}
+                  {/* Tarifa - Calculada automáticamente */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Tarifa de delivery ($)
+                      Tarifa de delivery
                     </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={newLocationData.tarifa}
-                      onChange={(e) => setNewLocationData(prev => ({ ...prev, tarifa: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <div className="w-full px-3 py-2 bg-blue-50 border border-blue-200 rounded-md">
+                      <p className="text-sm text-blue-700">
+                        <i className="bi bi-calculator mr-2"></i>
+                        Se calculará automáticamente según la zona de cobertura
+                      </p>
+                    </div>
                   </div>
 
                   {/* Foto de referencia */}
