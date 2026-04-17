@@ -61,6 +61,10 @@ export default function ExpensesView({ business, user }: ExpensesViewProps) {
         total: groups[date].reduce((sum, item) => sum + (item.amount || 0), 0)
       }))
   }, [expenses])
+  const expenseConcepts = useMemo(() => {
+    const uniqueConcepts = new Set(expenses.map(e => e.concept))
+    return Array.from(uniqueConcepts)
+  }, [expenses])
 
   const [expandedDates, setExpandedDates] = useState<string[]>([])
 
