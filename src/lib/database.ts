@@ -57,18 +57,23 @@ export interface ExpenseEntry {
   concept: string
   amount: number
   paymentMethod?: string
+  paymentStatus?: 'paid' | 'pending'
+  registeredBy?: string
+  registeredById?: string
   createdAt?: any
+  updatedAt?: any
 }
 
 /**
  * Crear un nuevo egreso
  */
-export async function createExpense(expense: Omit<ExpenseEntry, 'id' | 'createdAt'>): Promise<string> {
+export async function createExpense(expense: Omit<ExpenseEntry, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
   try {
     const now = new Date();
     const expenseData = {
       ...expense,
       createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
       date: expense.date || now.toISOString().split('T')[0] // Asegurar que siempre haya un campo date
     };
     const docRef = await addDoc(collection(db, 'expenses'), expenseData);

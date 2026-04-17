@@ -63,6 +63,7 @@ const CostReports = dynamic(() => import('@/components/CostReports'), { ssr: fal
 const BusinessProfileDashboard = dynamic(() => import('@/components/BusinessProfileDashboard'), { ssr: false })
 const BusinessProfileEditor = dynamic(() => import('@/components/BusinessProfileEditor'), { ssr: false })
 const QRCodesContent = dynamic(() => import('@/app/business/qr-codes/qr-codes-content'), { ssr: false })
+const ExpensesView = dynamic(() => import('@/components/ExpensesView'), { ssr: false })
 
 // Auto-assign logic
 const autoAssignDeliveryForOrder = async (order: Order, defaultDeliveryId?: string): Promise<string | undefined> => {
@@ -209,11 +210,41 @@ export default function TodayOrdersPage() {
     } = pushNotifications || {} as any
 
     // Sidebar State
-    const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist'>('orders')
+    const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses'>('orders')
     const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>('general')
     const [reportsSubTab, setReportsSubTab] = useState<'general' | 'deliveries' | 'costs'>('general')
     const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
     const [isReportsMenuOpen, setIsReportsMenuOpen] = useState(false)
+    const [summaryExpanded, setSummaryExpanded] = useState(false)
+
+    // Load today's expenses
+    const [todayExpenses, setTodayExpenses] = useState<any[]>([])
+
+    useEffect(() => {
+        if (!businessId) return
+
+        const now = new Date()
+        const todayStr = now.toISOString().split('T')[0]
+
+        const q = query(
+            collection(db, 'expenses'),
+            where('businessId', '==', businessId),
+            where('date', '==', todayStr)
+        )
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const data = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }))
+            setTodayExpenses(data)
+        }, (error) => {
+            console.error("Error listening to expenses:", error)
+        })
+
+        return () => unsubscribe()
+    }, [businessId])
+
 
     // Read tab from URL on mount (deep-link support)
     useEffect(() => {
@@ -234,6 +265,26 @@ export default function TodayOrdersPage() {
     const [availableDeliveries, setAvailableDeliveries] = useState<Delivery[]>([])
     const [business, setBusiness] = useState<Business | null>(null)
     const [products, setProducts] = useState<Product[]>([])
+
+    const totalTodayExpenses = useMemo(() => {
+        return todayExpenses.reduce((sum, e) => sum + (e.amount || 0), 0)
+    }, [todayExpenses])
+
+    const totalTodaySales = useMemo(() => {
+        return orders.reduce((acc, order) => {
+            if (order.status === 'cancelled') return acc
+            if (order.items && order.items.length > 0) {
+                const itemsTotal = order.items.reduce((sum, item) => {
+                    if (typeof item.subtotal === 'number') return sum + item.subtotal
+                    const price = item.storeReceives || item.product?.price || 0
+                    return sum + (price * (item.quantity || 1))
+                }, 0)
+                if (itemsTotal > 0) return acc + itemsTotal
+            }
+            if (typeof order.subtotal === 'number') return acc + order.subtotal
+            return acc + (order.total || 0)
+        }, 0)
+    }, [orders])
 
     // Sub-tab state for Orders
     const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today')
@@ -1189,6 +1240,10 @@ export default function TodayOrdersPage() {
                         <div className="p-4 sm:p-6">
                             {business && <WalletView business={business} orders={orders} historicalOrders={historicalOrders} />}
                         </div>
+                    ) : activeTab === 'expenses' ? (
+                        <div className="p-4 sm:p-6">
+                            <ExpensesView business={business} user={user} />
+                        </div>
                     ) : activeTab === 'inventory' ? (
                         <div className="p-4 sm:p-6">
                             <IngredientStockManagement business={business} />
@@ -1335,7 +1390,10 @@ export default function TodayOrdersPage() {
                                         ) : (
                                             <>
                                                 {/* Totals Summary for Mobile (Top) */}
-                                                <div className="lg:hidden bg-white rounded-xl border border-gray-100 p-4 mb-4 shadow-sm">
+                                                <div 
+                                                    onClick={() => setSummaryExpanded(!summaryExpanded)}
+                                                    className="lg:hidden bg-white rounded-xl border border-gray-100 p-4 mb-4 shadow-sm cursor-pointer hover:bg-gray-50 transition-all"
+                                                >
                                                     <div className="grid grid-cols-2 gap-4">
                                                         <div className="text-left">
                                                             <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Visitas Hoy</p>
@@ -1347,20 +1405,29 @@ export default function TodayOrdersPage() {
                                                         <div className="text-right">
                                                             <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Total Ventas</p>
                                                             <p className="text-xl font-bold text-green-600">
-                                                                ${orders.reduce((acc, order) => {
-                                                                    if (order.status === 'cancelled') return acc
-                                                                    if (order.items && order.items.length > 0) {
-                                                                        const itemsTotal = order.items.reduce((sum, item) => {
-                                                                            if (typeof item.subtotal === 'number') return sum + item.subtotal
-                                                                            const price = item.storeReceives || item.product?.price || 0
-                                                                            return sum + (price * (item.quantity || 1))
-                                                                        }, 0)
-                                                                        if (itemsTotal > 0) return acc + itemsTotal
-                                                                    }
-                                                                    if (typeof order.subtotal === 'number') return acc + order.subtotal
-                                                                    return acc + (order.total || 0)
-                                                                }, 0).toFixed(2)}
+                                                                ${totalTodaySales.toFixed(2)}
                                                             </p>
+                                                            {summaryExpanded && (
+                                                                <div className="mt-2 pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 flex flex-col items-end">
+                                                                    <div 
+                                                                        className="flex flex-col items-end group cursor-pointer"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            setActiveTab('expenses')
+                                                                        }}
+                                                                    >
+                                                                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-red-500 transition-colors">Gastos Hoy</p>
+                                                                        <p className="text-lg font-bold text-red-600 transition-all">
+                                                                            -${totalTodayExpenses.toFixed(2)}
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="mt-1 pt-1 border-tl border-gray-50 text-right">
+                                                                        <p className="text-[10px] text-gray-400 font-medium italic">
+                                                                            Neto: ${(totalTodaySales - totalTodayExpenses).toFixed(2)}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1423,7 +1490,10 @@ export default function TodayOrdersPage() {
                                                 {/* Columna 3: El resto */}
                                                 <div className={`${showCol3 || orders.length > 0 ? 'block' : 'hidden lg:block'} w-full lg:flex-1 lg:min-w-0 space-y-6`}>
                                                     {/* Totals Summary for Desktop ONLY */}
-                                                    <div className="hidden lg:block bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+                                                    <div 
+                                                        onClick={() => setSummaryExpanded(!summaryExpanded)}
+                                                        className="hidden lg:block bg-white rounded-xl border border-gray-100 p-4 shadow-sm cursor-pointer hover:bg-gray-50 transition-all"
+                                                    >
                                                         <div className="grid grid-cols-2 gap-4">
                                                             <div className="text-left">
                                                                 <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Visitas Hoy</p>
@@ -1435,20 +1505,29 @@ export default function TodayOrdersPage() {
                                                             <div className="text-right">
                                                                 <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Total Ventas</p>
                                                                 <p className="text-xl font-bold text-green-600">
-                                                                    ${orders.reduce((acc, order) => {
-                                                                        if (order.status === 'cancelled') return acc
-                                                                        if (order.items && order.items.length > 0) {
-                                                                            const itemsTotal = order.items.reduce((sum, item) => {
-                                                                                if (typeof item.subtotal === 'number') return sum + item.subtotal
-                                                                                const price = item.storeReceives || item.product?.price || 0
-                                                                                return sum + (price * (item.quantity || 1))
-                                                                            }, 0)
-                                                                            if (itemsTotal > 0) return acc + itemsTotal
-                                                                        }
-                                                                        if (typeof order.subtotal === 'number') return acc + order.subtotal
-                                                                        return acc + (order.total || 0)
-                                                                    }, 0).toFixed(2)}
+                                                                    ${totalTodaySales.toFixed(2)}
                                                                 </p>
+                                                                {summaryExpanded && (
+                                                                    <div className="mt-2 pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 flex flex-col items-end">
+                                                                        <div 
+                                                                            className="flex flex-col items-end group cursor-pointer"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation()
+                                                                                setActiveTab('expenses')
+                                                                            }}
+                                                                        >
+                                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-red-500 transition-colors">Gastos Hoy</p>
+                                                                            <p className="text-lg font-bold text-red-600 transition-all">
+                                                                                -${totalTodayExpenses.toFixed(2)}
+                                                                            </p>
+                                                                        </div>
+                                                                        <div className="mt-1 pt-1 border-tl border-gray-50 text-right">
+                                                                            <p className="text-[10px] text-gray-400 font-medium italic">
+                                                                                Neto: ${(totalTodaySales - totalTodayExpenses).toFixed(2)}
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </div>
