@@ -4,6 +4,7 @@ import 'bootstrap-icons/font/bootstrap-icons.css'
 import { AuthProvider } from '@/contexts/AuthContext'
 import LayoutWrapper from '@/components/LayoutWrapper'
 import { Analytics } from "@vercel/analytics/next"
+import { SpeedInsights } from "@vercel/speed-insights/next"
 
 export const metadata: Metadata = {
   title: 'Fuddi',
@@ -35,6 +36,7 @@ export default function RootLayout({
           </LayoutWrapper>
         </AuthProvider>
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   )
