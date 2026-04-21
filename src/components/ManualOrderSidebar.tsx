@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
-import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation } from '@/lib/database'
+import { GoogleMap } from './GoogleMap'
+import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation } from '@/lib/database'
 import { searchClients } from '@/lib/client-search'
 import { getProductPublicPrice, getPriceMetadata } from '@/lib/price-utils'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
@@ -145,11 +146,13 @@ export default function ManualOrderSidebar({
   const [showNewLocationForm, setShowNewLocationForm] = useState(false)
   const [newLocationData, setNewLocationData] = useState({
     referencia: '',
-    tarifa: '1',
-    googleMapsLink: '',
+    tarifa: '1.25',
     latlong: '',
-    photo: ''
+    photo: '',
+    sector: ''
   })
+  const [showMapSelection, setShowMapSelection] = useState(false)
+  const [isRequestingLocation, setIsRequestingLocation] = useState(false)
   const [creatingLocation, setCreatingLocation] = useState(false)
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null)
   const [locationImageFile, setLocationImageFile] = useState<File | null>(null)
@@ -182,17 +185,22 @@ export default function ManualOrderSidebar({
   // Helper para calcular tarifa usando la función compartida en lib/database
   const calculateDeliveryFee = async ({ lat, lng }: { lat: number; lng: number }) => {
     try {
-      if (!business?.id) return 0
-      const { fee, distance } = await getDeliveryDetailsForLocation({ lat, lng }, business.id);
+      if (!business?.id) return { fee: 0, zoneName: 'Sin cobertura' }
+      const [details, zone] = await Promise.all([
+        getDeliveryDetailsForLocation({ lat, lng }, business.id),
+        getCoverageZoneForLocation({ lat, lng })
+      ]);
+      
+      const { fee, distance } = details;
       if (distance !== undefined) {
         setCalculatedDistance(distance);
       } else {
         setCalculatedDistance(null);
       }
-      return fee
+      return { fee, zoneName: zone?.name || 'Fuera de cobertura' }
     } catch (error) {
       console.error('Error calculating delivery fee:', error)
-      return 0
+      return { fee: 0, zoneName: 'Error' }
     }
   }
 
@@ -216,7 +224,7 @@ export default function ManualOrderSidebar({
         setCalculatingTariff(true)
         const [lat, lng] = manualOrderData.selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
         if (isNaN(lat) || isNaN(lng)) return
-        const fee = await calculateDeliveryFee({ lat, lng })
+        const { fee } = await calculateDeliveryFee({ lat, lng })
         // Normalizar tarifa fuera de cobertura: si fee es 0, usar 1.50
         const normalizedFee = fee === 0 ? 1.5 : fee
         const updated = { ...manualOrderData.selectedLocation, tarifa: normalizedFee.toString() }
@@ -527,11 +535,11 @@ export default function ManualOrderSidebar({
     }
   }
 
-  // Pegar desde el portapapeles para Google Maps
-  const handlePasteGoogleMapsFromClipboard = async () => {
+  // Pegar desde el portapapeles para Ubicación
+  const handlePasteLocationFromClipboard = async () => {
     try {
       const text = await navigator.clipboard.readText()
-      handleGoogleMapsLinkChange(text)
+      handleLocationInputChange(text)
     } catch (error) {
       console.error('Error al pegar desde el portapapeles:', error)
     }
@@ -935,64 +943,103 @@ export default function ManualOrderSidebar({
     return validateCoordinates(location);
   };
 
-  // Función para manejar cambio en enlace de Google Maps
-  const handleGoogleMapsLinkChange = (link: string) => {
+  // Función para manejar cambio en el campo de ubicación (Enlace, Coordenadas o Plus Code)
+  const handleLocationInputChange = async (value: string) => {
+    // Actualizar el valor actual (latlong sirve como campo único)
+    setNewLocationData(prev => ({ ...prev, latlong: value }));
 
-    setNewLocationData(prev => ({ ...prev, googleMapsLink: link }));
+    if (value.trim()) {
+      let resolvedLatLong = '';
+      let updatedReferencia = '';
 
-    if (link.trim()) {
-      // Verificar si es un Plus Code
-
-      if (isPlusCode(link)) {
-
-        const plusCode = extractPlusCode(link);
-        if (!plusCode) {
-
-          return;
-        }
+      // 1. Verificar si es un Plus Code
+      if (isPlusCode(value)) {
+        const plusCode = extractPlusCode(value);
         if (plusCode) {
-
-          setNewLocationData(prev => ({
-            ...prev,
-            latlong: `pluscode:${plusCode}`,
-            referencia: link.replace(plusCode, '').trim() || prev.referencia
-          }));
-          return;
+          resolvedLatLong = `pluscode:${plusCode}`;
+          updatedReferencia = value.replace(plusCode, '').trim();
+        }
+      } else {
+        // 2. Intentar extraer coordenadas de un enlace de Google Maps
+        const coordinates = extractCoordinatesFromGoogleMaps(value);
+        if (coordinates) {
+          resolvedLatLong = normalizeLatLong(coordinates);
+        } else if (validateCoordinates(value)) {
+          // 3. Verificar si es una coordenada directa para normalizarla
+          resolvedLatLong = normalizeLatLong(value);
         }
       }
 
-      // Si no es un Plus Code, intentar extraer coordenadas de un enlace
-
-      const coordinates = extractCoordinatesFromGoogleMaps(link);
-
-      if (coordinates) {
-        const normalized = normalizeLatLong(coordinates);
-
+      if (resolvedLatLong) {
         setNewLocationData(prev => ({
           ...prev,
-          latlong: normalized
+          latlong: resolvedLatLong,
+          ...(updatedReferencia && { referencia: updatedReferencia || prev.referencia })
         }));
-        return;
-      }
 
-      // Si no es un enlace válido, verificar si es una coordenada directa
-
-
-      const normalized = normalizeLatLong(link);
-
-      const isValid = validateCoordinates(link);
-
-      if (isValid) {
-        const finalLatLong = normalizeLatLong(link);
-
-        setNewLocationData(prev => ({
-          ...prev,
-          latlong: finalLatLong
-        }));
-      } else {
-
+        // Calcular tarifa y sector automáticamente
+        if (business?.id) {
+          const [lat, lng] = resolvedLatLong.startsWith('pluscode:') ? [NaN, NaN] : resolvedLatLong.split(',').map(p => parseFloat(p.trim()));
+          
+          if (!isNaN(lat) && !isNaN(lng)) {
+            const { fee, zoneName } = await calculateDeliveryFee({ lat, lng });
+            const normalizedFee = fee === 0 ? 1.5 : fee;
+            setNewLocationData(prev => ({
+              ...prev,
+              tarifa: normalizedFee.toString(),
+              sector: zoneName
+            }));
+          } else if (resolvedLatLong.startsWith('pluscode:')) {
+             setNewLocationData(prev => ({ ...prev, sector: 'Plus Code (Revisar en Maps)' }));
+          }
+        }
       }
     }
+  };
+
+  // Función para manejar el cambio de ubicación desde el mapa (fixed center)
+  const handleMapLocationChange = useCallback(async (lat: number, lng: number) => {
+    const latlongValue = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    
+    // Si tenemos un negocio, calcular la tarifa automáticamente
+    if (business?.id) {
+      const { fee, zoneName } = await calculateDeliveryFee({ lat, lng });
+      const normalizedFee = fee === 0 ? 1.5 : fee;
+      setNewLocationData(prev => ({
+        ...prev,
+        latlong: latlongValue,
+        tarifa: normalizedFee.toString(),
+        sector: zoneName
+      }));
+    } else {
+      setNewLocationData(prev => ({ 
+        ...prev, 
+        latlong: latlongValue 
+      }));
+    }
+  }, [business?.id]);
+
+  // Función para obtener la ubicación actual por GPS
+  const getCurrentGpsLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocalización no soportada por tu navegador');
+      return;
+    }
+
+    setIsRequestingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        handleMapLocationChange(latitude, longitude);
+        setIsRequestingLocation(false);
+      },
+      (error) => {
+        console.error('Error getting GPS location:', error);
+        setIsRequestingLocation(false);
+        alert('No se pudo obtener tu ubicación. Verifica los permisos de tu navegador.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   };
 
   // Función para crear nueva ubicación
@@ -1078,8 +1125,8 @@ export default function ManualOrderSidebar({
           try {
             const [lat, lng] = newLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
             if (!isNaN(lat) && !isNaN(lng)) {
-              const calculatedFee = await calculateDeliveryFee({ lat, lng })
-              const normalizedFee = calculatedFee === 0 ? 1.5 : calculatedFee
+              const { fee } = await calculateDeliveryFee({ lat, lng })
+              const normalizedFee = fee === 0 ? 1.5 : fee
               const updatedLocation = { ...newLocation, tarifa: normalizedFee.toString() }
               setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }));
               calculateTotal(manualOrderData.selectedProducts);
@@ -1106,14 +1153,15 @@ export default function ManualOrderSidebar({
       setNewLocationData({
         referencia: '',
         tarifa: '1',
-        googleMapsLink: '',
         latlong: '',
-        photo: ''
+        photo: '',
+        sector: ''
       });
       setLocationImageFile(null);
       setLocationImagePreview('');
       setShowNewLocationForm(false);
       setShowLocationModal(false);
+      setShowMapSelection(false);
     } catch (error) {
       console.error('Error creando ubicación:', error);
       alert('Error al crear la ubicación. Por favor intenta de nuevo.');
@@ -1128,9 +1176,9 @@ export default function ManualOrderSidebar({
     setNewLocationData({
       referencia: location.referencia || '',
       tarifa: location.tarifa || '1',
-      googleMapsLink: '',
       latlong: location.latlong || '',
-      photo: location.photo || ''
+      photo: location.photo || '',
+      sector: location.sector || ''
     })
     // Si hay una foto existente, mostrarla en el preview
     if (location.photo) {
@@ -1229,8 +1277,8 @@ export default function ManualOrderSidebar({
               try {
                 const [lat, lng] = updatedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
                 if (!isNaN(lat) && !isNaN(lng)) {
-                  const calculatedFee = await calculateDeliveryFee({ lat, lng })
-                  const normalizedFee = calculatedFee === 0 ? 1.5 : calculatedFee
+                  const { fee } = await calculateDeliveryFee({ lat, lng })
+                  const normalizedFee = fee === 0 ? 1.5 : fee
                   const locationWithFee = { ...updatedLocation, tarifa: normalizedFee.toString() }
                   setManualOrderData(prev => ({ ...prev, selectedLocation: locationWithFee }))
                   calculateTotal(manualOrderData.selectedProducts)
@@ -1253,9 +1301,10 @@ export default function ManualOrderSidebar({
 
       setEditingLocationId(null)
       setShowNewLocationForm(false)
-      setNewLocationData({ referencia: '', tarifa: '1', googleMapsLink: '', latlong: '', photo: '' })
+      setNewLocationData({ referencia: '', tarifa: '1', latlong: '', photo: '', sector: '' })
       setLocationImageFile(null)
       setLocationImagePreview('')
+      setShowMapSelection(false)
     } catch (error) {
       console.error('Error actualizando ubicación:', error)
       alert('Error al actualizar la ubicación. Por favor intenta de nuevo.');
@@ -1383,7 +1432,7 @@ export default function ManualOrderSidebar({
   const calculateTotal = (products: OrderItem[]) => {
     const subtotal = products.reduce((sum, item) => sum + (item.price * item.quantity), 0)
     const deliveryCost = manualOrderData.deliveryType === 'delivery'
-      ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0')
+      ? (manualOrderData.selectedLocation?.latlong ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0') : 1.25)
       : 0
     const total = subtotal + deliveryCost
 
@@ -2581,10 +2630,11 @@ export default function ManualOrderSidebar({
                   setNewLocationData({
                     referencia: '',
                     tarifa: '1',
-                    googleMapsLink: '',
                     latlong: '',
-                    photo: ''
+                    photo: '',
+                    sector: ''
                   });
+                  setShowMapSelection(false);
                   setLocationImageFile(null);
                   setLocationImagePreview('');
                 }}
@@ -2632,10 +2682,10 @@ export default function ManualOrderSidebar({
                               try {
                                 const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
                                 if (!isNaN(lat) && !isNaN(lng)) {
-                                  const calculatedFee = await calculateDeliveryFee({ lat, lng })
+                                  const { fee } = await calculateDeliveryFee({ lat, lng })
                                   
                                   // Normalizar tarifa fuera de cobertura: si calculatedFee es 0, usar 1.50
-                                  const normalizedFee = calculatedFee === 0 ? 1.5 : calculatedFee
+                                  const normalizedFee = fee === 0 ? 1.5 : fee
                                   
                                   const updatedLocation = { ...location, tarifa: normalizedFee.toString() }
                                   setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }));
@@ -2774,45 +2824,84 @@ export default function ManualOrderSidebar({
                     />
                   </div>
 
-                  {/* Enlace de Google Maps */}
+                  {/* Ubicación (Enlace, Coordenadas o Plus Code) */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Enlace de Google Maps
+                      Ubicación (Enlace, Coordenadas o Plus Code)
                     </label>
-                    <div className="relative">
+                    <div className="flex items-center w-full border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white overflow-hidden shadow-sm group">
                       <input
-                        type="url"
-                        value={newLocationData.googleMapsLink}
-                        onChange={(e) => handleGoogleMapsLinkChange(e.target.value)}
-                        placeholder="https://maps.google.com/?q=-1.861343,-79.974945"
-                        className="w-full px-3 py-2 pr-20 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                        type="text"
+                        value={newLocationData.latlong}
+                        onChange={(e) => handleLocationInputChange(e.target.value)}
+                        placeholder="Enlace de Maps, -1.8613, -79.9749 o 42W9+246"
+                        className="flex-1 px-3 py-2.5 min-w-0 bg-transparent border-none focus:ring-0 text-sm outline-none"
                       />
-                      <button
-                        onClick={handlePasteGoogleMapsFromClipboard}
-                        className="absolute right-2 top-2 px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
-                        type="button"
-                      >
-                        <i className="bi bi-clipboard"></i>
-                      </button>
+                      <div className="flex gap-1 pr-1.5 pl-1 py-1 border-l border-gray-100 bg-gray-50/30 group-focus-within:bg-white transition-colors">
+                        <button
+                          onClick={() => setShowMapSelection(!showMapSelection)}
+                          className={`h-8 w-8 flex items-center justify-center rounded-md transition-all duration-200 ${showMapSelection ? 'bg-gray-800 text-white shadow-inner' : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-900'}`}
+                          type="button"
+                          title="Seleccionar en mapa"
+                        >
+                          <i className={`bi ${showMapSelection ? 'bi-map-fill' : 'bi-map'} text-sm`}></i>
+                        </button>
+                        <button
+                          onClick={handlePasteLocationFromClipboard}
+                          className="h-8 w-8 flex items-center justify-center bg-gray-100 text-gray-500 rounded-md hover:bg-gray-200 hover:text-gray-900 transition-all duration-200"
+                          type="button"
+                          title="Pegar desde portapapeles"
+                        >
+                          <i className="bi bi-clipboard text-sm"></i>
+                        </button>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Coordenadas */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Coordenadas (LatLong)
-                    </label>
-                    <input
-                      type="text"
-                      value={newLocationData.latlong}
-                      onChange={(e) => setNewLocationData(prev => ({ ...prev, latlong: e.target.value }))}
-                      placeholder="-1.861343,-79.974945"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
+                    {/* Selector de Mapa */}
+                    {showMapSelection && (
+                      <div className="mt-3 space-y-2 animate-fadeIn">
+                        <div className="h-64 rounded-xl overflow-hidden border border-gray-300 relative bg-gray-50">
+                          {(() => {
+                            let lat = -1.861343;
+                            let lng = -79.974945;
+                            if (newLocationData.latlong && !newLocationData.latlong.startsWith('pluscode:')) {
+                              const parts = newLocationData.latlong.split(',').map(p => parseFloat(p.trim()));
+                              if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+                                lat = parts[0];
+                                lng = parts[1];
+                              }
+                            }
+                            return (
+                              <GoogleMap
+                                latitude={lat}
+                                longitude={lng}
+                                fixedCenterMarker={true}
+                                onLocationChange={handleMapLocationChange}
+                                height="100%"
+                                zoom={17}
+                              />
+                            );
+                          })()}
+                          <button
+                            type="button"
+                            onClick={getCurrentGpsLocation}
+                            disabled={isRequestingLocation}
+                            className="absolute bottom-4 right-4 bg-white p-2 rounded-full shadow-lg text-gray-700 hover:bg-gray-100 transition-all z-20 disabled:bg-gray-100 disabled:text-gray-400"
+                            title="Mi ubicación actual"
+                          >
+                            {isRequestingLocation ? (
+                              <div className="w-5 h-5 border-2 border-gray-400 border-t-gray-800 rounded-full animate-spin"></div>
+                            ) : (
+                              <i className="bi bi-crosshair text-xl"></i>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
+                                      </div>
                   {/* Vista previa del mapa estático */}
-                  {newLocationData.latlong && (
+                  {newLocationData.latlong && !showMapSelection && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Vista previa de ubicación
@@ -2868,16 +2957,20 @@ export default function ManualOrderSidebar({
                     </div>
                   )}
 
-                  {/* Tarifa - Calculada automáticamente */}
+                  {/* Tarifa - Mostrada dinámicamente */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Tarifa de delivery
-                    </label>
-                    <div className="w-full px-3 py-2 bg-blue-50 border border-blue-200 rounded-md">
-                      <p className="text-sm text-blue-700">
-                        <i className="bi bi-calculator mr-2"></i>
-                        Se calculará automáticamente según la zona de cobertura
-                      </p>
+                    <div className="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-200 shadow-sm">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">Sector</span>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${newLocationData.sector && newLocationData.sector !== 'Fuera de cobertura' ? 'bg-green-500 animate-pulse' : 'bg-amber-500'}`}></div>
+                          <span className="text-sm font-bold text-gray-900">{newLocationData.sector || 'Pendiente de ubicación'}</span>
+                        </div>
+                      </div>
+                      <div className="text-right border-l border-gray-200 pl-4">
+                        <span className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">Costo Envío</span>
+                        <div className="text-xl font-black text-blue-600">${newLocationData.tarifa}</div>
+                      </div>
                     </div>
                   </div>
 
@@ -2935,9 +3028,9 @@ export default function ManualOrderSidebar({
                       setNewLocationData({
                         referencia: '',
                         tarifa: '1',
-                        googleMapsLink: '',
                         latlong: '',
-                        photo: ''
+                        photo: '',
+                        sector: ''
                       });
                       setLocationImageFile(null);
                       setLocationImagePreview('');
