@@ -211,34 +211,8 @@ export default function ManualOrderSidebar({
     }
   }, [manualOrderData.selectedLocation, manualOrderData.deliveryType])
 
-  // Calcular tarifa automáticamente al activar delivery si ya hay ubicación seleccionada
-  useEffect(() => {
-    const ensureTariffForSelected = async () => {
-      if (manualOrderData.deliveryType !== 'delivery') return
-      if (!manualOrderData.selectedLocation?.latlong) return
-      const currentTariff = manualOrderData.selectedLocation.tarifa
-      const needsCalculation = currentTariff == null || Number(currentTariff) <= 0
-      if (!needsCalculation || calculatingTariff || !business?.id) return
-
-      try {
-        setCalculatingTariff(true)
-        const [lat, lng] = manualOrderData.selectedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
-        if (isNaN(lat) || isNaN(lng)) return
-        const { fee } = await calculateDeliveryFee({ lat, lng })
-        // Normalizar tarifa fuera de cobertura: si fee es 0, usar 1.50
-        const normalizedFee = fee === 0 ? 1.5 : fee
-        const updated = { ...manualOrderData.selectedLocation, tarifa: normalizedFee.toString() }
-        setManualOrderData(prev => ({ ...prev, selectedLocation: updated }))
-        calculateTotal(manualOrderData.selectedProducts)
-      } catch (e) {
-        console.error('Error ensuring tariff for selected location:', e)
-      } finally {
-        setCalculatingTariff(false)
-      }
-    }
-
-    void ensureTariffForSelected()
-  }, [manualOrderData.deliveryType, manualOrderData.selectedLocation?.id, manualOrderData.selectedLocation?.latlong, business?.id, calculatingTariff])
+  // Eliminar el useEffect que calculaba tarifa automáticamente al cambiar deliveryType
+  // Ahora el cálculo se hace explícitamente al seleccionar o crear una ubicación
 
   // Cargar deliveries activos
   useEffect(() => {
@@ -420,10 +394,10 @@ export default function ManualOrderSidebar({
   }
 
   // Manejar selección de delivery
-  const handleDeliverySelect = async () => {
+  const handleDeliverySelect = () => {
     setManualOrderData(prev => ({ ...prev, deliveryType: 'delivery' }))
-    await reloadClientLocations() // Recargar ubicaciones más actualizadas
     setShowLocationModal(true)
+    reloadClientLocations() // Se ejecuta en segundo plano, el modal tiene su propio loading
   }
 
   // Buscar delivery asignado a la zona de una ubicación
@@ -1575,72 +1549,71 @@ export default function ManualOrderSidebar({
       // Detectar si es un checkout (por la bandera _isFromCheckout o el ID que empieza con 'checkout-')
       const isFromCheckout = editOrder?._isFromCheckout || editOrder?.id?.startsWith('checkout-');
 
-      if (mode === 'edit' && editOrder?.id && !isFromCheckout) {
-        // For update, adapt payload to match updateOrder expectations
-        const updatePayload: any = {
-          items: orderData.items,
-          customer: orderData.customer,
-          delivery: orderData.delivery,
-          timing: orderData.timing,
-          payment: orderData.payment,
-          total: orderData.total,
-          status: finalStatus,
-          updatedAt: new Date(),
-          notas: manualOrderData.notas
-        }
-        await updateOrder(editOrder.id, updatePayload)
-        onOrderUpdated && onOrderUpdated()
-      } else {
-        // Always create new order for checkouts or when not in edit mode
-        const orderId = await createOrder(orderData as any)
-
-        // Si viene de un checkout, actualizar el checkout session para marcarlo como completado
-        if (isFromCheckout && editOrder?.checkoutSessionId) {
-          try {
-            const { doc, updateDoc } = await import('firebase/firestore')
-            const { db } = await import('@/lib/firebase')
-            
-            await updateDoc(doc(db, 'checkoutProgress', editOrder.checkoutSessionId), {
-              currentStep: 5, // Mark as completed
-              completedAt: new Date(),
-              convertedToOrderId: orderId
-            });
-            
-            console.log('[ManualOrder] Checkout session marked as completed:', {
-              checkoutSessionId: editOrder.checkoutSessionId,
-              orderId
-            });
-          } catch (error) {
-            console.error('[ManualOrder] Error updating checkout session:', error)
-            // No interrumpir el flujo si hay error al actualizar el checkout
-          }
-        }
-
-        // Registrar consumo de ingredientes automáticamente
+      // ENFOQUE OPTIMISTA: Cerramos y reseteamos de inmediato
+      onClose();
+      handleReset();
+      
+      // El guardado se ejecuta en segundo plano
+      (async () => {
         try {
-          const cartItems = (manualOrderData.selectedProducts as any[]).map((item: any) => ({
-            productId: item.productId,
-            variant: item.variant || item.name,
-            name: item.name,
-            quantity: item.quantity
-          }))
-          if (cartItems.length > 0) {
-            const orderDateStr = new Date().toISOString().split('T')[0]
-            await registerOrderConsumption(business?.id!, cartItems, orderDateStr, orderId)
+          if (mode === 'edit' && editOrder?.id && !isFromCheckout) {
+            const updatePayload: any = {
+              items: orderData.items,
+              customer: orderData.customer,
+              delivery: orderData.delivery,
+              timing: orderData.timing,
+              payment: orderData.payment,
+              total: orderData.total,
+              status: finalStatus,
+              updatedAt: new Date(),
+              notas: orderData.notas
+            }
+            await updateOrder(editOrder.id, updatePayload)
+            onOrderUpdated && onOrderUpdated()
+            console.log('[ManualOrder] Orden actualizada con éxito en segundo plano');
+          } else {
+            const orderId = await createOrder(orderData as any)
+            
+            // Si viene de un checkout, marcarlo como completado
+            if (isFromCheckout && editOrder?.checkoutSessionId) {
+              try {
+                const { doc, updateDoc } = await import('firebase/firestore')
+                const { db } = await import('@/lib/firebase')
+                await updateDoc(doc(db, 'checkoutProgress', editOrder.checkoutSessionId), {
+                  currentStep: 5,
+                  completedAt: new Date(),
+                  convertedToOrderId: orderId
+                });
+              } catch (e) { console.error('Error updating checkout session:', e) }
+            }
+
+            // Registrar consumo
+            try {
+              const cartItems = orderData.items.map((item: any) => ({
+                productId: item.productId,
+                variant: item.variant || item.name,
+                name: item.name,
+                quantity: item.quantity
+              }))
+              if (cartItems.length > 0) {
+                const orderDateStr = new Date().toISOString().split('T')[0]
+                await registerOrderConsumption(business?.id!, cartItems, orderDateStr, orderId)
+              }
+            } catch (e) { console.error('Error registering consumption:', e) }
+
+            onOrderCreated()
+            console.log('[ManualOrder] Orden creada con éxito en segundo plano');
           }
         } catch (error) {
-          console.error('Error registering order consumption:', error)
-          // No interrumpir el flujo si hay error en consumo
+          console.error('Error guardando la orden en segundo plano:', error)
+          // Opcional: mostrar un alerta global o notificación de error
+        } finally {
+          setCreatingOrder(false)
         }
-
-        onOrderCreated()
-      }
-      handleReset()
-      onClose()
+      })();
     } catch (error) {
-      console.error('Error creating/updating order:', error)
-      alert(mode === 'edit' ? 'Error al actualizar la orden' : 'Error al crear la orden')
-    } finally {
+      console.error('Error al preparar los datos de la orden:', error)
+      alert('Error al procesar la orden. Por favor revisa los datos.')
       setCreatingOrder(false)
     }
   }
