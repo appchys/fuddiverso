@@ -25,6 +25,12 @@ export default function IngredientStockManagement({ business }: IngredientStockM
   const [dateRange, setDateRange] = useState<'today' | 'week' | 'month' | 'all'>('week')
   const [favorites, setFavorites] = useState<string[]>([])
   const [showEditIngredientModal, setShowEditIngredientModal] = useState(false)
+  const [showAllIngredients, setShowAllIngredients] = useState(false)
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [historyIngredient, setHistoryIngredient] = useState<IngredientStockSummary | null>(null)
+  const [historyMovements, setHistoryMovements] = useState<IngredientStockMovement[]>([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [editIngredientData, setEditIngredientData] = useState({
     name: '',
     unitCost: ''
@@ -43,7 +49,11 @@ export default function IngredientStockManagement({ business }: IngredientStockM
     if (business?.id) {
       loadStockSummary()
       const saved = localStorage.getItem(`fuddi_fav_ingredients_${business.id}`)
-      if (saved) setFavorites(JSON.parse(saved))
+      if (saved) {
+        setFavorites(JSON.parse(saved))
+      } else {
+        setFavorites([])
+      }
     }
   }, [business?.id])
 
@@ -135,14 +145,58 @@ export default function IngredientStockManagement({ business }: IngredientStockM
 
   const toggleFavorite = (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    const newFavs = favorites.includes(id)
-      ? favorites.filter(f => f !== id)
-      : [...favorites, id]
-    setFavorites(newFavs)
-    if (business?.id) {
-      localStorage.setItem(`fuddi_fav_ingredients_${business.id}`, JSON.stringify(newFavs))
+    setFavorites(prev => {
+      const isFav = prev.includes(id)
+      const newFavs = isFav
+        ? prev.filter(f => f !== id)
+        : [...prev, id]
+      
+      if (business?.id) {
+        localStorage.setItem(`fuddi_fav_ingredients_${business.id}`, JSON.stringify(newFavs))
+      }
+      return newFavs
+    })
+  }
+  
+  const openMovementForIngredient = (ing: IngredientStockSummary, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setNewMovement({
+      ingredientName: ing.ingredientName,
+      type: 'entry',
+      quantity: '',
+      date: new Date().toISOString().split('T')[0],
+      notes: '',
+      unitCost: ing.unitCost?.toString() || ''
+    })
+    setSelectedIngredient(ing.ingredientId)
+    setShowMovementModal(true)
+  }
+
+  const openHistoryForIngredient = async (ing: IngredientStockSummary, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setHistoryIngredient(ing)
+    setShowHistoryModal(true)
+    setLoadingHistory(true)
+    try {
+      if (business?.id) {
+        const history = await getStockMovements(business.id, ing.ingredientId)
+        setHistoryMovements(history)
+      }
+    } catch (error) {
+      console.error('Error loading history:', error)
+    } finally {
+      setLoadingHistory(false)
     }
   }
+
+  const groupedMovements = useMemo(() => {
+    const groups: { [key: string]: IngredientStockMovement[] } = {}
+    historyMovements.forEach(m => {
+      if (!groups[m.date]) groups[m.date] = []
+      groups[m.date].push(m)
+    })
+    return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]))
+  }, [historyMovements])
 
   const handleUpdateIngredient = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -169,6 +223,13 @@ export default function IngredientStockManagement({ business }: IngredientStockM
     return stockSummary.find(s => s.ingredientId === selectedIngredient)
   }, [stockSummary, selectedIngredient])
 
+  const { favoriteIngredients, otherIngredients } = useMemo(() => {
+    return {
+      favoriteIngredients: sortedSummary.filter(ing => favorites.includes(ing.ingredientId)),
+      otherIngredients: sortedSummary.filter(ing => !favorites.includes(ing.ingredientId))
+    }
+  }, [sortedSummary, favorites])
+
   return (
     <div className="animate-in fade-in duration-500">
       <div className="flex flex-col lg:flex-row gap-6">
@@ -176,56 +237,178 @@ export default function IngredientStockManagement({ business }: IngredientStockM
         {/* Sidebar de Ingredientes */}
         <div className="lg:w-80 flex-shrink-0">
           <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden sticky top-24">
-            <div className="p-6 border-b border-gray-100 bg-gray-50/30 flex justify-between items-center">
+            <div className="p-6 border-b border-gray-100 bg-gray-50/30">
               <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Ingredientes</h3>
-              <button
-                onClick={() => {
-                  setNewMovement(prev => ({ ...prev, ingredientName: '', unitCost: '' }))
-                  setShowMovementModal(true)
-                }}
-                className="text-red-600 hover:bg-red-50 p-2 rounded-full transition-colors"
-                title="Nuevo Ingrediente"
-              >
-                <i className="bi bi-plus-lg text-lg"></i>
-              </button>
             </div>
 
             <div className="max-h-[calc(100vh-300px)] overflow-y-auto custom-scrollbar">
-              {sortedSummary.map(ing => (
+              {favoriteIngredients.map(ing => (
                 <button
                   key={ing.ingredientId}
                   onClick={() => setSelectedIngredient(ing.ingredientId)}
                   className={`w-full text-left p-4 transition-all flex items-center gap-4 group relative ${selectedIngredient === ing.ingredientId ? 'bg-red-50 border-l-4 border-red-500' : 'hover:bg-gray-50 border-l-4 border-transparent'
                     }`}
                 >
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs ${selectedIngredient === ing.ingredientId ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                    {ing.ingredientName.substring(0, 2).toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0 pr-6">
-                    <p className={`font-bold text-sm truncate ${selectedIngredient === ing.ingredientId ? 'text-red-700' : 'text-gray-900'}`}>
+                                     <div className="flex-1 pr-4">
+                    <p className={`font-bold text-sm ${selectedIngredient === ing.ingredientId ? 'text-red-700' : 'text-gray-900'}`}>
                       {ing.ingredientName}
                     </p>
-                    <p className={`text-[10px] font-semibold truncate ${selectedIngredient === ing.ingredientId ? 'text-red-400' : 'text-gray-500'}`}>
+                    <p className={`text-[10px] font-semibold ${selectedIngredient === ing.ingredientId ? 'text-red-400' : 'text-gray-500'}`}>
                       ${ing.unitCost?.toFixed(2) || '0.00'} / {ing.unit || 'uds'}
                     </p>
                   </div>
 
-                  {/* Favorite Toggle */}
-                  <div
-                    onClick={(e) => toggleFavorite(ing.ingredientId, e)}
-                    className={`absolute right-12 top-1/2 -translate-y-1/2 p-2 rounded-full transition-all duration-300 opacity-0 group-hover:opacity-100 ${favorites.includes(ing.ingredientId) ? 'opacity-100 text-yellow-500 scale-110' : 'text-gray-300 hover:text-yellow-400 hover:scale-110'
-                      }`}
-                  >
-                    <i className={`bi ${favorites.includes(ing.ingredientId) ? 'bi-star-fill' : 'bi-star'}`}></i>
-                  </div>
+                  <div className={`text-right ${selectedIngredient === ing.ingredientId ? 'text-red-600' : 'text-gray-900'} flex items-center gap-2`}>
+                    <div>
+                      <p className="text-sm font-bold">{Math.round(ing.currentStock)}</p>
+                      <p className="text-[10px] opacity-70 uppercase font-bold">{ing.unit || 'uds'}</p>
+                    </div>
 
-                  <div className={`text-right ${selectedIngredient === ing.ingredientId ? 'text-red-600' : 'text-gray-900'}`}>
-                    <p className="text-sm font-bold">{Math.round(ing.currentStock)}</p>
-                    <p className="text-[10px] opacity-70 uppercase font-bold">{ing.unit || 'uds'}</p>
+                    {/* Action Buttons Container */}
+                    <div className="flex items-center gap-1">
+                      {/* Register Movement Shortcut */}
+                      <button
+                        onClick={(e) => openMovementForIngredient(ing, e)}
+                        className="p-2 rounded-full text-red-500 hover:bg-red-50 transition-all duration-300 z-20"
+                        title="Registrar Movimiento"
+                      >
+                        <i className="bi bi-plus-circle-fill text-lg"></i>
+                      </button>
+
+                      {/* Three-dot Menu */}
+                      <div className="relative">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setOpenMenuId(openMenuId === ing.ingredientId ? null : ing.ingredientId)
+                          }}
+                          className="p-2 rounded-full text-gray-400 hover:bg-gray-100 transition-all duration-300 z-20"
+                          title="Más opciones"
+                        >
+                          <i className="bi bi-three-dots-vertical text-lg"></i>
+                        </button>
+
+                        {openMenuId === ing.ingredientId && (
+                          <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-100 py-1 min-w-[140px] z-50">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openHistoryForIngredient(ing, e)
+                                setOpenMenuId(null)
+                              }}
+                              className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 flex items-center gap-2 transition-colors"
+                            >
+                              <i className="bi bi-clock-history"></i>
+                              Ver movimientos
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                toggleFavorite(ing.ingredientId, e)
+                                setOpenMenuId(null)
+                              }}
+                              className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-yellow-50 hover:text-yellow-600 flex items-center gap-2 transition-colors"
+                            >
+                              <i className={`bi ${favorites.includes(ing.ingredientId) ? 'bi-star-fill' : 'bi-star'}`}></i>
+                              {favorites.includes(ing.ingredientId) ? 'Quitar favorito' : 'Añadir favorito'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </button>
               ))}
+
+              {otherIngredients.length > 0 && (
+                <div className="bg-gray-50/50 border-t border-gray-100">
+                  <button 
+                    onClick={() => setShowAllIngredients(!showAllIngredients)}
+                    className="w-full py-3 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-gray-100 transition-colors"
+                  >
+                    <span>{showAllIngredients ? 'Ver menos' : `Ver otros ingredientes (${otherIngredients.length})`}</span>
+                    <i className={`bi bi-chevron-${showAllIngredients ? 'up' : 'down'}`}></i>
+                  </button>
+                  
+                  {showAllIngredients && otherIngredients.map(ing => (
+                    <button
+                      key={ing.ingredientId}
+                      onClick={() => setSelectedIngredient(ing.ingredientId)}
+                      className={`w-full text-left p-4 transition-all flex items-center gap-4 group relative ${selectedIngredient === ing.ingredientId ? 'bg-red-50 border-l-4 border-red-500' : 'hover:bg-gray-50 border-l-4 border-transparent'
+                        }`}
+                    >
+                                     <div className="flex-1 pr-4">
+                        <p className={`font-bold text-sm ${selectedIngredient === ing.ingredientId ? 'text-red-700' : 'text-gray-900'}`}>
+                          {ing.ingredientName}
+                        </p>
+                        <p className={`text-[10px] font-semibold ${selectedIngredient === ing.ingredientId ? 'text-red-400' : 'text-gray-500'}`}>
+                          ${ing.unitCost?.toFixed(2) || '0.00'} / {ing.unit || 'uds'}
+                        </p>
+                      </div>
+
+                      <div className={`text-right ${selectedIngredient === ing.ingredientId ? 'text-red-600' : 'text-gray-900'} flex items-center gap-2`}>
+                        <div>
+                          <p className="text-sm font-bold">{Math.round(ing.currentStock)}</p>
+                          <p className="text-[10px] opacity-70 uppercase font-bold">{ing.unit || 'uds'}</p>
+                        </div>
+
+                        {/* Action Buttons Container */}
+                        <div className="flex items-center gap-1">
+                          {/* Register Movement Shortcut */}
+                          <button
+                            onClick={(e) => openMovementForIngredient(ing, e)}
+                            className="p-2 rounded-full text-red-500 hover:bg-red-50 transition-all duration-300 z-20"
+                            title="Registrar Movimiento"
+                          >
+                            <i className="bi bi-plus-circle-fill text-lg"></i>
+                          </button>
+
+                          {/* Three-dot Menu */}
+                          <div className="relative">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setOpenMenuId(openMenuId === ing.ingredientId ? null : ing.ingredientId)
+                              }}
+                              className="p-2 rounded-full text-gray-400 hover:bg-gray-100 transition-all duration-300 z-20"
+                              title="Más opciones"
+                            >
+                              <i className="bi bi-three-dots-vertical text-lg"></i>
+                            </button>
+
+                            {openMenuId === ing.ingredientId && (
+                              <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-100 py-1 min-w-[140px] z-50">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openHistoryForIngredient(ing, e)
+                                    setOpenMenuId(null)
+                                  }}
+                                  className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600 flex items-center gap-2 transition-colors"
+                                >
+                                  <i className="bi bi-clock-history"></i>
+                                  Ver movimientos
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleFavorite(ing.ingredientId, e)
+                                    setOpenMenuId(null)
+                                  }}
+                                  className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-yellow-50 hover:text-yellow-600 flex items-center gap-2 transition-colors"
+                                >
+                                  <i className={`bi ${favorites.includes(ing.ingredientId) ? 'bi-star-fill' : 'bi-star'}`}></i>
+                                  {favorites.includes(ing.ingredientId) ? 'Quitar favorito' : 'Añadir favorito'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {stockSummary.length === 0 && !loading && (
                 <div className="p-10 text-center text-gray-300">
@@ -237,172 +420,7 @@ export default function IngredientStockManagement({ business }: IngredientStockM
           </div>
         </div>
 
-        {/* Área de Detalle */}
-        <div className="flex-1 min-w-0">
-          {selectedIngredientData ? (
-            <div className="space-y-6">
-
-              {/* Header de Detalle */}
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                <div className="flex items-center gap-6">
-                  <div className="w-20 h-20 bg-red-50 rounded-3xl flex items-center justify-center text-3xl shadow-inner border border-red-100/50">
-                    🍱
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <h2 className="text-3xl font-bold text-gray-900 tracking-tight">{selectedIngredientData.ingredientName}</h2>
-                      <button
-                        onClick={() => {
-                          setEditIngredientData({
-                            name: selectedIngredientData.ingredientName,
-                            unitCost: selectedIngredientData.unitCost?.toString() || '0'
-                          })
-                          setShowEditIngredientModal(true)
-                        }}
-                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                        title="Editar ingrediente"
-                      >
-                        <i className="bi bi-pencil-square text-xl"></i>
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-3 mt-1">
-                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest">{selectedIngredientData.unit || 'uds'}</span>
-                      <span className={`h-2 w-2 rounded-full ${selectedIngredientData.currentStock > 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
-                        {selectedIngredientData.currentStock > 0 ? 'En Stock' : 'Agotado'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4 w-full md:w-auto">
-                  <div className="bg-gray-50 px-6 py-4 rounded-2xl flex-1 md:flex-none border border-gray-100">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Costo Base</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      <span className="text-sm font-semibold text-gray-400 mr-1">$</span>
-                      {selectedIngredientData.unitCost?.toFixed(2) || '0.00'}
-                    </p>
-                  </div>
-                  <div className="bg-gray-50 px-6 py-4 rounded-2xl flex-1 md:flex-none border border-gray-100">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Existencias</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {Math.round(selectedIngredientData.currentStock * 100) / 100}
-                      <span className="text-sm font-semibold text-gray-400 ml-1">{selectedIngredientData.unit || 'uds'}</span>
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setNewMovement(prev => ({
-                        ...prev,
-                        ingredientName: '',
-                        unitCost: selectedIngredientData.unitCost?.toString() || ''
-                      }))
-                      setShowMovementModal(true)
-                    }}
-                    className="bg-slate-900 text-white h-full px-6 py-4 rounded-2xl font-black uppercase text-xs hover:bg-black transition-all shadow-xl shadow-slate-200 active:scale-95 flex items-center gap-2"
-                  >
-                    <i className="bi bi-plus-lg"></i>
-                    Movimiento
-                  </button>
-                </div>
-              </div>
-
-              {/* Historial */}
-              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="p-6 border-b border-gray-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                  <div>
-                    <h3 className="text-lg font-bold text-gray-900">Historial de Movimientos</h3>
-                    <p className="text-xs text-gray-400 font-medium">Registro detallado de entradas y salidas</p>
-                  </div>
-
-                  <div className="flex bg-gray-100 p-1 rounded-xl gap-1">
-                    {(['today', 'week', 'month', 'all'] as const).map(range => (
-                      <button
-                        key={range}
-                        onClick={() => setDateRange(range)}
-                        className={`text-[10px] px-3 py-1.5 rounded-lg font-bold uppercase transition-all ${dateRange === range ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400 hover:text-gray-600'
-                          }`}
-                      >
-                        {range === 'today' ? 'Hoy' : range === 'week' ? 'Semana' : range === 'month' ? 'Mes' : 'Todo'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-gray-50/50">
-                        <th className="px-8 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Fecha</th>
-                        <th className="px-8 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Tipo</th>
-                        <th className="px-8 py-4 text-right text-[10px] font-bold text-gray-400 uppercase tracking-widest">Cantidad</th>
-                        <th className="px-8 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Notas</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50 border-t border-gray-50">
-                      {movements.map((m, idx) => (
-                        <tr key={idx} className="hover:bg-gray-50/30 transition-colors group">
-                          <td className="px-8 py-5">
-                            <p className="text-sm font-bold text-slate-900">
-                              {new Date(m.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
-                            </p>
-                            <p className="text-[10px] text-gray-400 font-medium">{new Date(m.date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</p>
-                          </td>
-                          <td className="px-8 py-5">
-                            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-tight ${m.type === 'entry' ? 'bg-emerald-50 text-emerald-700' :
-                              m.type === 'sale' ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'
-                              }`}>
-                              <i className={`bi ${m.type === 'entry' ? 'bi-arrow-down-left' : m.type === 'sale' ? 'bi-bag-check' : 'bi-sliders2'}`}></i>
-                              {m.type === 'entry' ? 'Entrada' : m.type === 'sale' ? 'Venta' : 'Carga'}
-                            </span>
-                          </td>
-                          <td className="px-8 py-5 text-right">
-                            <p className={`text-sm font-bold ${m.type === 'sale' ? 'text-red-500' : 'text-emerald-500'}`}>
-                              {m.type === 'sale' ? '-' : '+'}{m.quantity}
-                            </p>
-                            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">{selectedIngredientData.unit || 'uds'}</p>
-                          </td>
-                          <td className="px-8 py-5">
-                            <p className="text-xs text-gray-400 font-medium italic group-hover:text-gray-600 transition-colors line-clamp-2 max-w-xs">
-                              {m.notes || '— Sin notas'}
-                            </p>
-                          </td>
-                        </tr>
-                      ))}
-                      {movements.length === 0 && (
-                        <tr>
-                          <td colSpan={4} className="px-8 py-20 text-center">
-                            <div className="flex flex-col items-center gap-3">
-                              <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center">
-                                <i className="bi bi-clock-history text-2xl text-gray-200"></i>
-                              </div>
-                              <p className="text-xs font-black text-gray-300 uppercase tracking-[0.2em]">Cero actividad registrada</p>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-            </div>
-          ) : (
-            <div className="bg-white rounded-[3rem] border-2 border-dashed border-gray-100 h-[600px] flex flex-col items-center justify-center text-gray-300">
-              <div className="relative mb-8">
-                <div className="absolute inset-0 bg-red-100 blur-[80px] opacity-20 animate-pulse"></div>
-                <div className="relative w-32 h-32 bg-gray-50 rounded-[2.5rem] flex items-center justify-center shadow-inner border border-white">
-                  <i className="bi bi-box-seam text-6xl opacity-20"></i>
-                </div>
-              </div>
-              <h3 className="text-xl font-bold text-gray-900 tracking-tight uppercase">Control de Stock</h3>
-              <p className="text-sm mt-3 text-gray-400 font-medium max-w-[240px] text-center">
-                Selecciona un insumo de la lista para ver movimientos y stock en tiempo real
-              </p>
-            </div>
-          )}
-        </div>
-
+        
       </div>
 
       {/* Modal Re-diseñado */}
@@ -411,8 +429,10 @@ export default function IngredientStockManagement({ business }: IngredientStockM
           <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden border border-white/20">
             <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/30">
               <div>
-                <h3 className="text-2xl font-bold text-gray-900">Registrar</h3>
-                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Existencias e Insumos</p>
+                <h3 className="text-2xl font-bold text-gray-900">Registrar Movimiento</h3>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
+                  {selectedIngredient ? selectedIngredientData?.ingredientName || 'Ingrediente' : 'Nuevo Insumo'}
+                </p>
               </div>
               <button
                 onClick={() => setShowMovementModal(false)}
@@ -579,6 +599,104 @@ export default function IngredientStockManagement({ business }: IngredientStockM
           background: #cbd5e1;
         }
       `}</style>
+      {/* Modal de Historial de Movimientos */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300">
+            <div className="p-6 bg-blue-600 text-white flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold">Historial de Movimientos</h2>
+                <p className="text-blue-100 text-sm">{historyIngredient?.ingredientName}</p>
+              </div>
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="p-2 hover:bg-white/10 rounded-full transition-colors"
+              >
+                <i className="bi bi-x-lg text-xl"></i>
+              </button>
+            </div>
+
+            <div className="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar bg-gray-50">
+              {loadingHistory ? (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  <p className="text-sm font-bold uppercase tracking-widest">Cargando historial...</p>
+                </div>
+              ) : groupedMovements.length > 0 ? (
+                <div className="space-y-6">
+                  {groupedMovements.map(([date, items]) => (
+                    <div key={date} className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="h-px flex-1 bg-gray-200"></div>
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          {new Date(date + 'T12:00:00').toLocaleDateString('es-EC', { 
+                            weekday: 'long', 
+                            day: 'numeric', 
+                            month: 'long' 
+                          })}
+                        </span>
+                        <div className="h-px flex-1 bg-gray-200"></div>
+                      </div>
+                      <div className="space-y-1">
+                        {items.map((m, i) => (
+                          <div 
+                            key={i} 
+                            className="bg-white p-3 rounded-xl border border-gray-100 flex items-center justify-between shadow-sm"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                m.type === 'entry' ? 'bg-green-100 text-green-600' :
+                                m.type === 'sale' ? 'bg-indigo-100 text-indigo-600' :
+                                'bg-orange-100 text-orange-600'
+                              }`}>
+                                <i className={`bi ${
+                                  m.type === 'entry' ? 'bi-plus-lg' :
+                                  m.type === 'sale' ? 'bi-cart' :
+                                  'bi-gear'
+                                }`}></i>
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold text-gray-900 capitalize">
+                                  {m.type === 'entry' ? 'Entrada' : m.type === 'sale' ? 'Venta' : 'Ajuste'}
+                                </p>
+                                {m.notes && <p className="text-[10px] text-gray-500">{m.notes}</p>}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className={`text-sm font-black ${
+                                m.type === 'entry' ? 'text-green-600' :
+                                m.type === 'sale' ? 'text-red-600' :
+                                'text-gray-900'
+                              }`}>
+                                {m.type === 'entry' || (m.type === 'adjustment' && m.quantity > 0) ? '+' : ''}{m.quantity}
+                              </p>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase">{historyIngredient?.unit || 'uds'}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-300 gap-2">
+                  <i className="bi bi-clock-history text-4xl opacity-20"></i>
+                  <p className="text-sm font-bold uppercase tracking-widest">Sin movimientos registrados</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-gray-100 bg-white flex justify-end">
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

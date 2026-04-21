@@ -23,7 +23,8 @@ import {
     getOrdersByBusinessComplete,
     uploadImage,
     addBusinessAdministrator,
-    removeBusinessAdministrator
+    removeBusinessAdministrator,
+    getIngredientStockSummary
 } from '@/lib/database'
 import {
     sendWhatsAppToDelivery,
@@ -312,6 +313,49 @@ export default function TodayOrdersPage() {
     const [categories, setCategories] = useState<string[]>([])
     const [productsLoaded, setProductsLoaded] = useState(false)
     const [productsLoading, setProductsLoading] = useState(false)
+    
+    // Favorite ingredients stock state
+    const [favStockSummary, setFavStockSummary] = useState<any[]>([])
+    const [favIngredients, setFavIngredients] = useState<string[]>([])
+    const [currentFavIndex, setCurrentFavIndex] = useState(0)
+
+    useEffect(() => {
+        if (!businessId) return
+        const saved = localStorage.getItem(`fuddi_fav_ingredients_${businessId}`)
+        if (saved) setFavIngredients(JSON.parse(saved))
+        else setFavIngredients([])
+    }, [businessId, activeTab])
+
+    useEffect(() => {
+        if (!businessId || favIngredients.length === 0) {
+            setFavStockSummary([])
+            return
+        }
+
+        const fetchStock = async () => {
+            try {
+                const summary = await getIngredientStockSummary(businessId)
+                const onlyFavs = summary.filter(s => favIngredients.includes(s.ingredientId))
+                setFavStockSummary(onlyFavs)
+            } catch (e) {
+                console.error("Error fetching fav stock", e)
+            }
+        }
+        fetchStock()
+        
+        const interval = setInterval(fetchStock, 60000)
+        return () => clearInterval(interval)
+    }, [businessId, favIngredients])
+
+    const nextFav = (e: React.MouseEvent) => {
+        e.stopPropagation()
+        setCurrentFavIndex(prev => (prev + 1) % favStockSummary.length)
+    }
+
+    const prevFav = (e: React.MouseEvent) => {
+        e.stopPropagation()
+        setCurrentFavIndex(prev => (prev - 1 + favStockSummary.length) % favStockSummary.length)
+    }
 
     useEffect(() => {
         if (business?.categories) {
@@ -1394,41 +1438,72 @@ export default function TodayOrdersPage() {
                                                     onClick={() => setSummaryExpanded(!summaryExpanded)}
                                                     className="lg:hidden bg-white rounded-xl border border-gray-100 p-4 mb-4 shadow-sm cursor-pointer hover:bg-gray-50 transition-all"
                                                 >
-                                                    <div className="grid grid-cols-2 gap-4">
+                                                    <div className="grid grid-cols-3 gap-2">
                                                         <div className="text-left">
-                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Visitas Hoy</p>
-                                                            <p className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                                                                <i className="bi bi-people text-gray-400 text-sm"></i>
+                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Visitas</p>
+                                                            <p className="text-lg font-bold text-gray-900 flex items-center gap-1">
+                                                                <i className="bi bi-people text-gray-400 text-xs"></i>
                                                                 {visitsCount}
                                                             </p>
                                                         </div>
-                                                        <div className="text-right">
-                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Total Ventas</p>
-                                                            <p className="text-xl font-bold text-green-600">
-                                                                ${totalTodaySales.toFixed(2)}
-                                                            </p>
-                                                            {summaryExpanded && (
-                                                                <div className="mt-2 pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 flex flex-col items-end">
-                                                                    <div 
-                                                                        className="flex flex-col items-end group cursor-pointer"
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation()
-                                                                            setActiveTab('expenses')
-                                                                        }}
-                                                                    >
-                                                                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-red-500 transition-colors">Gastos Hoy</p>
-                                                                        <p className="text-lg font-bold text-red-600 transition-all">
-                                                                            -${totalTodayExpenses.toFixed(2)}
-                                                                        </p>
+
+                                                        <div 
+                                                            className="text-center px-1 border-x border-gray-100 flex flex-col justify-center overflow-hidden group cursor-pointer hover:bg-gray-50 transition-colors"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                setActiveTab('inventory')
+                                                            }}
+                                                        >
+                                                            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Stock</p>
+                                                            {favIngredients.length > 0 ? (
+                                                                <div className="flex items-center justify-between gap-1">
+                                                                    <button onClick={prevFav} className="p-1 hover:bg-gray-100 rounded-full shrink-0"><i className="bi bi-chevron-left text-[8px]"></i></button>
+                                                                    <div className="min-w-0 text-center">
+                                                                        {favStockSummary[currentFavIndex] ? (
+                                                                            <>
+                                                                                <p className="text-[8px] font-bold text-gray-500 truncate leading-tight mb-0.5">{favStockSummary[currentFavIndex].ingredientName}</p>
+                                                                                <p className={`text-sm font-black leading-none ${favStockSummary[currentFavIndex].currentStock <= 5 ? 'text-red-600' : 'text-gray-900'}`}>
+                                                                                    {Math.round(favStockSummary[currentFavIndex].currentStock)}
+                                                                                </p>
+                                                                            </>
+                                                                        ) : (
+                                                                            <div className="animate-pulse h-4 w-8 bg-gray-100 rounded mx-auto" />
+                                                                        )}
                                                                     </div>
-                                                                    <div className="mt-1 pt-1 border-tl border-gray-50 text-right">
-                                                                        <p className="text-[10px] text-gray-400 font-medium italic">
-                                                                            Neto: ${(totalTodaySales - totalTodayExpenses).toFixed(2)}
-                                                                        </p>
-                                                                    </div>
+                                                                    <button onClick={nextFav} className="p-1 hover:bg-gray-100 rounded-full shrink-0"><i className="bi bi-chevron-right text-[8px]"></i></button>
                                                                 </div>
+                                                            ) : (
+                                                                <p className="text-[8px] text-gray-300 italic">Sin favs</p>
                                                             )}
                                                         </div>
+
+                                                        <div className="text-right">
+                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Ventas</p>
+                                                            <p className="text-lg font-bold text-green-600">
+                                                                ${totalTodaySales.toFixed(2)}
+                                                            </p>
+                                                        </div>
+                                                        {summaryExpanded && (
+                                                            <div className="col-span-3 mt-2 pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 flex justify-between items-center">
+                                                                <div 
+                                                                    className="flex flex-col items-start group cursor-pointer"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation()
+                                                                        setActiveTab('expenses')
+                                                                    }}
+                                                                >
+                                                                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-red-500 transition-colors">Gastos</p>
+                                                                    <p className="text-sm font-bold text-red-600 transition-all">
+                                                                        -${totalTodayExpenses.toFixed(2)}
+                                                                    </p>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <p className="text-[10px] text-gray-400 font-medium italic">
+                                                                        Neto: ${(totalTodaySales - totalTodayExpenses).toFixed(2)}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
 
@@ -1494,7 +1569,7 @@ export default function TodayOrdersPage() {
                                                         onClick={() => setSummaryExpanded(!summaryExpanded)}
                                                         className="hidden lg:block bg-white rounded-xl border border-gray-100 p-4 shadow-sm cursor-pointer hover:bg-gray-50 transition-all"
                                                     >
-                                                        <div className="grid grid-cols-2 gap-4">
+                                                        <div className="grid grid-cols-3 gap-4">
                                                             <div className="text-left">
                                                                 <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Visitas Hoy</p>
                                                                 <p className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -1502,33 +1577,65 @@ export default function TodayOrdersPage() {
                                                                     {visitsCount}
                                                                 </p>
                                                             </div>
+
+                                                            <div 
+                                                                className="text-center px-4 border-x border-gray-100 flex flex-col justify-center group cursor-pointer hover:bg-gray-50 transition-colors"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    setActiveTab('inventory')
+                                                                }}
+                                                            >
+                                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Stock Favorito</p>
+                                                                {favIngredients.length > 0 ? (
+                                                                    <div className="flex items-center justify-center gap-4">
+                                                                        <button onClick={prevFav} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><i className="bi bi-chevron-left text-xs"></i></button>
+                                                                        <div className="min-w-0">
+                                                                            {favStockSummary[currentFavIndex] ? (
+                                                                                <>
+                                                                                    <p className="text-xs font-bold text-gray-500 truncate leading-tight">{favStockSummary[currentFavIndex].ingredientName}</p>
+                                                                                    <p className={`text-xl font-black leading-none ${favStockSummary[currentFavIndex].currentStock <= 5 ? 'text-red-600' : 'text-gray-900'}`}>
+                                                                                        {Math.round(favStockSummary[currentFavIndex].currentStock)}
+                                                                                        <span className="text-[10px] ml-1 uppercase font-bold text-gray-400">{favStockSummary[currentFavIndex].unit || 'uds'}</span>
+                                                                                    </p>
+                                                                                </>
+                                                                            ) : (
+                                                                                <div className="animate-pulse h-6 w-12 bg-gray-100 rounded mx-auto" />
+                                                                            )}
+                                                                        </div>
+                                                                        <button onClick={nextFav} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><i className="bi bi-chevron-right text-xs"></i></button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <p className="text-xs text-gray-300 italic">Sin favoritos marcados</p>
+                                                                )}
+                                                            </div>
+
                                                             <div className="text-right">
                                                                 <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Total Ventas</p>
                                                                 <p className="text-xl font-bold text-green-600">
                                                                     ${totalTodaySales.toFixed(2)}
                                                                 </p>
-                                                                {summaryExpanded && (
-                                                                    <div className="mt-2 pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 flex flex-col items-end">
-                                                                        <div 
-                                                                            className="flex flex-col items-end group cursor-pointer"
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation()
-                                                                                setActiveTab('expenses')
-                                                                            }}
-                                                                        >
-                                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-red-500 transition-colors">Gastos Hoy</p>
-                                                                            <p className="text-lg font-bold text-red-600 transition-all">
-                                                                                -${totalTodayExpenses.toFixed(2)}
-                                                                            </p>
-                                                                        </div>
-                                                                        <div className="mt-1 pt-1 border-tl border-gray-50 text-right">
-                                                                            <p className="text-[10px] text-gray-400 font-medium italic">
-                                                                                Neto: ${(totalTodaySales - totalTodayExpenses).toFixed(2)}
-                                                                            </p>
-                                                                        </div>
-                                                                    </div>
-                                                                )}
                                                             </div>
+                                                            {summaryExpanded && (
+                                                                <div className="col-span-3 mt-2 pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 flex justify-between items-center px-2">
+                                                                    <div 
+                                                                        className="flex flex-col items-start group cursor-pointer"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            setActiveTab('expenses')
+                                                                        }}
+                                                                    >
+                                                                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-red-500 transition-colors">Gastos Hoy</p>
+                                                                        <p className="text-lg font-bold text-red-600 transition-all">
+                                                                            -${totalTodayExpenses.toFixed(2)}
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="text-right">
+                                                                        <p className="text-[10px] text-gray-400 font-medium italic">
+                                                                            Neto: ${(totalTodaySales - totalTodayExpenses).toFixed(2)}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                     <OrderStatusColumn
