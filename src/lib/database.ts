@@ -19,6 +19,7 @@ import {
   writeBatch,
   deleteField,
   arrayUnion,
+  arrayRemove,
   startAfter,
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
@@ -485,6 +486,47 @@ export async function updateBusiness(businessId: string, data: Partial<Business>
   } catch (error) {
     console.error('❌ Error updating business:', error)
     throw error
+  }
+}
+
+// ==================== FAVORITE INGREDIENTS FUNCTIONS ====================
+
+export async function addFavoriteIngredient(businessId: string, ingredientId: string): Promise<void> {
+  try {
+    const businessRef = doc(db, 'businesses', businessId)
+    await updateDoc(businessRef, {
+      favoriteIngredients: arrayUnion(ingredientId),
+      updatedAt: serverTimestamp()
+    })
+    console.log('✅ Added favorite ingredient:', { businessId, ingredientId })
+  } catch (error) {
+    console.error('❌ Error adding favorite ingredient:', error)
+    throw error
+  }
+}
+
+export async function removeFavoriteIngredient(businessId: string, ingredientId: string): Promise<void> {
+  try {
+    const businessRef = doc(db, 'businesses', businessId)
+    await updateDoc(businessRef, {
+      favoriteIngredients: arrayRemove(ingredientId),
+      updatedAt: serverTimestamp()
+    })
+    console.log('✅ Removed favorite ingredient:', { businessId, ingredientId })
+  } catch (error) {
+    console.error('❌ Error removing favorite ingredient:', error)
+    throw error
+  }
+}
+
+export async function getFavoriteIngredients(businessId: string): Promise<string[]> {
+  try {
+    const businessDoc = await getDoc(doc(db, 'businesses', businessId))
+    const businessData = businessDoc.data()
+    return businessData?.favoriteIngredients || []
+  } catch (error) {
+    console.error('❌ Error getting favorite ingredients:', error)
+    return []
   }
 }
 

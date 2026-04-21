@@ -76,6 +76,7 @@ export interface Business {
   telegramChatIds?: string[] // IDs de chat de Telegram para notificaciones a la tienda
   telegramChatId?: string // ID antiguo (para migración)
   freeDeliveryCampaign?: FreeDeliveryCampaign // Campaña de delivery gratis asumida por el restaurante
+  favoriteIngredients?: string[] // IDs de ingredientes favoritos
 }
 
 export interface FreeDeliveryCampaign {

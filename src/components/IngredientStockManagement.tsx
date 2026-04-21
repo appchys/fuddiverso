@@ -9,7 +9,10 @@ import {
   IngredientStockMovement,
   IngredientStockSummary,
   getIngredientLibrary,
-  updateIngredientLibraryItem
+  updateIngredientLibraryItem,
+  addFavoriteIngredient,
+  removeFavoriteIngredient,
+  getFavoriteIngredients
 } from '@/lib/database'
 
 interface IngredientStockManagementProps {
@@ -48,14 +51,20 @@ export default function IngredientStockManagement({ business }: IngredientStockM
   useEffect(() => {
     if (business?.id) {
       loadStockSummary()
-      const saved = localStorage.getItem(`fuddi_fav_ingredients_${business.id}`)
-      if (saved) {
-        setFavorites(JSON.parse(saved))
-      } else {
-        setFavorites([])
-      }
+      loadFavoriteIngredients()
     }
   }, [business?.id])
+
+  const loadFavoriteIngredients = async () => {
+    if (!business?.id) return
+    try {
+      const favIngredients = await getFavoriteIngredients(business.id)
+      setFavorites(favIngredients)
+    } catch (error) {
+      console.error('Error loading favorite ingredients:', error)
+      setFavorites([])
+    }
+  }
 
   useEffect(() => {
     if (selectedIngredient && business?.id) {
@@ -143,19 +152,29 @@ export default function IngredientStockManagement({ business }: IngredientStockM
     })
   }, [stockSummary, favorites])
 
-  const toggleFavorite = (id: string, e: React.MouseEvent) => {
+  const toggleFavorite = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    setFavorites(prev => {
-      const isFav = prev.includes(id)
-      const newFavs = isFav
-        ? prev.filter(f => f !== id)
-        : [...prev, id]
-      
-      if (business?.id) {
-        localStorage.setItem(`fuddi_fav_ingredients_${business.id}`, JSON.stringify(newFavs))
+    if (!business?.id) return
+    
+    const isFav = favorites.includes(id)
+    
+    try {
+      if (isFav) {
+        await removeFavoriteIngredient(business.id, id)
+        setFavorites(prev => prev.filter(f => f !== id))
+      } else {
+        await addFavoriteIngredient(business.id, id)
+        setFavorites(prev => [...prev, id])
       }
-      return newFavs
-    })
+    } catch (error) {
+      console.error('Error toggling favorite:', error)
+      // Revert the change on error
+      if (isFav) {
+        setFavorites(prev => [...prev, id])
+      } else {
+        setFavorites(prev => prev.filter(f => f !== id))
+      }
+    }
   }
   
   const openMovementForIngredient = (ing: IngredientStockSummary, e: React.MouseEvent) => {
@@ -243,10 +262,10 @@ export default function IngredientStockManagement({ business }: IngredientStockM
 
             <div className="max-h-[calc(100vh-300px)] overflow-y-auto custom-scrollbar">
               {favoriteIngredients.map(ing => (
-                <button
+                <div
                   key={ing.ingredientId}
                   onClick={() => setSelectedIngredient(ing.ingredientId)}
-                  className={`w-full text-left p-4 transition-all flex items-center gap-4 group relative ${selectedIngredient === ing.ingredientId ? 'bg-red-50 border-l-4 border-red-500' : 'hover:bg-gray-50 border-l-4 border-transparent'
+                  className={`w-full text-left p-4 transition-all flex items-center gap-4 group relative cursor-pointer ${selectedIngredient === ing.ingredientId ? 'bg-red-50 border-l-4 border-red-500' : 'hover:bg-gray-50 border-l-4 border-transparent'
                     }`}
                 >
                                      <div className="flex-1 pr-4">
@@ -317,7 +336,7 @@ export default function IngredientStockManagement({ business }: IngredientStockM
                       </div>
                     </div>
                   </div>
-                </button>
+                </div>
               ))}
 
               {otherIngredients.length > 0 && (
@@ -331,10 +350,10 @@ export default function IngredientStockManagement({ business }: IngredientStockM
                   </button>
                   
                   {showAllIngredients && otherIngredients.map(ing => (
-                    <button
+                    <div
                       key={ing.ingredientId}
                       onClick={() => setSelectedIngredient(ing.ingredientId)}
-                      className={`w-full text-left p-4 transition-all flex items-center gap-4 group relative ${selectedIngredient === ing.ingredientId ? 'bg-red-50 border-l-4 border-red-500' : 'hover:bg-gray-50 border-l-4 border-transparent'
+                      className={`w-full text-left p-4 transition-all flex items-center gap-4 group relative cursor-pointer ${selectedIngredient === ing.ingredientId ? 'bg-red-50 border-l-4 border-red-500' : 'hover:bg-gray-50 border-l-4 border-transparent'
                         }`}
                     >
                                      <div className="flex-1 pr-4">
@@ -405,7 +424,7 @@ export default function IngredientStockManagement({ business }: IngredientStockM
                           </div>
                         </div>
                       </div>
-                    </button>
+                    </div>
                   ))}
                 </div>
               )}

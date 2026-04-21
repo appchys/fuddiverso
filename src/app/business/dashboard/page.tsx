@@ -1454,17 +1454,17 @@ export default function TodayOrdersPage() {
                                                                 setActiveTab('inventory')
                                                             }}
                                                         >
-                                                            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Stock</p>
+                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Stock</p>
                                                             {favIngredients.length > 0 ? (
                                                                 <div className="flex items-center justify-between gap-1">
                                                                     <button onClick={prevFav} className="p-1 hover:bg-gray-100 rounded-full shrink-0"><i className="bi bi-chevron-left text-[8px]"></i></button>
                                                                     <div className="min-w-0 text-center">
                                                                         {favStockSummary[currentFavIndex] ? (
                                                                             <>
-                                                                                <p className="text-[8px] font-bold text-gray-500 truncate leading-tight mb-0.5">{favStockSummary[currentFavIndex].ingredientName}</p>
-                                                                                <p className={`text-sm font-black leading-none ${favStockSummary[currentFavIndex].currentStock <= 5 ? 'text-red-600' : 'text-gray-900'}`}>
+                                                                                <p className={`text-lg font-black leading-none mb-0.5 ${favStockSummary[currentFavIndex].currentStock <= 5 ? 'text-red-600' : 'text-gray-900'}`}>
                                                                                     {Math.round(favStockSummary[currentFavIndex].currentStock)}
                                                                                 </p>
+                                                                                <p className="text-[8px] font-bold text-gray-500 truncate leading-tight">{favStockSummary[currentFavIndex].ingredientName}</p>
                                                                             </>
                                                                         ) : (
                                                                             <div className="animate-pulse h-4 w-8 bg-gray-100 rounded mx-auto" />
@@ -1587,18 +1587,18 @@ export default function TodayOrdersPage() {
                                                                     setActiveTab('inventory')
                                                                 }}
                                                             >
-                                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Stock Favorito</p>
+                                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-blue-500 transition-colors">Stock Favorito</p>
                                                                 {favIngredients.length > 0 ? (
                                                                     <div className="flex items-center justify-center gap-4">
                                                                         <button onClick={prevFav} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><i className="bi bi-chevron-left text-xs"></i></button>
                                                                         <div className="min-w-0">
                                                                             {favStockSummary[currentFavIndex] ? (
                                                                                 <>
-                                                                                    <p className="text-xs font-bold text-gray-500 truncate leading-tight">{favStockSummary[currentFavIndex].ingredientName}</p>
-                                                                                    <p className={`text-xl font-black leading-none ${favStockSummary[currentFavIndex].currentStock <= 5 ? 'text-red-600' : 'text-gray-900'}`}>
+                                                                                    <p className={`text-xl font-black leading-none mb-1 ${favStockSummary[currentFavIndex].currentStock <= 5 ? 'text-red-600' : 'text-gray-900'}`}>
                                                                                         {Math.round(favStockSummary[currentFavIndex].currentStock)}
                                                                                         <span className="text-[10px] ml-1 uppercase font-bold text-gray-400">{favStockSummary[currentFavIndex].unit || 'uds'}</span>
                                                                                     </p>
+                                                                                    <p className="text-xs font-bold text-gray-500 truncate leading-tight">{favStockSummary[currentFavIndex].ingredientName}</p>
                                                                                 </>
                                                                             ) : (
                                                                                 <div className="animate-pulse h-6 w-12 bg-gray-100 rounded mx-auto" />
