@@ -1484,23 +1484,25 @@ export default function TodayOrdersPage() {
                                                             </p>
                                                         </div>
                                                         {summaryExpanded && (
-                                                            <div className="col-span-3 mt-2 pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 flex justify-between items-center">
-                                                                <div 
-                                                                    className="flex flex-col items-start group cursor-pointer"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation()
-                                                                        setActiveTab('expenses')
-                                                                    }}
-                                                                >
-                                                                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-red-500 transition-colors">Gastos</p>
-                                                                    <p className="text-sm font-bold text-red-600 transition-all">
-                                                                        -${totalTodayExpenses.toFixed(2)}
-                                                                    </p>
-                                                                </div>
-                                                                <div className="text-right">
-                                                                    <p className="text-[10px] text-gray-400 font-medium italic">
-                                                                        Neto: ${(totalTodaySales - totalTodayExpenses).toFixed(2)}
-                                                                    </p>
+                                                            <div className="col-span-3 mt-2 pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 flex justify-end">
+                                                                <div className="flex flex-col items-end gap-1">
+                                                                    <div 
+                                                                        className="group cursor-pointer"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            setActiveTab('expenses')
+                                                                        }}
+                                                                    >
+                                                                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-red-500 transition-colors text-right">Gastos</p>
+                                                                        <p className="text-sm font-bold text-red-600 transition-all">
+                                                                            -${totalTodayExpenses.toFixed(2)}
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="text-right">
+                                                                        <p className="text-[10px] text-gray-400 font-medium italic">
+                                                                            Neto: ${(totalTodaySales - totalTodayExpenses).toFixed(2)}
+                                                                        </p>
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         )}
@@ -1616,23 +1618,25 @@ export default function TodayOrdersPage() {
                                                                 </p>
                                                             </div>
                                                             {summaryExpanded && (
-                                                                <div className="col-span-3 mt-2 pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 flex justify-between items-center px-2">
-                                                                    <div 
-                                                                        className="flex flex-col items-start group cursor-pointer"
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation()
-                                                                            setActiveTab('expenses')
-                                                                        }}
-                                                                    >
-                                                                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-red-500 transition-colors">Gastos Hoy</p>
-                                                                        <p className="text-lg font-bold text-red-600 transition-all">
-                                                                            -${totalTodayExpenses.toFixed(2)}
-                                                                        </p>
-                                                                    </div>
-                                                                    <div className="text-right">
-                                                                        <p className="text-[10px] text-gray-400 font-medium italic">
-                                                                            Neto: ${(totalTodaySales - totalTodayExpenses).toFixed(2)}
-                                                                        </p>
+                                                                <div className="col-span-3 mt-2 pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 flex justify-end px-2">
+                                                                    <div className="flex flex-col items-end gap-2">
+                                                                        <div 
+                                                                            className="group cursor-pointer"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation()
+                                                                                setActiveTab('expenses')
+                                                                            }}
+                                                                        >
+                                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1 group-hover:text-red-500 transition-colors text-right">Gastos Hoy</p>
+                                                                            <p className="text-lg font-bold text-red-600 transition-all">
+                                                                                -${totalTodayExpenses.toFixed(2)}
+                                                                            </p>
+                                                                        </div>
+                                                                        <div className="text-right">
+                                                                            <p className="text-[10px] text-gray-400 font-medium italic">
+                                                                                Neto: ${(totalTodaySales - totalTodayExpenses).toFixed(2)}
+                                                                            </p>
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             )}
