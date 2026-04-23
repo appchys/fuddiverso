@@ -47,6 +47,7 @@ interface OrderItem {
 }
 
 interface ManualOrderData {
+  customerId: string
   customerPhone: string
   customerName: string
   selectedProducts: OrderItem[]
@@ -96,6 +97,7 @@ export default function ManualOrderSidebar({
   setProfileSubTab
 }: ManualOrderSidebarProps) {
   const [manualOrderData, setManualOrderData] = useState<ManualOrderData>({
+    customerId: '',
     customerPhone: '',
     customerName: '',
     selectedProducts: [],
@@ -337,7 +339,7 @@ export default function ManualOrderSidebar({
               const client = await searchClientByPhone(phoneToLoad)
               if (client) {
                 const locations = await getClientLocations(client.id)
-                setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
+                setManualOrderData(prev => ({ ...prev, customerId: client.id, customerLocations: locations }))
               }
             } catch (e) {
               console.error('Error loading client locations for edit:', e)
@@ -397,7 +399,9 @@ export default function ManualOrderSidebar({
   const handleDeliverySelect = () => {
     setManualOrderData(prev => ({ ...prev, deliveryType: 'delivery' }))
     setShowLocationModal(true)
-    reloadClientLocations() // Se ejecuta en segundo plano, el modal tiene su propio loading
+    if (manualOrderData.customerId && manualOrderData.customerLocations.length === 0) {
+      void reloadClientLocations()
+    }
   }
 
   // Buscar delivery asignado a la zona de una ubicación
@@ -528,6 +532,7 @@ export default function ManualOrderSidebar({
       setShowCreateClient(false)
       setManualOrderData(prev => ({
         ...prev,
+        customerId: '',
         customerName: '',
         customerLocations: [],
         selectedLocation: null
@@ -590,6 +595,22 @@ export default function ManualOrderSidebar({
     setSearchTimeout(timeout)
   }
 
+  const loadClientLocations = async (clientId: string) => {
+    if (!clientId) return
+
+    setLoadingClientLocations(true)
+    try {
+      const locations = await getClientLocations(clientId)
+      setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
+      return locations
+    } catch (error) {
+      console.error('Error loading client locations:', error)
+      return []
+    } finally {
+      setLoadingClientLocations(false)
+    }
+  }
+
   // Manejar selección de cliente desde resultados
   const handleSelectClient = async (selectedClient: Client) => {
     setClientFound(true)
@@ -600,52 +621,35 @@ export default function ManualOrderSidebar({
     
     setManualOrderData(prev => ({
       ...prev,
+      customerId: selectedClient.id,
       customerPhone: normalizedPhone,
       customerName: selectedClient.nombres
     }))
 
     // Cargar ubicaciones del cliente
-    setLoadingClientLocations(true)
-    try {
-      const locations = await getClientLocations(selectedClient.id)
-      console.log('[ManualOrder] Loaded locations for client:', {
-        clientId: selectedClient.id,
-        locationsCount: locations.length,
-        locations: locations.map(l => ({
-          id: l.id,
-          referencia: l.referencia,
-          hasPhoto: !!l.photo,
-          photoValue: l.photo
-        }))
-      })
-      setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
-    } catch (error) {
-      console.error('Error loading client locations:', error)
-    } finally {
-      setLoadingClientLocations(false)
-    }
+    const locations = await loadClientLocations(selectedClient.id)
+    console.log('[ManualOrder] Loaded locations for client:', {
+      clientId: selectedClient.id,
+      locationsCount: locations?.length ?? 0,
+      locations: (locations || []).map(l => ({
+        id: l.id,
+        referencia: l.referencia,
+        hasPhoto: !!l.photo,
+        photoValue: l.photo
+      }))
+    })
   }
 
   // Función para recargar ubicaciones del cliente
   const reloadClientLocations = async () => {
-    if (!manualOrderData.customerPhone) return
-    
-    setLoadingClientLocations(true)
-    try {
-      const client = await searchClientByPhone(manualOrderData.customerPhone)
-      if (client) {
-        const locations = await getClientLocations(client.id)
-        console.log('[ManualOrder] Reloaded locations for client:', {
-          clientId: client.id,
-          locationsCount: locations.length
-        })
-        setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
-      }
-    } catch (error) {
-      console.error('Error reloading client locations:', error)
-    } finally {
-      setLoadingClientLocations(false)
-    }
+    const clientId = manualOrderData.customerId
+    if (!clientId) return
+
+    const locations = await loadClientLocations(clientId)
+    console.log('[ManualOrder] Reloaded locations for client:', {
+      clientId,
+      locationsCount: locations?.length ?? 0
+    })
   }
 
   // Búsqueda de cliente por teléfono (mantener para compatibilidad)
@@ -772,6 +776,7 @@ export default function ManualOrderSidebar({
         const locations = await getClientLocations(client.id)
         setManualOrderData(prev => ({ 
           ...prev, 
+          customerId: client.id,
           customerLocations: locations,
           customerPhone: celular // Actualizar el teléfono con el formato normalizado
         }))
@@ -1042,20 +1047,20 @@ export default function ManualOrderSidebar({
       }
 
       // Buscar el cliente para obtener su ID
-      if (!manualOrderData.customerPhone) {
+      if (!manualOrderData.customerId) {
         alert('Por favor identifica al cliente primero (buscando por teléfono)');
         setCreatingLocation(false);
         return;
       }
 
-      const client = await searchClientByPhone(manualOrderData.customerPhone);
-      if (!client) {
+      const clientId = manualOrderData.customerId;
+      if (!clientId) {
         alert('No se encontró el registro del cliente. Por favor asegúrate de haberlo creado o seleccionado correctamente.');
         setCreatingLocation(false);
         return;
       }
 
-      const clientId = client.id;
+      
 
       // Subir imagen si existe
       let photoUrl = '';
@@ -1186,14 +1191,14 @@ export default function ManualOrderSidebar({
       }
 
       // Buscar el cliente para obtener su ID (necesario para subir imagen)
-      if (!manualOrderData.customerPhone) {
+      if (!manualOrderData.customerId) {
         alert('No se pudo identificar al cliente asociado');
         setCreatingLocation(false);
         return;
       }
 
-      const client = await searchClientByPhone(manualOrderData.customerPhone);
-      if (!client) {
+      const clientId = manualOrderData.customerId;
+      if (!clientId) {
         alert('No se encontró el registro del cliente');
         setCreatingLocation(false);
         return;
@@ -1210,7 +1215,7 @@ export default function ManualOrderSidebar({
           { type: optimizedBlob.type || 'image/jpeg' }
         );
 
-        const fileName = `locations/${client.id}_${optimizedFile.name}`;
+        const fileName = `locations/${clientId}_${optimizedFile.name}`;
         const storageRef = ref(storage, fileName);
         await uploadBytes(storageRef, optimizedFile);
         photoUrl = await getDownloadURL(storageRef);
@@ -1238,8 +1243,8 @@ export default function ManualOrderSidebar({
       await updateLocation(editingLocationId, updatePayload)
 
       // Recargar ubicaciones
-      if (client) {
-        const locations = await getClientLocations(client.id)
+      if (clientId) {
+        const locations = await getClientLocations(clientId)
         setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
         
         // Si la ubicación editada es la que está seleccionada actualmente, actualizarla
@@ -1298,9 +1303,8 @@ export default function ManualOrderSidebar({
         setManualOrderData(prev => ({ ...prev, selectedLocation: null }))
       }
 
-      const client = await searchClientByPhone(manualOrderData.customerPhone)
-      if (client) {
-        const locations = await getClientLocations(client.id)
+      if (manualOrderData.customerId) {
+        const locations = await getClientLocations(manualOrderData.customerId)
         setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
       }
     } catch (error) {
@@ -1621,6 +1625,7 @@ export default function ManualOrderSidebar({
   // Reset del formulario
   const handleReset = () => {
     setManualOrderData({
+      customerId: '',
       customerPhone: '',
       customerName: '',
       selectedProducts: [],
@@ -2063,9 +2068,9 @@ export default function ManualOrderSidebar({
               ) : manualOrderData.selectedLocation ? (
                 <div
                   className="p-3 bg-green-50 border border-green-200 rounded-md mb-3 relative cursor-pointer hover:bg-green-100 transition-colors"
-                  onClick={async () => {
-                    await reloadClientLocations() // Recargar ubicaciones más actualizadas
+                  onClick={() => {
                     setShowLocationModal(true)
+                    void reloadClientLocations()
                   }}
                 >
                   {/* Información de la ubicación */}
@@ -2086,6 +2091,8 @@ export default function ManualOrderSidebar({
                         src={`https://maps.googleapis.com/maps/api/staticmap?center=${manualOrderData.selectedLocation.latlong}&zoom=14&size=512x152&scale=2&maptype=roadmap&markers=color:red%7C${manualOrderData.selectedLocation.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
                         alt="Ubicación en mapa"
                         className="w-full h-full object-cover"
+                        loading="lazy"
+                        decoding="async"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           target.style.display = 'none';
@@ -2110,9 +2117,9 @@ export default function ManualOrderSidebar({
 
               {!manualOrderData.selectedLocation && (
                 <button
-                  onClick={async () => {
-                    await reloadClientLocations() // Recargar ubicaciones más actualizadas
+                  onClick={() => {
                     setShowLocationModal(true)
+                    void reloadClientLocations()
                   }}
                   className="w-full p-3 rounded-lg border-2 border-gray-300 hover:border-gray-400 transition-all flex items-center justify-center space-x-2 text-gray-700"
                   disabled={!manualOrderData.customerPhone || manualOrderData.customerPhone.length < 10}
@@ -2702,6 +2709,8 @@ export default function ManualOrderSidebar({
                               src={`https://maps.googleapis.com/maps/api/staticmap?center=${location.latlong}&zoom=13&size=64x64&maptype=roadmap&markers=color:red%7C${location.latlong}&key=${GOOGLE_MAPS_API_KEY}`}
                               alt="Ubicación en mapa"
                               className="w-full h-full object-cover"
+                              loading="lazy"
+                              decoding="async"
                               onError={(e) => {
                                 // Si falla la carga del mapa, ocultar la imagen y mostrar el ícono
                                 const target = e.target as HTMLImageElement;
@@ -2728,6 +2737,8 @@ export default function ManualOrderSidebar({
                               src={location.photo}
                               alt="Foto de ubicación"
                               className="w-full h-full object-cover"
+                              loading="lazy"
+                              decoding="async"
                             />
                           </div>
                         )}
