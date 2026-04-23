@@ -2674,11 +2674,12 @@ export default function ManualOrderSidebar({
                               }
                             }
                             
-                            // Fallback: si no hay coordenadas o falló el cálculo, usar lo que haya en location.tarifa
-                            setManualOrderData(prev => ({ ...prev, selectedLocation: location }));
+                            // Fallback: si no hay coordenadas o falló el cálculo, usar $1.25 por defecto
+                            const locationWithDefaultTariff = { ...location, tarifa: '1.25' };
+                            setManualOrderData(prev => ({ ...prev, selectedLocation: locationWithDefaultTariff }));
                             setShowLocationModal(false);
                             calculateTotal(manualOrderData.selectedProducts);
-                            findDeliveryForLocation(location);
+                            findDeliveryForLocation(locationWithDefaultTariff);
                           }}
                           className="mr-3 mt-1 flex-shrink-0"
                         />
