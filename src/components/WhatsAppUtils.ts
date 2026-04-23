@@ -341,13 +341,42 @@ export const sendOrderToStoreFromClient = async (order: Order, business: Busines
 export const sendOrderToStore = async (order: Order, business: Business) => {
     const storePhone = business.phone || '0985985684'
     const customerName = order.customer?.name || 'Cliente'
+    const customerPhone = order.customer?.phone || ''
     const productsList = buildProductsList(order, true)
+    
+    // Calcular lo que recibe la tienda
     const storeReceives = order.items?.reduce((sum: number, item: any) => {
         const itemStoreReceives = item.storeReceives || 0
         return sum + (itemStoreReceives * (item.quantity || 1))
     }, 0) || order.total || 0
-
+    
+    // Calcular la comisión sumando las comisiones de cada item
+    const commissionAmount = order.items?.reduce((sum: number, item: any) => {
+        const itemCommission = item.commission || 0
+        return sum + (itemCommission * (item.quantity || 1))
+    }, 0) || 0
+    
+    // Calcular línea de envío
+    const deliveryCostLine = order.delivery?.type === 'delivery' ? `Envío: $${(order.delivery?.deliveryCost || 0).toFixed(2)}\n` : ''
+    
+    // Calcular línea de ubicación
+    const locationLink = buildLocationLink(order)
+    const locationLine = locationLink ? `Ubicación: ${locationLink}\n\n` : ''
+    
+    // Calcular detalles de pago
+    let paymentDetailsBlock = ''
+    if (order.payment?.method === 'mixed') {
+        const payment = order.payment as any
+        paymentDetailsBlock = `🏦 Transferencia: $${(payment.transferAmount || 0).toFixed(2)}\n💵 *Cobrar:* $${(payment.cashAmount || 0).toFixed(2)}`
+    } else if (order.payment?.method === 'cash') {
+        paymentDetailsBlock = `💵 *Cobrar:* $${order.total.toFixed(2)}`
+    } else if (order.payment?.method === 'transfer') {
+        paymentDetailsBlock = '🏦 Transferencia'
+    }
+    
     const total = storeReceives.toFixed(2)
+    const storeSubtotal = storeReceives.toFixed(2)
+    const commissionAmountStr = commissionAmount.toFixed(2)
     const orderType = formatScheduledDate(order.timing)
     const references = order.delivery.type === 'pickup'
         ? '🏪 Retira en tienda'
@@ -357,10 +386,16 @@ export const sendOrderToStore = async (order: Order, business: Business) => {
     const message = renderWhatsAppTemplate(template, {
         businessName: business.name,
         customerName,
+        customerPhone: customerPhone ? `+593${customerPhone.replace(/\D/g, '').startsWith('0') ? customerPhone.replace(/\D/g, '').slice(1) : customerPhone.replace(/\D/g, '')}` : '',
         orderType,
         references,
         productsList,
-        total
+        total,
+        storeSubtotal,
+        commissionAmount: commissionAmountStr,
+        paymentDetailsBlock,
+        deliveryCostLine,
+        locationLine
     })
 
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(storePhone)}&text=${encodeURIComponent(message)}`

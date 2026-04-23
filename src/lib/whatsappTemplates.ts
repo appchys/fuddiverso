@@ -152,5 +152,7 @@ export const WHATSAPP_TEMPLATE_VARIABLES: Array<{ key: string; label: string; ex
   { key: 'orderLinkLine', label: 'Linea con URL de la orden', example: '\nVer tu orden: https://sitio.com/o/123' },
   { key: 'references', label: 'Referencias', example: 'Frente al parque central' },
   { key: 'locationLine', label: 'Linea de ubicacion', example: 'Ubicacion: https://maps.google.com/...\n\n' },
-  { key: 'total', label: 'Total', example: '14.50' }
+  { key: 'total', label: 'Total', example: '14.50' },
+  { key: 'storeSubtotal', label: 'Subtotal tienda', example: '12.00' },
+  { key: 'commissionAmount', label: 'Monto comisión', example: '2.50' }
 ]

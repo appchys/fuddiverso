@@ -28,7 +28,9 @@ const SAMPLE_VALUES: Record<string, string> = {
   orderLinkLine: '\nVer tu orden: https://fuddi.com/o/123456',
   references: 'Frente a la farmacia',
   locationLine: 'Ubicacion: https://maps.google.com/...\n\n',
-  total: '14.50'
+  total: '14.50',
+  storeSubtotal: '12.00',
+  commissionAmount: '2.50'
 }
 
 export default function WhatsAppTemplateEditor() {
