@@ -1,4 +1,66 @@
-import { Product, ProductVariant } from '@/types'
+import { Business, CommissionType, Product, ProductVariant } from '@/types'
+
+export const DEFAULT_COMMISSION_RATE = 5
+export const DEFAULT_COMMISSION_TYPE: CommissionType = 'no_commission'
+
+// Redondear al 0.05 más cercano para evitar centavos extraños en el precio público.
+export function roundToNearest005(value: number): number {
+    return Math.round(value * 20) / 20
+}
+
+export function normalizeCommissionRate(rate?: number): number {
+    if (typeof rate !== 'number' || Number.isNaN(rate)) {
+        return DEFAULT_COMMISSION_RATE
+    }
+
+    return Math.min(Math.max(rate, 0), 100)
+}
+
+export function getBusinessCommissionSettings(business?: Partial<Business> | null) {
+    return {
+        defaultCommissionType: business?.defaultCommissionType || DEFAULT_COMMISSION_TYPE,
+        commissionRate: normalizeCommissionRate(business?.commissionRate)
+    }
+}
+
+export function calculateCommissionPricing(
+    storePrice: number,
+    commissionType: CommissionType = DEFAULT_COMMISSION_TYPE,
+    commissionRate?: number
+) {
+    const safeStorePrice = typeof storePrice === 'number' && !Number.isNaN(storePrice) ? storePrice : 0
+    const normalizedRate = normalizeCommissionRate(commissionRate)
+    const rawCommission = safeStorePrice * (normalizedRate / 100)
+
+    if (commissionType === 'fuddi_assumed_by_customer') {
+        const commission = roundToNearest005(rawCommission)
+        return {
+            storePrice: safeStorePrice,
+            commission,
+            publicPrice: roundToNearest005(safeStorePrice + commission),
+            commissionType,
+            storeReceives: safeStorePrice
+        }
+    }
+
+    if (commissionType === 'fuddi_assumed_by_store') {
+        return {
+            storePrice: safeStorePrice,
+            commission: rawCommission,
+            publicPrice: safeStorePrice,
+            commissionType,
+            storeReceives: safeStorePrice - rawCommission
+        }
+    }
+
+    return {
+        storePrice: safeStorePrice,
+        commission: 0,
+        publicPrice: safeStorePrice,
+        commissionType: DEFAULT_COMMISSION_TYPE,
+        storeReceives: safeStorePrice
+    }
+}
 
 /**
  * Calculates the public price of a product or variant based on its commission settings.

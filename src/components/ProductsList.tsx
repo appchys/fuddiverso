@@ -2,14 +2,12 @@
 
 import React, { useState, useEffect } from 'react'
 import { Product, Business, ProductVariant, CommissionType } from '@/types'
-import { getAllProducts, getAllBusinesses, updateProduct } from '@/lib/database'
-
-const COMMISSION_RATE = 0.05 // 5% de comisión base
-
-// Redondear al 0.05 más cercano (para evitar centavos raros en el precio al cliente)
-const roundToNearest005 = (value: number): number => {
-  return Math.round(value * 20) / 20
-}
+import { getAllProducts, getAllBusinesses, updateBusiness, updateProduct } from '@/lib/database'
+import {
+  calculateCommissionPricing,
+  getBusinessCommissionSettings,
+  normalizeCommissionRate
+} from '@/lib/price-utils'
 
 interface ProductWithBusiness extends Product {
   businessName?: string
@@ -21,11 +19,6 @@ interface PriceState {
   publicPrice: number
   commissionType: CommissionType
   storeReceives: number
-}
-
-interface VariantPriceKey {
-  productId: string
-  variantId?: string
 }
 
 // Función para crear una clave única para identificar un producto/variante
@@ -45,6 +38,11 @@ export default function ProductsList() {
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
   const [lastSavedKey, setLastSavedKey] = useState<string | null>(null)
   const [isEditingPrices, setIsEditingPrices] = useState(false)
+  const [businessSettingsDrafts, setBusinessSettingsDrafts] = useState<Record<string, {
+    defaultCommissionType: CommissionType
+    commissionRate: number
+  }>>({})
+  const [savingBusinessSettings, setSavingBusinessSettings] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     loadData()
@@ -73,6 +71,14 @@ export default function ProductsList() {
 
       setProducts(productsWithBusiness)
       setBusinesses(allBusinesses)
+      setBusinessSettingsDrafts(
+        Object.fromEntries(
+          allBusinesses.map(business => {
+            const settings = getBusinessCommissionSettings(business)
+            return [business.id, settings]
+          })
+        )
+      )
 
       // Inicializar estados de precios
       const initialPriceStates: Record<string, PriceState> = {}
@@ -80,15 +86,10 @@ export default function ProductsList() {
         const commissionType = product.commissionType || 'no_commission'
         const basePrice = product.basePrice !== undefined ? product.basePrice : product.price
         const commission = commissionType === 'no_commission' ? 0 : (product.commission !== undefined ? product.commission : 0)
-
-        // Si es no_commission, el precio público es igual al precio de tienda (basePrice)
         const publicPrice = commissionType === 'no_commission' ? basePrice : product.price
-
-        // Calcular "Tienda Recibe" basado en el tipo guardado
-        let storeReceives = basePrice
-        if (commissionType === 'fuddi_assumed_by_store') {
-          storeReceives = product.price - (product.commission || 0)
-        }
+        const storeReceives = commissionType === 'fuddi_assumed_by_store'
+          ? product.price - (product.commission || 0)
+          : basePrice
 
         // Estado para el producto principal
         initialPriceStates[getPriceKey(product.id)] = {
@@ -106,11 +107,9 @@ export default function ProductsList() {
             const vBasePrice = variant.basePrice !== undefined ? variant.basePrice : variant.price
             const vCommission = vCommissionType === 'no_commission' ? 0 : (variant.commission !== undefined ? variant.commission : 0)
             const vPublicPrice = vCommissionType === 'no_commission' ? vBasePrice : variant.price
-
-            let vStoreReceives = vBasePrice
-            if (vCommissionType === 'fuddi_assumed_by_store') {
-              vStoreReceives = variant.price - (variant.commission || 0)
-            }
+            const vStoreReceives = vCommissionType === 'fuddi_assumed_by_store'
+              ? variant.price - (variant.commission || 0)
+              : vBasePrice
 
             initialPriceStates[getPriceKey(product.id, variant.id)] = {
               storePrice: vBasePrice,
@@ -151,40 +150,66 @@ export default function ProductsList() {
     setFilteredProducts(filtered)
   }
 
+  const getBusinessForProduct = (productId: string) => {
+    const product = products.find(p => p.id === productId)
+    return businesses.find(b => b.id === product?.businessId)
+  }
+
+  const getCommissionRateForProduct = (productId: string) => {
+    const business = getBusinessForProduct(productId)
+    return getBusinessCommissionSettings(business).commissionRate
+  }
+
+  const handleSaveBusinessCommissionSettings = async (businessId: string) => {
+    const businessDraft = businessSettingsDrafts[businessId]
+    if (!businessDraft) return
+    const normalizedRate = normalizeCommissionRate(businessDraft.commissionRate)
+    const updates = {
+      defaultCommissionType: businessDraft.defaultCommissionType,
+      commissionRate: normalizedRate
+    }
+
+    setSavingBusinessSettings(prev => new Set(prev).add(businessId))
+    try {
+      await updateBusiness(businessId, {
+        ...updates,
+        updatedAt: new Date()
+      })
+
+      setBusinesses(prev => prev.map(business =>
+        business.id === businessId
+          ? { ...business, ...updates, updatedAt: new Date() }
+          : business
+      ))
+
+      setBusinessSettingsDrafts(prev => ({
+        ...prev,
+        [businessId]: updates
+      }))
+    } catch (error) {
+      console.error('Error saving business commission settings:', error)
+      alert('No se pudo guardar la configuración de comisión de la tienda.')
+    } finally {
+      setSavingBusinessSettings(prev => {
+        const next = new Set(prev)
+        next.delete(businessId)
+        return next
+      })
+    }
+  }
+
   const handleCommissionTypeChange = async (productId: string, variantId: string | undefined, type: CommissionType) => {
     const key = getPriceKey(productId, variantId)
     const currentState = priceStates[key]
     if (!currentState) return
 
-    let newCommission = 0
-    let newPublicPrice = currentState.storePrice
-    let newStoreReceives = currentState.storePrice
-
-    const rawCommission = currentState.storePrice * COMMISSION_RATE
-
-    if (type === 'fuddi_assumed_by_customer') {
-      // Cliente asume: comisión redondeada al 0.05 más cercano
-      newCommission = roundToNearest005(rawCommission)
-      newPublicPrice = roundToNearest005(currentState.storePrice + newCommission)
-      newStoreReceives = currentState.storePrice
-    } else if (type === 'fuddi_assumed_by_store') {
-      // Tienda asume: comisión exacta (sin redondeo) y tienda recibe precio tienda menos comisión exacta
-      newCommission = rawCommission
-      newPublicPrice = currentState.storePrice
-      newStoreReceives = currentState.storePrice - newCommission
-    } else {
-      // no_commission
-      newCommission = 0
-      newPublicPrice = currentState.storePrice
-      newStoreReceives = currentState.storePrice
-    }
-
     const newState = {
       ...currentState,
-      commissionType: type,
-      commission: newCommission,
-      publicPrice: newPublicPrice,
-      storeReceives: newStoreReceives
+      ...calculateCommissionPricing(
+        currentState.storePrice,
+        type,
+        getCommissionRateForProduct(productId)
+      )
     }
 
     setPriceStates(prev => ({
@@ -201,35 +226,13 @@ export default function ProductsList() {
     const currentState = priceStates[key]
     if (!currentState) return
 
-    let newCommission = 0
-    let newPublicPrice = newStorePrice
-    let newStoreReceives = newStorePrice
-
-    const rawCommission = newStorePrice * COMMISSION_RATE
-
-    if (currentState.commissionType === 'fuddi_assumed_by_customer') {
-      // Cliente asume: comisión redondeada al 0.05 más cercano
-      newCommission = roundToNearest005(rawCommission)
-      newPublicPrice = roundToNearest005(newStorePrice + newCommission)
-      newStoreReceives = newStorePrice
-    } else if (currentState.commissionType === 'fuddi_assumed_by_store') {
-      // Tienda asume: comisión exacta (sin redondeo) y tienda recibe precio tienda menos comisión exacta
-      newCommission = rawCommission
-      newPublicPrice = newStorePrice
-      newStoreReceives = newStorePrice - newCommission
-    } else {
-      // no_commission
-      newCommission = 0
-      newPublicPrice = newStorePrice
-      newStoreReceives = newStorePrice
-    }
-
     const newState = {
       ...currentState,
-      storePrice: newStorePrice,
-      commission: newCommission,
-      publicPrice: newPublicPrice,
-      storeReceives: newStoreReceives
+      ...calculateCommissionPricing(
+        newStorePrice,
+        currentState.commissionType,
+        getCommissionRateForProduct(productId)
+      )
     }
 
     setPriceStates(prev => ({
@@ -393,6 +396,126 @@ export default function ProductsList() {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 md:p-6">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Vista de Tiendas</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Configura el trato por defecto y el porcentaje de comisión de cada tienda desde una sola vista.
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-lg font-semibold text-gray-900">{businesses.length}</p>
+            <p className="text-xs text-gray-500">Tiendas registradas</p>
+          </div>
+        </div>
+
+        <div className="mt-6 overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Tienda</th>
+                <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Username</th>
+                <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Trato por Defecto</th>
+                <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">% Comisión</th>
+                <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Productos</th>
+                <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider w-10"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {businesses.map((business) => {
+                const settings = businessSettingsDrafts[business.id] || getBusinessCommissionSettings(business)
+                const businessProductsCount = products.filter(product => product.businessId === business.id).length
+                const isSavingBusiness = savingBusinessSettings.has(business.id)
+
+                return (
+                  <tr key={business.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        {business.image ? (
+                          <img src={business.image} alt={business.name} className="w-10 h-10 rounded-full object-cover border border-gray-200" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
+                            <i className="bi bi-shop"></i>
+                          </div>
+                        )}
+                        <div>
+                          <p className="font-semibold text-gray-900 text-sm">{business.name}</p>
+                          <p className="text-xs text-gray-500">{business.email}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">@{business.username}</td>
+                    <td className="px-4 py-3">
+                      <select
+                        value={settings.defaultCommissionType}
+                        onChange={(e) => setBusinessSettingsDrafts(prev => ({
+                          ...prev,
+                          [business.id]: {
+                            ...settings,
+                            defaultCommissionType: e.target.value as CommissionType
+                          }
+                        }))}
+                        disabled={isSavingBusiness}
+                        className="w-full min-w-[180px] px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="no_commission">Pendiente</option>
+                        <option value="fuddi_assumed_by_customer">Cliente asume</option>
+                        <option value="fuddi_assumed_by_store">Tienda asume</option>
+                      </select>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="relative min-w-[120px]">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={settings.commissionRate}
+                          onChange={(e) => setBusinessSettingsDrafts(prev => ({
+                            ...prev,
+                            [business.id]: {
+                              ...settings,
+                              commissionRate: Number(e.target.value)
+                            }
+                          }))}
+                          disabled={isSavingBusiness}
+                          className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                        <span className="absolute inset-y-0 right-3 flex items-center text-sm text-gray-400">%</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setFilterBusiness(business.id)}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200"
+                      >
+                        <i className="bi bi-box-seam"></i>
+                        {businessProductsCount}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => handleSaveBusinessCommissionSettings(business.id)}
+                        disabled={isSavingBusiness}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <i className={`bi bi-${isSavingBusiness ? 'arrow-repeat animate-spin' : 'save'}`}></i>
+                        {isSavingBusiness ? 'Guardando...' : 'Guardar'}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+          Esta configuración aplica a los productos nuevos de cada tienda. Los productos existentes se siguen pudiendo editar individualmente abajo.
         </div>
       </div>
 
@@ -624,13 +747,13 @@ export default function ProductsList() {
             </p>
             <ul className="text-sm text-blue-800 space-y-2">
               <li>
-                <strong>Precio Tienda:</strong> Es el precio base que registraste. Inicialmente, este es el precio público.
+                <strong>Precio Tienda:</strong> Es el valor base del producto antes de aplicar la configuración de comisión de la tienda.
               </li>
               <li>
-                <strong>Comisión:</strong> Se calcula al 5% del precio tienda cuando presionas "Oficializar". Inicialmente es $0.00.
+                <strong>Comisión:</strong> Se calcula con el porcentaje configurado para esa tienda. Puede ser 0%, 5%, 10% o el valor que definas.
               </li>
               <li>
-                <strong>Precio Público:</strong> Es lo que pagarán los clientes (Precio Tienda + Comisión). Puedes revisar y oficializar cada producto/variante manualmente.
+                <strong>Precio Público:</strong> Es lo que pagarán los clientes según el trato elegido en cada producto o el valor heredado al crear nuevos productos.
               </li>
             </ul>
           </div>

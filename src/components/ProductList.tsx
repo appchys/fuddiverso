@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { Business, Product, ProductVariant, Ingredient } from '@/types'
 import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
-import { ensureCartItemMetadata } from '@/lib/price-utils'
+import { calculateCommissionPricing, getBusinessCommissionSettings } from '@/lib/price-utils'
 
 interface ProductListProps {
   business: Business | null
@@ -597,13 +597,41 @@ export default function ProductList({
         isAvailable: variantVisibility[variant.id] !== false
       }))
 
+      const commissionSettings = getBusinessCommissionSettings(business)
+      const productPricing = calculateCommissionPricing(
+        Number(formData.price),
+        commissionSettings.defaultCommissionType,
+        commissionSettings.commissionRate
+      )
+
+      const variantsWithCommission = variantsWithIngredients.map(variant => {
+        const variantPricing = calculateCommissionPricing(
+          variant.price,
+          commissionSettings.defaultCommissionType,
+          commissionSettings.commissionRate
+        )
+
+        return {
+          ...variant,
+          price: variantPricing.publicPrice,
+          basePrice: variantPricing.storePrice,
+          commission: variantPricing.commission,
+          commissionType: variantPricing.commissionType
+        }
+      })
+
       const productData = {
         name: formData.name,
         description: formData.description,
-        price: Number(formData.price),
+        price: editingProduct ? Number(formData.price) : productPricing.publicPrice,
+        basePrice: editingProduct ? editingProduct.basePrice : productPricing.storePrice,
+        commission: editingProduct ? editingProduct.commission : productPricing.commission,
+        commissionType: editingProduct ? editingProduct.commissionType : productPricing.commissionType,
         category: formData.category,
         image: imageUrl,
-        variants: variants.length > 0 ? variantsWithIngredients : undefined,
+        variants: variants.length > 0
+          ? (editingProduct ? variantsWithIngredients : variantsWithCommission)
+          : undefined,
         ingredients: ingredients.length > 0 ? ingredients : undefined,
         isAvailable: formData.isAvailable,
         // undefined = eliminar campo en Firestore

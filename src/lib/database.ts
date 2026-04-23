@@ -49,6 +49,7 @@ import {
   Settlement
 } from '../types'
 import { isDeliveryAvailable } from './store-utils'
+import { DEFAULT_COMMISSION_RATE, DEFAULT_COMMISSION_TYPE } from './price-utils'
 
 // Interfaz para egresos (expenses)
 export interface ExpenseEntry {
@@ -374,6 +375,8 @@ export async function createBusinessFromForm(formData: {
       emailOrderManual: false,
       emailCheckoutProgress: false
     },
+    defaultCommissionType: DEFAULT_COMMISSION_TYPE,
+    commissionRate: DEFAULT_COMMISSION_RATE,
     isActive: true,
     deliveryTime: formData.deliveryTime,
     updatedAt: new Date()

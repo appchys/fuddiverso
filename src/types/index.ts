@@ -77,6 +77,8 @@ export interface Business {
   telegramChatId?: string // ID antiguo (para migración)
   freeDeliveryCampaign?: FreeDeliveryCampaign // Campaña de delivery gratis asumida por el restaurante
   favoriteIngredients?: string[] // IDs de ingredientes favoritos
+  defaultCommissionType?: CommissionType // Trato por defecto para nuevos productos
+  commissionRate?: number // Porcentaje de comisión por tienda
 }
 
 export interface FreeDeliveryCampaign {
