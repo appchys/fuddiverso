@@ -49,7 +49,9 @@ import {
   Settlement
 } from '../types'
 import { isDeliveryAvailable } from './store-utils'
-import { DEFAULT_COMMISSION_RATE, DEFAULT_COMMISSION_TYPE } from './price-utils'
+
+const NEW_BUSINESS_DEFAULT_COMMISSION_RATE = 10
+const NEW_BUSINESS_DEFAULT_COMMISSION_TYPE = 'fuddi_assumed_by_customer' as const
 
 // Interfaz para egresos (expenses)
 export interface ExpenseEntry {
@@ -259,8 +261,17 @@ export async function createBusiness(businessData: Omit<Business, 'id' | 'create
       throw new Error('Faltan datos requeridos: nombre, email y teléfono son obligatorios.');
     }
 
+    // Asegurar defaults internos para nuevas tiendas
+    const businessWithDefaults = {
+      ...businessData,
+      defaultCommissionType: businessData.defaultCommissionType || NEW_BUSINESS_DEFAULT_COMMISSION_TYPE,
+      commissionRate: typeof businessData.commissionRate === 'number'
+        ? businessData.commissionRate
+        : NEW_BUSINESS_DEFAULT_COMMISSION_RATE
+    }
+
     // Filtrar valores undefined antes de enviar a Firestore
-    const cleanBusinessData = cleanObject(businessData)
+    const cleanBusinessData = cleanObject(businessWithDefaults)
 
     const docRef = await addDoc(collection(db, 'businesses'), {
       ...cleanBusinessData,
@@ -375,8 +386,8 @@ export async function createBusinessFromForm(formData: {
       emailOrderManual: false,
       emailCheckoutProgress: false
     },
-    defaultCommissionType: DEFAULT_COMMISSION_TYPE,
-    commissionRate: DEFAULT_COMMISSION_RATE,
+    defaultCommissionType: NEW_BUSINESS_DEFAULT_COMMISSION_TYPE,
+    commissionRate: NEW_BUSINESS_DEFAULT_COMMISSION_RATE,
     isActive: true,
     deliveryTime: formData.deliveryTime,
     updatedAt: new Date()
@@ -1725,6 +1736,8 @@ export async function createBusinessFromGoogleAuth(userData: {
         emailOrderManual: false,
         emailCheckoutProgress: false
       },
+      defaultCommissionType: NEW_BUSINESS_DEFAULT_COMMISSION_TYPE,
+      commissionRate: NEW_BUSINESS_DEFAULT_COMMISSION_RATE,
       isActive: true,
       updatedAt: new Date()
     }
