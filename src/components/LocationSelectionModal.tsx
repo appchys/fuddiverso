@@ -40,6 +40,7 @@ export default function LocationSelectionModal({
 }: LocationSelectionModalProps) {
     // Estado local para controlar si estamos seleccionando o agregando
     const [isAddingNewLocation, setIsAddingNewLocation] = useState(initialAddingState)
+    const [editingLocation, setEditingLocation] = useState<ClientLocation | null>(null)
     const [openMenuId, setOpenMenuId] = useState<string | null>(null)
     const [newLocationData, setNewLocationData] = useState<NewLocationData>({ latlong: '', referencia: '', tarifa: '1' })
     const [isRequestingLocation, setIsRequestingLocation] = useState(false)
@@ -49,8 +50,28 @@ export default function LocationSelectionModal({
     const [locationImageFile, setLocationImageFile] = useState<File | null>(null)
     const [locationImagePreview, setLocationImagePreview] = useState<string>('')
     const [isSubmitting, setIsSubmitting] = useState(false)
+    const [isResolvingDeliveryFee, setIsResolvingDeliveryFee] = useState(false)
     const [calculatedDistance, setCalculatedDistance] = useState<number | null>(null)
     const [isInsideCoverage, setIsInsideCoverage] = useState<boolean>(false)
+
+    const resetLocationForm = useCallback(() => {
+        setIsManualMode(false)
+        setGpsAttempts(0)
+        setLocationPermissionError(null)
+        setNewLocationData({ latlong: '', referencia: '', tarifa: '1' })
+        setLocationImageFile(null)
+        setLocationImagePreview('')
+        setIsSubmitting(false)
+        setIsResolvingDeliveryFee(false)
+        setCalculatedDistance(null)
+        setIsInsideCoverage(false)
+    }, [])
+
+    const exitLocationForm = useCallback(() => {
+        setIsAddingNewLocation(false)
+        setEditingLocation(null)
+        resetLocationForm()
+    }, [resetLocationForm])
 
 
     useEffect(() => {
@@ -58,30 +79,20 @@ export default function LocationSelectionModal({
             document.body.style.overflow = 'hidden'
         } else {
             document.body.style.overflow = ''
-            setIsManualMode(false)
-            setGpsAttempts(0)
-            setLocationPermissionError(null)
-            setNewLocationData({ latlong: '', referencia: '', tarifa: '1' })
-            setLocationImageFile(null)
-            setLocationImagePreview('')
-            setIsSubmitting(false)
+            setEditingLocation(null)
+            resetLocationForm()
         }
         return () => {
             document.body.style.overflow = ''
         }
-    }, [isOpen])
+    }, [isOpen, resetLocationForm])
 
     useEffect(() => {
         if (!isAddingNewLocation) {
-            setIsManualMode(false)
-            setGpsAttempts(0)
-            setLocationPermissionError(null)
-            setNewLocationData({ latlong: '', referencia: '', tarifa: '1' })
-            setLocationImageFile(null)
-            setLocationImagePreview('')
-            setIsSubmitting(false)
+            setEditingLocation(null)
+            resetLocationForm()
         }
-    }, [isAddingNewLocation])
+    }, [isAddingNewLocation, resetLocationForm])
 
     // Si entramos con initialAddingState true, nos aseguramos de que el estado lo refleje
     // Pero solo si el modal se acaba de abrir (esto podría requerir un useEffect si el prop cambia)
@@ -167,21 +178,31 @@ export default function LocationSelectionModal({
         setLocationPermissionError(null)
     }
 
+    const resolveDeliveryFeeValue = useCallback(async (lat: number, lng: number) => {
+        setIsResolvingDeliveryFee(true)
+        let tarifa = '1'
+        try {
+            if (businessId) {
+                const fee = await calculateDeliveryFee({ lat, lng })
+                const normalizedFee = fee === 0 ? 1.5 : fee
+                tarifa = normalizedFee.toFixed(2)
+            }
+        } finally {
+            setIsResolvingDeliveryFee(false)
+        }
+        return tarifa
+    }, [businessId])
+
     // Función para manejar cambio de ubicación en el mapa
     const handleLocationChange = useCallback(async (lat: number, lng: number) => {
-        let tarifa = '1'
-        if (businessId) {
-            const fee = await calculateDeliveryFee({ lat, lng })
-            const normalizedFee = fee === 0 ? 1.5 : fee
-            tarifa = normalizedFee.toFixed(2)
-        }
+        const tarifa = await resolveDeliveryFeeValue(lat, lng)
 
         setNewLocationData(prev => ({
             ...prev,
             latlong: `${lat}, ${lng}`,
             tarifa
         }));
-    }, [businessId]);
+    }, [resolveDeliveryFeeValue]);
 
     // Memorizar las coordenadas del mapa
     const mapCoordinates = useMemo(() => {
@@ -197,6 +218,39 @@ export default function LocationSelectionModal({
 
     const handleReferenciaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setNewLocationData(prev => ({ ...prev, referencia: e.target.value }));
+    }
+
+    const handleEditLocation = async (e: React.MouseEvent, location: ClientLocation) => {
+        e.stopPropagation();
+        setEditingLocation(location);
+        setOpenMenuId(null);
+        setIsAddingNewLocation(true);
+        setIsManualMode(false);
+        setGpsAttempts(0);
+        setLocationPermissionError(null);
+        setIsSubmitting(false);
+        setNewLocationData({
+            latlong: location.latlong || '',
+            referencia: location.referencia || '',
+            tarifa: ''
+        });
+        setLocationImageFile(null);
+        setLocationImagePreview(location.photo || '');
+
+        if (location.latlong) {
+            try {
+                const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()));
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    const tarifa = await resolveDeliveryFeeValue(lat, lng);
+                    setNewLocationData(prev => ({
+                        ...prev,
+                        tarifa
+                    }));
+                }
+            } catch (error) {
+                console.error('Error loading location details for edit:', error);
+            }
+        }
     }
 
     const handleSaveNewLocation = async () => {
@@ -253,6 +307,64 @@ export default function LocationSelectionModal({
         } catch (error) {
             console.error('❌ Error saving location:', error);
             alert('Error al guardar la ubicación. Por favor intenta de nuevo.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    }
+
+    const handleUpdateExistingLocation = async () => {
+        if (!editingLocation || !newLocationData.latlong || !newLocationData.referencia) {
+            alert('Por favor completa todos los campos requeridos');
+            return;
+        }
+
+        setIsSubmitting(true);
+        let photoUrl = locationImagePreview ? editingLocation.photo || locationImagePreview : '';
+
+        try {
+            if (locationImageFile) {
+                const timestamp = Date.now();
+                const safeName = locationImageFile.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+                const extension = 'jpg';
+                const fileName = `locations/${clientId}_${timestamp}_${safeName}.${extension}`;
+
+                const optimizedBlob = await optimizeImage(locationImageFile, 1000, 0.8, 'image/jpeg');
+                const optimizedFile = new File(
+                    [optimizedBlob],
+                    `${timestamp}_${safeName}.${extension}`,
+                    { type: 'image/jpeg' }
+                );
+
+                photoUrl = await uploadImage(optimizedFile, fileName);
+            }
+
+            await updateLocation(editingLocation.id, {
+                latlong: newLocationData.latlong,
+                referencia: newLocationData.referencia,
+                tarifa: newLocationData.tarifa,
+                photo: photoUrl
+            });
+
+            const updatedLocation: ClientLocation = {
+                ...editingLocation,
+                latlong: newLocationData.latlong,
+                referencia: newLocationData.referencia,
+                tarifa: newLocationData.tarifa,
+                ...(photoUrl ? { photo: photoUrl } : {})
+            };
+
+            if (!photoUrl && 'photo' in updatedLocation) {
+                delete updatedLocation.photo;
+            }
+
+            if (onLocationUpdated) {
+                onLocationUpdated(updatedLocation);
+            }
+
+            exitLocationForm();
+        } catch (error) {
+            console.error('Error updating location:', error);
+            alert('Error al actualizar la ubicación. Por favor intenta de nuevo.');
         } finally {
             setIsSubmitting(false);
         }
@@ -332,7 +444,7 @@ export default function LocationSelectionModal({
                 <div className="px-6 pt-6 pb-4 bg-white border-b border-gray-100 shrink-0 flex items-center justify-between z-10">
                     <div className="flex items-center gap-3">
                         <button
-                            onClick={() => isAddingNewLocation ? setIsAddingNewLocation(false) : onClose()}
+                            onClick={() => isAddingNewLocation ? exitLocationForm() : onClose()}
                             className="p-2 -ml-2 text-gray-800 hover:bg-gray-100 rounded-full transition-colors"
                         >
                             {isAddingNewLocation ? (
@@ -346,7 +458,7 @@ export default function LocationSelectionModal({
                             )}
                         </button>
                         <h2 className="text-xl font-bold text-gray-900 leading-none">
-                            {isAddingNewLocation ? 'Nueva Ubicación' : 'Seleccionar Ubicación'}
+                            {isAddingNewLocation ? (editingLocation ? 'Editar Ubicación' : 'Nueva Ubicación') : 'Seleccionar Ubicación'}
                         </h2>
                     </div>
                 </div>
@@ -393,9 +505,6 @@ export default function LocationSelectionModal({
                                                     )}
                                                 </div>
                                                 <div className="flex items-center gap-2 text-xs text-gray-500 font-medium">
-                                                    <span className="px-2 py-0.5 bg-gray-100 rounded-md border border-gray-200">
-                                                        ${location.tarifa} Envío
-                                                    </span>
                                                     {(location.tarifa == null || Number(location.tarifa) <= 0) && (
                                                         <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">
                                                             Fuera de zona
@@ -404,8 +513,19 @@ export default function LocationSelectionModal({
                                                 </div>
                                             </div>
 
-                                            <div className="flex-shrink-0 self-center w-16 h-16 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
-                                                <LocationMap latlong={location.latlong} height="100%" />
+                                            <div className="flex-shrink-0 self-center flex items-center gap-2">
+                                                {location.photo && (
+                                                    <div className="w-16 h-16 rounded-xl overflow-hidden border border-gray-100 shadow-sm bg-gray-100">
+                                                        <img
+                                                            src={location.photo}
+                                                            alt={`Foto de referencia de ${location.referencia}`}
+                                                            className="w-full h-full object-cover"
+                                                        />
+                                                    </div>
+                                                )}
+                                                <div className="w-16 h-16 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+                                                    <LocationMap latlong={location.latlong} height="100%" />
+                                                </div>
                                             </div>
 
                                             <div className="absolute top-2 right-2 flex flex-col items-end">
@@ -421,6 +541,13 @@ export default function LocationSelectionModal({
 
                                                 {openMenuId === location.id && (
                                                     <div className="absolute top-8 right-0 bg-white rounded-xl shadow-lg border border-gray-100 py-2 w-36 z-20">
+                                                        <button
+                                                            onClick={(e) => handleEditLocation(e, location)}
+                                                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors"
+                                                        >
+                                                            <i className="bi bi-pencil-square"></i>
+                                                            Editar
+                                                        </button>
                                                         <button
                                                             onClick={(e) => handleToggleFavorite(e, location)}
                                                             className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors"
@@ -521,7 +648,13 @@ export default function LocationSelectionModal({
                                     : 'bg-green-50 border-green-100'
                                     }`}>
                                     <div className="flex justify-between items-start mb-1">
-                                        <span className={`text-sm font-bold ${!isInsideCoverage
+                                        {isResolvingDeliveryFee && (
+                                            <span className="inline-flex items-center gap-2 text-sm font-bold text-gray-700">
+                                                <span className="w-4 h-4 rounded-full border-2 border-gray-300 border-t-gray-700 animate-spin"></span>
+                                                Calculando tarifa de envío...
+                                            </span>
+                                        )}
+                                        <span className={`${isResolvingDeliveryFee ? 'hidden ' : ''}text-sm font-bold ${!isInsideCoverage
                                             ? 'text-amber-800'
                                             : 'text-green-800'
                                             }`}>
@@ -615,6 +748,7 @@ export default function LocationSelectionModal({
                             <button
                                 className="flex-1 bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-800 transition-all font-bold text-sm shadow-lg shadow-gray-200 flex items-center justify-center gap-2 transform active:scale-[0.98]"
                                 onClick={() => {
+                                    setEditingLocation(null);
                                     setIsAddingNewLocation(true);
                                     getCurrentLocation();
                                 }}
@@ -629,7 +763,7 @@ export default function LocationSelectionModal({
                         <div className="flex gap-3">
                             <button
                                 className="flex-1 bg-white border border-gray-200 text-gray-700 py-3.5 rounded-xl hover:bg-gray-50 transition-all font-bold text-sm shadow-sm"
-                                onClick={() => setIsAddingNewLocation(false)}
+                                onClick={exitLocationForm}
                             >
                                 Cancelar
                             </button>
@@ -638,8 +772,8 @@ export default function LocationSelectionModal({
                                     ? 'bg-gray-900 text-white hover:bg-gray-800 shadow-gray-200'
                                     : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
                                     }`}
-                                onClick={mapCoordinates && !isSubmitting ? handleSaveNewLocation : (e) => e.preventDefault()}
-                                disabled={!mapCoordinates || isSubmitting}
+                                onClick={mapCoordinates && !isSubmitting && !isResolvingDeliveryFee ? (editingLocation ? handleUpdateExistingLocation : handleSaveNewLocation) : (e) => e.preventDefault()}
+                                disabled={!mapCoordinates || isSubmitting || isResolvingDeliveryFee}
                             >
                                 {isSubmitting ? (
                                     <div className="flex items-center gap-2">
@@ -647,7 +781,7 @@ export default function LocationSelectionModal({
                                         <span>Guardando...</span>
                                     </div>
                                 ) : (
-                                    <span>Guardar y Seleccionar</span>
+                                    <span>{editingLocation ? 'Guardar Cambios' : 'Guardar y Seleccionar'}</span>
                                 )}
                             </button>
                         </div>

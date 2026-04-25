@@ -243,12 +243,6 @@ async function notifyBusinessTelegramOnOrderCreation(orderData, orderId) {
  */
 async function notifyAdminTelegramOnOrderCreation(orderData, orderId) {
   try {
-    // No enviar notificación al admin si el pedido es de munchys
-    if (orderData.businessId === '0FeNtdYThoTRMPJ6qaS7') {
-      console.log(`ℹ️ Orden ${orderId} es de munchys, omitiendo notificación al admin bot.`);
-      return;
-    }
-
     console.log(`📨 [Telegram Admin] Preparando notificación para Admin de orden ${orderId}...`);
     
     // Obtener datos del negocio
@@ -264,9 +258,24 @@ async function notifyAdminTelegramOnOrderCreation(orderData, orderId) {
       businessData.name = 'Negocio';
     }
 
-    // Usar la nueva función que genera URLs de WhatsApp
-    await telegramServices.sendAdminNewOrderNotification(businessData, orderData, orderId);
-    console.log(`✅ [Telegram Admin] Notificación enviada exitosamente para orden ${orderId}`);
+    const normalizedBusinessName = String(businessData.name || '').trim().toLowerCase();
+    const normalizedUsername = String(businessData.username || '').trim().toLowerCase();
+    const isMunchysBusiness =
+      orderData.businessId === '0FeNtdYThoTRMPJ6qaS7' ||
+      normalizedBusinessName === 'munchys' ||
+      normalizedUsername === 'munchys';
+
+    if (isMunchysBusiness) {
+      console.log(`ℹ️ Orden ${orderId} es de munchys, omitiendo notificación al admin bot.`);
+      return;
+    }
+
+    const notificationSent = await telegramServices.sendAdminNewOrderNotification(businessData, orderData, orderId);
+    if (notificationSent) {
+      console.log(`✅ [Telegram Admin] Notificación enviada exitosamente para orden ${orderId}`);
+    } else {
+      console.warn(`⚠️ [Telegram Admin] No se pudo enviar la notificación para orden ${orderId}. Revisa el estado del bot o del chat.`);
+    }
   } catch (error) {
     console.error(`❌ Error enviando notificación de Telegram a Admin para orden ${orderId}:`, error);
   }

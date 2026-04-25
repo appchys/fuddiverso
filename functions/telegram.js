@@ -1907,223 +1907,50 @@ async function sendAdminNewOrderNotification(businessData, orderData, orderId) {
 
     if (!businessData) {
         console.warn(`⚠️ [Telegram] No se encontró datos del negocio para orden ${orderId}`);
-        return;
+        return false;
     }
 
     // VALIDAR TOKEN
     if (!ADMIN_BOT_TOKEN) {
         console.error(`❌ [Telegram] ADMIN_BOT_TOKEN no está configurado.`);
-        return;
+        return false;
     }
 
     const businessName = businessData.name || 'Tienda';
-    const businessPhone = businessData.phone || businessData.celular || '';
 
     // Generar mensaje base para Telegram
     const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, 'admin_to_store');
     console.log(`📝 [Admin Notification] Mensaje Telegram formateado. Longitud: ${telegramText.length}`);
-
-    // ─── Obtener y renderizar plantilla de WhatsApp ───
-    let whatsappStoreMessage = '';
-    try {
-        const template = await getWhatsAppTemplate('admin_to_store');
-        if (template) {
-            const variables = buildWhatsAppTemplateVariables(orderData, businessName);
-            whatsappStoreMessage = renderWhatsAppTemplate(template, variables);
-            console.log(`✅ [WhatsApp Template] Plantilla 'admin_to_store' renderizada. Longitud: ${whatsappStoreMessage.length}`);
-        } else {
-            console.warn(`⚠️ [WhatsApp Template] Plantilla 'admin_to_store' no encontrada, se usará fallback`);
-        }
-    } catch (error) {
-        console.error(`❌ [WhatsApp Template] Error obteniendo plantilla:`, error.message);
-    }
-
-    // ─── Fallback: si no hay plantilla, construir mensaje ───
-    if (!whatsappStoreMessage) {
-        const orderId_short = orderId.slice(0, 6);
-        const customerName = orderData.customer?.name || 'Cliente';
-        const customerPhone = orderData.customer?.phone || '';
-        const address = orderData.delivery?.references || 'Sin dirección';
-        const deliveryType = orderData.delivery?.type === 'pickup' ? 'Retiro en tienda' : 'A Domicilio';
-        const total = orderData.total || 0;
-        const subtotal = orderData.subtotal || 0;
-        const deliveryCost = orderData.delivery?.deliveryCost !== undefined
-            ? orderData.delivery.deliveryCost
-            : Math.max(0, total - subtotal);
-
-        whatsappStoreMessage = `*ORDEN FUDDI #${orderId_short}*\n\n`;
-        whatsappStoreMessage += `*Cliente:* ${customerName}\n`;
-        whatsappStoreMessage += `*Teléfono:* ${customerPhone}\n`;
-        whatsappStoreMessage += `*Tipo Entrega:* ${deliveryType}\n`;
-        whatsappStoreMessage += `*Dirección:* ${address}\n`;
-        
-        // Items formateados
-        if (Array.isArray(orderData.items) && orderData.items.length > 0) {
-            const groupedItems = {};
-            orderData.items.forEach(item => {
-                const productName = item.name || 'Producto';
-                if (!groupedItems[productName]) groupedItems[productName] = [];
-                groupedItems[productName].push(item);
-            });
-            whatsappStoreMessage += `*Items:*`;
-            Object.keys(groupedItems).forEach(productName => {
-                const items = groupedItems[productName];
-                const qty = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
-                if (items[0].variant) {
-                    whatsappStoreMessage += `\n• (${qty}) ${productName} - ${items[0].variant}`;
-                } else {
-                    whatsappStoreMessage += `\n• (${qty}) ${productName}`;
-                }
-            });
-            whatsappStoreMessage += '\n';
-        }
-        
-        whatsappStoreMessage += `\n*Detalles:*\n`;
-        whatsappStoreMessage += `Subtotal: $${subtotal.toFixed(2)}\n`;
-        whatsappStoreMessage += `Envío: $${deliveryCost.toFixed(2)}\n`;
-        whatsappStoreMessage += `*TOTAL: $${total.toFixed(2)}*`;
-        console.log(`ℹ️ [WhatsApp] Usando mensaje fallback (plantilla no encontrada)`);
-    }
-
-    // Generar URLs
-    let whatsappStoreUrl = '';
-    if (businessPhone) {
-        const formattedPhone = businessPhone.replace(/^0/, '').trim();
-        if (formattedPhone.length > 0) {
-            whatsappStoreUrl = `https://wa.me/593${formattedPhone}?text=${encodeURIComponent(whatsappStoreMessage)}`;
-            console.log(`✅ URL WhatsApp Tienda generada`);
-        }
-    } else {
-        console.warn(`⚠️ Negocio sin teléfono registrado`);
-    }
-
-    // ─── Generar WhatsApp Delivery (si está asignado) ───
-    let whatsappDeliveryUrl = '';
-    if (orderData.delivery?.assignedDelivery) {
-        try {
-            const deliveryDoc = await admin.firestore().collection('deliveries').doc(orderData.delivery.assignedDelivery).get();
-            if (deliveryDoc.exists) {
-                const deliveryPhone = deliveryDoc.data().phone || '';
-                if (deliveryPhone) {
-                    // Obtener y renderizar plantilla de WhatsApp delivery
-                    let whatsappDeliveryMessage = '';
-                    try {
-                        const template = await getWhatsAppTemplate('delivery_assignment');
-                        if (template) {
-                            const variables = buildWhatsAppTemplateVariables(orderData, businessName);
-                            whatsappDeliveryMessage = renderWhatsAppTemplate(template, variables);
-                            console.log(`✅ [WhatsApp Template] Plantilla 'delivery_assignment' renderizada. Longitud: ${whatsappDeliveryMessage.length}`);
-                        } else {
-                            console.warn(`⚠️ [WhatsApp Template] Plantilla 'delivery_assignment' no encontrada, se usará fallback`);
-                        }
-                    } catch (error) {
-                        console.error(`❌ [WhatsApp Template] Error obteniendo plantilla delivery:`, error.message);
-                    }
-
-                    // Fallback si no hay plantilla
-                    if (!whatsappDeliveryMessage) {
-                        const orderId_short = orderId.slice(0, 6);
-                        const customerName = orderData.customer?.name || 'Cliente';
-                        const customerPhone = orderData.customer?.phone || '';
-                        const address = orderData.delivery?.references || 'Sin dirección';
-                        const deliveryType = orderData.delivery?.type === 'pickup' ? 'Retiro en tienda' : 'A Domicilio';
-                        const total = orderData.total || 0;
-                        const subtotal = orderData.subtotal || 0;
-                        const deliveryCost = orderData.delivery?.deliveryCost !== undefined
-                            ? orderData.delivery.deliveryCost
-                            : Math.max(0, total - subtotal);
-
-                        whatsappDeliveryMessage = `*🛵 ORDEN DE ENTREGA PARA ${businessName}*\n\n`;
-                        whatsappDeliveryMessage += `*Cliente:* ${customerName}\n`;
-                        whatsappDeliveryMessage += `*Teléfono:* ${customerPhone}\n`;
-                        whatsappDeliveryMessage += `*Dirección:* ${address}\n`;
-                        
-                        if (Array.isArray(orderData.items) && orderData.items.length > 0) {
-                            const groupedItems = {};
-                            orderData.items.forEach(item => {
-                                const productName = item.name || 'Producto';
-                                if (!groupedItems[productName]) groupedItems[productName] = [];
-                                groupedItems[productName].push(item);
-                            });
-                            whatsappDeliveryMessage += `*Items:*`;
-                            Object.keys(groupedItems).forEach(productName => {
-                                const items = groupedItems[productName];
-                                const qty = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
-                                if (items[0].variant) {
-                                    whatsappDeliveryMessage += `\n• (${qty}) ${productName} - ${items[0].variant}`;
-                                } else {
-                                    whatsappDeliveryMessage += `\n• (${qty}) ${productName}`;
-                                }
-                            });
-                            whatsappDeliveryMessage += '\n';
-                        }
-                        
-                        whatsappDeliveryMessage += `\n*Detalles:*\n`;
-                        whatsappDeliveryMessage += `Subtotal: $${subtotal.toFixed(2)}\n`;
-                        whatsappDeliveryMessage += `Envío: $${deliveryCost.toFixed(2)}\n`;
-                        whatsappDeliveryMessage += `*TOTAL: $${total.toFixed(2)}*`;
-                    }
-
-                    const formattedDeliveryPhone = deliveryPhone.replace(/^0/, '').trim();
-                    if (formattedDeliveryPhone.length > 0) {
-                        whatsappDeliveryUrl = `https://wa.me/593${formattedDeliveryPhone}?text=${encodeURIComponent(whatsappDeliveryMessage)}`;
-                        console.log(`✅ URL WhatsApp Delivery generada`);
-                    }
-                } else {
-                    console.warn(`⚠️ Delivery sin teléfono registrado`);
-                }
-            } else {
-                console.warn(`⚠️ Delivery no encontrado: ${orderData.delivery.assignedDelivery}`);
-            }
-        } catch (error) {
-            console.error(`❌ Error al generar URL WhatsApp Delivery:`, error.message);
-        }
-    }
-
-    // Construir botones con URLs
-    let replyMarkup = null;
-    const buttonRow = [];
-    
-    if (whatsappStoreUrl) {
-        buttonRow.push({ text: '💬 Whatsapp Tienda', url: whatsappStoreUrl });
-    }
-    
-    if (whatsappDeliveryUrl) {
-        buttonRow.push({ text: '🛵 Whatsapp Delivery', url: whatsappDeliveryUrl });
-    }
-
-    if (buttonRow.length > 0) {
-        replyMarkup = {
-            inline_keyboard: [buttonRow]
-        };
-    }
 
     // Obtener Chat ID del admin desde Firestore
     try {
         const adminDoc = await admin.firestore().collection('settings').doc('admin_telegram').get();
         if (!adminDoc.exists || !adminDoc.data().chatId) {
             console.warn('⚠️ [Telegram] Chat ID de admin no encontrado en settings/admin_telegram.');
-            return;
+            return false;
         }
 
         const chatId = adminDoc.data().chatId;
         const linkPreviewOptions = { is_disabled: true };
-
-        const result = await sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, telegramText, replyMarkup, linkPreviewOptions);
+        const result = await sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, telegramText, null, linkPreviewOptions);
 
         if (result && result.ok && result.result) {
             console.log(`✅ Notificación (Admin Bot) enviada exitosamente para orden ${orderId}`);
+            return true;
         } else if (result) {
             console.error(`❌ [Telegram] Error en respuesta para admin:`, {
                 ok: result.ok,
                 errorCode: result.error_code,
                 description: result.description
             });
+            return false;
         } else {
             console.error(`❌ [Telegram] Fallo al enviar notificación a admin`);
+            return false;
         }
     } catch (error) {
         console.error(`❌ [Telegram] Error en sendAdminNewOrderNotification:`, error);
+        return false;
     }
 }
 
