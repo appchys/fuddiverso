@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, Suspense, useRef } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
@@ -19,35 +20,48 @@ import StoreRatingModal from '@/components/StoreRatingModal'
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { Flame } from 'lucide-react'
 
-// Componente para imágenes con carga progresiva
+// Componente para imágenes con carga progresiva - usa next/image con fill
 const ProgressiveImage: React.FC<{
   src: string
   alt: string
   className?: string
-  placeholderClassName?: string
-  onLoad?: () => void
-  loading?: 'lazy' | 'eager'
-}> = ({ src, alt, className = '', placeholderClassName = '', onLoad, loading = 'lazy' }) => {
+  fill?: boolean
+  width?: number
+  height?: number
+  priority?: boolean
+  sizes?: string
+}> = ({ 
+  src, 
+  alt, 
+  className = '', 
+  fill = false,
+  width,
+  height,
+  priority = false,
+  sizes = '100vw'
+}) => {
   const [isLoaded, setIsLoaded] = useState(false)
   
   return (
-    <div className={`relative overflow-hidden ${placeholderClassName}`}>
-      {/* Placeholder mientras carga */}
-      {!isLoaded && (
+    <>
+      {/* Placeholder mientras carga - siempre visible hasta que la imagen cargue */}
+      {!isLoaded && fill && (
         <div className="absolute inset-0 bg-gray-200 animate-pulse" />
       )}
-      {/* Imagen real */}
-      <img
+      
+      {/* Imagen con next/image */}
+      <Image
         src={src}
         alt={alt}
-        loading={loading}
+        fill={fill}
+        width={!fill ? width : undefined}
+        height={!fill ? height : undefined}
+        priority={priority}
+        sizes={sizes}
         className={`transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'} ${className}`}
-        onLoad={() => {
-          setIsLoaded(true)
-          onLoad?.()
-        }}
+        onLoad={() => setIsLoaded(true)}
       />
-    </div>
+    </>
   )
 }
 
@@ -180,14 +194,14 @@ function HomePageContent() {
       // Pre-cargar la siguiente imagen
       const nextIndex = currentStoryIndex + 1
       if (nextIndex < storyProducts.length && storyProducts[nextIndex].image) {
-        const img = new Image()
+        const img = document.createElement('img')
         img.src = storyProducts[nextIndex].image!
       }
       
       // Pre-cargar la subsiguiente para mayor fluidez
       const nextNextIndex = currentStoryIndex + 2
       if (nextNextIndex < storyProducts.length && storyProducts[nextNextIndex].image) {
-        const img2 = new Image()
+        const img2 = document.createElement('img')
         img2.src = storyProducts[nextNextIndex].image!
       }
     }
@@ -506,28 +520,32 @@ function HomePageContent() {
         // Extraer categorías de los productos de los negocios filtrados por ubicación
         const uniqueCategories = new Set<string>()
         
-        // Primero agregar categorías de los negocios (si existen)
+        // Primero agregar categorías de los negocios (rápido, no bloquea)
         filteredForCategories.forEach(b => {
           b.categories?.forEach(c => uniqueCategories.add(c))
         })
         
-        // Luego agregar categorías de los productos de esos negocios
+        // Set inicial de categorías para mostrar UI rápido (mejora FCP)
+        const initialCategories = Array.from(uniqueCategories).sort(() => 0.5 - Math.random())
+        setCategories(['all', ...initialCategories])
+        
+        // Luego cargar más categorías de productos en background (no bloquea render)
         const businessIds = filteredForCategories.map(b => b.id)
         if (businessIds.length > 0) {
-          try {
-            const products = await getGlobalProducts('all', 1000, showAllRestaurants ? 'ALL' : (groupId || undefined)) // Obtener todos los productos de esta ubicación
-            products.forEach(p => {
-              if (p.category) {
-                uniqueCategories.add(p.category)
-              }
+          // No bloquear - cargar en background
+          getGlobalProducts('all', 100, showAllRestaurants ? 'ALL' : (groupId || undefined))
+            .then(products => {
+              const extraCategories = new Set<string>(uniqueCategories)
+              products.forEach(p => {
+                if (p.category) extraCategories.add(p.category)
+              })
+              const shuffled = Array.from(extraCategories).sort(() => 0.5 - Math.random())
+              setCategories(['all', ...shuffled])
             })
-          } catch (error) {
-            console.error('[DEBUG CATEGORIES] Error loading products for categories:', error)
-          }
+            .catch(error => {
+              console.error('Error loading product categories:', error)
+            })
         }
-        
-        const shuffled = Array.from(uniqueCategories).sort(() => 0.5 - Math.random())
-        setCategories(['all', ...shuffled])
 
         // Cargar negocios iniciales (si no hay búsqueda en la URL)
         const urlSearch = searchParams.get('search') || ''
@@ -822,13 +840,15 @@ function HomePageContent() {
                         ? 'bg-emerald-400'
                         : 'bg-gray-200'}`}>
                         <div className="p-0.5 bg-white rounded-full">
-                          <div className="w-16 h-16 rounded-full overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center">
+                          <div className="relative w-16 h-16 rounded-full overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center">
                             {b.image ? (
                               <ProgressiveImage
                                 src={b.image}
                                 alt={b.name}
-                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 absolute inset-0"
-                                placeholderClassName="w-full h-full"
+                                fill
+                                sizes="64px"
+                                priority
+                                className="object-cover group-hover:scale-110 transition-transform duration-500"
                               />
                             ) : (
                               <i className="bi bi-shop text-2xl text-gray-400"></i>
@@ -868,9 +888,9 @@ function HomePageContent() {
                         <ProgressiveImage
                           src={product.image}
                           alt={product.name}
-                          className="w-full h-full object-cover"
-                          placeholderClassName="w-full h-full"
-                          loading="lazy"
+                          fill
+                          sizes="256px"
+                          className="object-cover"
                         />
                       ) : (
                         <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
@@ -885,14 +905,14 @@ function HomePageContent() {
                     </div>
                     <div className="p-4">
                       <div className="flex gap-3 mb-2">
-                        <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-100 flex-shrink-0 bg-white">
+                        <div className="relative w-8 h-8 rounded-full overflow-hidden border border-gray-100 flex-shrink-0 bg-white">
                           {business?.image ? (
                             <ProgressiveImage
                               src={business.image}
                               alt={business.name}
-                              className="w-full h-full object-cover absolute inset-0"
-                              placeholderClassName="w-full h-full"
-                              loading="lazy"
+                              fill
+                              sizes="32px"
+                              className="object-cover"
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center bg-gray-50">
@@ -1166,9 +1186,9 @@ function HomePageContent() {
                                   <ProgressiveImage
                                     src={product.image}
                                     alt={product.name}
-                                    className="w-full h-full object-cover group-hover/product:scale-105 transition-transform duration-500"
-                                    placeholderClassName="w-full h-full"
-                                    loading="lazy"
+                                    fill
+                                    sizes="288px"
+                                    className="object-cover group-hover/product:scale-105 transition-transform duration-500"
                                   />
                                 ) : (
                                   <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
@@ -1281,8 +1301,8 @@ function HomePageContent() {
                     {/* Header del Proveedor */}
                     <div className="mb-4 px-2">
                       <Link href={link} className="flex items-center gap-3 hover:opacity-80 transition-all group/header">
-                        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-orange-50 bg-orange-50 shadow-sm flex-shrink-0 group-hover/header:border-orange-500 transition-colors">
-                          {b.image ? <ProgressiveImage src={b.image} alt={b.name} className="w-full h-full object-cover absolute inset-0" placeholderClassName="w-full h-full" loading="lazy" /> : <div className="w-full h-full flex items-center justify-center bg-orange-50 text-orange-200"><i className="bi bi-shop text-xl"></i></div>}
+                        <div className="relative w-12 h-12 rounded-full overflow-hidden border-2 border-orange-50 bg-orange-50 shadow-sm flex-shrink-0 group-hover/header:border-orange-500 transition-colors">
+                          {b.image ? <ProgressiveImage src={b.image} alt={b.name} fill sizes="48px" className="object-cover" /> : <div className="w-full h-full flex items-center justify-center bg-orange-50 text-orange-200"><i className="bi bi-shop text-xl"></i></div>}
                         </div>
                         <div>
                           <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter leading-none mb-1 group-hover/header:text-orange-600 transition-colors">{b.name}</h3>
@@ -1303,9 +1323,9 @@ function HomePageContent() {
                               onClick={() => handleProductClick(product, b)}
                               className="flex-shrink-0 w-36 sm:w-44 bg-white rounded-2xl p-3 border border-gray-100 shadow-sm hover:shadow-xl hover:scale-[1.02] transition-all duration-300 group/product cursor-pointer"
                             >
-                              <div className="aspect-square rounded-xl overflow-hidden bg-gray-50 mb-3 relative flex items-center justify-center">
+                              <div className="relative aspect-square rounded-xl overflow-hidden bg-gray-50 mb-3 flex items-center justify-center">
                                 {product.image ? (
-                                  <ProgressiveImage src={product.image} alt={product.name} loading="lazy" className="w-full h-full object-cover group-hover/product:scale-110 transition-transform duration-500" placeholderClassName="w-full h-full" />
+                                  <ProgressiveImage src={product.image} alt={product.name} fill sizes="(max-width: 640px) 144px, 176px" className="object-cover group-hover/product:scale-110 transition-transform duration-500" />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center text-gray-200 bg-gray-50">
                                     <i className="bi bi-box text-5xl"></i>
