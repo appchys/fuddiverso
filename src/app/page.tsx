@@ -491,30 +491,23 @@ function HomePageContent() {
   useEffect(() => {
     const init = async () => {
       try {
-        console.log('[DEBUG CATEGORIES] Starting category load with groupId:', groupId)
         const allBusinesses = await getAllBusinesses()
         const visibleBusinesses = allBusinesses.filter(b => !b.isHidden)
-        console.log('[DEBUG CATEGORIES] Total visible businesses:', visibleBusinesses.length)
 
         // Aplicar filtro de grupo si existe o si estamos en una ciudad específica
         let filteredForCategories = visibleBusinesses;
         if (showAllRestaurants) {
-          console.log('[DEBUG CATEGORIES] Showing all categories (showAllRestaurants)')
         } else if (groupId) {
-          console.log('[DEBUG CATEGORIES] Filtering businesses by groupId:', groupId)
           filteredForCategories = filteredForCategories.filter(b => b.groupId === groupId)
         } else {
-          console.log('[DEBUG CATEGORIES] Filtering global businesses (no groupId)')
           filteredForCategories = filteredForCategories.filter(b => !b.groupId)
         }
-        console.log('[DEBUG CATEGORIES] Businesses after location filter:', filteredForCategories.length)
 
         // Extraer categorías de los productos de los negocios filtrados por ubicación
         const uniqueCategories = new Set<string>()
         
         // Primero agregar categorías de los negocios (si existen)
         filteredForCategories.forEach(b => {
-          console.log('[DEBUG CATEGORIES] Business:', b.name, 'categories:', b.categories)
           b.categories?.forEach(c => uniqueCategories.add(c))
         })
         
@@ -525,7 +518,6 @@ function HomePageContent() {
             const products = await getGlobalProducts('all', 1000, showAllRestaurants ? 'ALL' : (groupId || undefined)) // Obtener todos los productos de esta ubicación
             products.forEach(p => {
               if (p.category) {
-                console.log('[DEBUG CATEGORIES] Product category found:', p.category, 'from product:', p.name)
                 uniqueCategories.add(p.category)
               }
             })
@@ -534,7 +526,6 @@ function HomePageContent() {
           }
         }
         
-        console.log('[DEBUG CATEGORIES] Unique categories found:', Array.from(uniqueCategories))
         const shuffled = Array.from(uniqueCategories).sort(() => 0.5 - Math.random())
         setCategories(['all', ...shuffled])
 
@@ -544,18 +535,13 @@ function HomePageContent() {
 
         // Aplicar filtro de grupo si existe o si estamos en una ciudad específica
         let filtered = visibleBusinesses;
-        console.log('[DEBUG] init - Total businesses before group filter:', filtered.length)
         
         if (showAllRestaurants) {
-          console.log('[DEBUG] init - Showing all restaurants (forceShowAll)')
         } else if (groupId) {
-          console.log('[DEBUG] init - Filtering by groupId:', groupId)
           filtered = filtered.filter(b => b.groupId === groupId)
         } else {
-          console.log('[DEBUG] init - No groupId, showing only global businesses')
           filtered = filtered.filter(b => !b.groupId)
         }
-        console.log('[DEBUG] init - Businesses after filter:', filtered.length)
 
         setBusinesses(filtered)
         setLoading(false)
@@ -605,7 +591,6 @@ function HomePageContent() {
       
       // Si usamos getAllBusinesses, el groupId no se filtró en la query
       if (!search && category === 'all' && !showAllRestaurants) {
-        console.log('[DEBUG] loadBusinessesWithParams - Filtering businesses by groupId:', groupId)
         if (groupId) {
           visibleBusinesses = visibleBusinesses.filter(b => b.groupId === groupId)
         } else {
