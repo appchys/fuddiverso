@@ -1361,7 +1361,7 @@ export default function ProductList({
                             >
                               <div className={`flex-1 min-w-0 ${variantVisibility[variant.id] === false ? 'opacity-60 grayscale-[0.5]' : ''}`}>
                                 <div className="flex items-center gap-2">
-                                  <p className="font-bold text-gray-900 truncate leading-tight">
+                                  <p className="font-bold text-gray-900 text-sm leading-tight break-words">
                                     {variant.name}
                                   </p>
                                   {variantVisibility[variant.id] === false && (

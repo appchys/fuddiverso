@@ -280,7 +280,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                         Opciones
                                     </label>
                                     <div className="space-y-3">
-                                        {product.variants.map((variant) => {
+                                        {product.variants.filter(variant => variant.isAvailable !== false).map((variant) => {
                                             const cartItem = cart.find(item => item.id === product.id && item.variantName === variant.name);
                                             const qty = cartItem ? cartItem.quantity : 0;
 
