@@ -6268,7 +6268,13 @@ export async function getTelegramBroadcasts(): Promise<any[]> {
   }
 }
 
-export async function deleteTelegramBroadcast(id: string): Promise<{ success: boolean; message?: string; error?: string }> {
+export async function deleteTelegramBroadcast(id: string): Promise<{ 
+  success: boolean; 
+  message?: string; 
+  error?: string;
+  stats?: { total: number; successful: number; failed: number };
+  errors?: any[];
+}> {
   try {
     const response = await fetch(`/api/telegram/broadcast/${id}`, {
       method: 'DELETE',
@@ -6294,7 +6300,13 @@ export async function updateTelegramBroadcast(
   message: string,
   button?: { text: string; url: string },
   scheduledAt?: string
-): Promise<{ success: boolean; message?: string; error?: string }> {
+): Promise<{ 
+  success: boolean; 
+  message?: string; 
+  error?: string;
+  stats?: { total: number; successful: number; failed: number };
+  errors?: any[];
+}> {
   try {
     const response = await fetch(`/api/telegram/broadcast/${id}`, {
       method: 'PUT',

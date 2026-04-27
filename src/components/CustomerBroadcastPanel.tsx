@@ -162,7 +162,7 @@ export default function CustomerBroadcastPanel() {
 
         try {
             const buttonPayload = hasButton ? { text: trimmedButtonText, url: trimmedButtonUrl } : undefined
-            let response;
+            let response: any;
             
             if (editingId) {
                 response = await updateTelegramBroadcast(editingId, message, buttonPayload, finalScheduledAt)
