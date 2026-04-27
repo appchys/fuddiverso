@@ -1,57 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { initializeApp, cert, getApps } from 'firebase-admin/app'
-import { getFirestore, FieldValue } from 'firebase-admin/firestore'
-import * as fs from 'fs'
-import * as path from 'path'
+import { FieldValue } from 'firebase-admin/firestore'
+import { ensureAdminDb } from '@/lib/firebase-admin'
 
-let adminDb: any = null
 let customerBotToken: string | undefined
-
-function ensureAdminDb() {
-  if (adminDb) return adminDb
-
-  let serviceAccount: any = null
-
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
-    try {
-      let keyString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
-      if (keyString.includes('\\n')) {
-        keyString = keyString.replace(/\\n/g, '\n')
-      }
-      serviceAccount = JSON.parse(keyString)
-    } catch (error) {
-      console.warn('[Telegram Broadcast] Error al parsear FIREBASE_SERVICE_ACCOUNT_KEY:', error)
-    }
-  }
-
-  if (!serviceAccount) {
-    try {
-      const credentialsPath = path.join(
-        process.cwd(),
-        'multitienda-69778-firebase-adminsdk-fbsvc-496524456f.json'
-      )
-      if (fs.existsSync(credentialsPath)) {
-        serviceAccount = JSON.parse(fs.readFileSync(credentialsPath, 'utf-8'))
-      }
-    } catch (error) {
-      console.warn('[Telegram Broadcast] No se pudieron leer las credenciales admin:', error)
-    }
-  }
-
-  const existingApp = getApps().find((app) => app.name === 'telegram-broadcast')
-
-  if (existingApp) {
-    adminDb = getFirestore(existingApp)
-  } else if (serviceAccount?.type) {
-    const adminApp = initializeApp({
-      credential: cert(serviceAccount)
-    }, 'telegram-broadcast')
-    adminDb = getFirestore(adminApp)
-  }
-
-  customerBotToken = process.env.CUSTOMER_BOT_TOKEN || process.env.NEXT_PUBLIC_CUSTOMER_BOT_TOKEN
-  return adminDb
-}
 
 async function sendTelegramMessage(
   chatId: string,
@@ -96,6 +47,7 @@ async function sendTelegramMessage(
 
 export async function POST(request: NextRequest) {
   try {
+    customerBotToken = process.env.CUSTOMER_BOT_TOKEN || process.env.NEXT_PUBLIC_CUSTOMER_BOT_TOKEN
     const { message, button, scheduledAt } = await request.json()
 
     if (!message || typeof message !== 'string' || !message.trim()) {
