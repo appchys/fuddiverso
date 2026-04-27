@@ -92,7 +92,7 @@ async function sendTelegramMessage(
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, button } = await request.json()
+    const { message, button, scheduledAt } = await request.json()
 
     if (!message || typeof message !== 'string' || !message.trim()) {
       return NextResponse.json({ error: 'Mensaje requerido' }, { status: 400 })
@@ -160,6 +160,38 @@ export async function POST(request: NextRequest) {
       }, { status: 200 })
     }
 
+    // Si tiene scheduledAt, solo guardar en la base de datos
+    if (scheduledAt) {
+      const scheduledDate = new Date(scheduledAt)
+      if (isNaN(scheduledDate.getTime())) {
+        return NextResponse.json({ error: 'Fecha programada inválida' }, { status: 400 })
+      }
+
+      try {
+        await db.collection('telegramBroadcasts').add({
+          message: message.trim(),
+          button: button || null, // Guardamos el botón en la BD para reconstruirlo al enviar
+          totalRecipients: clients.length,
+          status: 'pending',
+          scheduledAt: scheduledDate.toISOString(),
+          createdAt: FieldValue.serverTimestamp(),
+        })
+
+        return NextResponse.json({
+          success: true,
+          message: `Broadcast programado para ${scheduledDate.toLocaleString()}`,
+          stats: { total: clients.length, successful: 0, failed: 0 },
+          errors: []
+        }, { status: 200 })
+      } catch (error) {
+        console.error('[Telegram Broadcast] Error programando:', error)
+        return NextResponse.json(
+          { error: 'No se pudo programar el broadcast' },
+          { status: 500 }
+        )
+      }
+    }
+
     let successful = 0
     let failed = 0
     const errors: Array<{ clientId?: string; chatId?: string; clientName?: string; error: string }> = []
@@ -185,9 +217,11 @@ export async function POST(request: NextRequest) {
     try {
       await db.collection('telegramBroadcasts').add({
         message: message.trim(),
+        button: button || null,
         totalRecipients: clients.length,
         successful,
         failed,
+        status: 'completed',
         createdAt: FieldValue.serverTimestamp(),
         timestamp: new Date().toISOString(),
         errors: errors.slice(0, 10)

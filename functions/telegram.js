@@ -1641,7 +1641,7 @@ async function sendBusinessReminderNotification(businessData, orderData, orderId
  * @param {string} message - Mensaje a enviar (puede incluir HTML)
  * @returns {Promise<Object>} Estadísticas de envío {total, successful, failed, errors}
  */
-async function sendBroadcastToCustomers(message) {
+async function sendBroadcastToCustomers(message, button = null) {
     // VALIDAR TOKEN ANTES DE CONTINUAR
     if (!CUSTOMER_BOT_TOKEN) {
         console.error(`❌ [Telegram Broadcast] CUSTOMER_BOT_TOKEN no está configurado.`);
@@ -1696,6 +1696,18 @@ async function sendBroadcastToCustomers(message) {
         let failed = 0;
         const errors = [];
 
+        let replyMarkup = null;
+        if (button && button.text && button.url) {
+            replyMarkup = {
+                inline_keyboard: [[
+                    {
+                        text: button.text,
+                        url: button.url
+                    }
+                ]]
+            };
+        }
+
         // Enviar mensaje a cada cliente
         const sendPromises = clientsSnapshot.docs.map(async (doc) => {
             const clientData = doc.data();
@@ -1704,7 +1716,7 @@ async function sendBroadcastToCustomers(message) {
 
             try {
                 console.log(`📤 [Telegram Broadcast] Enviando a ${clientName} (${chatId})`);
-                const result = await sendCustomerTelegramMessage(chatId, message);
+                const result = await sendCustomerTelegramMessage(chatId, message, replyMarkup);
 
                 if (result && result.ok && result.result) {
                     successful++;
@@ -1743,6 +1755,7 @@ async function sendBroadcastToCustomers(message) {
         try {
             await admin.firestore().collection('telegramBroadcasts').add({
                 message: message,
+                button: button || null,
                 totalRecipients: totalClients,
                 successful: successful,
                 failed: failed,
@@ -2002,3 +2015,5 @@ module.exports = {
     sendAdminNewOrderNotification,  // Exportado - Nueva función para admin con URLs
     sendBroadcastToCustomers  // Exportado - Enviar mensajes a todos los clientes
 };
+
+

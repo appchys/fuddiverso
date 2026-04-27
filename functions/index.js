@@ -733,3 +733,64 @@ exports.sendTelegramBroadcast = onRequest((req, res) => {
     }
   });
 });
+
+/**
+ * Cloud Function: Procesar broadcasts programados
+ */
+exports.processScheduledBroadcasts = onSchedule("every 5 minutes", async (event) => {
+  console.log('⏰ [CRON] Procesando broadcasts de Telegram programados...');
+  const now = new Date();
+
+  try {
+    const db = admin.firestore();
+    const broadcastsRef = db.collection('telegramBroadcasts');
+    
+    const pendingSnapshot = await broadcastsRef
+      .where('status', '==', 'pending')
+      .get();
+
+    if (pendingSnapshot.empty) {
+      console.log('✅ [CRON] No hay broadcasts pendientes para procesar en este momento.');
+      return;
+    }
+
+    const docsToProcess = pendingSnapshot.docs.filter(doc => {
+      const data = doc.data();
+      if (!data.scheduledAt) return false;
+      return new Date(data.scheduledAt) <= now;
+    });
+
+    if (docsToProcess.length === 0) {
+      console.log('✅ [CRON] Hay broadcasts pendientes, pero ninguno está programado para enviarse todavía.');
+      return;
+    }
+
+    console.log(`🚀 [CRON] Encontrados ${docsToProcess.length} broadcasts listos para procesar.`);
+
+    for (const doc of docsToProcess) {
+      const data = doc.data();
+      console.log(`📤 Procesando broadcast ${doc.id} programado para ${data.scheduledAt}`);
+      
+      const message = data.message;
+      const button = data.button;
+
+      // Usar la lógica existente para enviar
+      const result = await telegramServices.sendBroadcastToCustomers(message, button);
+
+      // Actualizar el documento
+      await doc.ref.update({
+        status: 'completed',
+        totalRecipients: result.total || 0,
+        successful: result.successful || 0,
+        failed: result.failed || 0,
+        errors: result.errors || [],
+        completedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      console.log(`✅ Broadcast ${doc.id} completado.`);
+    }
+
+  } catch (error) {
+    console.error('❌ [CRON] Error procesando broadcasts programados:', error);
+  }
+});

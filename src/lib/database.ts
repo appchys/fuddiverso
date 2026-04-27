@@ -6219,7 +6219,8 @@ export async function sendTelegramBroadcast(
   button?: {
     text: string
     url: string
-  }
+  },
+  scheduledAt?: string
 ): Promise<{
   success: boolean
   message?: string
@@ -6232,14 +6233,12 @@ export async function sendTelegramBroadcast(
   errors?: Array<{ clientId?: string; chatId?: string; clientName?: string; error: string }>
 }> {
   try {
-    // El broadcast se resuelve en el backend de Next para que desde admin
-    // no dependa de una validación extra del endpoint de Cloud Run.
     const response = await fetch('/api/telegram/broadcast', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ message, button })
+      body: JSON.stringify({ message, button, scheduledAt })
     })
 
     if (!response.ok) {
@@ -6255,6 +6254,17 @@ export async function sendTelegramBroadcast(
       success: false,
       error: error instanceof Error ? error.message : 'Error desconocido'
     }
+  }
+}
+
+export async function getTelegramBroadcasts(): Promise<any[]> {
+  try {
+    const q = query(collection(db, 'telegramBroadcasts'), orderBy('createdAt', 'desc'), limit(50))
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+  } catch (error) {
+    console.error('Error fetching telegram broadcasts:', error)
+    return []
   }
 }
 

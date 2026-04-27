@@ -326,5 +326,11 @@ service cloud.firestore {
       // No permitir actualización ni eliminación desde el frontend
       allow update, delete: if false;
     }
+
+    // Historial de Telegram Broadcasts
+    match /telegramBroadcasts/{document} {
+      allow read: if true; // Lectura pública porque el panel admin no usa auth de Firebase
+      allow write: if false; // Solo se escribe desde backend o Cloud Functions
+    }
   }
 }
