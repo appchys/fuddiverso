@@ -14,7 +14,11 @@ function ensureAdminDb() {
 
   if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
     try {
-      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
+      let keyString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
+      if (keyString.includes('\\n')) {
+        keyString = keyString.replace(/\\n/g, '\n')
+      }
+      serviceAccount = JSON.parse(keyString)
     } catch (error) {
       console.warn('[Telegram Broadcast] Error al parsear FIREBASE_SERVICE_ACCOUNT_KEY:', error)
     }

@@ -104,7 +104,7 @@ export default function CustomerBroadcastPanel() {
                 alert('Debes seleccionar fecha y hora para programar el mensaje')
                 return
             }
-            const dateObj = new Date(`${scheduledDate}T${scheduledTime}`)
+            const dateObj = new Date(`${scheduledDate}T${scheduledTime}-05:00`)
             if (dateObj <= new Date()) {
                 alert('La fecha y hora programada debe ser en el futuro')
                 return
@@ -510,6 +510,17 @@ export default function CustomerBroadcastPanel() {
                             const dateObj = item.createdAt?.toDate ? item.createdAt.toDate() : item.createdAt ? new Date(item.createdAt) : new Date()
                             const scheduledObj = item.scheduledAt ? new Date(item.scheduledAt) : null
                             
+                            const formatEcuadorTime = (date: Date) => {
+                                return date.toLocaleString('es-EC', {
+                                    timeZone: 'America/Guayaquil',
+                                    year: 'numeric',
+                                    month: '2-digit',
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                })
+                            }
+                            
                             return (
                                 <div key={item.id} className="p-4 hover:bg-gray-50 transition">
                                     <div className="flex justify-between items-start mb-2">
@@ -526,11 +537,11 @@ export default function CustomerBroadcastPanel() {
                                             
                                             {scheduledObj ? (
                                                 <span className="text-xs text-gray-500 font-medium">
-                                                    Para: {scheduledObj.toLocaleString()}
+                                                    Para: {formatEcuadorTime(scheduledObj)}
                                                 </span>
                                             ) : (
                                                 <span className="text-xs text-gray-500 font-medium">
-                                                    Enviado: {dateObj.toLocaleString()}
+                                                    Enviado: {formatEcuadorTime(dateObj)}
                                                 </span>
                                             )}
                                         </div>
