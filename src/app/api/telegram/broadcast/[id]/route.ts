@@ -26,7 +26,8 @@ export async function DELETE(
       return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
     }
 
-    if (docSnap.data().status !== 'pending') {
+    const docData = docSnap.data()
+    if (!docData || docData.status !== 'pending') {
       return NextResponse.json({ error: 'Solo se pueden eliminar broadcasts pendientes' }, { status: 400 })
     }
 
@@ -74,11 +75,12 @@ export async function PUT(
       return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
     }
 
-    if (docSnap.data().status !== 'pending') {
+    const docData = docSnap.data()
+    if (!docData || docData.status !== 'pending') {
       return NextResponse.json({ error: 'Solo se pueden editar broadcasts pendientes' }, { status: 400 })
     }
 
-    let scheduledDateString = docSnap.data().scheduledAt
+    let scheduledDateString = docData.scheduledAt
     if (scheduledAt) {
       const scheduledDate = new Date(scheduledAt)
       if (isNaN(scheduledDate.getTime())) {
