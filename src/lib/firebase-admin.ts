@@ -13,11 +13,13 @@ export function ensureAdminDb(): Firestore | null {
   // 1. Intentar desde variable de entorno
   if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
     try {
-      let keyString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
-      if (keyString.includes('\\n')) {
-        keyString = keyString.replace(/\\n/g, '\n')
-      }
+      const keyString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
       serviceAccount = JSON.parse(keyString)
+      
+      // Si la llave privada tiene los saltos de línea escapados como texto literal "\n", corregirlos
+      if (serviceAccount.private_key && typeof serviceAccount.private_key === 'string' && serviceAccount.private_key.includes('\\n')) {
+        serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n')
+      }
     } catch (error) {
       console.warn('[Firebase Admin] Error al parsear FIREBASE_SERVICE_ACCOUNT_KEY:', error)
     }
