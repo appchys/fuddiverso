@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { sendTelegramBroadcast, getTelegramBroadcasts } from '@/lib/database'
+import { sendTelegramBroadcast, getTelegramBroadcasts, deleteTelegramBroadcast, updateTelegramBroadcast } from '@/lib/database'
 
 // Emojis organizados por categoría (reutilizado del TelegramTemplateEditor)
 const EMOJI_GROUPS = [
@@ -22,6 +22,7 @@ export default function CustomerBroadcastPanel() {
     const [sending, setSending] = useState(false)
     const [result, setResult] = useState<any>(null)
     const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+    const [editingId, setEditingId] = useState<string | null>(null)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     
     const [history, setHistory] = useState<any[]>([])
@@ -70,6 +71,50 @@ export default function CustomerBroadcastPanel() {
         }, 0)
     }
 
+    const handleDelete = async (id: string) => {
+        if (!confirm('¿Estás seguro de eliminar este broadcast programado?')) return;
+        setLoadingHistory(true)
+        const res = await deleteTelegramBroadcast(id);
+        if (res.success) {
+            fetchHistory()
+            if (editingId === id) cancelEdit()
+        } else {
+            alert('Error eliminando: ' + res.error)
+            setLoadingHistory(false)
+        }
+    }
+
+    const handleEdit = (item: any) => {
+        setEditingId(item.id)
+        setMessage(item.message)
+        if (item.button) {
+            setButtonText(item.button.text)
+            setButtonUrl(item.button.url)
+        } else {
+            setButtonText('')
+            setButtonUrl('')
+        }
+        setIsScheduled(true)
+        if (item.scheduledAt) {
+            const dateObj = new Date(item.scheduledAt)
+            // Convert to local strings for inputs
+            const tzDate = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000).toISOString()
+            setScheduledDate(tzDate.split('T')[0])
+            setScheduledTime(tzDate.split('T')[1].substring(0, 5))
+        }
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+
+    const cancelEdit = () => {
+        setEditingId(null)
+        setMessage('')
+        setButtonText('')
+        setButtonUrl('')
+        setIsScheduled(false)
+        setScheduledDate('')
+        setScheduledTime('')
+    }
+
     const handleSendBroadcast = async () => {
         if (!message.trim()) {
             alert('El mensaje no puede estar vacío')
@@ -116,16 +161,14 @@ export default function CustomerBroadcastPanel() {
         setResult(null)
 
         try {
-            const response = await sendTelegramBroadcast(
-                message,
-                hasButton
-                    ? {
-                          text: trimmedButtonText,
-                          url: trimmedButtonUrl
-                      }
-                    : undefined,
-                finalScheduledAt
-            )
+            const buttonPayload = hasButton ? { text: trimmedButtonText, url: trimmedButtonUrl } : undefined
+            let response;
+            
+            if (editingId) {
+                response = await updateTelegramBroadcast(editingId, message, buttonPayload, finalScheduledAt)
+            } else {
+                response = await sendTelegramBroadcast(message, buttonPayload, finalScheduledAt)
+            }
 
             setResult({
                 success: response.success,
@@ -137,12 +180,7 @@ export default function CustomerBroadcastPanel() {
             if (response.success) {
                 // Limpiar el mensaje después de 2 segundos
                 setTimeout(() => {
-                    setMessage('')
-                    setButtonText('')
-                    setButtonUrl('')
-                    setIsScheduled(false)
-                    setScheduledDate('')
-                    setScheduledTime('')
+                    cancelEdit()
                 }, 2000)
                 fetchHistory()
             }
@@ -169,11 +207,20 @@ export default function CustomerBroadcastPanel() {
         <div className="space-y-6">
             <div className="space-y-6 bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
                 {/* Header */}
-                <div>
-                    <h3 className="text-2xl font-bold text-gray-900">Enviar Mensaje a Clientes</h3>
-                    <p className="text-sm text-gray-500 mt-1">
-                        Envía o programa un mensaje a todos los clientes con Telegram vinculado.
-                    </p>
+                <div className="flex justify-between items-start">
+                    <div>
+                        <h3 className="text-2xl font-bold text-gray-900">
+                            {editingId ? 'Editar Mensaje Programado' : 'Enviar Mensaje a Clientes'}
+                        </h3>
+                        <p className="text-sm text-gray-500 mt-1">
+                            {editingId ? 'Modifica los detalles del broadcast y actualiza la programación.' : 'Envía o programa un mensaje a todos los clientes con Telegram vinculado.'}
+                        </p>
+                    </div>
+                    {editingId && (
+                        <button onClick={cancelEdit} className="text-sm text-gray-500 hover:text-red-600 bg-gray-100 hover:bg-red-50 px-3 py-1.5 rounded-lg transition font-medium">
+                            <i className="bi bi-x-circle me-1"></i> Cancelar Edición
+                        </button>
+                    )}
                 </div>
 
                 {/* Toolbar de Formatos */}
@@ -403,7 +450,7 @@ export default function CustomerBroadcastPanel() {
                         ) : (
                             <>
                                 <i className="bi bi-send"></i>
-                                {isScheduled ? 'Programar Broadcast' : 'Enviar a Todos Ahora'}
+                                {editingId ? 'Actualizar Broadcast' : (isScheduled ? 'Programar Broadcast' : 'Enviar a Todos Ahora')}
                             </>
                         )}
                     </button>
@@ -554,7 +601,16 @@ export default function CustomerBroadcastPanel() {
                                                     <span className="text-red-600" title="Fallidos"><i className="bi bi-x me-1"></i>{item.failed}</span>
                                                 )}
                                             </div>
-                                        ) : null}
+                                        ) : (
+                                            <div className="flex items-center gap-2">
+                                                <button onClick={() => handleEdit(item)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition" title="Editar">
+                                                    <i className="bi bi-pencil-square"></i>
+                                                </button>
+                                                <button onClick={() => handleDelete(item.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded transition" title="Eliminar">
+                                                    <i className="bi bi-trash3-fill"></i>
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                     
                                     <div className="bg-gray-100 p-3 rounded text-sm text-gray-700 whitespace-pre-wrap font-mono line-clamp-3">

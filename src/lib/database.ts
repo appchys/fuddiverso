@@ -6268,6 +6268,55 @@ export async function getTelegramBroadcasts(): Promise<any[]> {
   }
 }
 
+export async function deleteTelegramBroadcast(id: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  try {
+    const response = await fetch(`/api/telegram/broadcast/${id}`, {
+      method: 'DELETE',
+    })
+    
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || `HTTP ${response.status}`)
+    }
+    
+    return await response.json()
+  } catch (error) {
+    console.error('Error deleting telegram broadcast:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    }
+  }
+}
+
+export async function updateTelegramBroadcast(
+  id: string,
+  message: string,
+  button?: { text: string; url: string },
+  scheduledAt?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  try {
+    const response = await fetch(`/api/telegram/broadcast/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, button, scheduledAt })
+    })
+    
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || `HTTP ${response.status}`)
+    }
+    
+    return await response.json()
+  } catch (error) {
+    console.error('Error updating telegram broadcast:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    }
+  }
+}
+
 // ============================================================================
 // PLANTILLAS DE WHATSAPP
 // ============================================================================
