@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getFirestore, collection, addDoc, Timestamp } from 'firebase/firestore'
-import { initializeApp, cert } from 'firebase-admin/app'
+import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -35,7 +35,11 @@ try {
     }
   }
 
-  if (serviceAccount && serviceAccount.type) {
+  const existingApp = getApps().find((app: any) => app.name === 'notifications')
+
+  if (existingApp) {
+    adminDb = getAdminFirestore(existingApp)
+  } else if (serviceAccount && serviceAccount.type) {
     const adminApp = initializeApp({
       credential: cert(serviceAccount)
     }, 'notifications')

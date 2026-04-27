@@ -36,7 +36,9 @@ function ensureAdminDb() {
 
   const existingApp = getApps().find((app) => app.name === 'telegram-broadcast')
 
-  if (serviceAccount?.type && !existingApp) {
+  if (existingApp) {
+    adminDb = getFirestore(existingApp)
+  } else if (serviceAccount?.type) {
     const adminApp = initializeApp({
       credential: cert(serviceAccount)
     }, 'telegram-broadcast')
