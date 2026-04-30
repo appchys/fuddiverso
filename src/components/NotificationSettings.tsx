@@ -21,6 +21,7 @@ export default function NotificationSettings({
         emailOrderManual: false,
         emailCheckoutProgress: false,
         telegramOrderManual: false,
+        autoPrintOnConfirm: true,
         ...business.notificationSettings
     })
 
@@ -264,6 +265,21 @@ export default function NotificationSettings({
                     </h4>
 
                     <div className="bg-gray-50 rounded-xl border border-gray-100 p-4">
+                        <div className="flex items-center justify-between mb-4">
+                            <div>
+                                <h5 className="font-medium text-gray-900">Auto-impresión</h5>
+                                <p className="text-sm text-gray-500">
+                                    Imprimir ticket automáticamente al presionar "Confirmar".
+                                </p>
+                            </div>
+                            <div
+                                className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${localSettings.autoPrintOnConfirm ? 'bg-blue-500' : 'bg-gray-200'}`}
+                                onClick={() => handleToggle('autoPrintOnConfirm' as any)}
+                            >
+                                <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${localSettings.autoPrintOnConfirm ? 'translate-x-6' : ''}`}></div>
+                            </div>
+                        </div>
+
                         <div className="flex items-center justify-between mb-4">
                             <div>
                                 <h5 className="font-medium text-gray-900">Modo de Impresión</h5>

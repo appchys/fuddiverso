@@ -26,6 +26,7 @@ interface OrderHistoryProps {
   onLoadMore?: () => void
   hasMore?: boolean
   loadingMore?: boolean
+  autoPrintOnConfirm?: boolean
 }
 
 export default function OrderHistory({
@@ -37,7 +38,17 @@ export default function OrderHistory({
   getStatusText = (status: string) => status,
   formatDate = (date) => new Date(date).toLocaleDateString('es-EC'),
   formatTime = (date) => new Date(date).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }),
-  getOrderDateTime = (order) => new Date(order.createdAt),
+  getOrderDateTime = (order) => {
+    if (order.timing?.type === 'scheduled' && order.timing.scheduledDate) {
+      const date = new Date(order.timing.scheduledDate as any);
+      if (order.timing.scheduledTime) {
+        const [h, m] = order.timing.scheduledTime.split(':').map(Number);
+        date.setHours(h, m, 0, 0);
+      }
+      return date;
+    }
+    return new Date(order.createdAt);
+  },
   OrderRow,
   availableDeliveries = [],
   onDeliveryAssign,
@@ -49,7 +60,8 @@ export default function OrderHistory({
   businessPhone,
   onLoadMore,
   hasMore = false,
-  loadingMore = false
+  loadingMore = false,
+  autoPrintOnConfirm = true
 }: OrderHistoryProps) {
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set())
   const observerTarget = useRef(null)
@@ -110,7 +122,21 @@ export default function OrderHistory({
   const getOrderDisplayTime = (order: Order) => {
     try {
         if (order.timing?.scheduledTime) {
-            return order.timing.scheduledTime; // Already formatted as HH:MM
+            const time = order.timing.scheduledTime;
+            if (order.timing.scheduledDate) {
+                const date = toSafeDate(order.timing.scheduledDate);
+                const now = new Date();
+                const isToday = date.getDate() === now.getDate() && 
+                                date.getMonth() === now.getMonth() && 
+                                date.getFullYear() === now.getFullYear();
+                
+                if (isToday) return time;
+                
+                // Formato: "15 may - 14:30"
+                const dateStr = date.toLocaleDateString('es-EC', { day: 'numeric', month: 'short' });
+                return `${dateStr} - ${time}`;
+            }
+            return time;
         }
         const date = toSafeDate(order.createdAt);
         return date.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
@@ -145,7 +171,8 @@ export default function OrderHistory({
     onEdit: () => void,
     onDelete: () => void,
     onCustomerClick: () => void,
-    businessPhone?: string
+    businessPhone?: string,
+    autoPrintOnConfirm?: boolean
   }) {
     const nextStatus = getNextStatus(order.status)
     const isDelivery = order.delivery?.type === 'delivery'
@@ -296,7 +323,7 @@ export default function OrderHistory({
                             <button
                                 onClick={() => {
                                     onStatusChange(order.id, nextStatus);
-                                    if (nextStatus === 'confirmed') {
+                                    if (nextStatus === 'confirmed' && autoPrintOnConfirm) {
                                         setTimeout(() => {
                                             onPrint(true);
                                         }, 500);
@@ -577,7 +604,11 @@ export default function OrderHistory({
       })
       .map(([date, orders]) => ({
         date,
-        orders: orders.sort((a, b) => getOrderDateTime(b).getTime() - getOrderDateTime(a).getTime())
+        orders: orders.sort((a, b) => {
+          const timeA = getOrderDateTime(a).getTime();
+          const timeB = getOrderDateTime(b).getTime();
+          return timeB - timeA; // Descendente para historial (más recientes arriba)
+        })
       }))
   }
 
@@ -627,6 +658,7 @@ export default function OrderHistory({
                         onDelete={() => onOrderDelete?.(order.id)}
                         onCustomerClick={() => onCustomerClick?.(order)}
                         businessPhone={businessPhone}
+                        autoPrintOnConfirm={autoPrintOnConfirm}
                       />
                     )
                   )}
@@ -691,6 +723,7 @@ export default function OrderHistory({
                                   onDelete={() => onOrderDelete?.(order.id)}
                                   onCustomerClick={() => onCustomerClick?.(order)}
                                   businessPhone={businessPhone}
+                                  autoPrintOnConfirm={autoPrintOnConfirm}
                                 />
                               )
                             )}

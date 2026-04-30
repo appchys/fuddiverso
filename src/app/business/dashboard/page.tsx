@@ -303,10 +303,33 @@ export default function TodayOrdersPage() {
     // Sub-tab state for Orders
     const [ordersSubTab, setOrdersSubTab] = useState<'today' | 'history'>('today')
     const [historicalOrders, setHistoricalOrders] = useState<Order[]>([])
+    const [allUpcomingOrders, setAllUpcomingOrders] = useState<Order[]>([])
     const [historyLoading, setHistoryLoading] = useState(false)
     const [historyLoaded, setHistoryLoaded] = useState(false)
     const [lastHistoryDoc, setLastHistoryDoc] = useState<any>(null)
     const [hasMoreHistory, setHasMoreHistory] = useState(true)
+
+    const mergedHistoryOrders = useMemo(() => {
+        const seen = new Set<string>()
+        const merged: Order[] = []
+        
+        // Preponderancia a pedidos próximos
+        allUpcomingOrders.forEach(o => {
+            if (!seen.has(o.id)) {
+                seen.add(o.id)
+                merged.push(o)
+            }
+        })
+        
+        historicalOrders.forEach(o => {
+            if (!seen.has(o.id)) {
+                seen.add(o.id)
+                merged.push(o)
+            }
+        })
+        
+        return merged
+    }, [allUpcomingOrders, historicalOrders])
 
     // ... existing modal states ...
     const [paymentModalOpen, setPaymentModalOpen] = useState(false)
@@ -761,6 +784,34 @@ export default function TodayOrdersPage() {
         return () => unsubscribe()
     }, [businessId])
 
+    // Fetch all upcoming orders (future scheduled)
+    useEffect(() => {
+        if (!businessId) return
+
+        const now = new Date()
+        const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+
+        const q = query(
+            collection(db, 'orders'),
+            where('businessId', '==', businessId),
+            where('timing.type', '==', 'scheduled'),
+            where('timing.scheduledDate', '>=', Timestamp.fromDate(startOfTomorrow)),
+            orderBy('timing.scheduledDate', 'asc')
+        )
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const data = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            })) as Order[]
+            setAllUpcomingOrders(data)
+        }, (error) => {
+            console.error("Error fetching upcoming orders:", error)
+        })
+
+        return () => unsubscribe()
+    }, [businessId])
+
     // Load History
     const loadHistory = async () => {
         if (!businessId || historyLoading || (historyLoaded && !hasMoreHistory)) return
@@ -791,6 +842,7 @@ export default function TodayOrdersPage() {
     // Reset history when business changes
     useEffect(() => {
         setHistoricalOrders([])
+        setAllUpcomingOrders([])
         setLastHistoryDoc(null)
         setHasMoreHistory(true)
         setHistoryLoaded(false)
@@ -1396,7 +1448,7 @@ export default function TodayOrdersPage() {
                             {ordersSubTab === 'history' ? (
                                 <div className="p-4 sm:p-6">
                                     <OrderHistory
-                                        orders={historicalOrders}
+                                        orders={mergedHistoryOrders}
                                         onLoadMore={loadHistory}
                                         hasMore={hasMoreHistory}
                                         loadingMore={historyLoading}
@@ -1411,7 +1463,12 @@ export default function TodayOrdersPage() {
                                         getStatusText={getStatusText}
                                         getOrderDateTime={(o) => {
                                             if (o.timing?.type === 'scheduled' && o.timing.scheduledDate) {
-                                                return toSafeDate(o.timing.scheduledDate)
+                                                const date = toSafeDate(o.timing.scheduledDate)
+                                                if (o.timing.scheduledTime) {
+                                                    const [h, m] = o.timing.scheduledTime.split(':').map(Number)
+                                                    date.setHours(h, m, 0, 0)
+                                                }
+                                                return date
                                             }
                                             return toSafeDate(o.createdAt)
                                         }}
@@ -1434,6 +1491,7 @@ export default function TodayOrdersPage() {
                                             setCustomerContactModalOpen(true)
                                         }}
                                         businessPhone={business?.phone}
+                                        autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                     />
                                     {historyLoading && (
                                         <div className="flex justify-center py-8">
@@ -1561,6 +1619,7 @@ export default function TodayOrdersPage() {
                                                         setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
+                                                        autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                     />
                                                 </div>
 
@@ -1584,6 +1643,7 @@ export default function TodayOrdersPage() {
                                                         setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
+                                                        autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                     />
                                                 </div>
 
@@ -1683,6 +1743,7 @@ export default function TodayOrdersPage() {
                                                         setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
+                                                        autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                     />
                                                 </div>
                                             </div>
@@ -1933,7 +1994,8 @@ function OrderStatusColumn({
     handleDeleteOrder,
     setSelectedOrderForCustomerContact,
     setCustomerContactModalOpen,
-    business
+    business,
+    autoPrintOnConfirm
 }: any) {
     return (
         <>
@@ -1974,7 +2036,8 @@ function OrderStatusColumn({
                                     setCustomerContactModalOpen(true)
                                 }}
                                 businessPhone={business?.phone}
-                            />
+                                autoPrintOnConfirm={autoPrintOnConfirm}
+                             />
                         ))}
                     </CollapsibleSection>
                 );
@@ -2047,7 +2110,8 @@ function OrderCard({
     onEdit,
     onDelete,
     onCustomerClick,
-    businessPhone
+    businessPhone,
+    autoPrintOnConfirm
 }: {
     order: Order,
     availableDeliveries: Delivery[],
@@ -2060,7 +2124,8 @@ function OrderCard({
     onEdit: () => void,
     onDelete: () => void,
     onCustomerClick: () => void,
-    businessPhone?: string
+    businessPhone?: string,
+    autoPrintOnConfirm?: boolean
 }) {
     const nextStatus = getNextStatus(order.status)
     const isDelivery = order.delivery?.type === 'delivery'
@@ -2246,9 +2311,11 @@ function OrderCard({
                                         onStatusChange(order.id, targetStatus);
                                         
                                         // Imprimir automáticamente (silenciosamente)
-                                        setTimeout(() => {
-                                            onPrint(true);
-                                        }, 500);
+                                        if (autoPrintOnConfirm) {
+                                            setTimeout(() => {
+                                                onPrint(true);
+                                            }, 500);
+                                        }
                                     } else {
                                         onStatusChange(order.id, nextStatus);
                                     }
