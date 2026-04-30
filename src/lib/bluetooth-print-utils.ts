@@ -8,6 +8,7 @@ const PRINTER_CHARACTERISTIC_UUID = '00002af1-0000-1000-8000-00805f9b34fb'
 export interface BluetoothPrintOptions {
     order: PrintableOrder
     businessName: string
+    groupItemsByProduct?: boolean
 }
 
 /**
@@ -28,7 +29,7 @@ const ESC_POS = {
     FEED_LINE: [0x0A],
 }
 
-export async function printOrderBluetooth({ order, businessName }: BluetoothPrintOptions) {
+export async function printOrderBluetooth({ order, businessName, groupItemsByProduct = true }: BluetoothPrintOptions) {
     let device: BluetoothDevice | null = null;
     try {
         // 1. Request Device
@@ -162,8 +163,8 @@ export async function printOrderBluetooth({ order, businessName }: BluetoothPrin
         
         // Imprimir productos agrupados
         Array.from(groupedProducts.entries()).forEach(([productName, group]) => {
-            if (!group.hasRealVariant) {
-                // Sin variantes - imprimir líneas directamente
+            if (!group.hasRealVariant || !groupItemsByProduct) {
+                // Sin variantes (o agrupación desactivada) - imprimir líneas directamente
                 group.lines.forEach(line => {
                     let name = line.substring(4); // Quitar cantidad
                     // Cortar nombre si es muy largo
@@ -174,7 +175,7 @@ export async function printOrderBluetooth({ order, businessName }: BluetoothPrin
                     addLine(`${line.substring(0, 4)}${name}`);
                 });
             } else {
-                // Con variantes - primero el nombre del producto, luego las variantes
+                // Con variantes y agrupación activa - primero el nombre del producto, luego las variantes
                 let displayProductName = productName;
                 const maxNameLength = 32; // Sin cantidad, puede usar más espacio
                 if (displayProductName.length > maxNameLength) {

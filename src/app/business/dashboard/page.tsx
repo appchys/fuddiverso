@@ -1083,7 +1083,8 @@ export default function TodayOrdersPage() {
             if (printMode === 'bluetooth') {
                 await printOrderBluetooth({
                     order: order as any,
-                    businessName: business?.name || "Negocio"
+                    businessName: business?.name || "Negocio",
+                    groupItemsByProduct: business?.notificationSettings?.groupItemsByProduct ?? true
                 })
             } else {
                 await printOrder({

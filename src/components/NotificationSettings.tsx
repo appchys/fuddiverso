@@ -22,6 +22,7 @@ export default function NotificationSettings({
         emailCheckoutProgress: false,
         telegramOrderManual: false,
         autoPrintOnConfirm: true,
+        groupItemsByProduct: true,
         ...business.notificationSettings
     })
 
@@ -312,6 +313,23 @@ export default function NotificationSettings({
                                 <span>Ideal para impresoras MPT-II. Al confirmar un pedido, se imprimirá automáticamente. Asegúrate de que el Bluetooth esté activo en tu dispositivo.</span>
                             </div>
                         )}
+
+                        <div className="mt-6 pt-6 border-t border-gray-100">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h5 className="font-medium text-gray-900">Agrupar productos</h5>
+                                    <p className="text-sm text-gray-500">
+                                        Agrupar variantes bajo el nombre del producto en el ticket.
+                                    </p>
+                                </div>
+                                <div
+                                    className={`relative inline-block w-12 h-6 rounded-full cursor-pointer transition-colors duration-200 ${localSettings.groupItemsByProduct ? 'bg-blue-500' : 'bg-gray-200'}`}
+                                    onClick={() => handleToggle('groupItemsByProduct' as any)}
+                                >
+                                    <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${localSettings.groupItemsByProduct ? 'translate-x-6' : ''}`}></div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
