@@ -223,8 +223,9 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
         // Si es transferencia, pendingAmount = 0
         
         if (pendingAmount > 0) {
+            addLine(`Pendiente`);
             commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
-            addLine(`PENDIENTE: $${pendingAmount.toFixed(2).padStart(6)}`);
+            addLine(`$${pendingAmount.toFixed(2).padStart(8)}`);
             commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
         }
         
@@ -233,8 +234,29 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
             addLine('.'.repeat(32));
             commands.push(...ESC_POS.ALIGN_CENTER);
             addLine('NOTAS');
-            commands.push(...ESC_POS.ALIGN_LEFT, ...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
-            addLine(order.notas.toUpperCase());
+            commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
+            
+            // Word wrap para notas - dividir por palabras
+            const noteText = order.notas.toUpperCase();
+            const maxCharsPerLine = 18; // Aproximado para texto grande centrado
+            const words = noteText.split(' ');
+            let currentLine = '';
+            
+            words.forEach(word => {
+                if (currentLine.length === 0) {
+                    currentLine = word;
+                } else if ((currentLine + ' ' + word).length <= maxCharsPerLine) {
+                    currentLine += ' ' + word;
+                } else {
+                    addLine(currentLine);
+                    currentLine = word;
+                }
+            });
+            
+            if (currentLine.length > 0) {
+                addLine(currentLine);
+            }
+            
             commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
             addLine(); // Espacio extra después de notas
         }
