@@ -236,6 +236,7 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
             commands.push(...ESC_POS.ALIGN_LEFT, ...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
             addLine(order.notas.toUpperCase());
             commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
+            addLine(); // Espacio extra después de notas
         }
         
         addLine();
