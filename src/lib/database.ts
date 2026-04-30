@@ -1094,6 +1094,8 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
         pendingAt: cleanOrderData.statusHistory?.pendingAt || serverTimestamp(),
         ...(cleanOrderData.createdByAdmin ? { confirmedAt: serverTimestamp() } : {})
       },
+      // Preservar explícitamente el campo notas
+      ...(cleanOrderData.notas !== undefined && { notas: cleanOrderData.notas }),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     }

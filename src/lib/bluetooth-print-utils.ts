@@ -93,14 +93,31 @@ export async function printOrderBluetooth({ order, businessName }: BluetoothPrin
         commands.push(...ESC_POS.ALIGN_LEFT);
         
         if (order.timing?.type === 'scheduled') {
-            const schedTimestamp = order.timing.scheduledDate || order.createdAt;
-            const schedDate = schedTimestamp instanceof Timestamp ? schedTimestamp.toDate() : new Date(schedTimestamp);
+            let schedDate: Date;
+            
+            // Intentar convertir scheduledDate (puede ser Timestamp, objeto con seconds, o string)
+            if (order.timing.scheduledDate) {
+                if (order.timing.scheduledDate instanceof Timestamp) {
+                    schedDate = order.timing.scheduledDate.toDate();
+                } else if (typeof order.timing.scheduledDate === 'object' && 'seconds' in order.timing.scheduledDate) {
+                    // Timestamp de Firebase como objeto plano
+                    schedDate = new Date((order.timing.scheduledDate as any).seconds * 1000);
+                } else if (typeof order.timing.scheduledDate === 'string') {
+                    schedDate = new Date(order.timing.scheduledDate);
+                } else {
+                    schedDate = new Date(order.timing.scheduledDate);
+                }
+            } else {
+                // Fallback a createdAt
+                schedDate = order.createdAt instanceof Timestamp ? order.createdAt.toDate() : new Date(order.createdAt);
+            }
+            
             const dateStr = schedDate.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit' });
             const timeStr = order.timing.scheduledTime || schedDate.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
             
-            addLine(`Pedido: PROGRAMADO`);
-            addLine(`Para:   ${dateStr} ${timeStr}`);
-            addLine(`Tomado: ${formattedCreated}`);
+            addLine(`PROGRAMADO`);
+            addLine(`${dateStr} ${timeStr}`);
+            addLine();
         } else {
             addLine(`Pedido: INMEDIATO`);
             addLine(`Fecha:  ${formattedCreated}`);
@@ -140,6 +157,21 @@ export async function printOrderBluetooth({ order, businessName }: BluetoothPrin
                             order.payment?.method === 'mixed' ? 'Pago Mixto' : 
                             'Sin especificar';
         addLine(`Pago: ${paymentMethod}`);
+        
+        // Valor pendiente de cobrar
+        let pendingAmount = 0;
+        if (order.payment?.method === 'cash') {
+            pendingAmount = order.total;
+        } else if (order.payment?.method === 'mixed') {
+            pendingAmount = (order.payment as any)?.cashAmount || 0;
+        }
+        // Si es transferencia, pendingAmount = 0
+        
+        if (pendingAmount > 0) {
+            commands.push(...ESC_POS.TEXT_BOLD_ON);
+            addLine(`Pendiente:     $${pendingAmount.toFixed(2).padStart(8)}`);
+            commands.push(...ESC_POS.TEXT_BOLD_OFF);
+        }
         
         if (order.notas && order.notas.trim() !== '') {
             addLine();
