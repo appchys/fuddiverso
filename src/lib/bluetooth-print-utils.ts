@@ -112,18 +112,21 @@ export async function printOrderBluetooth({ order, businessName }: BluetoothPrin
                 schedDate = order.createdAt instanceof Timestamp ? order.createdAt.toDate() : new Date(order.createdAt);
             }
             
-            const dateStr = schedDate.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit' });
+            const dateStr = schedDate.toLocaleDateString('es-EC', { day: 'numeric', month: 'long' });
             const timeStr = order.timing.scheduledTime || schedDate.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
             
             addLine(`PROGRAMADO`);
-            addLine(`${dateStr} ${timeStr}`);
+            addLine(`${dateStr} - ${timeStr}`);
             addLine();
         } else {
             addLine(`Pedido: INMEDIATO`);
             addLine(`Fecha:  ${formattedCreated}`);
         }
-        if (order.customer?.name) addLine(`Cliente: ${order.customer.name}`);
-        if (order.customer?.phone) addLine(`Telf: ${order.customer.phone}`);
+        if (order.customer?.name) {
+            commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
+            addLine(order.customer.name.toUpperCase());
+            commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
+        }
         if (order.delivery?.type === 'delivery' && order.delivery.references) {
             addLine(`Dir: ${order.delivery.references}`);
         }
