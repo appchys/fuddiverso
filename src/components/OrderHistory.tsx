@@ -19,7 +19,7 @@ interface OrderHistoryProps {
   onDeliveryAssign?: (orderId: string, deliveryId: string) => void
   onPaymentEdit?: (order: Order) => void
   onWhatsAppDelivery?: (order: Order) => void
-  onPrint?: (order: Order) => void
+  onPrint?: (order: Order, silent?: boolean) => void
   onDeliveryStatusClick?: (order: Order) => void
   onCustomerClick?: (order: Order) => void
   businessPhone?: string
@@ -140,7 +140,7 @@ export default function OrderHistory({
     onDeliveryAssign: (id: string, deliveryId: string) => void,
     onPaymentEdit: () => void,
     onWhatsAppDelivery: () => void,
-    onPrint: () => void,
+    onPrint: (silent?: boolean) => void,
     onDeliveryStatusClick: (order: Order) => void,
     onEdit: () => void,
     onDelete: () => void,
@@ -294,7 +294,14 @@ export default function OrderHistory({
                         {/* Advance Status */}
                         {nextStatus && (
                             <button
-                                onClick={() => onStatusChange(order.id, nextStatus)}
+                                onClick={() => {
+                                    onStatusChange(order.id, nextStatus);
+                                    if (nextStatus === 'confirmed') {
+                                        setTimeout(() => {
+                                            onPrint(true);
+                                        }, 500);
+                                    }
+                                }}
                                 className={`flex items-center gap-1 rounded-lg transition-colors shadow-sm ${nextStatus === 'confirmed'
                                     ? 'px-3 py-1.5 text-xs font-bold bg-green-600 text-white hover:bg-green-700'
                                     : 'p-1.5 text-lg hover:bg-white hover:shadow-md'
@@ -614,7 +621,7 @@ export default function OrderHistory({
                         onDeliveryAssign={(id, deliveryId) => onDeliveryAssign?.(id, deliveryId)}
                         onPaymentEdit={() => onPaymentEdit?.(order)}
                         onWhatsAppDelivery={() => onWhatsAppDelivery?.(order)}
-                        onPrint={() => onPrint?.(order)}
+                        onPrint={(silent) => onPrint?.(order, silent)}
                         onDeliveryStatusClick={() => onDeliveryStatusClick?.(order)}
                         onEdit={() => onOrderEdit?.(order)}
                         onDelete={() => onOrderDelete?.(order.id)}
@@ -678,7 +685,7 @@ export default function OrderHistory({
                                   onDeliveryAssign={(id, deliveryId) => onDeliveryAssign?.(id, deliveryId)}
                                   onPaymentEdit={() => onPaymentEdit?.(order)}
                                   onWhatsAppDelivery={() => onWhatsAppDelivery?.(order)}
-                                  onPrint={() => onPrint?.(order)}
+                                  onPrint={(silent) => onPrint?.(order, silent)}
                                   onDeliveryStatusClick={() => onDeliveryStatusClick?.(order)}
                                   onEdit={() => onOrderEdit?.(order)}
                                   onDelete={() => onOrderDelete?.(order.id)}

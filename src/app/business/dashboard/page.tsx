@@ -1026,7 +1026,7 @@ export default function TodayOrdersPage() {
         }
     }
 
-    const handlePrint = async (order: Order) => {
+    const handlePrint = async (order: Order, silent: boolean = false) => {
         try {
             if (printMode === 'bluetooth') {
                 await printOrderBluetooth({
@@ -1042,6 +1042,8 @@ export default function TodayOrdersPage() {
             }
         } catch (e: any) {
             console.error("Error printing", e)
+            if (silent) return; // No alerts in silent mode
+            
             if (printMode === 'bluetooth' && e.name === 'NotFoundError') {
                 // User cancelled or no device found
                 return
@@ -1429,7 +1431,7 @@ export default function TodayOrdersPage() {
                                         onWhatsAppDelivery={(order) => {
                                             // WhatsApp logic here if needed
                                         }}
-                                        onPrint={(order) => handlePrint(order as Order)}
+                                        onPrint={(order, silent) => handlePrint(order as Order, silent)}
                                         onDeliveryStatusClick={(order) => {
                                             setSelectedOrderForStatusModal(order)
                                             setDeliveryStatusModalOpen(true)
@@ -1963,7 +1965,7 @@ function OrderStatusColumn({
                                 onDeliveryAssign={handleDeliveryAssignment}
                                 onPaymentEdit={() => handlePaymentClick(order)}
                                 onWhatsAppDelivery={() => handleSendWhatsAppToDelivery(order)}
-                                onPrint={() => handlePrint(order)}
+                                onPrint={(silent?: boolean) => handlePrint(order, silent)}
                                 onDeliveryStatusClick={(o: any) => {
                                     setSelectedOrderForStatusModal(o)
                                     setDeliveryStatusModalOpen(true)
@@ -2060,7 +2062,7 @@ function OrderCard({
     onDeliveryAssign: (id: string, deliveryId: string) => void,
     onPaymentEdit: () => void,
     onWhatsAppDelivery: () => void,
-    onPrint: () => void,
+    onPrint: (silent?: boolean) => void,
     onDeliveryStatusClick: (order: Order) => void,
     onEdit: () => void,
     onDelete: () => void,
@@ -2249,6 +2251,11 @@ function OrderCard({
                                         // Si es inmediata, ir a 'preparando', si es programada, ir a 'confirmed'
                                         const targetStatus = order.timing?.type === 'immediate' ? 'preparing' : 'confirmed';
                                         onStatusChange(order.id, targetStatus);
+                                        
+                                        // Imprimir automáticamente (silenciosamente)
+                                        setTimeout(() => {
+                                            onPrint(true);
+                                        }, 500);
                                     } else {
                                         onStatusChange(order.id, nextStatus);
                                     }
