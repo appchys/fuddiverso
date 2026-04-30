@@ -62,6 +62,9 @@ export default function BusinessProfileDashboard({
   onCategoriesChange,
   initialTab = 'general',
   onDirectUpdate,
+  onAddAdmin,
+  onRemoveAdmin,
+  onTransferOwnership,
   userRole,
   printMode,
   onTogglePrintMode
