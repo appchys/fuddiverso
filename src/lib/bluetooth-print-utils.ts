@@ -285,6 +285,13 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
         
         addLine();
         addLine(); // Extra space for tearing
+        
+        // Footer
+        commands.push(...ESC_POS.ALIGN_CENTER);
+        commands.push(...ESC_POS.TEXT_BOLD_ON);
+        addLine('www.fuddi.shop');
+        commands.push(...ESC_POS.TEXT_BOLD_OFF);
+        commands.push(...ESC_POS.ALIGN_LEFT);
 
         // 3. Send in Chunks
         const data = new Uint8Array(commands);
