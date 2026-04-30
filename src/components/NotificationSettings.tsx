@@ -253,8 +253,6 @@ export default function NotificationSettings({
                                 <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${localSettings.emailCheckoutProgress ? 'translate-x-6' : ''}`}></div>
                             </div>
                         </div>
-
-                        </div>
                     </div>
                 </div>
 
