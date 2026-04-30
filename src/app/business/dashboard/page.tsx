@@ -32,6 +32,7 @@ import {
     getNextStatus
 } from '@/components/WhatsAppUtils'
 import { printOrder } from '@/lib/print-utils'
+import { printOrderBluetooth } from '@/lib/bluetooth-print-utils'
 import { isStoreOpen, getNextOpeningMessage, calculateManualStatusExpiry } from '@/lib/store-utils'
 import QueueStatusIndicator from '@/components/QueueStatusIndicator'
 import NotificationsBell from '@/components/NotificationsBell'
@@ -191,6 +192,7 @@ export default function TodayOrdersPage() {
     const [updatingStoreStatus, setUpdatingStoreStatus] = useState(false)
     const [updatingDeliveryTime, setUpdatingDeliveryTime] = useState(false)
     const [checkoutCount, setCheckoutCount] = useState(0)
+    const [printMode, setPrintMode] = useState<'standard' | 'bluetooth'>('standard')
     const { queueStatus, retryFailed } = useOfflineQueue()
 
     // Ref for business dropdown container
@@ -258,7 +260,18 @@ export default function TodayOrdersPage() {
             const rSub = params.get('reportsSubTab')
             if (rSub) setReportsSubTab(rSub as any)
         }
+        
+        const savedPrintMode = localStorage.getItem('fuddi_print_mode')
+        if (savedPrintMode === 'bluetooth' || savedPrintMode === 'standard') {
+            setPrintMode(savedPrintMode)
+        }
     }, [])
+
+    const togglePrintMode = () => {
+        const newMode = printMode === 'standard' ? 'bluetooth' : 'standard'
+        setPrintMode(newMode)
+        localStorage.setItem('fuddi_print_mode', newMode)
+    }
 
     // activeTab removed (was 'orders') - now we use orders state directly
     const [orders, setOrders] = useState<Order[]>([])
@@ -1015,14 +1028,25 @@ export default function TodayOrdersPage() {
 
     const handlePrint = async (order: Order) => {
         try {
-            await printOrder({
-                order: order as any,
-                businessName: business?.name || "Negocio",
-                businessLogo: business?.image
-            })
-        } catch (e) {
+            if (printMode === 'bluetooth') {
+                await printOrderBluetooth({
+                    order: order as any,
+                    businessName: business?.name || "Negocio"
+                })
+            } else {
+                await printOrder({
+                    order: order as any,
+                    businessName: business?.name || "Negocio",
+                    businessLogo: business?.image
+                })
+            }
+        } catch (e: any) {
             console.error("Error printing", e)
-            alert("Error al imprimir")
+            if (printMode === 'bluetooth' && e.name === 'NotFoundError') {
+                // User cancelled or no device found
+                return
+            }
+            alert("Error al imprimir: " + (e.message || "Error desconocido"))
         }
     }
 
@@ -1204,6 +1228,16 @@ export default function TodayOrdersPage() {
                                     {business?.id && (
                                         <NotificationsBell businessId={business.id} onNewOrder={handleNewOrder} />
                                     )}
+
+                                    {/* Print Mode Toggle */}
+                                    <button
+                                        onClick={togglePrintMode}
+                                        className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${printMode === 'bluetooth' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-gray-50 text-gray-400 border border-transparent'}`}
+                                        title={printMode === 'bluetooth' ? 'Modo: Bluetooth' : 'Modo: Navegador'}
+                                    >
+                                        <i className={`bi ${printMode === 'bluetooth' ? 'bi-bluetooth text-blue-600' : 'bi-printer'}`}></i>
+                                        <span className="hidden sm:inline text-xs font-bold uppercase">{printMode === 'bluetooth' ? 'BT' : 'PDF'}</span>
+                                    </button>
 
                                     {/* Business Selector */}
                                     <div className="relative business-dropdown-container" ref={businessDropdownRef}>
@@ -1395,13 +1429,7 @@ export default function TodayOrdersPage() {
                                         onWhatsAppDelivery={(order) => {
                                             // WhatsApp logic here if needed
                                         }}
-                                        onPrint={(order) => {
-                                            printOrder({
-                                                order: order as any,
-                                                businessName: business?.name || "Negocio",
-                                                businessLogo: business?.image
-                                            })
-                                        }}
+                                        onPrint={(order) => handlePrint(order as Order)}
                                         onDeliveryStatusClick={(order) => {
                                             setSelectedOrderForStatusModal(order)
                                             setDeliveryStatusModalOpen(true)
