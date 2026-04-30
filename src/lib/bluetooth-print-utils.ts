@@ -223,9 +223,9 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
         // Si es transferencia, pendingAmount = 0
         
         if (pendingAmount > 0) {
-            commands.push(...ESC_POS.TEXT_BOLD_ON);
-            addLine(`Pendiente:     $${pendingAmount.toFixed(2).padStart(8)}`);
-            commands.push(...ESC_POS.TEXT_BOLD_OFF);
+            commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
+            addLine(`PENDIENTE: $${pendingAmount.toFixed(2).padStart(6)}`);
+            commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
         }
         
         if (order.notas && order.notas.trim() !== '') {
