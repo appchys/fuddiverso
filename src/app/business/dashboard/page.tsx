@@ -1231,15 +1231,6 @@ export default function TodayOrdersPage() {
                                         <NotificationsBell businessId={business.id} onNewOrder={handleNewOrder} />
                                     )}
 
-                                    {/* Print Mode Toggle */}
-                                    <button
-                                        onClick={togglePrintMode}
-                                        className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${printMode === 'bluetooth' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-gray-50 text-gray-400 border border-transparent'}`}
-                                        title={printMode === 'bluetooth' ? 'Modo: Bluetooth' : 'Modo: Navegador'}
-                                    >
-                                        <i className={`bi ${printMode === 'bluetooth' ? 'bi-bluetooth text-blue-600' : 'bi-printer'}`}></i>
-                                        <span className="hidden sm:inline text-xs font-bold uppercase">{printMode === 'bluetooth' ? 'BT' : 'PDF'}</span>
-                                    </button>
 
                                     {/* Business Selector */}
                                     <div className="relative business-dropdown-container" ref={businessDropdownRef}>
@@ -1376,6 +1367,8 @@ export default function TodayOrdersPage() {
                                     onRemoveAdmin={handleRemoveAdmin}
                                     onTransferOwnership={handleTransferOwnership}
                                     userRole={userRole}
+                                    printMode={printMode}
+                                    onTogglePrintMode={togglePrintMode}
                                 />
                             )}
                         </div>

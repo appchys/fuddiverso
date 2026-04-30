@@ -36,6 +36,8 @@ interface BusinessProfileDashboardProps {
   onRemoveAdmin?: (email: string) => void
   onTransferOwnership?: (admin: any) => void
   userRole?: 'owner' | 'admin' | 'manager' | null
+  printMode?: 'standard' | 'bluetooth'
+  onTogglePrintMode?: () => void
 }
 
 export default function BusinessProfileDashboard({
@@ -60,10 +62,9 @@ export default function BusinessProfileDashboard({
   onCategoriesChange,
   initialTab = 'general',
   onDirectUpdate,
-  onAddAdmin,
-  onRemoveAdmin,
-  onTransferOwnership,
-  userRole
+  userRole,
+  printMode,
+  onTogglePrintMode
 }: BusinessProfileDashboardProps) {
   const [coverLoaded, setCoverLoaded] = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
@@ -973,6 +974,8 @@ export default function BusinessProfileDashboard({
         <NotificationSettings
           business={business}
           onBusinessFieldChange={onDirectUpdate || onBusinessFieldChange}
+          printMode={printMode}
+          onTogglePrintMode={onTogglePrintMode}
         />
       )}
     </div>

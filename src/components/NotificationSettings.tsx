@@ -4,11 +4,15 @@ import { Business } from '@/types'
 interface NotificationSettingsProps {
     business: Business
     onBusinessFieldChange: (field: keyof Business, value: any) => void
+    printMode?: 'standard' | 'bluetooth'
+    onTogglePrintMode?: () => void
 }
 
 export default function NotificationSettings({
     business,
-    onBusinessFieldChange
+    onBusinessFieldChange,
+    printMode = 'standard',
+    onTogglePrintMode
 }: NotificationSettingsProps) {
 
     // Inicializar estado local con los valores del negocio o defaults
@@ -250,6 +254,50 @@ export default function NotificationSettings({
                             </div>
                         </div>
 
+                        </div>
+                    </div>
+                </div>
+
+                {/* Configuración de Impresión */}
+                <div className="mt-8 pt-8 border-t border-gray-100">
+                    <h4 className="text-md font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                        <i className="bi bi-printer text-gray-600 text-xl"></i>
+                        Configuración de Impresión
+                    </h4>
+
+                    <div className="bg-gray-50 rounded-xl border border-gray-100 p-4">
+                        <div className="flex items-center justify-between mb-4">
+                            <div>
+                                <h5 className="font-medium text-gray-900">Modo de Impresión</h5>
+                                <p className="text-sm text-gray-500">
+                                    Selecciona cómo deseas generar los tickets de los pedidos.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                onClick={() => printMode === 'bluetooth' && onTogglePrintMode?.()}
+                                className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${printMode === 'standard' ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-100 text-gray-400 hover:border-gray-200'}`}
+                            >
+                                <i className="bi bi-file-earmark-pdf text-2xl"></i>
+                                <span className="text-xs font-bold uppercase tracking-wider">Navegador (PDF)</span>
+                            </button>
+                            <button
+                                onClick={() => printMode === 'standard' && onTogglePrintMode?.()}
+                                className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${printMode === 'bluetooth' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-gray-100 text-gray-400 hover:border-gray-200'}`}
+                            >
+                                <i className="bi bi-bluetooth text-2xl"></i>
+                                <span className="text-xs font-bold uppercase tracking-wider">Bluetooth (Térmica)</span>
+                            </button>
+                        </div>
+
+                        {printMode === 'bluetooth' && (
+                            <div className="mt-4 p-3 bg-blue-100/50 rounded-lg border border-blue-100 text-xs text-blue-800 flex items-start gap-2">
+                                <i className="bi bi-info-circle-fill mt-0.5"></i>
+                                <span>Ideal para impresoras MPT-II. Al confirmar un pedido, se imprimirá automáticamente. Asegúrate de que el Bluetooth esté activo en tu dispositivo.</span>
+                            </div>
+                        )}
                     </div>
                 </div>
 
