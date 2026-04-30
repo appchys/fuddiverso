@@ -116,8 +116,10 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
             const dateStr = schedDate.toLocaleDateString('es-EC', { day: 'numeric', month: 'long' });
             const timeStr = order.timing.scheduledTime || schedDate.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
             
+            commands.push(...ESC_POS.ALIGN_RIGHT);
             addLine(`PROGRAMADO`);
             addLine(`${dateStr} - ${timeStr}`);
+            commands.push(...ESC_POS.ALIGN_LEFT);
             addLine();
         } else {
             addLine(`Pedido: INMEDIATO`);
@@ -129,7 +131,28 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
             commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
         }
         if (order.delivery?.type === 'delivery' && order.delivery.references) {
-            addLine(`Dir: ${order.delivery.references}`);
+            // Word wrap para dirección - dividir por palabras
+            const addressText = order.delivery.references;
+            const maxCharsPerLine = 28; // Aproximado para dirección normal
+            const words = addressText.split(' ');
+            let firstLine = true;
+            let currentLine = '';
+            
+            words.forEach(word => {
+                if (currentLine.length === 0) {
+                    currentLine = word;
+                } else if ((currentLine + ' ' + word).length <= maxCharsPerLine) {
+                    currentLine += ' ' + word;
+                } else {
+                    addLine(firstLine ? currentLine : `    ${currentLine}`);
+                    currentLine = word;
+                    firstLine = false;
+                }
+            });
+            
+            if (currentLine.length > 0) {
+                addLine(firstLine ? currentLine : `    ${currentLine}`);
+            }
         }
         addLine('.'.repeat(32));
 
@@ -223,17 +246,16 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
         // Si es transferencia, pendingAmount = 0
         
         if (pendingAmount > 0) {
-            addLine(`Pendiente`);
-            commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
-            addLine(`$${pendingAmount.toFixed(2).padStart(8)}`);
-            commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
+            addLine(`Pendiente de cobro`);
+            commands.push(...ESC_POS.ALIGN_RIGHT, ...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
+            addLine(`$${pendingAmount.toFixed(2)}`);
+            commands.push(...ESC_POS.ALIGN_LEFT, ...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
         }
         
         if (order.notas && order.notas.trim() !== '') {
             addLine();
             addLine('.'.repeat(32));
             commands.push(...ESC_POS.ALIGN_CENTER);
-            addLine('NOTAS');
             commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
             
             // Word wrap para notas - dividir por palabras
