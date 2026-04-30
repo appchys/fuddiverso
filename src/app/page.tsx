@@ -30,40 +30,40 @@ const ProgressiveImage: React.FC<{
   height?: number
   priority?: boolean
   sizes?: string
-}> = ({ 
-  src, 
-  alt, 
-  className = '', 
+}> = ({
+  src,
+  alt,
+  className = '',
   fill = false,
   width,
   height,
   priority = false,
   sizes = '100vw'
 }) => {
-  const [isLoaded, setIsLoaded] = useState(false)
-  
-  return (
-    <>
-      {/* Placeholder mientras carga - siempre visible hasta que la imagen cargue */}
-      {!isLoaded && fill && (
-        <div className="absolute inset-0 bg-gray-200 animate-pulse" />
-      )}
-      
-      {/* Imagen con next/image */}
-      <Image
-        src={src}
-        alt={alt}
-        fill={fill}
-        width={!fill ? width : undefined}
-        height={!fill ? height : undefined}
-        priority={priority}
-        sizes={sizes}
-        className={`transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'} ${className}`}
-        onLoad={() => setIsLoaded(true)}
-      />
-    </>
-  )
-}
+    const [isLoaded, setIsLoaded] = useState(false)
+
+    return (
+      <>
+        {/* Placeholder mientras carga - siempre visible hasta que la imagen cargue */}
+        {!isLoaded && fill && (
+          <div className="absolute inset-0 bg-gray-200 animate-pulse" />
+        )}
+
+        {/* Imagen con next/image */}
+        <Image
+          src={src}
+          alt={alt}
+          fill={fill}
+          width={!fill ? width : undefined}
+          height={!fill ? height : undefined}
+          priority={priority}
+          sizes={sizes}
+          className={`transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'} ${className}`}
+          onLoad={() => setIsLoaded(true)}
+        />
+      </>
+    )
+  }
 
 export default function HomePage() {
   return (
@@ -98,23 +98,12 @@ function HomePageContent() {
   const [selectedRatingBusiness, setSelectedRatingBusiness] = useState<Business | null>(null)
   const [ratingNotification, setRatingNotification] = useState<{ show: boolean; message: string }>({ show: false, message: '' })
 
-  // Use useMemo for story businesses to ensure a stable random order per session/businesses-update
-  const storyBusinesses = React.useMemo(() => {
-    return businesses
-      .filter(b => !b.isHidden && b.businessType !== 'distributor')
-      .sort((a, b) => {
-        const aOpen = isStoreOpen(a)
-        const bOpen = isStoreOpen(b)
-        if (aOpen !== bOpen) return aOpen ? -1 : 1
-        return 0.5 - Math.random()
-      })
-  }, [businesses])
-  
+
   // Swipe State for Stories
   const touchStartXRef = useRef<number>(0)
   const touchStartYRef = useRef<number>(0)
   const touchStartTimeRef = useRef<number>(0)
-  
+
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [followedBusinesses, setFollowedBusinesses] = useState<Set<string>>(new Set())
@@ -128,6 +117,7 @@ function HomePageContent() {
   const [groupId, setGroupId] = useState<string | null>(null)
   const [detectedGroupName, setDetectedGroupName] = useState<string | null>('Daule')
   const [coverageGroups, setCoverageGroups] = useState<CoverageGroup[]>([])
+  const [loadingProducts, setLoadingProducts] = useState(false)
   const [showGroupSelector, setShowGroupSelector] = useState(false)
   const groupSelectorRef = useRef<HTMLDivElement>(null)
   const [isOutOfCoverage, setIsOutOfCoverage] = useState(false)
@@ -137,7 +127,58 @@ function HomePageContent() {
   const [requestWhatsapp, setRequestWhatsapp] = useState('')
   const [isSubmittingSurvey, setIsSubmittingSurvey] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(false)
- 
+
+  // Use useMemo for story businesses to ensure a stable random order per session/businesses-update
+  const storyBusinesses = React.useMemo(() => {
+    return businesses
+      .filter(b => !b.isHidden && b.businessType !== 'distributor')
+      .filter(b => {
+        const products = productsByBusiness[b.id]
+        return products && products.length > 0
+      })
+      .sort((a, b) => {
+        const aOpen = isStoreOpen(a)
+        const bOpen = isStoreOpen(b)
+        if (aOpen !== bOpen) return aOpen ? -1 : 1
+        
+        const aLastEdit = productsByBusiness[a.id]?.[0]?.updatedAt?.getTime() || 0
+        const bLastEdit = productsByBusiness[b.id]?.[0]?.updatedAt?.getTime() || 0
+        return bLastEdit - aLastEdit
+      })
+  }, [businesses, productsByBusiness])
+
+  const sortedRestaurants = React.useMemo(() => {
+    return businesses
+      .filter(b => b.businessType !== 'distributor')
+      .filter(b => {
+        const products = productsByBusiness[b.id]
+        return products && products.length > 0
+      })
+      .sort((a, b) => {
+        const aOpen = isStoreOpen(a)
+        const bOpen = isStoreOpen(b)
+        if (aOpen !== bOpen) return aOpen ? -1 : 1
+        
+        const aLastEdit = productsByBusiness[a.id]?.[0]?.updatedAt?.getTime() || 0
+        const bLastEdit = productsByBusiness[b.id]?.[0]?.updatedAt?.getTime() || 0
+        return bLastEdit - aLastEdit
+      })
+  }, [businesses, productsByBusiness])
+
+  const sortedDistributors = React.useMemo(() => {
+    return businesses
+      .filter(b => b.businessType === 'distributor')
+      .filter(b => {
+        const products = productsByBusiness[b.id]
+        return products && products.length > 0
+      })
+      .sort((a, b) => {
+        const aLastEdit = productsByBusiness[a.id]?.[0]?.updatedAt?.getTime() || 0
+        const bLastEdit = productsByBusiness[b.id]?.[0]?.updatedAt?.getTime() || 0
+        return bLastEdit - aLastEdit
+      })
+  }, [businesses, productsByBusiness])
+
   // Story Modal State
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false)
   const [isStoryPaused, setIsStoryPaused] = useState(false) // Modal de detalle abierto
@@ -172,7 +213,7 @@ function HomePageContent() {
     }
     return () => clearInterval(interval)
   }, [isStoryModalOpen, currentStoryIndex, storyProducts.length, loadingStoryProducts, isStoryPaused, isStoryHeld])
- 
+
   // Disable pull-to-refresh and history navigation when story is open
   useEffect(() => {
     if (isStoryModalOpen) {
@@ -197,7 +238,7 @@ function HomePageContent() {
         const img = document.createElement('img')
         img.src = storyProducts[nextIndex].image!
       }
-      
+
       // Pre-cargar la subsiguiente para mayor fluidez
       const nextNextIndex = currentStoryIndex + 2
       if (nextNextIndex < storyProducts.length && storyProducts[nextNextIndex].image) {
@@ -338,7 +379,7 @@ function HomePageContent() {
     if (existingItemIndex >= 0) {
       newCart = [...cart]
       newCart[existingItemIndex].quantity += 1
-  } else {
+    } else {
       const enriched = ensureCartItemMetadata({ ...item })
       newCart = [...cart, { ...enriched, quantity: 1 }]
     }
@@ -395,20 +436,28 @@ function HomePageContent() {
       if (businesses.length === 0) return
 
       try {
+        setLoadingProducts(true)
         const productsMap: Record<string, Product[]> = {}
         // Ejecutamos en paralelo para máxima velocidad, pero limitamos a los negocios visibles
-        const targetBusinesses = businesses.slice(0, 30); // Limitar para evitar saturación de red
-        
+        const targetBusinesses = businesses.slice(0, 60); // Limitar para evitar saturación de red
+
         await Promise.all(targetBusinesses.map(async (business) => {
           const products = await getProductsByBusiness(business.id)
-          // Barajar aleatoriamente los productos disponibles
-          const availableProducts = products.filter(p => p.isAvailable && p.image)
-          const shuffled = [...availableProducts].sort(() => 0.5 - Math.random())
-          productsMap[business.id] = shuffled.slice(0, 10)
+          // Filtrar y ordenar por edición más reciente
+          const sorted = products
+            .filter(p => p.isAvailable && p.image)
+            .sort((a, b) => {
+              const dateA = a.updatedAt?.getTime() || 0
+              const dateB = b.updatedAt?.getTime() || 0
+              return dateB - dateA
+            })
+          productsMap[business.id] = sorted.slice(0, 10)
         }))
         setProductsByBusiness(prev => ({ ...prev, ...productsMap }))
       } catch (error) {
         console.error("Error loading business products:", error)
+      } finally {
+        setLoadingProducts(false)
       }
     }
 
@@ -428,7 +477,7 @@ function HomePageContent() {
         setGroupId(zone.groupId)
         setIsOutOfCoverage(false)
         localStorage.setItem('lastDetectedGroupId', zone.groupId)
-        
+
         // Usar los grupos pasados o los del estado
         const groups = groupsReference || (coverageGroups.length > 0 ? coverageGroups : await getCoverageGroups())
         const found = groups.find(g => g.id === zone.groupId)
@@ -466,7 +515,7 @@ function HomePageContent() {
         const groups = await getCoverageGroups()
         const activeGroups = groups.filter(g => g.isActive)
         setCoverageGroups(activeGroups)
-        
+
         // 2. Buscar el grupo Daule por defecto y establecerlo
         const daule = activeGroups.find(g => g.name.toLowerCase().includes('daule'))
         if (daule) {
@@ -495,7 +544,7 @@ function HomePageContent() {
     }
 
     window.addEventListener('storage', handleStorageChange)
-    
+
     return () => {
       window.removeEventListener('storage', handleStorageChange)
     }
@@ -519,16 +568,16 @@ function HomePageContent() {
 
         // Extraer categorías de los productos de los negocios filtrados por ubicación
         const uniqueCategories = new Set<string>()
-        
+
         // Primero agregar categorías de los negocios (rápido, no bloquea)
         filteredForCategories.forEach(b => {
           b.categories?.forEach(c => uniqueCategories.add(c))
         })
-        
+
         // Set inicial de categorías para mostrar UI rápido (mejora FCP)
         const initialCategories = Array.from(uniqueCategories).sort(() => 0.5 - Math.random())
         setCategories(['all', ...initialCategories])
-        
+
         // Luego cargar más categorías de productos en background (no bloquea render)
         const businessIds = filteredForCategories.map(b => b.id)
         if (businessIds.length > 0) {
@@ -553,7 +602,7 @@ function HomePageContent() {
 
         // Aplicar filtro de grupo si existe o si estamos en una ciudad específica
         let filtered = visibleBusinesses;
-        
+
         if (showAllRestaurants) {
         } else if (groupId) {
           filtered = filtered.filter(b => b.groupId === groupId)
@@ -603,10 +652,10 @@ function HomePageContent() {
       const data = search || category !== 'all' || (groupId && !showAllRestaurants)
         ? await searchBusinesses(search, category, showAllRestaurants ? undefined : (groupId || undefined))
         : await getAllBusinesses()
-      
+
       // Filtrar negocios ocultos
       let visibleBusinesses = data.filter(b => !b.isHidden)
-      
+
       // Si usamos getAllBusinesses, el groupId no se filtró en la query
       if (!search && category === 'all' && !showAllRestaurants) {
         if (groupId) {
@@ -665,7 +714,7 @@ function HomePageContent() {
       e.preventDefault()
       e.stopPropagation()
     }
-    
+
     if (!user) {
       setShowLoginModal(true)
       return
@@ -681,7 +730,7 @@ function HomePageContent() {
       // Intentar encontrar el negocio si no se pasa explícitamente (para random products)
       business = businesses.find(b => b.id === product.businessId)
     }
- 
+
     if (business) {
       setSelectedProduct(product)
       setSelectedProductBusiness(business)
@@ -700,18 +749,18 @@ function HomePageContent() {
   const handleOpenStory = async (business: Business) => {
     setSelectedStoryBusiness(business)
     setIsStoryModalOpen(true)
-    
+
     // Set initial index from saved progress
     const savedIndex = storyProgress[business.id] || 0
     setCurrentStoryIndex(savedIndex)
-    
+
     setLoadingStoryProducts(true)
     try {
       const products = await getProductsByBusiness(business.id)
       // Filter only products with images for stories, max 10
       const productsWithImage = products.filter(p => p.image && p.isAvailable).slice(0, 10)
       setStoryProducts(productsWithImage)
-      
+
       // Safety check: if saved index is now out of bounds because products changed
       if (savedIndex >= productsWithImage.length && productsWithImage.length > 0) {
         setCurrentStoryIndex(0)
@@ -753,7 +802,7 @@ function HomePageContent() {
           <div className="flex items-center justify-between gap-2">
             <div>
               <h2 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">
-                
+
               </h2>
             </div>
             <div className="flex items-center gap-2">
@@ -792,9 +841,8 @@ function HomePageContent() {
                     setShowAllRestaurants(false)
                     localStorage.setItem('lastDetectedGroupId', group.id)
                   }}
-                  className={`w-full text-left px-4 py-2 text-sm font-medium hover:bg-gray-50 transition-colors flex items-center gap-2 ${
-                    groupId === group.id ? 'text-[#aa1918] bg-red-50' : 'text-gray-700'
-                  }`}
+                  className={`w-full text-left px-4 py-2 text-sm font-medium hover:bg-gray-50 transition-colors flex items-center gap-2 ${groupId === group.id ? 'text-[#aa1918] bg-red-50' : 'text-gray-700'
+                    }`}
                 >
                   <i className={`bi bi-${groupId === group.id ? 'check-circle-fill text-[#aa1918]' : 'circle text-gray-300'} text-xs`}></i>
                   {group.name}
@@ -809,9 +857,8 @@ function HomePageContent() {
                     setShowGroupSelector(false)
                     localStorage.removeItem('lastDetectedGroupId')
                   }}
-                  className={`w-full text-left px-4 py-2 text-sm font-medium hover:bg-gray-50 transition-colors flex items-center gap-2 ${
-                    !groupId && showAllRestaurants ? 'text-[#aa1918] bg-red-50' : 'text-gray-500'
-                  }`}
+                  className={`w-full text-left px-4 py-2 text-sm font-medium hover:bg-gray-50 transition-colors flex items-center gap-2 ${!groupId && showAllRestaurants ? 'text-[#aa1918] bg-red-50' : 'text-gray-500'
+                    }`}
                 >
                   <i className="bi bi-globe text-xs"></i>
                   Todos los restaurantes
@@ -826,42 +873,42 @@ function HomePageContent() {
       <section className="pt-1 pb-1 bg-gray-50">
         <div className="max-w-6xl mx-auto px-4">
           <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 px-2 items-start">
-            {loading ? (
+            {loading || loadingProducts ? (
               <div className="w-full h-20 flex items-center justify-center text-gray-400"></div>
             ) : (
               storyBusinesses.map((b) => {
-                  return (
-                    <button
-                      key={b.id}
-                      onClick={() => handleOpenStory(b)}
-                      className="flex flex-col items-center gap-1.5 flex-shrink-0 w-20 group transition-transform active:scale-95 text-left"
-                    >
-                      <div className={`relative p-[2.5px] rounded-full shadow-sm group-hover:shadow-md transition-all ${isStoreOpen(b)
-                        ? 'bg-emerald-400'
-                        : 'bg-gray-200'}`}>
-                        <div className="p-0.5 bg-white rounded-full">
-                          <div className="relative w-16 h-16 rounded-full overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center">
-                            {b.image ? (
-                              <ProgressiveImage
-                                src={b.image}
-                                alt={b.name}
-                                fill
-                                sizes="64px"
-                                priority
-                                className="object-cover group-hover:scale-110 transition-transform duration-500"
-                              />
-                            ) : (
-                              <i className="bi bi-shop text-2xl text-gray-400"></i>
-                            )}
-                          </div>
+                return (
+                  <button
+                    key={b.id}
+                    onClick={() => handleOpenStory(b)}
+                    className="flex flex-col items-center gap-1.5 flex-shrink-0 w-20 group transition-transform active:scale-95 text-left"
+                  >
+                    <div className={`relative p-[2.5px] rounded-full shadow-sm group-hover:shadow-md transition-all ${isStoreOpen(b)
+                      ? 'bg-emerald-400'
+                      : 'bg-gray-200'}`}>
+                      <div className="p-0.5 bg-white rounded-full">
+                        <div className="relative w-16 h-16 rounded-full overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center">
+                          {b.image ? (
+                            <ProgressiveImage
+                              src={b.image}
+                              alt={b.name}
+                              fill
+                              sizes="64px"
+                              priority
+                              className="object-cover group-hover:scale-110 transition-transform duration-500"
+                            />
+                          ) : (
+                            <i className="bi bi-shop text-2xl text-gray-400"></i>
+                          )}
                         </div>
                       </div>
-                      <span className="text-[10px] font-bold text-gray-600 text-center line-clamp-1 w-full px-1 group-hover:text-[#aa1918] transition-colors">
-                        {b.name}
-                      </span>
-                    </button>
-                  )
-                })
+                    </div>
+                    <span className="text-[10px] font-bold text-gray-600 text-center line-clamp-1 w-full px-1 group-hover:text-[#aa1918] transition-colors">
+                      {b.name}
+                    </span>
+                  </button>
+                )
+              })
             )}
           </div>
         </div>
@@ -987,12 +1034,12 @@ function HomePageContent() {
             </div>
           </div>
 
-          {loading ? (
+          {loading || loadingProducts ? (
             <div className="text-center py-16">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#aa1918] mx-auto"></div>
               <p className="mt-4 text-gray-600">Cargando restaurantes...</p>
             </div>
-          ) : (isOutOfCoverage || businesses.filter(b => b.businessType !== 'distributor').length === 0) ? (
+          ) : (isOutOfCoverage || sortedRestaurants.length === 0) ? (
             <div className="max-w-xl mx-auto py-12 px-6 bg-white rounded-3xl shadow-sm border border-gray-100">
               {surveySubmitted ? (
                 <div className="text-center animate-in fade-in zoom-in duration-500">
@@ -1013,11 +1060,11 @@ function HomePageContent() {
                     Aún no estamos repartiendo en tu zona, pero tú mandas.
                   </h3>
                   <p className="text-gray-500 mb-8 font-medium">¿Qué restaurante nos falta aquí?</p>
-                  
+
                   <form onSubmit={async (e) => {
                     e.preventDefault();
                     if (!requestName.trim()) return;
-                    
+
                     setIsSubmittingSurvey(true);
                     try {
                       await saveRestaurantRequest({
@@ -1048,7 +1095,7 @@ function HomePageContent() {
                         className="w-full bg-gray-50 border-none rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-[#aa1918]/20 transition-all"
                       />
                     </div>
-                    
+
                     <div className="text-left">
                       <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 ml-1">
                         Tu WhatsApp (Opcional)
@@ -1079,7 +1126,7 @@ function HomePageContent() {
                         </>
                       )}
                     </button>
-                    
+
                     <button
                       type="button"
                       onClick={() => {
@@ -1096,11 +1143,11 @@ function HomePageContent() {
             </div>
           ) : (
             <div className="flex flex-col gap-12">
-              {businesses.filter(b => b.businessType !== 'distributor').map((b) => {
+              {sortedRestaurants.map((b) => {
                 const link = b.username ? `/${b.username}` : `/restaurant/${b.id}`
                 const followed = followedBusinesses.has(b.id)
                 const products = productsByBusiness[b.id] || []
-                
+
                 return (
                   <div key={b.id} className="animate-in fade-in slide-in-from-bottom-4 duration-700">
                     {/* Header del Restaurante: Logo, Nombre y Reseñas */}
@@ -1152,9 +1199,10 @@ function HomePageContent() {
                                   e.stopPropagation()
                                   handleOpenRatingModal(b)
                                 }}
-                                className="text-[10px] font-bold text-gray-300 uppercase tracking-widest hover:text-gray-500 transition-colors cursor-pointer"
+                                className="flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer"
                               >
-                                Sin reseñas · Sé el primero
+                                <StarRating rating={0} size="sm" showGrayStars />
+                                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest ml-1">Sin reseñas</span>
                               </button>
                             )}
                           </div>
@@ -1227,7 +1275,7 @@ function HomePageContent() {
                             </div>
                           ))
                         ) : null}
-                        
+
                         {/* Botón "Ver Todos" al final del carrusel */}
                         {products.length > 0 && (
                           <Link
@@ -1283,16 +1331,16 @@ function HomePageContent() {
       </section>
 
       {/* SECCIÓN PROVEEDORES (NUEVA) */}
-      {businesses.filter(b => b.businessType === 'distributor').length > 0 && (
+      {sortedDistributors.length > 0 && (
         <section id="suppliers-section" className="py-12 bg-white border-t border-gray-100">
           <div className="max-w-6xl mx-auto px-6">
             <div className="flex justify-between items-end mb-8">
               <h2 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">Proveedores Aliados</h2>
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-100 px-3 py-1 rounded-full">{businesses.filter(b => b.businessType === 'distributor').length} aliados</span>
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-100 px-3 py-1 rounded-full">{sortedDistributors.length} aliados</span>
             </div>
 
             <div className="space-y-10">
-              {businesses.filter(b => b.businessType === 'distributor').map((b) => {
+              {sortedDistributors.map((b) => {
                 const link = b.username ? `/${b.username}` : `/restaurant/${b.id}`
                 const products = productsByBusiness[b.id] || []
 
@@ -1363,7 +1411,7 @@ function HomePageContent() {
       <footer className="bg-gray-900 text-gray-400 py-10">
         <div className="max-w-6xl mx-auto px-6 text-center space-y-4">
           <Link href="/" className="text-2xl font-bold text-[#aa1918]">Fuddi</Link>
-          <p className="max-w-xl mx-auto text-sm">La plataforma de delivery #1 en Ecuador. Conectamos restaurantes con clientes hambrientos.</p>
+          <p className="max-w-xl mx-auto text-sm">Conectamos restaurantes con clientes hambrientos.</p>
           <div className="flex justify-center gap-4 text-gray-500">
             <a href="https://instagram.com/fuddi.shop" target="_blank" rel="noopener noreferrer"><i className="bi bi-instagram text-lg hover:text-white"></i></a>
             <a href="https://wa.me/593984612236" target="_blank" rel="noopener noreferrer"><i className="bi bi-whatsapp text-lg hover:text-white"></i></a>
@@ -1381,14 +1429,13 @@ function HomePageContent() {
               {storyProducts.length > 0 ? (
                 storyProducts.map((_, i) => (
                   <div key={i} className="flex-1 h-0.5 bg-white/30 rounded-full overflow-hidden">
-                    <div 
-                      className={`h-full bg-white ${
-                        i < currentStoryIndex 
-                          ? 'w-full' 
-                          : i === currentStoryIndex 
-                            ? 'animate-story-progress' 
+                    <div
+                      className={`h-full bg-white ${i < currentStoryIndex
+                          ? 'w-full'
+                          : i === currentStoryIndex
+                            ? 'animate-story-progress'
                             : 'w-0'
-                      }`}
+                        }`}
                       style={{
                         animationPlayState: (isStoryPaused || isStoryHeld) ? 'paused' : 'running'
                       }}
@@ -1438,9 +1485,9 @@ function HomePageContent() {
                 <>
                   {/* Layered Images for Zero Flicker */}
                   {storyProducts.map((p, idx) => (
-                    <img 
+                    <img
                       key={p.id}
-                      src={p.image} 
+                      src={p.image}
                       alt={p.name}
                       loading={idx === currentStoryIndex ? "eager" : "lazy"}
                       className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${idx === currentStoryIndex ? 'opacity-100' : 'opacity-0'}`}
@@ -1451,7 +1498,7 @@ function HomePageContent() {
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 pointer-events-none"></div>
 
                   {/* Navigation Zones */}
-                  <div 
+                  <div
                     className="absolute inset-0 flex"
                     onMouseDown={() => setIsStoryHeld(true)}
                     onMouseUp={() => setIsStoryHeld(false)}
@@ -1487,14 +1534,14 @@ function HomePageContent() {
                         } else {
                           openNextBusinessStory()
                         }
-                      } 
+                      }
                       // Si es un deslizamiento vertical hacia abajo para cerrar
                       else if (deltaY > 100 && Math.abs(deltaX) < 50) {
                         setIsStoryModalOpen(false)
                       }
                     }}
                   >
-                    <div 
+                    <div
                       className="w-1/3 h-full cursor-pointer"
                       onClick={(e) => {
                         if (currentStoryIndex > 0) {
@@ -1502,7 +1549,7 @@ function HomePageContent() {
                         }
                       }}
                     ></div>
-                    <div 
+                    <div
                       className="w-2/3 h-full cursor-pointer"
                       onClick={(e) => {
                         if (currentStoryIndex < storyProducts.length - 1) {
@@ -1525,11 +1572,10 @@ function HomePageContent() {
                           e.stopPropagation()
                           handleGenerateReferral(storyProducts[currentStoryIndex], selectedStoryBusiness)
                         }}
-                        className={`flex items-center gap-1 flex-shrink-0 transition-all ${
-                          generatedReferralProducts.has(storyProducts[currentStoryIndex].id)
+                        className={`flex items-center gap-1 flex-shrink-0 transition-all ${generatedReferralProducts.has(storyProducts[currentStoryIndex].id)
                             ? 'text-amber-400'
                             : 'text-white/60 hover:text-amber-400'
-                        }`}
+                          }`}
                         title="Recomendar"
                       >
                         <Flame size={16} strokeWidth={generatedReferralProducts.has(storyProducts[currentStoryIndex].id) ? 3 : 1.5} />
@@ -1597,7 +1643,7 @@ function HomePageContent() {
                   <i className="bi bi-image text-5xl mb-4 opacity-30"></i>
                   <h4 className="text-xl font-bold mb-2">Próximamente...</h4>
                   <p className="text-sm opacity-70 mb-8">Esta tienda pronto tendrá nuevas historias para ti.</p>
-                  <button 
+                  <button
                     onClick={() => setIsStoryModalOpen(false)}
                     className="w-full bg-white text-black font-bold py-3 rounded-xl"
                   >

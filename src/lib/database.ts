@@ -800,11 +800,15 @@ export async function getProductsByBusiness(businessId: string): Promise<Product
       orderBy('createdAt', 'desc')
     )
     const querySnapshot = await getDocs(q)
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: toSafeDate(doc.data().createdAt)
-    })) as Product[]
+    return querySnapshot.docs.map(doc => {
+      const data = doc.data()
+      return {
+        id: doc.id,
+        ...data,
+        createdAt: toSafeDate(data.createdAt),
+        updatedAt: toSafeDate(data.updatedAt)
+      }
+    }) as Product[]
   } catch (error) {
     console.error('Error getting products:', error)
     throw error

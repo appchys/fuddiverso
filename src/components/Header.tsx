@@ -155,7 +155,6 @@ type HeaderProps = {
 
 export default function Header({ initialShowLoginModal = false }: HeaderProps) {
   const { user, logout } = useAuth()
-  const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(initialShowLoginModal)
   const [showMobileSearch, setShowMobileSearch] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -214,7 +213,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
     localStorage.removeItem('clientData')
     // Opcional: Limpiar carritos si quieres resetear todo al logout (descomenta si aplica)
     // localStorage.removeItem('carts')
-    setIsUserSidebarOpen(false)
+
     router.push('/')
   }
 
@@ -348,8 +347,14 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
               )}
 
               <div className="relative">
-                <button
-                  onClick={() => setIsUserSidebarOpen(true)}
+                <Link
+                  href={pathname === '/profile' ? '/' : '/profile'}
+                  onClick={(e) => {
+                    if (pathname === '/profile') {
+                      e.preventDefault();
+                      router.back();
+                    }
+                  }}
                   className="flex items-center space-x-2 p-1 rounded-full hover:bg-gray-100 transition-colors group"
                   aria-label="Menú de usuario"
                 >
@@ -386,7 +391,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                       <i className="bi bi-person text-xl"></i>
                     </div>
                   )}
-                </button>
+                </Link>
               </div>
             </div>
           </div>
@@ -399,11 +404,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
 
       </header>
 
-      <UserSidebar
-        isOpen={isUserSidebarOpen}
-        onClose={() => setIsUserSidebarOpen(false)}
-        onLogin={() => setShowLoginModal(true)}
-      />
+
     </>
   )
 }

@@ -411,6 +411,47 @@ async function notifyStoreOnDeliveryAcceptanceLogic(beforeData, afterData, order
 }
 
 /**
+ * Cloud Function: Actualizar mensaje de Telegram del delivery si cambian datos clave de la orden
+ * (pago, total, dirección, items) y el delivery ya aceptó.
+ */
+async function updateDeliveryMessageOnOrderChange(beforeData, afterData, orderId) {
+  // Solo si el delivery ya aceptó
+  if (afterData.delivery?.acceptanceStatus !== 'accepted') return;
+
+  // Comparar campos relevantes que el delivery necesita conocer
+  const fieldsChanged = [
+    // Método de pago
+    beforeData.payment?.method !== afterData.payment?.method,
+    // Monto efectivo (pago mixto)
+    beforeData.payment?.cashAmount !== afterData.payment?.cashAmount,
+    // Total
+    beforeData.total !== afterData.total,
+    // Costo de envío
+    beforeData.delivery?.deliveryCost !== afterData.delivery?.deliveryCost,
+    // Dirección / referencias
+    beforeData.delivery?.references !== afterData.delivery?.references,
+    // Coordenadas
+    beforeData.delivery?.latlong !== afterData.delivery?.latlong,
+    // Items (comparar como JSON)
+    JSON.stringify(beforeData.items) !== JSON.stringify(afterData.items),
+    // Subtotal
+    beforeData.subtotal !== afterData.subtotal,
+    // Tipo de entrega
+    beforeData.delivery?.type !== afterData.delivery?.type,
+    // Horario programado
+    beforeData.timing?.scheduledTime !== afterData.timing?.scheduledTime,
+    beforeData.timing?.type !== afterData.timing?.type,
+  ];
+
+  if (!fieldsChanged.some(Boolean)) {
+    return; // Nada relevante cambió, no hacer nada
+  }
+
+  console.log(`🔄 [Telegram] Campos relevantes cambiaron en orden ${orderId} (delivery aceptó). Actualizando mensaje...`);
+  await telegramServices.updateDeliveryTelegramMessage(afterData, orderId);
+}
+
+/**
  * Cloud Function: Único disparador para ACTUALIZACIÓN de órdenes
  */
 exports.onOrderUpdated = onDocumentUpdated("orders/{orderId}", async (event) => {
@@ -423,7 +464,8 @@ exports.onOrderUpdated = onDocumentUpdated("orders/{orderId}", async (event) => 
   await Promise.allSettled([
     onOrderStatusChangeLogic(beforeData, afterData, orderId),
     notifyDeliveryAssignmentLogic(beforeData, afterData, orderId),
-    notifyStoreOnDeliveryAcceptanceLogic(beforeData, afterData, orderId)
+    notifyStoreOnDeliveryAcceptanceLogic(beforeData, afterData, orderId),
+    updateDeliveryMessageOnOrderChange(beforeData, afterData, orderId)
   ]);
 });
 

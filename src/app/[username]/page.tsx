@@ -1582,7 +1582,7 @@ function RestaurantContent() {
 
       {/* Floating Cart Button - Ultra Modern */}
       {cartItemsCount > 0 && (
-        <div className="fixed bottom-8 right-6 z-[80]">
+        <div className="fixed bottom-cart-position right-6 z-[50]">
           <button
             onClick={() => setIsCartOpen(true)}
             className="relative bg-gray-900 text-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] hover:bg-black transition-all duration-300 transform hover:scale-105 active:scale-95 group overflow-hidden"

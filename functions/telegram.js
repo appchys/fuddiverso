@@ -1482,6 +1482,18 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
 
     if (result && result.ok && result.result) {
         console.log(`✅ Notificación de Telegram (Delivery Bot) enviada a: ${deliveryData.telegramChatId}`);
+        // Guardar referencia al mensaje para poder editarlo si la orden cambia
+        try {
+            await admin.firestore().collection('orders').doc(orderId).update({
+                telegramDeliveryMessage: {
+                    chatId: deliveryData.telegramChatId.toString(),
+                    messageId: result.result.message_id
+                }
+            });
+            console.log(`📝 [Telegram] Referencia de mensaje delivery guardada en orden ${orderId}. MessageId: ${result.result.message_id}`);
+        } catch (saveErr) {
+            console.error(`❌ [Telegram] Error guardando referencia de mensaje delivery:`, saveErr);
+        }
     } else if (result) {
         console.error(`❌ [Telegram] Error en respuesta para delivery ${deliveryData.id}:`, {
             ok: result.ok,
@@ -1490,6 +1502,118 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
         });
     } else {
         console.error(`❌ [Telegram] Fallo al enviar notificación a delivery ${deliveryData.id}`);
+    }
+}
+
+/**
+ * Actualizar el mensaje de Telegram del delivery cuando cambia la orden
+ * Solo aplica si el delivery ya aceptó (acceptanceStatus === 'accepted')
+ * y tenemos la referencia al mensaje guardada.
+ */
+async function updateDeliveryTelegramMessage(orderData, orderId) {
+    try {
+        console.log(`🔄 [updateDeliveryTelegramMessage] Iniciando actualización para orden ${orderId}`);
+
+        // Solo actualizar si el delivery ya aceptó
+        if (orderData.delivery?.acceptanceStatus !== 'accepted') {
+            console.log(`ℹ️ [updateDeliveryTelegramMessage] Delivery aún no aceptó la orden ${orderId}, no se actualiza.`);
+            return;
+        }
+
+        const deliveryMsg = orderData.telegramDeliveryMessage;
+        if (!deliveryMsg || !deliveryMsg.chatId || !deliveryMsg.messageId) {
+            console.warn(`⚠️ [updateDeliveryTelegramMessage] No hay referencia de mensaje de delivery para orden ${orderId}`);
+            return;
+        }
+
+        if (!DELIVERY_BOT_TOKEN) {
+            console.error(`❌ [updateDeliveryTelegramMessage] DELIVERY_BOT_TOKEN no configurado`);
+            return;
+        }
+
+        // Obtener nombre del negocio
+        let businessName = orderData.businessName || 'Negocio';
+        if (!orderData.businessName && orderData.businessId) {
+            try {
+                const businessDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
+                if (businessDoc.exists) businessName = businessDoc.data().name || businessName;
+            } catch (e) {
+                console.error('Error obteniendo nombre de negocio:', e);
+            }
+        }
+
+        // Construir el nuevo texto del mensaje (misma plantilla que se usa al aceptar)
+        const { text: formattedText, mapsLink, locationImageLink } = await formatTelegramMessage(
+            { ...orderData, id: orderId }, businessName, 'delivery_accepted'
+        );
+
+        const statusLabel = '✅ <b>Aceptado</b>';
+        const newText = formattedText + `\n\n${statusLabel}\n\n⚠️ <i>Datos del pedido actualizados</i>`;
+
+        // Reconstruir botones (en camino / entregada)
+        const onWayToken = Buffer.from(`${orderId}|on_way`).toString('base64');
+        const deliveredToken = Buffer.from(`${orderId}|delivered`).toString('base64');
+        const replyMarkup = {
+            inline_keyboard: [
+                [
+                    { text: "🛵 En camino", callback_data: `order_on_way|${onWayToken}` },
+                    { text: "✅ Entregada", callback_data: `order_delivered|${deliveredToken}` }
+                ]
+            ]
+        };
+
+        // Link preview
+        let linkPreviewOptions = { is_disabled: true };
+        if (locationImageLink) {
+            linkPreviewOptions = { url: locationImageLink, prefer_large_media: true, show_above_text: true };
+        } else if (mapsLink) {
+            linkPreviewOptions = { url: mapsLink, prefer_large_media: true, show_above_text: true };
+        }
+
+        const editUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/editMessageText`;
+        try {
+            const payload = {
+                chat_id: deliveryMsg.chatId,
+                message_id: deliveryMsg.messageId,
+                text: newText,
+                parse_mode: 'HTML',
+                reply_markup: replyMarkup,
+                link_preview_options: linkPreviewOptions
+            };
+            const response = await axios.post(editUrl, payload);
+            if (response.data?.ok) {
+                console.log(`✅ [updateDeliveryTelegramMessage] Mensaje delivery actualizado para orden ${orderId}`);
+            } else {
+                console.error(`❌ [updateDeliveryTelegramMessage] Telegram rechazó la edición:`, response.data);
+            }
+        } catch (editError) {
+            const errorDesc = editError.response?.data?.description || '';
+            // Si el texto es idéntico al anterior, Telegram retorna error "message is not modified" — no es un error real
+            if (errorDesc.includes('message is not modified')) {
+                console.log(`ℹ️ [updateDeliveryTelegramMessage] Mensaje sin cambios para orden ${orderId}, no se modificó.`);
+                return;
+            }
+            // Reintentar sin HTML si hay error de parseo
+            if (editError.response?.status === 400 && errorDesc.includes("can't parse entities")) {
+                console.warn(`⚠️ [updateDeliveryTelegramMessage] HTML malformado. Reintentando sin parse_mode...`);
+                try {
+                    await axios.post(editUrl, {
+                        chat_id: deliveryMsg.chatId,
+                        message_id: deliveryMsg.messageId,
+                        text: newText.replace(/<[^>]+>/g, ''),
+                        reply_markup: replyMarkup,
+                        link_preview_options: { is_disabled: true }
+                    });
+                    console.log(`✅ [updateDeliveryTelegramMessage] Fallback sin HTML exitoso.`);
+                } catch (retryErr) {
+                    console.error(`❌ [updateDeliveryTelegramMessage] Fallback también falló:`, retryErr.message);
+                }
+                return;
+            }
+            console.error(`❌ [updateDeliveryTelegramMessage] Error editando mensaje:`, editError.response?.data || editError.message);
+        }
+    } catch (error) {
+        console.error(`❌ Error en updateDeliveryTelegramMessage para orden ${orderId}:`, error);
     }
 }
 
@@ -2013,7 +2137,6 @@ module.exports = {
     updateBusinessTelegramMessage,
     sendCustomerTelegramNotification,
     sendAdminNewOrderNotification,  // Exportado - Nueva función para admin con URLs
-    sendBroadcastToCustomers  // Exportado - Enviar mensajes a todos los clientes
+    sendBroadcastToCustomers, // Exportado - Enviar mensajes a todos los clientes
+    updateDeliveryTelegramMessage // Exportado - Actualizar mensaje del delivery si cambia la orden
 };
-
-

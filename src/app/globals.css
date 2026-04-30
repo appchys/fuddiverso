@@ -54,6 +54,17 @@
   .animate-story-progress {
     animation: story-progress 5s linear;
   }
+
+  /* Posicionamiento dinámico del carrito respecto al bottom nav */
+  .bottom-cart-position {
+    bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (min-width: 768px) {
+  .bottom-cart-position {
+    bottom: 2rem !important;
+  }
 }
 
 @keyframes slideInRight {
