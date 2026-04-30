@@ -101,6 +101,9 @@ export async function printOrderBluetooth({ order, businessName }: BluetoothPrin
         if (order.delivery?.type === 'delivery' && order.delivery.references) {
             addLine(`Dir: ${order.delivery.references}`);
         }
+        if (order.notas) {
+            addLine(`Notas: ${order.notas}`);
+        }
         addLine('-'.repeat(32));
 
         // Items
@@ -113,9 +116,6 @@ export async function printOrderBluetooth({ order, businessName }: BluetoothPrin
             const name = item.variant || item.name || item.product?.name || 'Prod';
             // We split name if too long for 58mm (approx 32 chars)
             addLine(`${qty} ${name}`);
-            if (item.notes) {
-                addLine(`   * ${item.notes}`);
-            }
         });
         addLine('-'.repeat(32));
 
