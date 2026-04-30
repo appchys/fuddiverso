@@ -492,7 +492,7 @@ export default function OrderHistory({
 
                         {/* Print Button */}
                         <button
-                            onClick={onPrint}
+                            onClick={() => onPrint(false)}
                             className="p-2 text-gray-400 hover:text-gray-600"
                         >
                             <i className="bi bi-printer"></i>
