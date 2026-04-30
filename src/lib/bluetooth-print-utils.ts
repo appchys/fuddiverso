@@ -130,20 +130,71 @@ export async function printOrderBluetooth({ order, businessName }: BluetoothPrin
         if (order.delivery?.type === 'delivery' && order.delivery.references) {
             addLine(`Dir: ${order.delivery.references}`);
         }
-        addLine('-'.repeat(32));
+        addLine('.'.repeat(32));
 
-        // Items
+        // Items - Agrupados por producto
         commands.push(...ESC_POS.TEXT_BOLD_ON);
         addLine('Cant. Producto');
         commands.push(...ESC_POS.TEXT_BOLD_OFF);
         
+        // Agrupar productos como en WhatsAppUtils
+        const groupedProducts = new Map<string, { hasRealVariant: boolean; lines: string[] }>();
+        
         order.items?.forEach(item => {
-            const qty = (item.quantity || 1).toString().padEnd(4);
-            const name = item.variant || item.name || item.product?.name || 'Prod';
-            // We split name if too long for 58mm (approx 32 chars)
-            addLine(`${qty} ${name}`);
+            const productName = item.product?.name || item.name || 'Producto';
+            const variantName = item.variant || item.name || productName;
+            const hasRealVariant = Boolean(
+                item.variant ||
+                (item.product?.name && variantName !== productName)
+            );
+            
+            const existingGroup = groupedProducts.get(productName) || { hasRealVariant: false, lines: [] };
+            
+            if (hasRealVariant) {
+                existingGroup.hasRealVariant = true;
+                existingGroup.lines.push(`${(item.quantity || 1).toString().padEnd(4)}${variantName}`);
+            } else {
+                existingGroup.lines.push(`${(item.quantity || 1).toString().padEnd(4)}${productName}`);
+            }
+            
+            groupedProducts.set(productName, existingGroup);
         });
-        addLine('-'.repeat(32));
+        
+        // Imprimir productos agrupados
+        Array.from(groupedProducts.entries()).forEach(([productName, group]) => {
+            if (!group.hasRealVariant) {
+                // Sin variantes - imprimir líneas directamente
+                group.lines.forEach(line => {
+                    let name = line.substring(4); // Quitar cantidad
+                    // Cortar nombre si es muy largo
+                    const maxNameLength = 28;
+                    if (name.length > maxNameLength) {
+                        name = name.substring(0, maxNameLength);
+                    }
+                    addLine(`${line.substring(0, 4)}${name}`);
+                });
+            } else {
+                // Con variantes - primero el nombre del producto, luego las variantes
+                let displayProductName = productName;
+                const maxNameLength = 32; // Sin cantidad, puede usar más espacio
+                if (displayProductName.length > maxNameLength) {
+                    displayProductName = displayProductName.substring(0, maxNameLength);
+                }
+                commands.push(...ESC_POS.TEXT_BOLD_ON);
+                addLine(displayProductName);
+                commands.push(...ESC_POS.TEXT_BOLD_OFF);
+                
+                group.lines.forEach(line => {
+                    let name = line.substring(4); // Quitar cantidad
+                    const maxNameLength = 28;
+                    if (name.length > maxNameLength) {
+                        name = name.substring(0, maxNameLength);
+                    }
+                    addLine(`${line.substring(0, 4)}${name}`);
+                });
+            }
+        });
+        addLine('.'.repeat(32));
 
         // Totals
         const subtotal = order.total - (order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0);
@@ -178,21 +229,14 @@ export async function printOrderBluetooth({ order, businessName }: BluetoothPrin
         
         if (order.notas && order.notas.trim() !== '') {
             addLine();
-            addLine('-'.repeat(32));
+            addLine('.'.repeat(32));
             commands.push(...ESC_POS.ALIGN_CENTER);
-            commands.push(...ESC_POS.TEXT_BOLD_ON, ...ESC_POS.TEXT_DOUBLE_SIZE);
             addLine('NOTAS');
-            commands.push(...ESC_POS.ALIGN_LEFT, ...ESC_POS.TEXT_DOUBLE_HEIGHT);
-            addLine(order.notas);
+            commands.push(...ESC_POS.ALIGN_LEFT, ...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
+            addLine(order.notas.toUpperCase());
             commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
-            addLine('-'.repeat(32));
         }
         
-        addLine();
-        
-        commands.push(...ESC_POS.ALIGN_CENTER);
-        addLine('Gracias por su compra!');
-        addLine();
         addLine();
         addLine(); // Extra space for tearing
 
