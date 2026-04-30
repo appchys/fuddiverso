@@ -71,15 +71,10 @@ export async function printOrderBluetooth({ order, businessName }: BluetoothPrin
             commands.push(...ESC_POS.FEED_LINE);
         };
 
-        // Format Date
-        const timestamp = order.timing?.scheduledDate || order.createdAt;
-        const orderDateTime = timestamp instanceof Timestamp ? timestamp.toDate() : new Date(timestamp);
-        const formattedDate = orderDateTime.toLocaleString('es-EC', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
+        // Format Timing and Print Info
+        const createdAtDate = order.createdAt instanceof Timestamp ? order.createdAt.toDate() : new Date(order.createdAt);
+        const formattedCreated = createdAtDate.toLocaleString('es-EC', {
+            day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
         });
 
         // Start Commands
@@ -95,7 +90,20 @@ export async function printOrderBluetooth({ order, businessName }: BluetoothPrin
 
         // Info
         commands.push(...ESC_POS.ALIGN_LEFT);
-        addLine(`Fecha: ${formattedDate}`);
+        
+        if (order.timing?.type === 'scheduled') {
+            const schedTimestamp = order.timing.scheduledDate || order.createdAt;
+            const schedDate = schedTimestamp instanceof Timestamp ? schedTimestamp.toDate() : new Date(schedTimestamp);
+            const dateStr = schedDate.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit' });
+            const timeStr = order.timing.scheduledTime || schedDate.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
+            
+            addLine(`Pedido: PROGRAMADO`);
+            addLine(`Para:   ${dateStr} ${timeStr}`);
+            addLine(`Tomado: ${formattedCreated}`);
+        } else {
+            addLine(`Pedido: INMEDIATO`);
+            addLine(`Fecha:  ${formattedCreated}`);
+        }
         if (order.customer?.name) addLine(`Cliente: ${order.customer.name}`);
         if (order.customer?.phone) addLine(`Telf: ${order.customer.phone}`);
         if (order.delivery?.type === 'delivery' && order.delivery.references) {
