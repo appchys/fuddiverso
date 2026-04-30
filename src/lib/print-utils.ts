@@ -44,27 +44,36 @@ export async function printOrder({ order, businessName, businessLogo }: PrintOrd
         <head>
           <title>Comprobante de Pedido</title>
           <meta charset="utf-8">
+          <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;700&display=swap" rel="stylesheet">
           <style>
             @page { margin: 0; }
             body { 
-              font-family: Arial, sans-serif; 
+              font-family: 'Quicksand', sans-serif; 
               width: 80mm; 
               margin: 0 auto; 
               padding: 10px;
               font-size: 14px;
               line-height: 1.4;
+              color: #333;
             }
             .header { text-align: center; margin-bottom: 10px; }
-            .business-name { font-size: 18px; font-weight: bold; margin: 10px 0; }
+            .business-name { font-size: 20px; font-weight: bold; margin: 10px 0; color: #000; }
             .section { margin: 15px 0; }
-            .section-title { font-weight: bold; border-bottom: 1px solid #000; margin-bottom: 5px; }
+            .section-title { font-weight: bold; border-bottom: 2px solid #eee; margin-bottom: 8px; padding-bottom: 3px; text-transform: uppercase; font-size: 12px; letter-spacing: 1px; }
             .items { width: 100%; border-collapse: collapse; margin: 10px 0; }
-            .items th { text-align: left; border-bottom: 1px solid #000; }
-            .items td { padding: 3px 0; }
-            .total { font-weight: bold; font-size: 16px; margin-top: 10px; }
+            .items th { text-align: left; border-bottom: 1px solid #eee; padding-bottom: 5px; font-size: 12px; }
+            .items td { padding: 6px 0; border-bottom: 1px solid #f9f9f9; }
+            .total { font-weight: bold; font-size: 18px; margin-top: 10px; color: #000; }
             .text-center { text-align: center; }
             .text-right { text-align: right; }
-            .divider { border-top: 1px dashed #000; margin: 10px 0; }
+            .divider { border-top: 1px dashed #ddd; margin: 15px 0; }
+            .notes-container {
+              background-color: #fdf2f2; 
+              padding: 12px; 
+              border: 1px dashed #f87171; 
+              border-radius: 10px;
+              margin: 15px 0;
+            }
           </style>
         </head>
         <body>
@@ -115,6 +124,16 @@ export async function printOrder({ order, businessName, businessLogo }: PrintOrd
           <div class="section">
             <div>Forma de pago: <strong>${paymentMethod}</strong></div>
           </div>
+
+          ${(order.notas && order.notas.trim() !== '') ? `
+            <div class="divider"></div>
+            <div class="notes-container">
+              <div style="font-weight: bold; font-size: 14px; text-transform: uppercase; margin-bottom: 5px; color: #b91c1c;">
+                <i class="bi bi-chat-heart"></i> Mensaje / Notas:
+              </div>
+              <div style="font-size: 16px; line-height: 1.5; color: #000;">${order.notas}</div>
+            </div>
+          ` : ''}
 
           <div class="section text-center">
             <div>¡Gracias por su compra!</div>

@@ -21,6 +21,7 @@ const ESC_POS = {
     TEXT_NORMAL: [0x1D, 0x21, 0x00],
     TEXT_DOUBLE_HEIGHT: [0x1D, 0x21, 0x01],
     TEXT_DOUBLE_WIDTH: [0x1D, 0x21, 0x10],
+    TEXT_DOUBLE_SIZE: [0x1D, 0x21, 0x11],
     TEXT_BOLD_ON: [0x1B, 0x45, 0x01],
     TEXT_BOLD_OFF: [0x1B, 0x45, 0x00],
     PAPER_CUT: [0x1D, 0x56, 0x41, 0x03],
@@ -109,9 +110,6 @@ export async function printOrderBluetooth({ order, businessName }: BluetoothPrin
         if (order.delivery?.type === 'delivery' && order.delivery.references) {
             addLine(`Dir: ${order.delivery.references}`);
         }
-        if (order.notas) {
-            addLine(`Notas: ${order.notas}`);
-        }
         addLine('-'.repeat(32));
 
         // Items
@@ -142,6 +140,19 @@ export async function printOrderBluetooth({ order, businessName }: BluetoothPrin
                             order.payment?.method === 'mixed' ? 'Pago Mixto' : 
                             'Sin especificar';
         addLine(`Pago: ${paymentMethod}`);
+        
+        if (order.notas && order.notas.trim() !== '') {
+            addLine();
+            addLine('-'.repeat(32));
+            commands.push(...ESC_POS.ALIGN_CENTER);
+            commands.push(...ESC_POS.TEXT_BOLD_ON, ...ESC_POS.TEXT_DOUBLE_SIZE);
+            addLine('NOTAS');
+            commands.push(...ESC_POS.ALIGN_LEFT, ...ESC_POS.TEXT_DOUBLE_HEIGHT);
+            addLine(order.notas);
+            commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
+            addLine('-'.repeat(32));
+        }
+        
         addLine();
         
         commands.push(...ESC_POS.ALIGN_CENTER);
