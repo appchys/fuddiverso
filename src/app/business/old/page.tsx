@@ -2342,7 +2342,8 @@ export default function BusinessDashboard() {
                         await printOrder({
                           order: order as any,
                           businessName: business?.name || '',
-                          businessLogo: business?.image
+                          businessLogo: business?.image,
+                          groupItemsByProduct: business?.notificationSettings?.groupItemsByProduct ?? true
                         })
                       } catch (error: any) {
                         alert(error.message || 'Error al imprimir')

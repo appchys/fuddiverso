@@ -1,5 +1,6 @@
 import { PrintableOrder } from '@/types/order'
 import { Timestamp } from 'firebase/firestore'
+import logoUrl from '@/assets/logo.png'
 
 // Common Bluetooth Printer UUIDs
 const PRINTER_SERVICE_UUID = '000018f0-0000-1000-8000-00805f9b34fb'
@@ -8,6 +9,7 @@ const PRINTER_CHARACTERISTIC_UUID = '00002af1-0000-1000-8000-00805f9b34fb'
 export interface BluetoothPrintOptions {
     order: PrintableOrder
     businessName: string
+    businessLogo?: string
     groupItemsByProduct?: boolean
 }
 
@@ -29,7 +31,171 @@ const ESC_POS = {
     FEED_LINE: [0x0A],
 }
 
-export async function printOrderBluetooth({ order, businessName, groupItemsByProduct = true }: BluetoothPrintOptions) {
+/**
+ * Converts an image URL to ESC/POS GS v 0 bitmask commands
+ */
+async function getImageCommands(url: string, maxWidth: number = 384): Promise<number[]> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+        img.src = url;
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return reject('No se pudo obtener el contexto del canvas');
+
+            // Resize to fit maxWidth (usually 384 for 58mm printers)
+            let width = img.width;
+            let height = img.height;
+            if (width > maxWidth) {
+                height = Math.floor(height * (maxWidth / width));
+                width = maxWidth;
+            }
+            
+            // ESC/POS requires width to be a multiple of 8
+            width = Math.floor(width / 8) * 8;
+            
+            canvas.width = width;
+            canvas.height = height;
+            
+            // Fill with white background (important for transparent PNGs)
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const pixels = imageData.data;
+            const bitData: number[] = [];
+            
+            // Convert to monochrome (1 bit per pixel)
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x += 8) {
+                    let byte = 0;
+                    for (let bit = 0; bit < 8; bit++) {
+                        const i = ((y * width) + (x + bit)) * 4;
+                        // Grayscale conversion: 0.299R + 0.587G + 0.114B
+                        const brightness = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
+                        // If it's dark enough, set the bit (black)
+                        // Using a threshold of 180 for better clarity on thermal paper
+                        if (brightness < 180) {
+                            byte |= (1 << (7 - bit));
+                        }
+                    }
+                    bitData.push(byte);
+                }
+            }
+            
+            const xL = (width / 8) % 256;
+            const xH = Math.floor((width / 8) / 256);
+            const yL = height % 256;
+            const yH = Math.floor(height / 256);
+            
+            const commands = [
+                0x1D, 0x76, 0x30, 0x00, // GS v 0 0
+                xL, xH, yL, yH,
+                ...bitData
+            ];
+            resolve(commands);
+        };
+        img.onerror = (err) => reject(`Error cargando imagen: ${err}`);
+    });
+}
+
+/**
+ * Converts an image URL to ESC/POS bitmask commands applying a CIRCULAR MASK.
+ * The result is a square canvas where pixels outside the inscribed circle are white.
+ */
+async function getCircularImageCommands(url: string, size: number = 120): Promise<number[]> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+        img.src = url;
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return reject('No se pudo obtener el contexto del canvas');
+
+            // ESC/POS requires width to be a multiple of 8
+            const width = Math.floor(size / 8) * 8;
+            const height = width; // Keep it square so the circle is symmetric
+
+            canvas.width = width;
+            canvas.height = height;
+
+            // 1. Fill with white background
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, width, height);
+
+            // 2. Apply circular clip path
+            const cx = width / 2;
+            const cy = height / 2;
+            const radius = Math.min(cx, cy) - 1; // -1 for a thin white border
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+
+            // 3. Draw image inside the clipped circle (cover-style)
+            const imgAspect = img.width / img.height;
+            let drawW = width;
+            let drawH = height;
+            let drawX = 0;
+            let drawY = 0;
+            if (imgAspect > 1) {
+                drawW = height * imgAspect;
+                drawX = -(drawW - width) / 2;
+            } else {
+                drawH = width / imgAspect;
+                drawY = -(drawH - height) / 2;
+            }
+            ctx.drawImage(img, drawX, drawY, drawW, drawH);
+            ctx.restore();
+
+            // 4. Draw a thin circular border
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.stroke();
+
+            // 5. Convert to monochrome ESC/POS bitmap
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const pixels = imageData.data;
+            const bitData: number[] = [];
+
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x += 8) {
+                    let byte = 0;
+                    for (let bit = 0; bit < 8; bit++) {
+                        const i = ((y * width) + (x + bit)) * 4;
+                        const brightness = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
+                        if (brightness < 180) {
+                            byte |= (1 << (7 - bit));
+                        }
+                    }
+                    bitData.push(byte);
+                }
+            }
+
+            const xL = (width / 8) % 256;
+            const xH = Math.floor((width / 8) / 256);
+            const yL = height % 256;
+            const yH = Math.floor(height / 256);
+
+            const commands = [
+                0x1D, 0x76, 0x30, 0x00,
+                xL, xH, yL, yH,
+                ...bitData
+            ];
+            resolve(commands);
+        };
+        img.onerror = (err) => reject(`Error cargando logo de tienda: ${err}`);
+    });
+}
+
+export async function printOrderBluetooth({ order, businessName, businessLogo, groupItemsByProduct = true }: BluetoothPrintOptions) {
     let device: BluetoothDevice | null = null;
     try {
         // 1. Request Device
@@ -82,8 +248,17 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
         // Start Commands
         commands.push(...ESC_POS.INIT);
         
-        // Header
+        // Header — logo circular de la tienda (si existe)
         commands.push(...ESC_POS.ALIGN_CENTER);
+        if (businessLogo) {
+            try {
+                const bizLogoCommands = await getCircularImageCommands(businessLogo, 120);
+                commands.push(...bizLogoCommands);
+                commands.push(...ESC_POS.FEED_LINE);
+            } catch (e) {
+                console.warn('No se pudo cargar el logo de la tienda:', e);
+            }
+        }
         commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_BOLD_ON);
         addLine(businessName.toUpperCase());
         commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
@@ -322,9 +497,17 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
         
         // Footer
         commands.push(...ESC_POS.ALIGN_CENTER);
-        commands.push(...ESC_POS.TEXT_BOLD_ON);
-        addLine('www.fuddi.shop');
-        commands.push(...ESC_POS.TEXT_BOLD_OFF);
+        
+        // Agregar Logo de Fuddi
+        try {
+            const logoCommands = await getImageCommands((logoUrl as any).src || logoUrl, 120); // 120px width for the logo
+            commands.push(...ESC_POS.ALIGN_CENTER);
+            commands.push(...logoCommands);
+            commands.push(...ESC_POS.FEED_LINE);
+        } catch (e) {
+            console.warn('No se pudo cargar el logo para la impresión:', e);
+        }
+        
         commands.push(...ESC_POS.ALIGN_LEFT);
         
         // Espacio extra para evitar corte en impresora

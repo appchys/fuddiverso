@@ -1084,13 +1084,15 @@ export default function TodayOrdersPage() {
                 await printOrderBluetooth({
                     order: order as any,
                     businessName: business?.name || "Negocio",
+                    businessLogo: business?.image,
                     groupItemsByProduct: business?.notificationSettings?.groupItemsByProduct ?? true
                 })
             } else {
                 await printOrder({
                     order: order as any,
                     businessName: business?.name || "Negocio",
-                    businessLogo: business?.image
+                    businessLogo: business?.image,
+                    groupItemsByProduct: business?.notificationSettings?.groupItemsByProduct ?? true
                 })
             }
         } catch (e: any) {
