@@ -292,8 +292,10 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
             
             commands.push(...ESC_POS.ALIGN_RIGHT);
             addLine(`PROGRAMADO`);
+            commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
+            addLine(dateStr);
             commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
-            addLine(`${dateStr} - ${timeStr}`);
+            addLine(timeStr);
             commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
             commands.push(...ESC_POS.ALIGN_LEFT);
             addLine();
@@ -492,7 +494,6 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
             addLine(); // Espacio extra después de notas
         }
         
-        addLine();
         addLine(); // Extra space for tearing
         
         // Footer
@@ -511,7 +512,6 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
         commands.push(...ESC_POS.ALIGN_LEFT);
         
         // Espacio extra para evitar corte en impresora
-        addLine();
         addLine();
         addLine();
         addLine();
