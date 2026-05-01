@@ -87,7 +87,6 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
         commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_BOLD_ON);
         addLine(businessName.toUpperCase());
         commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
-        addLine(order.delivery?.type === 'delivery' ? '--- DELIVERY ---' : '--- RETIRO ---');
         addLine();
 
         // Info
@@ -118,16 +117,48 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
             
             commands.push(...ESC_POS.ALIGN_RIGHT);
             addLine(`PROGRAMADO`);
+            commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
             addLine(`${dateStr} - ${timeStr}`);
+            commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
             commands.push(...ESC_POS.ALIGN_LEFT);
             addLine();
         } else {
-            addLine(`Pedido: INMEDIATO`);
-            addLine(`Fecha:  ${formattedCreated}`);
+            // Para pedidos inmediatos, usar la hora programada si existe
+            const timeStr = order.timing?.scheduledTime || 
+                           createdAtDate.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
+            
+            commands.push(...ESC_POS.ALIGN_RIGHT);
+            addLine(`INMEDIATO`);
+            commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
+            addLine(timeStr);
+            commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
+            commands.push(...ESC_POS.ALIGN_LEFT);
+            addLine();
         }
         if (order.customer?.name) {
             commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
-            addLine(order.customer.name.toUpperCase());
+            
+            // Word wrap para nombre del cliente - dividir por palabras
+            const nameText = order.customer.name.toUpperCase();
+            const maxCharsPerLine = 12; // Aproximado para texto con doble tamaño
+            const words = nameText.split(' ');
+            let currentLine = '';
+            
+            words.forEach(word => {
+                if (currentLine.length === 0) {
+                    currentLine = word;
+                } else if ((currentLine + ' ' + word).length <= maxCharsPerLine) {
+                    currentLine += ' ' + word;
+                } else {
+                    addLine(currentLine);
+                    currentLine = word;
+                }
+            });
+            
+            if (currentLine.length > 0) {
+                addLine(currentLine);
+            }
+            
             commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
         }
         if (order.delivery?.type === 'delivery' && order.delivery.references) {
@@ -153,6 +184,9 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
             if (currentLine.length > 0) {
                 addLine(firstLine ? currentLine : `    ${currentLine}`);
             }
+        } else if (order.delivery?.type === 'pickup') {
+            // Mostrar mensaje para retiro en tienda con formato normal como dirección
+            addLine('RETIRO EN TIENDA');
         }
         addLine('.'.repeat(32));
 
@@ -292,6 +326,12 @@ export async function printOrderBluetooth({ order, businessName, groupItemsByPro
         addLine('www.fuddi.shop');
         commands.push(...ESC_POS.TEXT_BOLD_OFF);
         commands.push(...ESC_POS.ALIGN_LEFT);
+        
+        // Espacio extra para evitar corte en impresora
+        addLine();
+        addLine();
+        addLine();
+        addLine();
 
         // 3. Send in Chunks
         const data = new Uint8Array(commands);
