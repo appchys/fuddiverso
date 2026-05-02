@@ -428,10 +428,32 @@ function BusinessRegisterForm() {
                 </div>
               </div>
 
+              {/* Sección: Contacto */}
+              <div className="space-y-6">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">3</span>
+                  <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Contacto</h3>
+                </div>
+
+                {/* Teléfono */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">WhatsApp de Pedidos</label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handleChange}
+                    className={`w-full px-5 py-4 bg-gray-50 border-2 rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300 ${errors.phone ? 'border-red-200' : 'border-transparent focus:border-red-500'}`}
+                    placeholder="09XXXXXXXX"
+                  />
+                  {errors.phone && <p className="text-red-500 text-[10px] font-bold ml-1">{errors.phone}</p>}
+                </div>
+              </div>
+
               {/* Sección: Delivery */}
               <div className="space-y-4">
                 <div className="flex items-center gap-3 mb-2">
-                  <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">3</span>
+                  <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">4</span>
                   <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Servicio de Delivery</h3>
                 </div>
 
@@ -506,28 +528,6 @@ function BusinessRegisterForm() {
                     </p>
                   </div>
                 )}
-              </div>
-
-              {/* Sección: Contacto */}
-              <div className="space-y-6">
-                <div className="flex items-center gap-3 mb-2">
-                  <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">4</span>
-                  <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Contacto</h3>
-                </div>
-
-                {/* Teléfono */}
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">WhatsApp de Pedidos</label>
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={formData.phone}
-                    onChange={handleChange}
-                    className={`w-full px-5 py-4 bg-gray-50 border-2 rounded-2xl focus:bg-white focus:ring-4 focus:ring-red-500/5 transition-all duration-300 font-bold text-gray-900 placeholder:text-gray-300 ${errors.phone ? 'border-red-200' : 'border-transparent focus:border-red-500'}`}
-                    placeholder="09XXXXXXXX"
-                  />
-                  {errors.phone && <p className="text-red-500 text-[10px] font-bold ml-1">{errors.phone}</p>}
-                </div>
               </div>
 
               {/* Sección: Identidad Visual */}
