@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { onAuthStateChanged, User } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
 import { validateEcuadorianPhone } from '@/lib/validation'
-import { createBusinessFromForm, uploadImage, updateBusiness, serverTimestamp } from '@/lib/database'
+import { createBusinessFromForm, uploadImage, updateBusiness, serverTimestamp, createDelivery } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
 
 function BusinessRegisterForm() {
@@ -21,6 +21,7 @@ function BusinessRegisterForm() {
     phone: '',
     category: '',
     businessType: 'food_store' as 'food_store' | 'distributor',
+    deliveryServiceType: 'fuddi' as 'fuddi' | 'self',
     image: null as File | null,
     coverImage: null as File | null
   })
@@ -111,23 +112,44 @@ function BusinessRegisterForm() {
         deliveryTime: 30
       })
 
+      // Guardar tipo de servicio de delivery
+      const deliveryUpdates: Record<string, any> = {
+        deliveryServiceType: formData.deliveryServiceType,
+        lastRegistrationAt: serverTimestamp(),
+        lastLoginAt: serverTimestamp(),
+        loginSource: 'business_portal'
+      }
+
+      // Si autogestión: crear repartidor predeterminado automáticamente
+      if (formData.deliveryServiceType === 'self') {
+        try {
+          const selfDeliveryId = await createDelivery({
+            nombres: `${formData.name} - Delivery`,
+            celular: formData.phone,
+            email: currentUser.email || '',
+            estado: 'activo',
+            fechaRegistro: new Date().toISOString(),
+          })
+          deliveryUpdates.defaultDeliveryId = selfDeliveryId
+        } catch (deliveryErr) {
+          console.error('Error creating self-delivery record:', deliveryErr)
+          // No bloquear el registro si falla la creación del repartidor
+        }
+      }
+
+      // Aplicar todas las actualizaciones del negocio
+      try {
+        await updateBusiness(businessId, deliveryUpdates)
+      } catch (err) {
+        console.error('Error updating business after creation:', err)
+      }
+
       // Guardar información en localStorage para la sesión
       localStorage.setItem('businessId', businessId)
       localStorage.setItem('ownerId', currentUser.uid)
 
       // Limpiar el caché de acceso a negocios para que el dashboard fuerce un refresco
       localStorage.removeItem(`businessAccess:${currentUser.uid}`)
-
-      // Marcar fecha de registro
-      try {
-        await updateBusiness(businessId, {
-          lastRegistrationAt: serverTimestamp(),
-          lastLoginAt: serverTimestamp(), // También cuenta como primer login
-          loginSource: 'business_portal'
-        });
-      } catch (err) {
-        console.error('Error recording business registration time:', err);
-      }
 
       // Redirigir al dashboard
       router.push('/business/dashboard')
@@ -406,10 +428,90 @@ function BusinessRegisterForm() {
                 </div>
               </div>
 
+              {/* Sección: Delivery */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">3</span>
+                  <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Servicio de Delivery</h3>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Autogestión */}
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, deliveryServiceType: 'self' }))}
+                    className={`relative flex flex-col gap-3 p-5 rounded-2xl border-2 text-left transition-all duration-300 ${
+                      formData.deliveryServiceType === 'self'
+                        ? 'border-orange-500 bg-orange-50 shadow-md ring-1 ring-orange-50'
+                        : 'border-gray-100 bg-gray-50/50 hover:border-gray-200'
+                    }`}
+                  >
+                    {formData.deliveryServiceType === 'self' && (
+                      <span className="absolute top-3 right-3 w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center">
+                        <i className="bi bi-check text-white text-xs" />
+                      </span>
+                    )}
+                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${
+                      formData.deliveryServiceType === 'self' ? 'bg-orange-100' : 'bg-white shadow-sm'
+                    }`}>
+                      <i className={`bi bi-person-badge text-xl ${
+                        formData.deliveryServiceType === 'self' ? 'text-orange-600' : 'text-gray-400'
+                      }`} />
+                    </div>
+                    <div>
+                      <p className={`font-black text-xs uppercase tracking-widest ${
+                        formData.deliveryServiceType === 'self' ? 'text-orange-700' : 'text-gray-600'
+                      }`}>Autogestión</p>
+                      <p className="text-gray-400 text-[9px] font-bold mt-1 leading-relaxed">Mi tienda gestiona sus propias entregas con repartidor propio.</p>
+                    </div>
+                  </button>
+
+                  {/* Delivery Fuddi */}
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, deliveryServiceType: 'fuddi' }))}
+                    className={`relative flex flex-col gap-3 p-5 rounded-2xl border-2 text-left transition-all duration-300 ${
+                      formData.deliveryServiceType === 'fuddi'
+                        ? 'border-red-500 bg-red-50 shadow-md ring-1 ring-red-50'
+                        : 'border-gray-100 bg-gray-50/50 hover:border-gray-200'
+                    }`}
+                  >
+                    {formData.deliveryServiceType === 'fuddi' && (
+                      <span className="absolute top-3 right-3 w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
+                        <i className="bi bi-check text-white text-xs" />
+                      </span>
+                    )}
+                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${
+                      formData.deliveryServiceType === 'fuddi' ? 'bg-red-100' : 'bg-white shadow-sm'
+                    }`}>
+                      <i className={`bi bi-scooter text-xl ${
+                        formData.deliveryServiceType === 'fuddi' ? 'text-red-600' : 'text-gray-400'
+                      }`} />
+                    </div>
+                    <div>
+                      <p className={`font-black text-xs uppercase tracking-widest ${
+                        formData.deliveryServiceType === 'fuddi' ? 'text-red-700' : 'text-gray-600'
+                      }`}>Delivery Fuddi</p>
+                      <p className="text-gray-400 text-[9px] font-bold mt-1 leading-relaxed">Fuddi busca y asigna un repartidor según la zona del cliente.</p>
+                    </div>
+                  </button>
+                </div>
+
+                {/* Note for self mode */}
+                {formData.deliveryServiceType === 'self' && (
+                  <div className="flex items-start gap-3 p-4 bg-orange-50/80 border border-orange-100 rounded-2xl">
+                    <i className="bi bi-info-circle-fill text-orange-400 mt-0.5 flex-shrink-0" />
+                    <p className="text-[10px] font-bold text-orange-700 leading-relaxed">
+                      Se creará automáticamente un repartidor con el nombre <strong>"{formData.name || 'Tu tienda'} - Delivery"</strong> y el número <strong>{formData.phone || '09XXXXXXXX'}</strong>. Podrás editarlo desde el panel admin.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Sección: Contacto */}
               <div className="space-y-6">
                 <div className="flex items-center gap-3 mb-2">
-                  <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">2</span>
+                  <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">4</span>
                   <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Contacto</h3>
                 </div>
 
@@ -428,10 +530,10 @@ function BusinessRegisterForm() {
                 </div>
               </div>
 
-              {/* Sección: Diseño Visual */}
+              {/* Sección: Identidad Visual */}
               <div className="space-y-6">
                 <div className="flex items-center gap-3 mb-2">
-                  <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">3</span>
+                  <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-black">5</span>
                   <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Identidad Visual</h3>
                 </div>
 

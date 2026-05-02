@@ -1050,7 +1050,7 @@ export default function AdminDashboard() {
                           return (
                             <a
                               key={business.id}
-                              href={`/business/${business.username || business.id}/dashboard`}
+                              href={`/admin/stores/${business.id}`}
                               className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 flex items-center gap-4 hover:shadow-md transition-all group cursor-pointer"
                             >
                               <div className="w-16 h-16 rounded-full border border-gray-100 bg-gray-50 overflow-hidden flex-shrink-0">

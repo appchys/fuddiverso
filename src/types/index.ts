@@ -45,6 +45,7 @@ export interface Business {
   isActive: boolean
   deliveryTime?: number // Tiempo de entrega estimado en minutos
   defaultDeliveryId?: string // ID del delivery predeterminado asignado a la tienda
+  deliveryServiceType?: 'self' | 'fuddi' // Tipo de servicio de delivery: autogestión (self) o Fuddi busca repartidor (fuddi)
   createdAt: Date
   updatedAt: Date
   lastLoginAt?: any
