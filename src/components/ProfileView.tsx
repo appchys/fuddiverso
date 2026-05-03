@@ -15,8 +15,10 @@ import {
   storage,
   getUserReferrals,
   getAllUserCredits,
-  getWalletTransactions
+  getWalletTransactions,
+  getUserBusinessAccess
 } from '@/lib/database'
+import { Business } from '@/types'
 import CartSidebar from '@/components/CartSidebar'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
@@ -46,7 +48,7 @@ interface EnrichedCard {
 export default function ProfileView({ isModal = false, onClose }: { isModal?: boolean, onClose?: () => void }) {
   const { user, isAuthenticated, login } = useAuth()
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<'locations' | 'cards' | 'reviews' | 'info' | 'recommendations'>('cards')
+  const [activeTab, setActiveTab] = useState<'locations' | 'cards' | 'reviews' | 'info' | 'recommendations' | 'business'>('cards')
   const [authLoading, setAuthLoading] = useState(true)
 
   // DATA STATES
@@ -85,6 +87,10 @@ export default function ProfileView({ isModal = false, onClose }: { isModal?: bo
   // WALLET STATES
   const [walletTransactions, setWalletTransactions] = useState<any[]>([])
   const [walletBalance, setWalletBalance] = useState({ referralCredits: 0, manualBalance: 0 })
+
+  // BUSINESS STATES
+  const [userBusinesses, setUserBusinesses] = useState<{ owned: Business[], admin: Business[] }>({ owned: [], admin: [] })
+  const [loadingBusinesses, setLoadingBusinesses] = useState(false)
   // INIT
   useEffect(() => {
     setAuthLoading(false)
@@ -106,7 +112,7 @@ export default function ProfileView({ isModal = false, onClose }: { isModal?: bo
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)
       const tab = params.get('tab')
-      if (tab === 'recommendations' || tab === 'locations' || tab === 'cards' || tab === 'reviews' || tab === 'info') {
+      if (tab === 'recommendations' || tab === 'locations' || tab === 'cards' || tab === 'reviews' || tab === 'info' || tab === 'business') {
         setActiveTab(tab as any)
       }
     }
@@ -296,6 +302,19 @@ export default function ProfileView({ isModal = false, onClose }: { isModal?: bo
         console.error('Error loading referral data:', error)
       } finally {
         setLoadingReferrals(false)
+      }
+    }
+
+    // 4. Cargar Negocios del Usuario
+    if (user?.email && user?.id) {
+      setLoadingBusinesses(true)
+      try {
+        const access = await getUserBusinessAccess(user.email, user.id)
+        setUserBusinesses({ owned: access.ownedBusinesses, admin: access.adminBusinesses })
+      } catch (e) {
+        console.error('Error loading user businesses:', e)
+      } finally {
+        setLoadingBusinesses(false)
       }
     }
   }
@@ -711,6 +730,18 @@ export default function ProfileView({ isModal = false, onClose }: { isModal?: bo
               </span>
             </button>
             <button
+              onClick={() => setActiveTab('business')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm mr-8 whitespace-nowrap ${activeTab === 'business'
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+            >
+              Mis Negocios
+              <span className="ml-2 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">
+                {userBusinesses.owned.length + userBusinesses.admin.length}
+              </span>
+            </button>
+            <button
               onClick={() => setActiveTab('info')}
               className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${activeTab === 'info'
                 ? 'border-gray-900 text-gray-900'
@@ -725,6 +756,129 @@ export default function ProfileView({ isModal = false, onClose }: { isModal?: bo
 
       {/* 2. TAB CONTENT */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 mt-6">
+
+        {/* NEGOCIOS */}
+        {activeTab === 'business' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <h3 className="text-xl font-black text-gray-900">Gestión de Negocios</h3>
+              <Link
+                href="/business/register"
+                className="inline-flex items-center justify-center px-6 py-3 bg-[#aa1918] text-white font-bold rounded-2xl hover:bg-[#8e1514] transition-all shadow-lg shadow-red-900/10 active:scale-95"
+              >
+                <i className="bi bi-plus-lg mr-2"></i>
+                Crear nueva tienda
+              </Link>
+            </div>
+
+            {loadingBusinesses ? (
+              <div className="py-12 text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-50 border-t-red-600 mx-auto"></div>
+                <p className="text-gray-500 mt-4 font-medium">Cargando tus negocios...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Owned Businesses */}
+                {userBusinesses.owned.map((biz) => (
+                  <div key={biz.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all group">
+                    <div className="p-5 flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-2xl bg-gray-100 flex-shrink-0 overflow-hidden border border-gray-100">
+                        {biz.image ? (
+                          <img src={biz.image} alt={biz.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-400">
+                            <i className="bi bi-shop text-2xl"></i>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-gray-900 truncate">{biz.name}</h4>
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-600 text-[10px] font-black uppercase tracking-widest">Dueño</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">@{biz.username}</p>
+                        <div className="flex items-center gap-3 mt-2">
+                          <Link
+                            href={`/${biz.username}`}
+                            className="text-[10px] font-bold text-blue-600 hover:underline uppercase tracking-widest"
+                          >
+                            Ver Tienda
+                          </Link>
+                          <Link
+                            href="/business/dashboard"
+                            onClick={() => {
+                              if (biz.id) localStorage.setItem('businessId', biz.id)
+                            }}
+                            className="text-[10px] font-bold text-[#aa1918] hover:underline uppercase tracking-widest"
+                          >
+                            Ir al Panel
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Admin Businesses */}
+                {userBusinesses.admin.map((biz) => (
+                  <div key={biz.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all group">
+                    <div className="p-5 flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-2xl bg-gray-100 flex-shrink-0 overflow-hidden border border-gray-100">
+                        {biz.image ? (
+                          <img src={biz.image} alt={biz.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-400">
+                            <i className="bi bi-shop text-2xl"></i>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-gray-900 truncate">{biz.name}</h4>
+                          <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-600 text-[10px] font-black uppercase tracking-widest">Admin</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">@{biz.username}</p>
+                        <div className="flex items-center gap-3 mt-2">
+                          <Link
+                            href={`/${biz.username}`}
+                            className="text-[10px] font-bold text-blue-600 hover:underline uppercase tracking-widest"
+                          >
+                            Ver Tienda
+                          </Link>
+                          <Link
+                            href="/business/dashboard"
+                            onClick={() => {
+                              if (biz.id) localStorage.setItem('businessId', biz.id)
+                            }}
+                            className="text-[10px] font-bold text-[#aa1918] hover:underline uppercase tracking-widest"
+                          >
+                            Ir al Panel
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {userBusinesses.owned.length === 0 && userBusinesses.admin.length === 0 && (
+                  <div className="col-span-full py-12 text-center bg-white rounded-2xl border border-dashed border-gray-300">
+                    <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <i className="bi bi-shop-window text-3xl text-gray-300"></i>
+                    </div>
+                    <p className="text-gray-900 font-bold mb-1">Aún no tienes negocios</p>
+                    <p className="text-gray-500 text-sm mb-6 max-w-xs mx-auto">Digitaliza tu negocio hoy mismo y empieza a vender en Fuddiverso.</p>
+                    <Link
+                      href="/business/register"
+                      className="inline-flex items-center justify-center px-8 py-3 bg-[#aa1918] text-white font-bold rounded-2xl hover:bg-[#8e1514] transition-all"
+                    >
+                      Empezar Ahora
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* TARJETAS */}
         {activeTab === 'cards' && (

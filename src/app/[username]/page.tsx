@@ -511,7 +511,7 @@ function RestaurantContent() {
   const { user: clientUser } = useAuth()
   const params = useParams()
   const router = useRouter()
-  const username = params.username as string
+  const username = typeof params?.username === 'string' ? params.username : Array.isArray(params?.username) ? params.username[0] : ''
 
   const [business, setBusiness] = useState<Business | null>(null)
   const [products, setProducts] = useState<Product[]>([])
@@ -1348,6 +1348,15 @@ function RestaurantContent() {
                   <i className="bi bi-share text-xl"></i>
                   Compartir
                 </button>
+                {isOwner && (
+                  <Link
+                    href="/business/dashboard"
+                    className="flex flex-col items-center justify-center min-w-[80px] sm:min-w-[100px] aspect-square py-3 px-2 rounded-xl text-xs font-bold text-gray-400 hover:text-gray-900 hover:bg-white transition-all duration-300 gap-2"
+                  >
+                    <i className="bi bi-gear text-xl"></i>
+                    Administrar
+                  </Link>
+                )}
               </div>
             </div>
           </div>
