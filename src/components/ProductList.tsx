@@ -677,6 +677,46 @@ export default function ProductList({
     }
   }
 
+  const handleDuplicateProduct = async (product: Product) => {
+    if (!business?.id) return
+
+    try {
+      // Preparar los datos del nuevo producto basado en el actual
+      const productData = {
+        name: `${product.name} (Copia)`,
+        description: product.description,
+        price: product.price,
+        basePrice: product.basePrice,
+        commission: product.commission,
+        commissionType: product.commissionType,
+        category: product.category,
+        image: product.image,
+        variants: product.variants,
+        ingredients: product.ingredients,
+        isAvailable: product.isAvailable,
+        scheduleAvailability: product.scheduleAvailability,
+        businessId: business.id,
+        updatedAt: new Date(),
+        order: (product.order || 0) + 1 // Intentar colocarlo cerca
+      }
+
+      const newProductId = await createProduct(productData, business.username)
+      
+      const newProduct: Product = {
+        ...productData,
+        id: newProductId,
+        createdAt: new Date(),
+        businessId: business.id
+      } as Product
+
+      onProductsChange([...products, newProduct])
+      alert('Producto duplicado correctamente')
+    } catch (error) {
+      console.error('Error duplicando producto:', error)
+      alert('Error al duplicar el producto')
+    }
+  }
+
   const handleDeleteProduct = async (productId: string) => {
     if (!confirm('¿Seguro que quieres eliminar este producto?')) return
 
@@ -916,6 +956,16 @@ export default function ProductList({
                             >
                               <i className="bi bi-pencil text-blue-600"></i>
                               Editar
+                            </button>
+                            <button
+                              onClick={() => {
+                                handleDuplicateProduct(product)
+                                setActiveMenu(null)
+                              }}
+                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                            >
+                              <i className="bi bi-files text-amber-600"></i>
+                              Duplicar
                             </button>
                             <button
                               onClick={async () => {
