@@ -936,7 +936,8 @@ export default function ProductList({
                   {categoryProducts.map((product, pIndex) => (
                     <div
                       key={product.id}
-                      className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 ${product.isAvailable
+                      onClick={() => handleEditProduct(product)}
+                      className={`group relative flex items-center bg-white p-4 rounded-2xl border transition-all duration-300 cursor-pointer ${product.isAvailable
                         ? 'border-gray-100 shadow-sm hover:shadow-md hover:border-red-100'
                         : 'border-gray-200 bg-gray-50/50'
                         }`}
@@ -996,7 +997,10 @@ export default function ProductList({
                       {/* Botones de acción - Desplegable */}
                       <div className="absolute top-3 right-3 product-action-menu z-20">
                         <button
-                          onClick={() => setActiveMenu(activeMenu === product.id ? null : product.id)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setActiveMenu(activeMenu === product.id ? null : product.id)
+                          }}
                           className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-white shadow-sm border border-gray-100 transition-all active:scale-95 bg-white"
                         >
                           <i className="bi bi-three-dots-vertical text-lg"></i>
@@ -1005,7 +1009,8 @@ export default function ProductList({
                         {activeMenu === product.id && (
                           <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation()
                                 handleToggleAvailability(product.id, product.isAvailable)
                                 setActiveMenu(null)
                               }}
@@ -1015,7 +1020,8 @@ export default function ProductList({
                               {product.isAvailable ? 'Ocultar' : 'Mostrar'}
                             </button>
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation()
                                 handleEditProduct(product)
                                 setActiveMenu(null)
                               }}
@@ -1025,7 +1031,8 @@ export default function ProductList({
                               Editar
                             </button>
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation()
                                 handleDuplicateProduct(product)
                                 setActiveMenu(null)
                               }}
@@ -1035,7 +1042,8 @@ export default function ProductList({
                               Duplicar
                             </button>
                             <button
-                              onClick={async () => {
+                              onClick={async (e) => {
+                                e.stopPropagation()
                                 const productUrl = `${window.location.origin}/${business?.username}/${product.slug || product.id}`
                                 try {
                                   if (navigator.clipboard && window.isSecureContext) {
@@ -1066,14 +1074,20 @@ export default function ProductList({
                               Mover
                               <div className="flex gap-1">
                                 <button
-                                  onClick={() => moveProduct(product, 'up')}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    moveProduct(product, 'up')
+                                  }}
                                   disabled={pIndex === 0}
                                   className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
                                 >
                                   <i className="bi bi-chevron-up"></i>
                                 </button>
                                 <button
-                                  onClick={() => moveProduct(product, 'down')}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    moveProduct(product, 'down')
+                                  }}
                                   disabled={pIndex === categoryProducts.length - 1}
                                   className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30"
                                 >
@@ -1083,7 +1097,8 @@ export default function ProductList({
                             </div>
                             <div className="border-t border-gray-50 my-1"></div>
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation()
                                 handleDeleteProduct(product.id)
                                 setActiveMenu(null)
                               }}
