@@ -3,13 +3,16 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth'
 import { useAuth } from '@/contexts/AuthContext'
+import { auth } from '@/lib/firebase'
 import { Flame, User, Ticket, Headphones, Bell, Info, Store, Heart, Star, ChevronRight, ChevronUp, ChevronDown, X, ArrowLeft, MapPin, Wallet, Settings, Map, LogOut, Trash2, ShoppingCart, CircleDollarSign } from 'lucide-react'
 import {
     searchClientByPhone, createClient, updateClient, getClientLocations,
     serverTimestamp, createClientLocation, deleteLocation,
     getUserReferrals, getAllUserCredits, getOrdersByClient, getBusiness,
-    getClientNotifications, markClientNotificationAsRead, getClientStoreRatings, updateStoreRatingById
+    getClientNotifications, markClientNotificationAsRead, getClientStoreRatings, updateStoreRatingById,
+    getUserBusinessAccess, getAllUserQRProgress, getQRCodesByBusiness
 } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
 import LocationSelectionModal from '@/components/LocationSelectionModal'
@@ -905,6 +908,184 @@ function ClientPersonalInfoSidebar({
     )
 }
 
+function ClientCouponsSidebar({
+    isOpen,
+    onClose,
+    cards,
+    loading,
+    formatDate
+}: {
+    isOpen: boolean
+    onClose: () => void
+    cards: any[]
+    loading: boolean
+    formatDate: (value: any) => string
+}) {
+    const totalScanned = cards.reduce((sum, card) => sum + (card.scannedCount || 0), 0)
+    const availableCount = cards.reduce((sum, card) => sum + card.scannedQRs.filter((qr: any) => qr.status === 'available').length, 0)
+    const inCartCount = cards.reduce((sum, card) => sum + card.scannedQRs.filter((qr: any) => qr.status === 'in_cart').length, 0)
+    const redeemedCount = cards.reduce((sum, card) => sum + card.scannedQRs.filter((qr: any) => qr.status === 'redeemed').length, 0)
+
+    const statusLabel = (status: string) => {
+        if (status === 'in_cart') return 'En canje'
+        if (status === 'redeemed') return 'Canjeado'
+        return 'Disponible'
+    }
+
+    const statusClass = (status: string) => {
+        if (status === 'in_cart') return 'bg-orange-50 text-orange-600'
+        if (status === 'redeemed') return 'bg-gray-100 text-gray-400'
+        return 'bg-emerald-50 text-emerald-700'
+    }
+
+    return (
+        <div className={`fixed inset-0 z-[130] overflow-hidden ${isOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
+            <div
+                className={`absolute inset-0 bg-black/40 backdrop-blur-[2px] transition-opacity duration-500 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
+                onClick={onClose}
+            />
+
+            <div
+                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+            >
+                <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
+                    <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
+                        <div className="px-6 pt-6 pb-4">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4 min-w-0">
+                                    <button
+                                        onClick={onClose}
+                                        className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-xl transition-all"
+                                        title="Volver"
+                                    >
+                                        <ArrowLeft size={20} />
+                                    </button>
+                                    <div className="min-w-0">
+                                        <h2 className="text-xl font-semibold text-gray-900 leading-tight">Cupones</h2>
+                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
+                                            {cards.length > 0 ? `${cards.length} negocios` : 'Sin cupones'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={onClose}
+                                    className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-gray-900 transition-colors"
+                                    title="Cerrar"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+                        {loading ? (
+                            <div className="bg-white rounded-xl border border-gray-200 p-4 text-xs font-bold text-gray-400">
+                                Cargando...
+                            </div>
+                        ) : cards.length === 0 ? (
+                            <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-200">
+                                <div className="w-12 h-12 rounded-xl bg-gray-50 text-gray-300 flex items-center justify-center mx-auto mb-4">
+                                    <Ticket size={20} />
+                                </div>
+                                <p className="text-xs font-black uppercase tracking-widest text-gray-400">Aun no tienes cupones escaneados</p>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="bg-gray-900 rounded-2xl p-4 text-white">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-white/50">Tarjetas escaneadas</p>
+                                            <p className="text-3xl font-black leading-tight mt-1">{totalScanned}</p>
+                                        </div>
+                                        <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center">
+                                            <Ticket size={20} />
+                                        </div>
+                                    </div>
+                                    <div className="mt-4 grid grid-cols-3 gap-2">
+                                        <div className="bg-white/10 rounded-xl px-3 py-2">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-white/50">Disponibles</p>
+                                            <p className="text-sm font-black">{availableCount}</p>
+                                        </div>
+                                        <div className="bg-white/10 rounded-xl px-3 py-2">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-white/50">En canje</p>
+                                            <p className="text-sm font-black">{inCartCount}</p>
+                                        </div>
+                                        <div className="bg-white/10 rounded-xl px-3 py-2">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-white/50">Canjeados</p>
+                                            <p className="text-sm font-black">{redeemedCount}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-3">
+                                    {cards.map((card) => (
+                                        <div key={card.businessId} className="bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-900 transition-all">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-12 h-12 rounded-full bg-gray-50 border border-gray-100 overflow-hidden flex-shrink-0">
+                                                    <img
+                                                        src={card.businessImage || '/placeholder.png'}
+                                                        alt={card.businessName}
+                                                        className="w-full h-full object-cover"
+                                                        onError={(e: any) => { e.currentTarget.src = 'https://via.placeholder.com/150' }}
+                                                    />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <h3 className="font-black text-gray-900 text-sm truncate">{card.businessName}</h3>
+                                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
+                                                        {card.scannedCount}/{card.totalCards || card.scannedCount} tarjetas
+                                                    </p>
+                                                </div>
+                                                <div className="text-right flex-shrink-0">
+                                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Visita</p>
+                                                    <p className="text-xs font-bold text-gray-900">{formatDate(card.lastScanned) || 'Nunca'}</p>
+                                                </div>
+                                            </div>
+
+                                            {card.totalCards > 0 && (
+                                                <div className="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                                    <div
+                                                        className="h-full bg-[#aa1918] rounded-full"
+                                                        style={{ width: `${Math.min(100, (card.scannedCount / card.totalCards) * 100)}%` }}
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {card.scannedQRs.length > 0 && (
+                                                <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
+                                                    {card.scannedQRs.map((qr: any) => (
+                                                        <div key={qr.id} className="flex items-center gap-3 bg-gray-50 rounded-xl p-2">
+                                                            <div className="w-10 h-10 rounded-lg overflow-hidden bg-white flex-shrink-0">
+                                                                <img
+                                                                    src={qr.image || card.businessImage || '/placeholder.png'}
+                                                                    alt={qr.name}
+                                                                    className="w-full h-full object-cover"
+                                                                    onError={(e: any) => { e.currentTarget.src = 'https://via.placeholder.com/150' }}
+                                                                />
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className="text-xs font-black text-gray-900 truncate">{qr.name}</p>
+                                                                <p className="text-[10px] text-emerald-600 font-bold truncate">{qr.prize || 'Sin premio especificado'}</p>
+                                                            </div>
+                                                            <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider flex-shrink-0 ${statusClass(qr.status)}`}>
+                                                                {statusLabel(qr.status)}
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarProps) {
     const { user, logout, login } = useAuth()
     const router = useRouter()
@@ -942,9 +1123,16 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     const [showFavorites, setShowFavorites] = useState(false)
     const [favoriteBusinesses, setFavoriteBusinesses] = useState<any[]>([])
     const [loadingFavorites, setLoadingFavorites] = useState(false)
+    const [showCoupons, setShowCoupons] = useState(false)
+    const [couponCards, setCouponCards] = useState<any[]>([])
+    const [loadingCoupons, setLoadingCoupons] = useState(false)
     const [showPersonalInfo, setShowPersonalInfo] = useState(false)
     const [savingPersonalInfo, setSavingPersonalInfo] = useState(false)
     const [personalInfoMessage, setPersonalInfoMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+    const [hasOwnedBusiness, setHasOwnedBusiness] = useState(false)
+    const [hasGoogleBusinessSession, setHasGoogleBusinessSession] = useState(false)
+    const [businessLogoStack, setBusinessLogoStack] = useState<any[]>([])
+    const [ownedBusinessCount, setOwnedBusinessCount] = useState(0)
     const [showNotifications, setShowNotifications] = useState(false)
     const [clientNotifications, setClientNotifications] = useState<any[]>([])
     const [loadingNotifications, setLoadingNotifications] = useState(false)
@@ -1183,6 +1371,131 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
             }
             loadFavorites()
 
+            const loadCoupons = async () => {
+                setLoadingCoupons(true)
+                try {
+                    const couponUserIds = Array.from(new Set([
+                        user.celular ? normalizeEcuadorianPhone(user.celular) : '',
+                        user.celular || '',
+                        user.id || ''
+                    ].filter(Boolean)))
+
+                    const progressResults = await Promise.all(couponUserIds.map(id => getAllUserQRProgress(id)))
+                    const progressByBusiness = new globalThis.Map<string, any>()
+                    progressResults.flat().forEach((progress: any) => {
+                        const existing = progressByBusiness.get(progress.businessId)
+                        if (!existing) {
+                            progressByBusiness.set(progress.businessId, progress)
+                            return
+                        }
+
+                        progressByBusiness.set(progress.businessId, {
+                            ...existing,
+                            scannedCodes: Array.from(new Set([...(existing.scannedCodes || []), ...(progress.scannedCodes || [])])),
+                            redeemedPrizeCodes: Array.from(new Set([...(existing.redeemedPrizeCodes || []), ...(progress.redeemedPrizeCodes || [])])),
+                            completedRedemptions: Array.from(new Set([...(existing.completedRedemptions || []), ...(progress.completedRedemptions || [])])),
+                            lastScanned: (() => {
+                                const existingDate = existing.lastScanned ? new Date(existing.lastScanned) : new Date(0)
+                                const nextDate = progress.lastScanned ? new Date(progress.lastScanned) : new Date(0)
+                                return nextDate.getTime() > existingDate.getTime() ? progress.lastScanned : existing.lastScanned
+                            })()
+                        })
+                    })
+
+                    const progressList = Array.from(progressByBusiness.values())
+                    const enriched = await Promise.all(progressList.map(async (progress: any) => {
+                        try {
+                            const business = await getBusiness(progress.businessId)
+                            const allCodes = await getQRCodesByBusiness(progress.businessId, true)
+                            const savedCarts = typeof window !== 'undefined' ? localStorage.getItem('carts') : null
+                            const allCarts = savedCarts ? JSON.parse(savedCarts) : {}
+                            const businessCart = allCarts[progress.businessId] || []
+
+                            const scannedQRs = allCodes
+                                .filter(code => (progress.scannedCodes || []).includes(code.id))
+                                .map(code => {
+                                    const isCompleted = (progress.completedRedemptions || []).includes(code.id)
+                                    const isRedeemed = (progress.redeemedPrizeCodes || []).includes(code.id)
+                                    const isInCart = businessCart.some((item: any) => item.qrCodeId === code.id || item.id === `premio-qr-${code.id}`)
+                                    let status: 'available' | 'in_cart' | 'redeemed' = 'available'
+                                    if (isInCart || isRedeemed) status = 'in_cart'
+                                    if (isCompleted) status = 'redeemed'
+
+                                    return {
+                                        id: code.id,
+                                        name: code.name,
+                                        prize: code.prize,
+                                        image: code.image,
+                                        status
+                                    }
+                                })
+
+                            return {
+                                businessId: progress.businessId,
+                                businessName: business?.name || 'Negocio desconocido',
+                                businessImage: business?.image,
+                                scannedCount: (progress.scannedCodes || []).length,
+                                totalCards: allCodes.length,
+                                lastScanned: progress.lastScanned,
+                                scannedQRs
+                            }
+                        } catch (error) {
+                            console.error('Error enriching coupon card:', error)
+                            return null
+                        }
+                    }))
+
+                    const validCards = enriched.filter(Boolean) as any[]
+                    validCards.sort((a, b) => {
+                        const dateA = a.lastScanned?.toDate ? a.lastScanned.toDate() : a.lastScanned ? new Date(a.lastScanned) : new Date(0)
+                        const dateB = b.lastScanned?.toDate ? b.lastScanned.toDate() : b.lastScanned ? new Date(b.lastScanned) : new Date(0)
+                        return dateB.getTime() - dateA.getTime()
+                    })
+                    setCouponCards(validCards)
+                } catch (e) {
+                    console.error('Error loading coupons in sidebar:', e)
+                    setCouponCards([])
+                } finally {
+                    setLoadingCoupons(false)
+                }
+            }
+            loadCoupons()
+
+            const loadBusinessAccess = async () => {
+                try {
+                    const firebaseUser = auth.currentUser || await new Promise<FirebaseUser | null>((resolve) => {
+                        const unsubscribe = onAuthStateChanged(
+                            auth,
+                            (currentUser) => {
+                                unsubscribe()
+                                resolve(currentUser)
+                            },
+                            () => {
+                                unsubscribe()
+                                resolve(null)
+                            }
+                        )
+                    })
+
+                    const emailToSearch = firebaseUser?.email || user.googleEmail || user.email || ''
+                    const uidToSearch = firebaseUser?.uid || user.googleUid || user.id
+                    setHasGoogleBusinessSession(!!firebaseUser || !!user.googleEmail || !!user.googleUid)
+
+                    const access = await getUserBusinessAccess(emailToSearch, uidToSearch)
+                    const ownedBusinesses = access.ownedBusinesses.filter((business: any) => !business.isHidden)
+                    setHasOwnedBusiness(ownedBusinesses.length > 0)
+                    setOwnedBusinessCount(ownedBusinesses.length)
+                    setBusinessLogoStack(ownedBusinesses.slice(0, 4))
+                } catch (e) {
+                    console.error('Error loading business access in sidebar:', e)
+                    setHasGoogleBusinessSession(false)
+                    setHasOwnedBusiness(false)
+                    setOwnedBusinessCount(0)
+                    setBusinessLogoStack([])
+                }
+            }
+            loadBusinessAccess()
+
             const loadReviews = async () => {
                 setLoadingReviews(true)
                 try {
@@ -1234,9 +1547,16 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
             setShowFavorites(false)
             setFavoriteBusinesses([])
             setLoadingFavorites(false)
+            setShowCoupons(false)
+            setCouponCards([])
+            setLoadingCoupons(false)
             setShowPersonalInfo(false)
             setSavingPersonalInfo(false)
             setPersonalInfoMessage(null)
+            setHasGoogleBusinessSession(false)
+            setHasOwnedBusiness(false)
+            setOwnedBusinessCount(0)
+            setBusinessLogoStack([])
             setClientNotifications([])
             setShowNotifications(false)
             setClientReviews([])
@@ -1627,7 +1947,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                         </div>
                                         <div className="flex gap-3">
                                             <div className="w-6 h-6 rounded-lg bg-white shadow-sm flex items-center justify-center text-emerald-600 font-black text-[10px] flex-shrink-0">2</div>
-                                            <p className="text-xs text-gray-600 leading-snug">Haz clic en el ícono <span className="text-orange-500 font-bold">🔥 Recomendar</span> del producto.</p>
+                                            <p className="text-xs text-gray-600 leading-snug">Haz clic en el ícono <span className="text-orange-500 font-bold inline-flex items-center gap-1"><Flame size={14} /> Recomendar</span> del producto.</p>
                                         </div>
                                         <div className="flex gap-3">
                                             <div className="w-6 h-6 rounded-lg bg-white shadow-sm flex items-center justify-center text-emerald-600 font-black text-[10px] flex-shrink-0">3</div>
@@ -1758,16 +2078,15 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                         <span className="text-xs font-medium text-gray-900 text-center">Información personal</span>
                                     </button>
 
-                                    <Link 
-                                        href="/profile?tab=coupons" 
-                                        onClick={onClose}
+                                    <button
+                                        onClick={() => setShowCoupons(true)}
                                         className="flex flex-col items-center justify-center p-3 bg-white rounded-2xl border border-gray-200 hover:border-gray-900 transition-all group"
                                     >
                                         <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-600 group-hover:bg-gray-900 group-hover:text-white transition-all mb-2">
                                             <Ticket size={16} />
                                         </div>
                                         <span className="text-xs font-medium text-gray-900 text-center">Cupones</span>
-                                    </Link>
+                                    </button>
 
                                     <button className="flex flex-col items-center justify-center p-3 bg-white rounded-2xl border border-gray-200 hover:border-gray-900 transition-all group">
                                         <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-600 group-hover:bg-gray-900 group-hover:text-white transition-all mb-2">
@@ -1883,11 +2202,35 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                 <div className="space-y-3">
                                     <p className="text-xs font-medium uppercase tracking-wider text-gray-400">Configuración</p>
                                     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                                        <Link href="/register-business" onClick={onClose} className="flex items-center gap-4 p-4 hover:bg-gray-50 transition-all group">
+                                        <Link href="/business/dashboard" onClick={onClose} className="flex items-center gap-4 p-4 hover:bg-gray-50 transition-all group">
                                             <div className="w-9 h-9 rounded-lg bg-gray-50 flex items-center justify-center text-gray-600 group-hover:bg-gray-900 group-hover:text-white transition-all">
                                                 <Store size={16} />
                                             </div>
-                                            <span className="font-medium text-gray-900 text-sm flex-1">Registrar mi negocio</span>
+                                            <span className="font-medium text-gray-900 text-sm flex-1">
+                                                {hasGoogleBusinessSession && hasOwnedBusiness ? 'Administrar mi negocio' : 'Registrar mi negocio'}
+                                            </span>
+                                            {hasGoogleBusinessSession && hasOwnedBusiness && businessLogoStack.length > 0 && (
+                                                <div className="flex items-center -space-x-2 flex-shrink-0">
+                                                    {businessLogoStack.map((business, index) => (
+                                                        <div
+                                                            key={business.id || index}
+                                                            className="w-8 h-8 rounded-full bg-white border-2 border-white shadow-sm overflow-hidden flex items-center justify-center text-gray-400"
+                                                            title={business.name || 'Negocio'}
+                                                        >
+                                                            {business.image ? (
+                                                                <img src={business.image} alt={business.name || 'Negocio'} className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <Store size={13} />
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                    {ownedBusinessCount > businessLogoStack.length && (
+                                                        <div className="w-8 h-8 rounded-full bg-gray-900 border-2 border-white shadow-sm text-white text-[10px] font-black flex items-center justify-center">
+                                                            +{ownedBusinessCount - businessLogoStack.length}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                             <ChevronRight size={16} className="text-gray-300" />
                                         </Link>
                                     </div>
@@ -1985,6 +2328,14 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                 loading={loadingFavorites}
                 onOpenBusiness={handleOpenFavoriteBusiness}
                 onRemoveFavorite={handleRemoveFavoriteBusiness}
+            />
+
+            <ClientCouponsSidebar
+                isOpen={showCoupons}
+                onClose={() => setShowCoupons(false)}
+                cards={couponCards}
+                loading={loadingCoupons}
+                formatDate={formatNotificationDate}
             />
 
             <ClientPersonalInfoSidebar
