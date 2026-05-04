@@ -1147,51 +1147,41 @@ function RestaurantContent() {
   // Primero, obtenemos todos los productos disponibles
   const availableProducts = products.filter(product => product.isAvailable)
 
-  // Si hay categorías definidas en el negocio, usamos ese orden
-  if (business?.categories?.length) {
-    // Creamos las categorías en el orden definido
-    business.categories.forEach(category => {
-      const categoryProducts = availableProducts
-        .filter(p => p.category === category)
-        .sort((a, b) => {
-          // Ordenar por 'order' (asc) y luego por 'createdAt' (desc)
-          const orderA = a.order ?? Number.MAX_SAFE_INTEGER
-          const orderB = b.order ?? Number.MAX_SAFE_INTEGER
-          if (orderA !== orderB) return orderA - orderB
-
-          const dateA = a.createdAt instanceof Date ? a.createdAt.getTime() : 0
-          const dateB = b.createdAt instanceof Date ? b.createdAt.getTime() : 0
-          return dateB - dateA
-        })
-
-      if (categoryProducts.length > 0) {
-        productsByCategory[category] = categoryProducts
-      }
-    })
-
-    // Agregamos productos sin categoría a 'Otros' si existen
-    const uncategorizedProducts = availableProducts
-      .filter(p => !p.category || !business.categories?.includes(p.category))
-      .sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER))
-
-    if (uncategorizedProducts.length > 0) {
-      productsByCategory['Otros'] = uncategorizedProducts
+  // Determinar el orden de las categorías (idéntico a ProductList.tsx)
+  const categoryOrder = (() => {
+    const master = business.categories || [];
+    const fromProducts = Array.from(new Set(availableProducts.map(p => p.category).filter(Boolean))) as string[];
+    const extras = fromProducts.filter(c => !master.includes(c));
+    const list = [...master, ...extras];
+    
+    if (availableProducts.some(p => !p.category) && !list.includes('Sin categoría')) {
+      list.push('Sin categoría');
     }
-  } else {
-    // Si no hay categorías definidas, agrupamos normalmente
-    availableProducts.forEach(product => {
-      const category = product.category || 'Otros'
-      if (!productsByCategory[category]) {
-        productsByCategory[category] = []
-      }
-      productsByCategory[category].push(product)
-    })
+    return list;
+  })();
 
-    // Ordenar productos en cada categoría si no hay orden de categorías definido
-    Object.keys(productsByCategory).forEach(cat => {
-      productsByCategory[cat].sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER))
-    })
-  }
+  // Creamos las categorías en el orden definido
+  categoryOrder.forEach(category => {
+    const categoryProducts = availableProducts
+      .filter(p => {
+        if (category === 'Sin categoría') return !p.category;
+        return p.category === category;
+      })
+      .sort((a, b) => {
+        // Ordenar por 'order' (asc) y luego por 'createdAt' (desc)
+        const orderA = a.order ?? 0
+        const orderB = b.order ?? 0
+        if (orderA !== orderB) return orderA - orderB
+
+        const dateA = a.createdAt instanceof Date ? a.createdAt.getTime() : 0
+        const dateB = b.createdAt instanceof Date ? b.createdAt.getTime() : 0
+        return dateB - dateA
+      })
+
+    if (categoryProducts.length > 0) {
+      productsByCategory[category] = categoryProducts
+    }
+  })
 
   return (
     <div className="min-h-screen bg-gray-50 pt-16">

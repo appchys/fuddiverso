@@ -360,6 +360,7 @@ export default function TodayOrdersPage() {
         const saved = localStorage.getItem(`fuddi_fav_ingredients_${businessId}`)
         if (saved) setFavIngredients(JSON.parse(saved))
         else setFavIngredients([])
+        setCurrentFavIndex(0)
     }, [businessId, activeTab])
 
     useEffect(() => {
@@ -372,7 +373,21 @@ export default function TodayOrdersPage() {
             try {
                 const summary = await getIngredientStockSummary(businessId)
                 const onlyFavs = summary.filter(s => favIngredients.includes(s.ingredientId))
-                setFavStockSummary(onlyFavs)
+                
+                setFavStockSummary(prev => {
+                    // Verificamos si los ingredientes son los mismos para mantener el orden
+                    const prevIds = prev.map(p => p.ingredientId).sort().join(',')
+                    const currentIds = onlyFavs.map(o => o.ingredientId).sort().join(',')
+                    
+                    if (prev.length > 0 && prevIds === currentIds) {
+                        return prev.map(p => {
+                            const updated = onlyFavs.find(o => o.ingredientId === p.ingredientId)
+                            return updated ? updated : p
+                        })
+                    }
+                    // Si es la primera vez o cambiaron los favoritos, barajamos
+                    return [...onlyFavs].sort(() => Math.random() - 0.5)
+                })
             } catch (e) {
                 console.error("Error fetching fav stock", e)
             }

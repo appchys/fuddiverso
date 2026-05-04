@@ -176,7 +176,7 @@ function ClientNotificationsSidebar({
             />
 
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white ${isOpen ? 'shadow-2xl' : ''} transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
@@ -300,7 +300,7 @@ function ClientReviewsSidebar({
             />
 
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white ${isOpen ? 'shadow-2xl' : ''} transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
@@ -484,7 +484,7 @@ function ClientRecommendationsSidebar({
             />
 
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white ${isOpen ? 'shadow-2xl' : ''} transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
@@ -633,7 +633,7 @@ function ClientFavoritesSidebar({
             />
 
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white ${isOpen ? 'shadow-2xl' : ''} transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
@@ -765,7 +765,7 @@ function ClientPersonalInfoSidebar({
             />
 
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white ${isOpen ? 'shadow-2xl' : ''} transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
@@ -946,7 +946,7 @@ function ClientCouponsSidebar({
             />
 
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white ${isOpen ? 'shadow-2xl' : ''} transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
@@ -1853,7 +1853,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
 
             {/* Sidebar Content */}
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white ${isOpen ? 'shadow-2xl' : ''} transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     {/* Header with User Info and Plus Banner */}
