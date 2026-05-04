@@ -31,10 +31,26 @@ export default function ProductList({
     price: '',
     category: categories[0] || '',
     isAvailable: true,
-    image: null as File | null
+    image: null as File | null,
+    commissionType: 'fuddi_assumed_by_customer' as CommissionType
   })
   const [variants, setVariants] = useState<ProductVariant[]>([])
-  const [currentVariant, setCurrentVariant] = useState({ name: '', price: '' })
+  const [currentVariant, setCurrentVariant] = useState<{
+    name: string;
+    price: string;
+    description: string;
+    imageFile: File | null;
+    imageUrl: string;
+  }>({
+    name: '',
+    price: '',
+    description: '',
+    imageFile: null,
+    imageUrl: ''
+  })
+  const [variantImageFiles, setVariantImageFiles] = useState<Record<string, File>>({})
+  const commissionSettings = getBusinessCommissionSettings(business)
+  const [showCommissionSettings, setShowCommissionSettings] = useState(false)
   const [editingVariantId, setEditingVariantId] = useState<string | null>(null)
   const [showVariantForm, setShowVariantForm] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -104,7 +120,8 @@ export default function ProductList({
       price: '',
       category: defaultCategory,
       isAvailable: true,
-      image: null
+      image: null,
+      commissionType: (business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType
     })
     setVariants([])
     setIngredients([])
@@ -114,6 +131,8 @@ export default function ProductList({
     setActiveTab('general')
     setEditingVariantId(null)
     setShowVariantForm(false)
+    setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
+    setVariantImageFiles({})
     // Resetear horarios
     setScheduleEnabled(false)
     setSchedules([])
@@ -158,7 +177,8 @@ export default function ProductList({
       price: product.price.toString(),
       category: product.category,
       isAvailable: product.isAvailable,
-      image: null
+      image: null,
+      commissionType: (product.commissionType || business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType
     })
     setVariants(product.variants || [])
     setIngredients((product.ingredients || []) as any)
@@ -204,6 +224,8 @@ export default function ProductList({
     setActiveTab('general')
     setEditingVariantId(null)
     setShowVariantForm(false)
+    setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
+    setVariantImageFiles({})
     setShowProductForm(true)
   }
 
@@ -220,7 +242,8 @@ export default function ProductList({
       image: null
     })
     setVariants([])
-    setCurrentVariant({ name: '', price: '' })
+    setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
+    setVariantImageFiles({})
     setIngredients([])
     setVariantIngredients({})
     setCurrentIngredient({ name: '', unitCost: '', quantity: '' })
@@ -253,7 +276,10 @@ export default function ProductList({
   const handleEditVariant = (variant: ProductVariant) => {
     setCurrentVariant({
       name: variant.name,
-      price: variant.price.toString()
+      price: variant.price.toString(),
+      description: variant.description || '',
+      imageFile: null,
+      imageUrl: variant.image || ''
     })
     setEditingVariantId(variant.id)
   }
@@ -273,23 +299,40 @@ export default function ProductList({
     if (editingVariantId) {
       setVariants(prev => prev.map(v =>
         v.id === editingVariantId
-          ? { ...v, name: currentVariant.name, price: price }
+          ? { 
+              ...v, 
+              name: currentVariant.name, 
+              price: price,
+              description: currentVariant.description,
+              image: currentVariant.imageUrl // Mantener la URL actual si existe
+            }
           : v
       ))
+      
+      if (currentVariant.imageFile) {
+        setVariantImageFiles(prev => ({ ...prev, [editingVariantId]: currentVariant.imageFile! }))
+      }
+      
       setEditingVariantId(null)
     } else {
+      const newId = Date.now().toString()
       const newVariant: ProductVariant = {
-        id: Date.now().toString(),
+        id: newId,
         name: currentVariant.name,
-        description: '',
+        description: currentVariant.description,
         price: price,
-        isAvailable: true
+        isAvailable: true,
+        image: ''
+      }
+
+      if (currentVariant.imageFile) {
+        setVariantImageFiles(prev => ({ ...prev, [newId]: currentVariant.imageFile! }))
       }
 
       setVariants(prev => [...prev, newVariant])
       setVariantVisibility(prev => ({ ...prev, [newVariant.id]: true }))
     }
-    setCurrentVariant({ name: '', price: '' })
+    setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
     setShowVariantForm(false)
   }
 
@@ -590,24 +633,47 @@ export default function ProductList({
         imageUrl = await uploadImage(optimizedFile, path)
       }
 
-      // Agregar ingredientes a cada variante
-      const variantsWithIngredients = variants.map(variant => ({
-        ...variant,
-        ingredients: variantIngredients[variant.id] || undefined,
-        isAvailable: variantVisibility[variant.id] !== false
+      // Procesar variantes: subir imágenes, agregar ingredientes y visibilidad
+      const processedVariants = await Promise.all(variants.map(async (variant) => {
+        let variantImageUrl = variant.image || ''
+        const imageFile = variantImageFiles[variant.id]
+        
+        if (imageFile) {
+          const timestamp = Date.now()
+          const path = `products/variants/${timestamp}_${imageFile.name.split('.')[0]}.jpg`
+          
+          try {
+            const optimizedBlob = await optimizeImage(imageFile, 800, 0.8, 'image/jpeg')
+            const optimizedFile = new File(
+              [optimizedBlob],
+              `${timestamp}_${imageFile.name.split('.')[0]}.jpg`,
+              { type: optimizedBlob.type || 'image/jpeg' }
+            )
+            variantImageUrl = await uploadImage(optimizedFile, path)
+          } catch (error) {
+            console.error('Error uploading variant image:', error)
+          }
+        }
+
+        return {
+          ...variant,
+          image: variantImageUrl,
+          ingredients: variantIngredients[variant.id] || undefined,
+          isAvailable: variantVisibility[variant.id] !== false
+        }
       }))
 
       const commissionSettings = getBusinessCommissionSettings(business)
       const productPricing = calculateCommissionPricing(
         Number(formData.price),
-        commissionSettings.defaultCommissionType,
+        formData.commissionType,
         commissionSettings.commissionRate
       )
 
-      const variantsWithCommission = variantsWithIngredients.map(variant => {
+      const variantsWithCommission = processedVariants.map(variant => {
         const variantPricing = calculateCommissionPricing(
           variant.price,
-          commissionSettings.defaultCommissionType,
+          formData.commissionType,
           commissionSettings.commissionRate
         )
 
@@ -630,7 +696,7 @@ export default function ProductList({
         category: formData.category,
         image: imageUrl,
         variants: variants.length > 0
-          ? (editingProduct ? variantsWithIngredients : variantsWithCommission)
+          ? (editingProduct ? processedVariants : variantsWithCommission)
           : undefined,
         ingredients: ingredients.length > 0 ? ingredients : undefined,
         isAvailable: formData.isAvailable,
@@ -1174,9 +1240,111 @@ export default function ProductList({
                             />
                           </div>
                           {errors.price && <p className="text-red-500 text-[10px] mt-1 font-bold italic">{errors.price}</p>}
+                          
+                          {/* Resumen de precio al público y toggle */}
+                          {formData.price && Number(formData.price) > 0 && (
+                            <div className="mt-2 flex items-center gap-3 animate-in fade-in slide-in-from-left-2 duration-300">
+                              <p className="text-[10px] font-bold text-slate-500">
+                                Precio al público: <span className="text-slate-900">${formData.commissionType === 'fuddi_assumed_by_customer' 
+                                   ? (Math.round(Number(formData.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
+                                   : Number(formData.price).toFixed(2)}</span>
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => setShowCommissionSettings(!showCommissionSettings)}
+                                className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-blue-700 flex items-center gap-1 transition-colors"
+                              >
+                                {showCommissionSettings ? 'Ver menos' : 'Ver más'}
+                                <i className={`bi ${showCommissionSettings ? 'bi-chevron-up' : 'bi-chevron-down'}`}></i>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
+
+                    {/* Gestión de Comisión - Colapsable */}
+                    {showCommissionSettings && (
+                      <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-6 animate-in fade-in zoom-in duration-300">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center shadow-sm">
+                            <i className="bi bi-percent text-xl"></i>
+                          </div>
+                          <div>
+                            <h4 className="font-black text-slate-800 uppercase text-[11px] tracking-[0.2em] leading-none">Gestión de Comisión ({commissionSettings.commissionRate}%)</h4>
+                            <p className="text-[10px] text-slate-500 font-medium mt-1">Fuddi cobra una comisión fija del {commissionSettings.commissionRate}% por servicio</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_customer' }))}
+                            className={`p-5 rounded-3xl border-2 text-left transition-all duration-300 group ${
+                              formData.commissionType === 'fuddi_assumed_by_customer'
+                                ? 'border-red-500 bg-white shadow-xl shadow-red-100 scale-[1.02]'
+                                : 'border-slate-100 bg-white/50 hover:border-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 mb-3">
+                              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                                formData.commissionType === 'fuddi_assumed_by_customer' ? 'border-red-500 bg-red-500' : 'border-slate-200'
+                              }`}>
+                                {formData.commissionType === 'fuddi_assumed_by_customer' && <div className="w-2 h-2 bg-white rounded-full"></div>}
+                              </div>
+                              <span className={`font-bold text-sm transition-colors ${formData.commissionType === 'fuddi_assumed_by_customer' ? 'text-red-600' : 'text-slate-600'}`}>Cliente paga comisión</span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
+                              El sistema suma el {commissionSettings.commissionRate}% al precio base. <span className="text-slate-800 font-bold">Tú recibes el 100%</span> de tu precio ingresado.
+                            </p>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_store' }))}
+                            className={`p-5 rounded-3xl border-2 text-left transition-all duration-300 group ${
+                              formData.commissionType === 'fuddi_assumed_by_store'
+                                ? 'border-red-500 bg-white shadow-xl shadow-red-100 scale-[1.02]'
+                                : 'border-slate-100 bg-white/50 hover:border-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 mb-3">
+                              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                                formData.commissionType === 'fuddi_assumed_by_store' ? 'border-red-500 bg-red-500' : 'border-slate-200'
+                              }`}>
+                                {formData.commissionType === 'fuddi_assumed_by_store' && <div className="w-2 h-2 bg-white rounded-full"></div>}
+                              </div>
+                              <span className={`font-bold text-sm transition-colors ${formData.commissionType === 'fuddi_assumed_by_store' ? 'text-red-600' : 'text-slate-600'}`}>Negocio asume comisión</span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
+                              El precio ingresado es el final para el cliente. <span className="text-slate-800 font-bold">Fuddi descuenta el {commissionSettings.commissionRate}%</span> de tu ganancia.
+                            </p>
+                          </button>
+                        </div>
+
+                        {formData.price && Number(formData.price) > 0 && (
+                          <div className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-6">
+                            <div className="flex-1 text-center sm:text-left">
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Precio al público</p>
+                                <p className="text-2xl font-black text-slate-900 tracking-tight">
+                                  ${formData.commissionType === 'fuddi_assumed_by_customer' 
+                                    ? (Math.round(Number(formData.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
+                                    : Number(formData.price).toFixed(2)}
+                                </p>
+                            </div>
+                            <div className="hidden sm:block h-10 w-px bg-slate-100"></div>
+                            <div className="flex-1 text-center sm:text-right">
+                                <p className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.2em] mb-1">Recibes en tu cuenta</p>
+                                <p className="text-2xl font-black text-emerald-600 tracking-tight">
+                                  ${formData.commissionType === 'fuddi_assumed_by_store' 
+                                    ? (Number(formData.price) * (1 - commissionSettings.commissionRate / 100)).toFixed(2) 
+                                    : Number(formData.price).toFixed(2)}
+                                </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Descripción */}
                     <div>
@@ -1409,6 +1577,21 @@ export default function ProductList({
                                 : 'border-gray-200 bg-gray-50/50'
                                 }`}
                             >
+                              {/* Imagen de variante */}
+                              <div className={`w-12 h-12 flex-shrink-0 rounded-lg overflow-hidden bg-gray-50 border border-gray-100 mr-3 ${variantVisibility[variant.id] === false ? 'grayscale' : ''}`}>
+                                {(variantImageFiles[variant.id] || variant.image) ? (
+                                  <img 
+                                    src={variantImageFiles[variant.id] ? URL.createObjectURL(variantImageFiles[variant.id]) : variant.image} 
+                                    className="w-full h-full object-cover" 
+                                    alt={variant.name} 
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-gray-300">
+                                    <i className="bi bi-image text-lg"></i>
+                                  </div>
+                                )}
+                              </div>
+
                               <div className={`flex-1 min-w-0 ${variantVisibility[variant.id] === false ? 'opacity-60 grayscale-[0.5]' : ''}`}>
                                 <div className="flex items-center gap-2">
                                   <p className="font-bold text-gray-900 text-sm leading-tight break-words">
@@ -1420,6 +1603,9 @@ export default function ProductList({
                                     </span>
                                   )}
                                 </div>
+                                {variant.description && (
+                                  <p className="text-[10px] text-gray-500 line-clamp-1 mt-0.5 leading-tight">{variant.description}</p>
+                                )}
                                 <p className="text-sm font-black text-red-500 tracking-tight mt-0.5">
                                   ${variant.price.toFixed(2)}
                                 </p>
@@ -1515,7 +1701,7 @@ export default function ProductList({
                           Agregar variante
                         </button>
                       ) : (
-                        <div className="space-y-3 bg-gray-50/50 p-4 rounded-2xl border border-dashed border-gray-200 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <div className="space-y-4 bg-gray-50/50 p-4 rounded-2xl border border-dashed border-gray-200 animate-in fade-in slide-in-from-top-2 duration-300">
                           <div className="flex items-center gap-2 mb-1">
                             <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded flex items-center justify-center text-xs">
                               <i className={`bi ${editingVariantId ? 'bi-pencil' : 'bi-plus-lg'}`}></i>
@@ -1525,46 +1711,103 @@ export default function ProductList({
                             </h5>
                           </div>
 
-                          <input
-                            type="text"
-                            value={currentVariant.name}
-                            onChange={(e) => setCurrentVariant(prev => ({ ...prev, name: e.target.value }))}
-                            placeholder="Ej: Tamaño grande, Con queso extra"
-                            className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-base font-bold focus:outline-none focus:border-red-500 shadow-sm transition-all"
-                            autoFocus
-                          />
-                          <div className="flex gap-2">
-                            <div className="relative flex-1">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+                          <div className="flex flex-col sm:flex-row gap-4">
+                            {/* Imagen de la variante */}
+                            <div className="w-20 h-20 flex-shrink-0 mx-auto sm:mx-0">
+                              <label htmlFor="variant-image-upload" className="block cursor-pointer h-full">
+                                <div className="relative h-full bg-white rounded-xl border-2 border-dashed border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-all flex items-center justify-center overflow-hidden group shadow-sm">
+                                  {currentVariant.imageFile ? (
+                                    <img src={URL.createObjectURL(currentVariant.imageFile)} alt="Preview" className="w-full h-full object-cover" />
+                                  ) : currentVariant.imageUrl ? (
+                                    <img src={currentVariant.imageUrl} alt="Current" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="text-center p-2">
+                                      <i className="bi bi-camera text-xl text-gray-300 mb-1 block"></i>
+                                      <p className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">Foto</p>
+                                    </div>
+                                  )}
+                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                    <i className="bi bi-camera text-white text-lg"></i>
+                                  </div>
+                                </div>
+                              </label>
                               <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={currentVariant.price}
-                                onChange={(e) => setCurrentVariant(prev => ({ ...prev, price: e.target.value }))}
-                                onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                                placeholder="Precio"
-                                className="w-full pl-7 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-base font-bold focus:outline-none focus:border-red-500 shadow-sm transition-all"
+                                id="variant-image-upload"
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0]
+                                  if (file) {
+                                    setCurrentVariant(prev => ({ ...prev, imageFile: file }))
+                                  }
+                                }}
+                                className="hidden"
                               />
                             </div>
-                            <button
-                              type="button"
-                              onClick={addVariant}
-                              className={`px-6 py-3 text-white rounded-xl text-sm font-black uppercase tracking-widest transition-all shadow-lg active:scale-95 ${editingVariantId ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-100' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'}`}
-                            >
-                              {editingVariantId ? 'LISTO' : 'AÑADIR'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowVariantForm(false)
-                                setEditingVariantId(null)
-                                setCurrentVariant({ name: '', price: '' })
-                              }}
-                              className="px-4 py-3 bg-gray-100 text-gray-500 rounded-xl text-sm font-bold hover:bg-gray-200 transition-all"
-                            >
-                              <i className="bi bi-x-lg"></i>
-                            </button>
+
+                            <div className="flex-1 space-y-3">
+                              <input
+                                type="text"
+                                value={currentVariant.name}
+                                onChange={(e) => setCurrentVariant(prev => ({ ...prev, name: e.target.value }))}
+                                placeholder="Ej: Tamaño grande, Con queso extra"
+                                className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-red-500 shadow-sm transition-all"
+                                autoFocus
+                              />
+                              
+                              <textarea
+                                value={currentVariant.description}
+                                onChange={(e) => setCurrentVariant(prev => ({ ...prev, description: e.target.value }))}
+                                placeholder="Descripción corta (opcional)"
+                                rows={2}
+                                className="w-full px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-red-500 shadow-sm transition-all resize-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <div className="relative flex-1">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={currentVariant.price}
+                                  onChange={(e) => setCurrentVariant(prev => ({ ...prev, price: e.target.value }))}
+                                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                  placeholder="Precio"
+                                  className="w-full pl-7 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-red-500 shadow-sm transition-all"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={addVariant}
+                                className={`px-6 py-2.5 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg active:scale-95 ${editingVariantId ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-100' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'}`}
+                              >
+                                {editingVariantId ? 'LISTO' : 'AÑADIR'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowVariantForm(false)
+                                  setEditingVariantId(null)
+                                  setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
+                                }}
+                                className="px-4 py-2.5 bg-gray-100 text-gray-500 rounded-xl text-sm font-bold hover:bg-gray-200 transition-all"
+                              >
+                                <i className="bi bi-x-lg"></i>
+                              </button>
+                            </div>
+
+                            {/* Resumen de precio al público para el formulario de variante */}
+                            {currentVariant.price && Number(currentVariant.price) > 0 && (
+                              <p className="text-[10px] font-bold text-slate-500 ml-1 animate-in fade-in slide-in-from-left-1 duration-300">
+                                Precio al público: <span className="text-slate-900 font-black">${formData.commissionType === 'fuddi_assumed_by_customer' 
+                                 ? (Math.round(Number(currentVariant.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
+                                 : Number(currentVariant.price).toFixed(2)}</span>
+                              </p>
+                            )}
                           </div>
                         </div>
                       )}

@@ -171,6 +171,7 @@ export interface ProductVariant {
   commission?: number // Comisión aplicada
   commissionType?: CommissionType // Tipo de gestión de comisión
   isAvailable: boolean
+  image?: string
   ingredients?: Ingredient[]
 }
 
