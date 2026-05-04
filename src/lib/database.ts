@@ -1788,6 +1788,8 @@ export interface FirestoreClient {
   loginSource?: string;
   telegramChatId?: string;
   lastTelegramLinkDate?: any;
+  googleEmail?: string;
+  googleUid?: string;
 }
 
 export interface ClientLocation {
@@ -2059,7 +2061,7 @@ export async function createClient(clientData: { celular: string; nombres: strin
   }
 }
 
-export async function updateClient(clientId: string, clientData: { celular?: string; nombres?: string; email?: string; photoURL?: string; pinHash?: string; lastLoginAt?: any; lastRegistrationAt?: any; loginSource?: string }) {
+export async function updateClient(clientId: string, clientData: { celular?: string; nombres?: string; email?: string; photoURL?: string; pinHash?: string; lastLoginAt?: any; lastRegistrationAt?: any; loginSource?: string; googleEmail?: string; googleUid?: string }) {
   try {
     const clientRef = doc(db, 'clients', clientId);
     const updateData: any = {};
@@ -2072,6 +2074,8 @@ export async function updateClient(clientId: string, clientData: { celular?: str
     if (clientData.lastLoginAt !== undefined) updateData.lastLoginAt = clientData.lastLoginAt;
     if (clientData.lastRegistrationAt !== undefined) updateData.lastRegistrationAt = clientData.lastRegistrationAt;
     if (clientData.loginSource !== undefined) updateData.loginSource = clientData.loginSource;
+    if (clientData.googleEmail !== undefined) updateData.googleEmail = clientData.googleEmail;
+    if (clientData.googleUid !== undefined) updateData.googleUid = clientData.googleUid;
 
     await updateDoc(clientRef, updateData);
     return true;
@@ -3725,6 +3729,110 @@ export interface BusinessRating {
   updatedAt: any;
 }
 
+export interface ClientNotification {
+  id?: string;
+  userId: string;
+  type: 'referral_credit' | 'rating_like' | 'rating_comment';
+  title: string;
+  message: string;
+  read: boolean;
+  businessId?: string;
+  businessName?: string;
+  ratingId?: string;
+  orderId?: string;
+  referralCode?: string;
+  amount?: number;
+  actorName?: string;
+  createdAt: any;
+}
+
+async function getClientDisplayNameByPhone(phone?: string): Promise<string> {
+  if (!phone) return 'Cliente';
+
+  try {
+    const normalizedPhone = normalizeEcuadorianPhone(phone);
+    const clientQuery = query(
+      collection(db, 'clients'),
+      where('celular', '==', normalizedPhone),
+      limit(1)
+    );
+    const clientSnapshot = await getDocs(clientQuery);
+
+    if (!clientSnapshot.empty) {
+      return clientSnapshot.docs[0].data().nombres || 'Cliente';
+    }
+  } catch (error) {
+    console.warn('[getClientDisplayNameByPhone] Could not resolve client name:', error);
+  }
+
+  return 'Cliente';
+}
+
+async function getBusinessNameForNotification(businessId: string): Promise<string> {
+  try {
+    const businessDoc = await getDoc(doc(db, 'businesses', businessId));
+    if (businessDoc.exists()) {
+      return businessDoc.data().name || 'Fuddi';
+    }
+  } catch (error) {
+    console.warn('[getBusinessNameForNotification] Could not resolve business name:', error);
+  }
+
+  return 'Fuddi';
+}
+
+export async function createClientNotification(
+  notification: Omit<ClientNotification, 'id' | 'read' | 'createdAt'>
+): Promise<void> {
+  try {
+    if (!notification.userId) return;
+
+    await addDoc(collection(db, 'clientNotifications'), {
+      ...notification,
+      read: false,
+      createdAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('[createClientNotification] Error saving client notification:', error);
+  }
+}
+
+export async function getClientNotifications(userIds: string[], limitCount: number = 30): Promise<ClientNotification[]> {
+  try {
+    const ids = Array.from(new Set(userIds.filter(Boolean))).slice(0, 10);
+    if (ids.length === 0) return [];
+
+    const notificationsQuery = query(
+      collection(db, 'clientNotifications'),
+      where('userId', 'in', ids)
+    );
+    const snapshot = await getDocs(notificationsQuery);
+
+    return snapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() } as ClientNotification))
+      .sort((a, b) => {
+        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : a.createdAt ? new Date(a.createdAt) : new Date(0);
+        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : b.createdAt ? new Date(b.createdAt) : new Date(0);
+        return dateB.getTime() - dateA.getTime();
+      })
+      .slice(0, limitCount);
+  } catch (error) {
+    console.error('[getClientNotifications] Error getting client notifications:', error);
+    return [];
+  }
+}
+
+export async function markClientNotificationAsRead(notificationId: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'clientNotifications', notificationId), {
+      read: true,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('[markClientNotificationAsRead] Error marking notification as read:', error);
+  }
+}
+
 /**
  * Save or update a general rating for a business (not tied to a specific order)
  * USES PHONE AS ID TO PREVENT DUPLICATES
@@ -3810,6 +3918,7 @@ export async function toggleLikeStoreRating(
     const currentLikes = data.likes || [];
     
     let newLikes;
+    const isNewLike = !currentLikes.includes(clientPhone);
     if (currentLikes.includes(clientPhone)) {
       newLikes = currentLikes.filter(id => id !== clientPhone);
     } else {
@@ -3820,6 +3929,24 @@ export async function toggleLikeStoreRating(
       likes: newLikes,
       updatedAt: serverTimestamp()
     });
+
+    if (isNewLike && data.clientPhone && data.clientPhone !== clientPhone) {
+      const [actorName, businessName] = await Promise.all([
+        getClientDisplayNameByPhone(clientPhone),
+        getBusinessNameForNotification(businessId)
+      ]);
+
+      await createClientNotification({
+        userId: data.clientPhone,
+        type: 'rating_like',
+        title: 'A alguien le gusto tu resena',
+        message: `${actorName} reacciono a tu resena de ${businessName}.`,
+        businessId,
+        businessName,
+        ratingId,
+        actorName
+      });
+    }
   } catch (error) {
     console.error('Error toggling like:', error);
     throw error;
@@ -3841,6 +3968,8 @@ export async function addStoreRatingReply(
 ): Promise<void> {
   try {
     const ratingRef = doc(db, 'businesses', businessId, 'ratings', ratingId);
+    const ratingSnap = await getDoc(ratingRef);
+    const ratingData = ratingSnap.exists() ? ratingSnap.data() as BusinessRating : null;
     const newReply = {
       ...reply,
       id: Math.random().toString(36).substring(7),
@@ -3851,6 +3980,24 @@ export async function addStoreRatingReply(
       replies: arrayUnion(newReply),
       updatedAt: serverTimestamp()
     });
+
+    if (ratingData?.clientPhone && ratingData.clientPhone !== reply.userPhone) {
+      const businessName = await getBusinessNameForNotification(businessId);
+      const actorName = reply.isBusinessReply
+        ? reply.businessReplyName || businessName
+        : reply.userName || (await getClientDisplayNameByPhone(reply.userPhone));
+
+      await createClientNotification({
+        userId: ratingData.clientPhone,
+        type: 'rating_comment',
+        title: 'Nuevo comentario en tu resena',
+        message: `${actorName} comento tu resena de ${businessName}.`,
+        businessId,
+        businessName,
+        ratingId,
+        actorName
+      });
+    }
   } catch (error) {
     console.error('Error adding reply:', error);
     throw error;
@@ -3984,6 +4131,27 @@ export async function deleteStoreRating(
   }
 }
 
+export async function updateStoreRatingById(
+  businessId: string,
+  ratingId: string,
+  rating: number,
+  comment: string = ''
+): Promise<void> {
+  try {
+    const ratingRef = doc(db, 'businesses', businessId, 'ratings', ratingId);
+    await updateDoc(ratingRef, {
+      rating,
+      comment,
+      updatedAt: serverTimestamp()
+    });
+
+    await updateBusinessRatingStats(businessId);
+  } catch (error) {
+    console.error('Error updating store rating:', error);
+    throw error;
+  }
+}
+
 /**
  * Update business rating statistics
  */
@@ -4041,6 +4209,104 @@ export async function getBusinessRatings(
     })) as BusinessRating[];
   } catch (error) {
     console.error('Error getting business ratings:', error);
+    return [];
+  }
+}
+
+export async function getClientStoreRatings(
+  userIds: string[],
+  limitCount: number = 30
+): Promise<Array<BusinessRating & { businessName?: string; businessImage?: string; businessUsername?: string }>> {
+  try {
+    const lookupKeys = new Set<string>();
+    const ratingDocIds = new Set<string>();
+
+    userIds.filter(Boolean).forEach((rawId) => {
+      const raw = String(rawId).trim();
+      const normalized = normalizeEcuadorianPhone(raw);
+      const digits = raw.replace(/\D/g, '');
+
+      if (raw) lookupKeys.add(raw);
+      if (normalized) lookupKeys.add(normalized);
+      if (digits) {
+        lookupKeys.add(digits);
+        ratingDocIds.add(digits);
+      }
+      if (normalized) {
+        const normalizedDigits = normalized.replace(/\D/g, '');
+        lookupKeys.add(normalizedDigits);
+        ratingDocIds.add(normalizedDigits);
+
+        if (normalized.startsWith('0')) {
+          const withoutZero = normalized.slice(1);
+          lookupKeys.add(withoutZero);
+          lookupKeys.add(`593${withoutZero}`);
+          lookupKeys.add(`+593${withoutZero}`);
+          ratingDocIds.add(`593${withoutZero}`);
+        }
+      }
+    });
+
+    if (lookupKeys.size === 0 && ratingDocIds.size === 0) return [];
+
+    const businessesSnapshot = await getDocs(collection(db, 'businesses'));
+    const ratingsByKey = new Map<string, BusinessRating & { businessName?: string; businessImage?: string; businessUsername?: string }>();
+
+    for (const businessDoc of businessesSnapshot.docs) {
+      const businessData = businessDoc.data();
+      const businessId = businessDoc.id;
+      const ratingRefs = Array.from(ratingDocIds).map((ratingId) =>
+        getDoc(doc(db, 'businesses', businessId, 'ratings', ratingId))
+      );
+
+      const directRatingSnaps = await Promise.all(ratingRefs);
+      directRatingSnaps.forEach((ratingSnap) => {
+        if (!ratingSnap.exists()) return;
+        const rating = { id: ratingSnap.id, ...ratingSnap.data() } as BusinessRating;
+        ratingsByKey.set(`${businessId}:${ratingSnap.id}`, {
+          ...rating,
+          businessId: rating.businessId || businessId,
+          businessName: businessData.name || 'Tienda',
+          businessImage: businessData.image || '',
+          businessUsername: businessData.username || ''
+        });
+      });
+
+      const lookupArray = Array.from(lookupKeys);
+      for (let index = 0; index < lookupArray.length; index += 10) {
+        const chunk = lookupArray.slice(index, index + 10);
+        if (chunk.length === 0) continue;
+
+        const ratingsQuery = query(
+          collection(db, 'businesses', businessId, 'ratings'),
+          where('clientPhone', 'in', chunk)
+        );
+        const snapshot = await getDocs(ratingsQuery);
+
+        snapshot.docs.forEach((ratingDoc) => {
+          const rating = { id: ratingDoc.id, ...ratingDoc.data() } as BusinessRating;
+          ratingsByKey.set(`${businessId}:${ratingDoc.id}`, {
+            ...rating,
+            businessId: rating.businessId || businessId,
+            businessName: businessData.name || 'Tienda',
+            businessImage: businessData.image || '',
+            businessUsername: businessData.username || ''
+          });
+        });
+      }
+    }
+
+    const ratings = Array.from(ratingsByKey.values());
+
+    return ratings
+      .sort((a, b) => {
+        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : a.createdAt ? new Date(a.createdAt) : new Date(0);
+        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : b.createdAt ? new Date(b.createdAt) : new Date(0);
+        return dateB.getTime() - dateA.getTime();
+      })
+      .slice(0, limitCount);
+  } catch (error) {
+    console.error('Error getting client store ratings:', error);
     return [];
   }
 }
@@ -5689,6 +5955,7 @@ export async function creditReferral(
 
     const order = orderDoc.data()
     const businessId = order.businessId
+    const businessName = await getBusinessNameForNotification(businessId)
 
     // Obtener o crear créditos del usuario
     const q = query(
@@ -5746,6 +6013,18 @@ export async function creditReferral(
         conversions: firestoreIncrement(1)
       })
     }
+
+    await createClientNotification({
+      userId: referral.createdBy,
+      type: 'referral_credit',
+      title: 'Ganaste credito por recomendacion',
+      message: `Tu link genero una venta en ${businessName}. Sumaste $0.25 para tu proxima compra.`,
+      businessId,
+      businessName,
+      orderId,
+      referralCode,
+      amount: 0.25
+    })
   } catch (error) {
     console.error('Error crediting referral:', error)
     throw error

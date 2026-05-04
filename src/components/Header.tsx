@@ -160,6 +160,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [categories, setCategories] = useState<string[]>(['all'])
   const [selectedCategory, setSelectedCategory] = useState('all')
+  const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
   const router = useRouter()
   const pathname = usePathname()
 
@@ -347,14 +348,8 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
               )}
 
               <div className="relative">
-                <Link
-                  href={pathname === '/profile' ? '/' : '/profile'}
-                  onClick={(e) => {
-                    if (pathname === '/profile') {
-                      e.preventDefault();
-                      router.back();
-                    }
-                  }}
+                <button
+                  onClick={() => setIsUserSidebarOpen(true)}
                   className="flex items-center space-x-2 p-1 rounded-full hover:bg-gray-100 transition-colors group"
                   aria-label="Menú de usuario"
                 >
@@ -379,7 +374,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                         )}
                         {/* Iniciales - siempre presentes pero ocultas si hay imagen */}
                         <div
-                          className={`w-full h-full rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-black shadow-inner ${user.photoURL ? 'hidden' : 'flex'}`}
+                          className={`w-full h-full rounded-full bg-[#ab1919] flex items-center justify-center text-white text-xs font-black shadow-inner ${user.photoURL ? 'hidden' : 'flex'}`}
                         >
                           {user.nombres ? user.nombres.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase() : 'U'}
                         </div>
@@ -391,7 +386,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
                       <i className="bi bi-person text-xl"></i>
                     </div>
                   )}
-                </Link>
+                </button>
               </div>
             </div>
           </div>
@@ -403,8 +398,11 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
         </div>
 
       </header>
-
-
+      
+      <UserSidebar 
+        isOpen={isUserSidebarOpen} 
+        onClose={() => setIsUserSidebarOpen(false)} 
+      />
     </>
   )
 }

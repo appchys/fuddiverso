@@ -51,7 +51,7 @@ export default function ReferralModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[100] overflow-hidden">
+    <div className="fixed inset-0 z-[160] overflow-hidden">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       <div className="flex items-center justify-center min-h-screen p-4">

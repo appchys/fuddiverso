@@ -42,6 +42,12 @@ export default function StoreRatingModal({
   
   // Detectar si el usuario loggeado es dueño de esta tienda
   const isOwner = businessUser && businessOwnerId && businessUser.uid === businessOwnerId
+
+  const resolveClientPhone = (phone?: string | null) => {
+    if (!phone) return null
+    const normalized = normalizeEcuadorianPhone(phone)
+    return validateEcuadorianPhone(normalized) ? normalized : phone
+  }
   
   const [rating, setRating] = useState(0)
   const [hover, setHover] = useState(0)
@@ -50,7 +56,7 @@ export default function StoreRatingModal({
   const [loadingInitial, setLoadingInitial] = useState(true)
   const [allRatings, setAllRatings] = useState<BusinessRating[]>([])
   const [loadingRatings, setLoadingRatings] = useState(true)
-  const [activePhone, setActivePhone] = useState<string | null>(clientPhone || clientUser?.celular || null)
+  const [activePhone, setActivePhone] = useState<string | null>(resolveClientPhone(clientPhone || clientUser?.celular || null))
   const [showReplyFor, setShowReplyFor] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
   const [isReplying, setIsReplying] = useState(false)
@@ -138,7 +144,7 @@ export default function StoreRatingModal({
 
   useEffect(() => {
     if (clientPhone || clientUser?.celular) {
-      setActivePhone(clientPhone || clientUser?.celular || null)
+      setActivePhone(resolveClientPhone(clientPhone || clientUser?.celular || null))
     }
   }, [clientPhone, clientUser])
 
@@ -229,7 +235,7 @@ export default function StoreRatingModal({
         })
       }
 
-      const phoneToUse = clientFound.celular || customerData.phone
+      const phoneToUse = resolveClientPhone(clientFound.celular || customerData.phone) || customerData.phone
       localStorage.setItem('loginPhone', phoneToUse)
       setActivePhone(phoneToUse)
 

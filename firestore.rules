@@ -267,6 +267,27 @@ service cloud.firestore {
     }
 
     // Sistema de Referidos - Colección de registros de referidos
+    match /clientNotifications/{document} {
+      // Notificaciones para clientes: credito por referidos y actividad en resenas.
+      // El login de clientes no usa Firebase Auth, por eso la lectura es publica.
+      allow read: if true;
+
+      // Se crean desde los flujos actuales del frontend/backend.
+      allow create: if
+        request.resource.data.keys().hasAll(['userId', 'type', 'title', 'message', 'read', 'createdAt']) &&
+        request.resource.data.userId is string &&
+        request.resource.data.type in ['referral_credit', 'rating_like', 'rating_comment'] &&
+        request.resource.data.title is string &&
+        request.resource.data.message is string &&
+        request.resource.data.read == false;
+
+      // El cliente solo necesita marcar notificaciones como leidas.
+      allow update: if request.writeFields.hasOnly(['read', 'updatedAt']);
+
+      // Mantener historial.
+      allow delete: if false;
+    }
+
     match /referralRecords/{document} {
       // Lectura: usuarios autenticados pueden ver registros
       allow read: if request.auth != null;

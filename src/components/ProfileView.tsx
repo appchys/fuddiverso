@@ -16,7 +16,8 @@ import {
   getUserReferrals,
   getAllUserCredits,
   getWalletTransactions,
-  getUserBusinessAccess
+  getUserBusinessAccess,
+  signInWithGoogle
 } from '@/lib/database'
 import { Business } from '@/types'
 import CartSidebar from '@/components/CartSidebar'
@@ -48,7 +49,7 @@ interface EnrichedCard {
 export default function ProfileView({ isModal = false, onClose }: { isModal?: boolean, onClose?: () => void }) {
   const { user, isAuthenticated, login } = useAuth()
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<'locations' | 'cards' | 'reviews' | 'info' | 'recommendations' | 'business'>('cards')
+  const [activeTab, setActiveTab] = useState<'locations' | 'coupons' | 'reviews' | 'info' | 'recommendations' | 'business'>('coupons')
   const [authLoading, setAuthLoading] = useState(true)
 
   // DATA STATES
@@ -112,7 +113,7 @@ export default function ProfileView({ isModal = false, onClose }: { isModal?: bo
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)
       const tab = params.get('tab')
-      if (tab === 'recommendations' || tab === 'locations' || tab === 'cards' || tab === 'reviews' || tab === 'info' || tab === 'business') {
+      if (tab === 'recommendations' || tab === 'locations' || tab === 'coupons' || tab === 'reviews' || tab === 'info' || tab === 'business') {
         setActiveTab(tab as any)
       }
     }
@@ -306,10 +307,15 @@ export default function ProfileView({ isModal = false, onClose }: { isModal?: bo
     }
 
     // 4. Cargar Negocios del Usuario
-    if (user?.email && user?.id) {
+    if (user?.id) {
       setLoadingBusinesses(true)
       try {
-        const access = await getUserBusinessAccess(user.email, user.id)
+        // Usar email de google si existe, sino el email normal, sino vacío
+        const emailToSearch = user.googleEmail || user.email || ''
+        // Usar UID de google si existe, sino el id del cliente
+        const uidToSearch = user.googleUid || user.id
+
+        const access = await getUserBusinessAccess(emailToSearch, uidToSearch)
         setUserBusinesses({ owned: access.ownedBusinesses, admin: access.adminBusinesses })
       } catch (e) {
         console.error('Error loading user businesses:', e)
@@ -364,6 +370,35 @@ export default function ProfileView({ isModal = false, onClose }: { isModal?: bo
       setMessage({ type: 'error', text: 'Error al actualizar.' })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleLinkGoogle = async () => {
+    if (!user?.id) return
+    setLoadingBusinesses(true)
+    try {
+      const result = await signInWithGoogle()
+      const googleUser = result.user
+
+      await updateClient(user.id, {
+        googleEmail: googleUser.email || '',
+        googleUid: googleUser.uid
+      })
+
+      // Actualizar estado local
+      login({
+        ...user,
+        googleEmail: googleUser.email || '',
+        googleUid: googleUser.uid
+      })
+
+      setMessage({ type: 'success', text: 'Cuenta de Google vinculada con éxito' })
+      loadProfileData()
+    } catch (error: any) {
+      console.error('Error linking Google:', error)
+      setMessage({ type: 'error', text: 'Error al vincular cuenta de Google' })
+    } finally {
+      setLoadingBusinesses(false)
     }
   }
 
@@ -685,13 +720,13 @@ export default function ProfileView({ isModal = false, onClose }: { isModal?: bo
           {/* Navigation Tabs */}
           <div className="flex border-b border-gray-200 mt-6 overflow-x-auto scrollbar-hide">
             <button
-              onClick={() => setActiveTab('cards')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm mr-8 whitespace-nowrap ${activeTab === 'cards'
+              onClick={() => setActiveTab('coupons')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm mr-8 whitespace-nowrap ${activeTab === 'coupons'
                 ? 'border-gray-900 text-gray-900'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
             >
-              Mis Tarjetas
+              Cupones
               <span className="ml-2 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">
                 {cardsData.length}
               </span>
@@ -760,23 +795,61 @@ export default function ProfileView({ isModal = false, onClose }: { isModal?: bo
         {/* NEGOCIOS */}
         {activeTab === 'business' && (
           <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <h3 className="text-xl font-black text-gray-900">Gestión de Negocios</h3>
-              <Link
-                href="/business/register"
-                className="inline-flex items-center justify-center px-6 py-3 bg-[#aa1918] text-white font-bold rounded-2xl hover:bg-[#8e1514] transition-all shadow-lg shadow-red-900/10 active:scale-95"
-              >
-                <i className="bi bi-plus-lg mr-2"></i>
-                Crear nueva tienda
-              </Link>
-            </div>
+            {!user.googleEmail && (
+              <div className="bg-blue-50 border border-blue-100 rounded-[2rem] p-6 sm:p-8 flex flex-col sm:flex-row items-center gap-6 shadow-sm">
+                <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm text-blue-500 flex-shrink-0">
+                  <i className="bi bi-google text-3xl"></i>
+                </div>
+                <div className="flex-1 text-center sm:text-left">
+                  <h4 className="text-lg font-black text-gray-900 mb-1">Vincular cuenta de Google</h4>
+                  <p className="text-sm text-gray-500 leading-relaxed">
+                    Para gestionar tus negocios o crear uno nuevo, necesitas vincular tu cuenta de Google. Así podremos identificar tus tiendas.
+                  </p>
+                </div>
+                <button
+                  onClick={handleLinkGoogle}
+                  disabled={loadingBusinesses}
+                  className="w-full sm:w-auto px-8 py-4 bg-white text-gray-900 font-bold rounded-2xl border border-gray-200 hover:bg-gray-50 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-3"
+                >
+                  {loadingBusinesses ? (
+                    <div className="animate-spin h-5 w-5 border-2 border-gray-900 border-t-transparent rounded-full"></div>
+                  ) : (
+                    <>
+                      <i className="bi bi-link-45deg text-xl"></i>
+                      Vincular ahora
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {user.googleEmail && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500">
+                    <i className="bi bi-check-circle-fill"></i>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-gray-900">Gestión de Negocios</h3>
+                    <p className="text-xs text-gray-400 font-medium tracking-wider uppercase leading-none">{user.googleEmail}</p>
+                  </div>
+                </div>
+                <Link
+                  href="/business/register"
+                  className="inline-flex items-center justify-center px-6 py-3 bg-[#aa1918] text-white font-bold rounded-2xl hover:bg-[#8e1514] transition-all shadow-lg shadow-red-900/10 active:scale-95"
+                >
+                  <i className="bi bi-plus-lg mr-2"></i>
+                  Crear nueva tienda
+                </Link>
+              </div>
+            )}
 
             {loadingBusinesses ? (
               <div className="py-12 text-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-50 border-t-red-600 mx-auto"></div>
                 <p className="text-gray-500 mt-4 font-medium">Cargando tus negocios...</p>
               </div>
-            ) : (
+            ) : user.googleEmail ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Owned Businesses */}
                 {userBusinesses.owned.map((biz) => (
@@ -876,12 +949,12 @@ export default function ProfileView({ isModal = false, onClose }: { isModal?: bo
                   </div>
                 )}
               </div>
-            )}
+            ) : null}
           </div>
         )}
 
-        {/* TARJETAS */}
-        {activeTab === 'cards' && (
+        {/* CUPONES */}
+        {activeTab === 'coupons' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {cardsData.length > 0 ? (
               cardsData.map((card) => (
@@ -968,7 +1041,7 @@ export default function ProfileView({ isModal = false, onClose }: { isModal?: bo
             ) : (
               <div className="col-span-full py-12 text-center bg-white rounded-xl border border-dashed border-gray-300">
                 <i className="bi bi-qr-code text-4xl text-gray-300 mb-3 block"></i>
-                <p className="text-gray-500">Aún no tienes tarjetas escaneadas.</p>
+                <p className="text-gray-500">Aún no tienes cupones escaneados.</p>
               </div>
             )}
           </div>
