@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { Business, Product, ProductVariant, Ingredient } from '@/types'
+import { Business, Product, ProductVariant, Ingredient, CommissionType } from '@/types'
 import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
 import { calculateCommissionPricing, getBusinessCommissionSettings } from '@/lib/price-utils'
@@ -239,7 +239,8 @@ export default function ProductList({
       price: '',
       category: defaultCategory,
       isAvailable: true,
-      image: null
+      image: null,
+      commissionType: (business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType
     })
     setVariants([])
     setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
@@ -345,7 +346,7 @@ export default function ProductList({
     })
     if (editingVariantId === variantId) {
       setEditingVariantId(null)
-      setCurrentVariant({ name: '', price: '' })
+      setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
     }
   }
 
