@@ -206,6 +206,8 @@ export interface Product {
   businessImage?: string
   ingredients?: Ingredient[]
   scheduleAvailability?: ProductScheduleAvailability // Disponibilidad por horarios/días
+  isCombo?: boolean // Si el producto es un combo que requiere seleccionar múltiples variantes
+  minComboItems?: number // Cantidad mínima de variantes a seleccionar para el combo
   createdAt: Date
   updatedAt: Date
 }

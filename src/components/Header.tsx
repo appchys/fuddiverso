@@ -65,6 +65,9 @@ function CartIndicator() {
       if (allCarts[businessId]) {
         delete allCarts[businessId]
         localStorage.setItem('carts', JSON.stringify(allCarts))
+        // Dispatch events for other components to update
+        window.dispatchEvent(new Event('storage'))
+        window.dispatchEvent(new Event('cart-updated'))
         // Update local state immediately
         setActiveCarts(prev => {
           const copy = { ...prev }

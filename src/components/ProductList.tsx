@@ -32,7 +32,9 @@ export default function ProductList({
     category: categories[0] || '',
     isAvailable: true,
     image: null as File | null,
-    commissionType: 'fuddi_assumed_by_customer' as CommissionType
+    commissionType: 'fuddi_assumed_by_customer' as CommissionType,
+    isCombo: false,
+    minComboItems: 1
   })
   const [variants, setVariants] = useState<ProductVariant[]>([])
   const [currentVariant, setCurrentVariant] = useState<{
@@ -121,7 +123,9 @@ export default function ProductList({
       category: defaultCategory,
       isAvailable: true,
       image: null,
-      commissionType: (business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType
+      commissionType: (business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
+      isCombo: false,
+      minComboItems: 1
     })
     setVariants([])
     setIngredients([])
@@ -178,7 +182,9 @@ export default function ProductList({
       category: product.category,
       isAvailable: product.isAvailable,
       image: null,
-      commissionType: (product.commissionType || business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType
+      commissionType: (product.commissionType || business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
+      isCombo: product.isCombo || false,
+      minComboItems: product.minComboItems || 1
     })
     setVariants(product.variants || [])
     setIngredients((product.ingredients || []) as any)
@@ -240,7 +246,9 @@ export default function ProductList({
       category: defaultCategory,
       isAvailable: true,
       image: null,
-      commissionType: (business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType
+      commissionType: (business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
+      isCombo: false,
+      minComboItems: 1
     })
     setVariants([])
     setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
@@ -705,6 +713,8 @@ export default function ProductList({
         scheduleAvailability: scheduleEnabled
           ? { enabled: true, schedules: schedules.length > 0 ? schedules : [] }
           : undefined,
+        isCombo: formData.isCombo,
+        minComboItems: formData.isCombo ? Number(formData.minComboItems) : 1,
         businessId: business.id,
         updatedAt: new Date()
       }
@@ -762,6 +772,8 @@ export default function ProductList({
         ingredients: product.ingredients,
         isAvailable: product.isAvailable,
         scheduleAvailability: product.scheduleAvailability,
+        isCombo: product.isCombo || false,
+        minComboItems: product.minComboItems || 1,
         businessId: business.id,
         updatedAt: new Date(),
         order: (product.order || 0) + 1 // Intentar colocarlo cerca
@@ -1459,6 +1471,44 @@ export default function ProductList({
                         />
                         <span className="font-medium text-gray-700">Producto disponible</span>
                       </label>
+                    </div>
+
+                    {/* Configuración de Combo */}
+                    <div className="border-t pt-6">
+                      <label className="flex items-center gap-3 p-4 bg-orange-50 rounded-lg cursor-pointer hover:bg-orange-100 transition-colors mb-4 border-2 border-orange-100">
+                        <input
+                          type="checkbox"
+                          checked={formData.isCombo}
+                          onChange={(e) => setFormData(prev => ({ ...prev, isCombo: e.target.checked }))}
+                          className="w-5 h-5 rounded text-orange-600 cursor-pointer"
+                        />
+                        <div>
+                          <span className="font-bold text-gray-900">Este producto es un Combo</span>
+                          <p className="text-xs text-gray-600 mt-0.5">
+                            Requiere que el cliente seleccione múltiples opciones (variantes) para armar su combo
+                          </p>
+                        </div>
+                      </label>
+
+                      {formData.isCombo && (
+                        <div className="space-y-4 bg-gray-50 p-6 rounded-2xl border border-orange-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                          <div>
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                              Cantidad de opciones a elegir
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={formData.minComboItems}
+                              onChange={(e) => setFormData(prev => ({ ...prev, minComboItems: Number(e.target.value) }))}
+                              className="w-full sm:w-1/2 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium bg-white"
+                            />
+                            <p className="text-xs text-gray-500 mt-2 font-medium">
+                              El cliente deberá seleccionar exactamente esta cantidad de variantes para poder agregar el combo al carrito.
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Disponibilidad por Horarios */}

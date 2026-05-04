@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Head from 'next/head'
-import { getProductPublicPrice, formatPrice, getPriceMetadata } from '@/lib/price-utils'
+import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
 import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
 import { collection, query, where, onSnapshot, doc, limit } from 'firebase/firestore'
@@ -22,6 +22,7 @@ import StarRating from '@/components/StarRating'
 import Header from '@/components/Header'
 import StoreRatingModal from '@/components/StoreRatingModal'
 import ReferralModal from '@/components/ReferralModal'
+import ProductDetailSidebar from '@/components/ProductDetailSidebar'
 
 // Componente para structured data JSON-LD
 function BusinessStructuredData({ business }: { business: Business }) {
@@ -108,6 +109,7 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
 
   const quantity = getCartItemQuantity(product.id, null)
   const hasVariants = product.variants && product.variants.length > 0
+  const isCombo = product.isCombo === true
   const publicPrice = getProductPublicPrice(product)
 
   return (
@@ -163,8 +165,13 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
       <div className="flex-1 min-w-0 ml-4 pr-4">
         <div className="flex flex-col h-full justify-between">
           <div>
-            <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate">
+            <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate flex items-center gap-2">
               {product.name}
+              {isCombo && (
+                <span className="px-1.5 py-0.5 bg-orange-100 text-orange-600 text-[8px] font-black uppercase tracking-widest rounded-md">
+                  Combo
+                </span>
+              )}
             </h4>
             <p className="text-gray-500 text-xs sm:text-sm mt-1 line-clamp-2 leading-snug">
               {product.description}
@@ -208,7 +215,7 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
                 className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-lg transform md:group-hover:scale-110 md:group-hover:bg-red-600 transition-all duration-300"
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (!hasVariants) {
+                  if (!hasVariants && !isCombo) {
                     onAddToCart({
                       ...product,
                       price: publicPrice,
@@ -228,274 +235,6 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
       </div>
     </div>
   );
-}
-
-// Modal para seleccionar variantes
-function VariantModal({ product, isOpen, onClose, onAddToCart, businessImage, businessUsername, getCartItemQuantity, updateQuantity, onOpenCart, cartItemsCount }: {
-  product: any;
-  isOpen: boolean;
-  onClose: () => void;
-  onAddToCart: (item: any) => void;
-  businessImage?: string;
-  businessUsername?: string;
-  getCartItemQuantity: (id: string, variantName?: string | null) => number;
-  updateQuantity: (id: string, quantity: number, variantName?: string | null) => void;
-  onOpenCart?: () => void;
-  cartItemsCount?: number;
-}) {
-  const [selectedVariant, setSelectedVariant] = useState<any>(null)
-  const [modalImgLoaded, setModalImgLoaded] = useState(false)
-  const [copySuccess, setCopySuccess] = useState(false)
-
-  if (!isOpen || !product) return null
-
-  const handleCopyLink = async () => {
-    const productUrl = `${window.location.origin}/${businessUsername}/${product.slug || product.id}`
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(productUrl)
-      } else {
-        const textArea = document.createElement('textarea')
-        textArea.value = productUrl
-        textArea.style.position = 'fixed'
-        textArea.style.opacity = '0'
-        document.body.appendChild(textArea)
-        textArea.focus()
-        textArea.select()
-        document.execCommand('copy')
-        document.body.removeChild(textArea)
-      }
-      setCopySuccess(true)
-      setTimeout(() => setCopySuccess(false), 2000)
-    } catch (err) {
-      console.error('Error al copiar enlace:', err)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-[200] overflow-hidden">
-      {/* Overlay con blur suave */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
-
-      <div className="flex items-center justify-center min-h-screen p-4">
-        <div className="relative w-full max-w-md bg-gray-50 rounded-[2.5rem] shadow-2xl overflow-hidden transform transition-all animate-in fade-in zoom-in duration-300 flex flex-col max-h-[calc(100svh-4rem)]">
-
-          {/* Header con estilo premium */}
-          <div className="px-6 pt-8 pb-6 bg-white border-b border-gray-100 flex-shrink-0 relative">
-            <div className="absolute top-6 right-6 flex items-center gap-2">
-              <button
-                onClick={handleCopyLink}
-                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
-                title="Copiar enlace del producto"
-              >
-                <i className={`bi ${copySuccess ? 'bi-check-circle text-emerald-500' : 'bi-link-45deg'} text-xl`}></i>
-              </button>
-              <button
-                onClick={onClose}
-                className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-all"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="flex gap-5">
-              {/* Imagen principal del producto en el modal */}
-              <div className="w-24 h-24 sm:w-28 sm:h-28 flex-shrink-0 relative rounded-2xl overflow-hidden shadow-lg border-2 border-white">
-                <div className={`absolute inset-0 animate-pulse bg-gray-100 ${modalImgLoaded ? 'hidden' : 'block'}`}></div>
-                <img
-                  src={product?.image || businessImage}
-                  alt={product?.name}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                  onLoad={() => setModalImgLoaded(true)}
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    if (target.src !== (businessImage || '')) target.src = businessImage || ''
-                    setModalImgLoaded(true)
-                  }}
-                />
-              </div>
-
-              <div className="flex-1 min-w-0 flex flex-col justify-center">
-                <h3 className="text-xl font-black text-gray-900 leading-tight mb-2 pr-8">{product?.name}</h3>
-                {product?.category && (
-                  <span className="w-fit px-2 py-0.5 bg-red-50 text-red-600 text-[10px] font-black uppercase tracking-widest rounded-full">
-                    {product.category}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {product?.description && (
-              <div className="mt-6">
-                <p className="text-gray-500 text-sm leading-relaxed line-clamp-3">
-                  {product.description}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Área de selección con fondo gris claro y scroll suave */}
-          <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
-            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 ml-1">
-              {product?.variants?.length > 0 ? 'variantes disponibles' : 'Detalle del producto'}
-            </label>
-
-            <div className="space-y-3">
-              {(!product?.variants || product.variants.length === 0) ? (
-                /* Producto sin variantes - Estilo CartSidebar */
-                <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group transition-all hover:border-red-100">
-                  <div className="flex-1 min-w-0">
-                    <h5 className="font-bold text-gray-900 text-sm">{product.name}</h5>
-                    <div className="text-red-500 font-black mt-1">{formatPrice(getProductPublicPrice(product))}</div>
-                  </div>
-
-                  <div className="flex-shrink-0 ml-4">
-                    {getCartItemQuantity(product.id, null) > 0 ? (
-                      <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-1">
-                        <button
-                          onClick={() => updateQuantity(product.id, getCartItemQuantity(product.id, null) - 1, null)}
-                          className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-red-500 transition-all"
-                        >
-                          <span className="text-lg">−</span>
-                        </button>
-                        <span className="w-8 text-center font-black text-sm text-gray-900">
-                          {getCartItemQuantity(product.id, null)}
-                        </span>
-                        <button
-                          onClick={() => updateQuantity(product.id, getCartItemQuantity(product.id, null) + 1, null)}
-                          className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-green-600 transition-all"
-                        >
-                          <span className="text-lg">+</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          const pubPrice = getProductPublicPrice(product);
-                          onAddToCart({
-                            id: product.id,
-                            name: product.name,
-                            variantName: null,
-                            productName: product.name,
-                            price: pubPrice,
-                            ...getPriceMetadata(product),
-                            image: product.image,
-                            description: product.description,
-                            isAvailable: product.isAvailable, // Incluir
-                            scheduleAvailability: product.scheduleAvailability, // Incluir
-                            businessId: product.businessId,
-                            productId: product.id,
-                          });
-                        }}
-                        className="w-10 h-10 flex items-center justify-center bg-gray-900/5 text-gray-900 hover:bg-gray-900 hover:text-white rounded-xl transition-all active:scale-95"
-                      >
-                        <i className="bi bi-plus-lg text-sm"></i>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                /* Lista de variantes - Estilo Premium */
-                product?.variants?.filter((v: any) => v.isAvailable !== false).map((variant: any, i: number) => {
-                  const qty = getCartItemQuantity(product.id, variant.name)
-                  const variantPubPrice = getProductPublicPrice(variant)
-
-                  return (
-                    <div
-                      key={i}
-                      onClick={() => setSelectedVariant(variant)}
-                      className={`w-full p-4 rounded-2xl border-2 transition-all duration-300 flex items-center justify-between ${selectedVariant?.name === variant.name
-                        ? 'border-red-500 bg-white shadow-md ring-1 ring-red-50'
-                        : 'border-white bg-white shadow-sm hover:shadow-md hover:border-gray-100 cursor-pointer'
-                        }`}
-                    >
-                      <div className="flex-1 min-w-0 pr-4">
-                        <h5 className="font-bold text-gray-900 text-sm mb-0.5">{variant.name}</h5>
-                        {variant.description && (
-                          <p className="text-xs text-gray-400 line-clamp-1 mb-1">{variant.description}</p>
-                        )}
-                        <div className="text-red-500 font-black text-base">{formatPrice(variantPubPrice)}</div>
-                      </div>
-
-                      <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                        {qty > 0 ? (
-                          <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-1">
-                            <button
-                              onClick={() => updateQuantity(product.id, qty - 1, variant.name)}
-                              className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-red-500 transition-all"
-                            >
-                              <span className="text-lg">−</span>
-                            </button>
-                            <span className="w-8 text-center font-black text-sm text-gray-900">
-                              {qty}
-                            </span>
-                            <button
-                              onClick={() => updateQuantity(product.id, qty + 1, variant.name)}
-                              className="w-8 h-8 flex items-center justify-center bg-white rounded-lg text-gray-600 shadow-sm hover:text-green-600 transition-all"
-                            >
-                              <span className="text-lg">+</span>
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              onAddToCart({
-                                id: product.id,
-                                name: `${product.name} - ${variant.name}`,
-                                variantName: variant.name,
-                                productName: product.name,
-                                price: variantPubPrice,
-                                ...getPriceMetadata(variant),
-                                image: product.image,
-                                description: variant.description || product.description,
-                                isAvailable: product.isAvailable, // Incluir
-                                scheduleAvailability: product.scheduleAvailability, // Incluir
-                                businessId: product.businessId,
-                                productId: product.id,
-                                variantId: variant.id
-                              });
-                            }}
-                            className="w-10 h-10 flex items-center justify-center bg-gray-900/5 text-gray-900 hover:bg-gray-900 hover:text-white rounded-xl transition-all active:scale-95"
-                          >
-                            <i className="bi bi-plus-lg text-sm"></i>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })
-              )}
-            </div>
-          </div>
-
-          {/* Footer - Estilo Premium Bottom */}
-          <div className="p-6 bg-white border-t border-gray-100 flex-shrink-0 flex gap-3">
-            <button
-              onClick={onClose}
-              className="flex-1 py-4 bg-gray-100 text-gray-900 font-bold rounded-2xl hover:bg-gray-200 transition-all active:scale-[0.98]"
-            >
-              Cerrar
-            </button>
-            {(cartItemsCount || 0) > 0 && onOpenCart && (
-              <button
-                onClick={() => {
-                  onClose()
-                  onOpenCart()
-                }}
-                className="flex-1 py-4 bg-gray-900 text-white font-bold rounded-2xl hover:bg-black transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-gray-200"
-              >
-                <i className="bi bi-cart3"></i>
-                Ver Carrito
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
 }
 
 export default function RestaurantPage() {
@@ -775,41 +514,56 @@ function RestaurantContent() {
   // Cargar carrito específico de esta tienda desde localStorage
   useEffect(() => {
     if (business?.id) {
-      const savedCarts = localStorage.getItem('carts')
-      let businessCart = []
-      if (savedCarts) {
-        const allCarts = JSON.parse(savedCarts)
-        businessCart = allCarts[business.id] || []
-      }
-
-      // Verificar si el premio ya está en el carrito
-      const tienePremio = businessCart.some((item: any) => item.esPremio === true)
-
-      // Auto-agregar premio según configuración dinámica
-      if (business.rewardSettings?.enabled && !tienePremio) {
-        const premioEspecial = {
-          id: 'premio-especial-auto',
-          name: `🎁 ${business.rewardSettings.name}`,
-          variantName: null,
-          productName: `🎁 ${business.rewardSettings.name}`,
-          description: business.rewardSettings.description || '¡Felicidades! Has reclamado tu premio especial gratis',
-          price: 0,
-          isAvailable: true,
-          esPremio: true,
-          quantity: 1,
-          image: business.image || 'https://via.placeholder.com/150?text=Premio',
-          businessId: business.id,
-          businessName: business.name,
-          businessImage: business.image
+      const loadCartFromStorage = () => {
+        const savedCarts = localStorage.getItem('carts')
+        let businessCart = []
+        if (savedCarts) {
+          const allCarts = JSON.parse(savedCarts)
+          businessCart = allCarts[business.id] || []
         }
-        businessCart = [...businessCart, premioEspecial]
-        updateCartInStorage(business.id, businessCart)
-        setPremioAgregado(true)
-      } else {
-        setPremioAgregado(tienePremio)
+
+        // Verificar si el premio ya está en el carrito
+        const tienePremio = businessCart.some((item: any) => item.esPremio === true)
+
+        // Auto-agregar premio según configuración dinámica
+        if (business.rewardSettings?.enabled && !tienePremio) {
+          const premioEspecial = {
+            id: 'premio-especial-auto',
+            name: `🎁 ${business.rewardSettings.name}`,
+            variantName: null,
+            productName: `🎁 ${business.rewardSettings.name}`,
+            description: business.rewardSettings.description || '¡Felicidades! Has reclamado tu premio especial gratis',
+            price: 0,
+            isAvailable: true,
+            esPremio: true,
+            quantity: 1,
+            image: business.image || 'https://via.placeholder.com/150?text=Premio',
+            businessId: business.id,
+            businessName: business.name,
+            businessImage: business.image
+          }
+          businessCart = [...businessCart, premioEspecial]
+          updateCartInStorage(business.id, businessCart)
+          setPremioAgregado(true)
+        } else {
+          setPremioAgregado(tienePremio)
+        }
+
+        setCart(businessCart)
       }
 
-      setCart(businessCart)
+      loadCartFromStorage()
+      
+      // Listen for storage changes and custom cart updates to sync state
+      window.addEventListener('storage', loadCartFromStorage)
+      window.addEventListener('cart-updated', loadCartFromStorage)
+      window.addEventListener('pageshow', loadCartFromStorage)
+      
+      return () => {
+        window.removeEventListener('storage', loadCartFromStorage)
+        window.removeEventListener('cart-updated', loadCartFromStorage)
+        window.removeEventListener('pageshow', loadCartFromStorage)
+      }
     }
   }, [business?.id, business?.username, business?.rewardSettings])
 
@@ -1024,6 +778,9 @@ function RestaurantContent() {
     }
 
     localStorage.setItem('carts', JSON.stringify(allCarts))
+    // Dispatch events for other components to update
+    window.dispatchEvent(new Event('storage'))
+    window.dispatchEvent(new Event('cart-updated'))
   }
 
   const clearCart = () => {
@@ -1635,20 +1392,16 @@ function RestaurantContent() {
           onOpenUserSidebar={() => setIsUserSidebarOpen(true)}
         />
 
-      <VariantModal
+      <ProductDetailSidebar
         product={selectedProduct}
         isOpen={isVariantModalOpen}
         onClose={() => {
           setIsVariantModalOpen(false)
           setSelectedProduct(null)
         }}
-        onAddToCart={addVariantToCart}
-        businessImage={business?.image}
-        businessUsername={business?.username}
-        getCartItemQuantity={getCartItemQuantity}
-        updateQuantity={updateQuantity}
+        business={business}
+        onProductSelect={(product) => setSelectedProduct(product)}
         onOpenCart={() => setIsCartOpen(true)}
-        cartItemsCount={cartItemsCount}
       />
 
       {notification.show && (

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Product, Business } from '@/types'
@@ -21,6 +21,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
     const router = useRouter()
     const [selectedVariant, setSelectedVariant] = useState<string | null>(null)
     const [quantity, setQuantity] = useState(1)
+    const [comboSelection, setComboSelection] = useState<Record<string, number>>({})
     const [cart, setCart] = useState<any[]>([])
     const [notification, setNotification] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
         show: false,
@@ -30,6 +31,49 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
     const [copySuccess, setCopySuccess] = useState(false)
     const [otherProducts, setOtherProducts] = useState<Product[]>([])
     const sidebarContentRef = useRef<HTMLDivElement>(null)
+    const [currentImgIndex, setCurrentImgIndex] = useState(0)
+
+    const allImages = useMemo(() => {
+        const imgs: string[] = []
+        if (product?.image) imgs.push(product.image)
+        product?.variants?.forEach((v: any) => {
+            if (v.image && !imgs.includes(v.image)) imgs.push(v.image)
+        })
+        if (imgs.length === 0 && business?.image) imgs.push(business.image)
+        return imgs
+    }, [product, business])
+
+    useEffect(() => {
+        if (!isOpen || allImages.length <= 1) return
+        const interval = setInterval(() => {
+            setCurrentImgIndex((prev) => (prev + 1) % allImages.length)
+        }, 2000)
+        return () => clearInterval(interval)
+    }, [allImages, isOpen])
+
+    useEffect(() => {
+        setCurrentImgIndex(0)
+    }, [product?.id])
+
+    const availableVariants = useMemo(() => {
+        return product?.variants?.filter(v => v.isAvailable !== false) || []
+    }, [product])
+
+    const anyVariantHasImage = useMemo(() => {
+        return availableVariants.some(v => !!v.image)
+    }, [availableVariants])
+
+    const comboPrice = useMemo(() => {
+        if (!product || !product.isCombo) return 0;
+        return Object.entries(comboSelection).reduce((total, [variantName, qty]) => {
+            const variant = availableVariants.find(v => v.name === variantName);
+            if (variant && qty > 0) {
+                return total + (getProductPublicPrice(variant) * qty);
+            }
+            return total;
+        }, 0);
+    }, [product, comboSelection, availableVariants]);
+
 
     // Reset state when product changes
     useEffect(() => {
@@ -40,6 +84,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                 setSelectedVariant(null)
             }
             setQuantity(1)
+            setComboSelection({})
 
             // Scroll to top
             if (sidebarContentRef.current) {
@@ -79,9 +124,11 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
             const handleStorageChange = () => loadCart()
             window.addEventListener('storage', handleStorageChange)
             window.addEventListener('cart-updated', handleStorageChange)
+            window.addEventListener('pageshow', handleStorageChange)
             return () => {
                 window.removeEventListener('storage', handleStorageChange)
                 window.removeEventListener('cart-updated', handleStorageChange)
+                window.removeEventListener('pageshow', handleStorageChange)
             }
         }
     }, [business?.id, isOpen])
@@ -237,13 +284,14 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
 
                         {/* Product Image */}
                         <div className="w-full aspect-square bg-gray-50 rounded-[2rem] overflow-hidden shadow-sm border border-gray-100 mb-6 relative">
-                            {product.image ? (
-                                <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+                            {allImages.length > 0 ? (
+                                <img src={allImages[currentImgIndex]} alt={product.name} className="w-full h-full object-cover transition-all duration-700" />
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center text-gray-200">
                                     <i className="bi bi-image text-6xl"></i>
                                 </div>
                             )}
+
                             {/* Share Button */}
                             <button
                                 onClick={handleCopyProductLink}
@@ -280,49 +328,91 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                         Opciones
                                     </label>
                                     <div className="space-y-3">
-                                        {product.variants.filter(variant => variant.isAvailable !== false).map((variant) => {
+                                        {availableVariants.map((variant) => {
                                             const cartItem = cart.find(item => item.id === product.id && item.variantName === variant.name);
-                                            const qty = cartItem ? cartItem.quantity : 0;
+                                            const qty = product.isCombo ? (comboSelection[variant.name] || 0) : (cartItem ? cartItem.quantity : 0);
 
                                             return (
                                                 <div key={variant.name} className={`flex items-center justify-between p-3 rounded-xl border transition-all ${qty > 0 ? 'border-red-500 bg-red-50' : 'border-gray-100 bg-white'}`}>
-                                                    <div>
-                                                        <span className="block font-bold text-gray-900 text-sm">{variant.name}</span>
-                                                        <span className="text-sm font-black text-red-600">{formatPrice(getProductPublicPrice(variant))}</span>
+                                                    <div className="flex items-center gap-3 flex-1 min-w-0 pr-4">
+                                                        {anyVariantHasImage && (
+                                                            <div className="w-12 h-12 flex-shrink-0 rounded-lg overflow-hidden bg-white border border-gray-100 flex items-center justify-center">
+                                                                <img
+                                                                    src={variant.image || product.image || business.image}
+                                                                    alt={variant.name}
+                                                                    className="w-full h-full object-cover"
+                                                                />
+                                                            </div>
+                                                        )}
+                                                        <div className="flex-1 min-w-0">
+                                                            <span className="block font-bold text-gray-900 text-sm truncate">{variant.name}</span>
+                                                            {variant.description && (
+                                                                <p className="text-[11px] text-gray-500 line-clamp-2 leading-tight mt-0.5 mb-1">
+                                                                    {variant.description}
+                                                                </p>
+                                                            )}
+                                                            <span className="text-sm font-black text-red-600">{formatPrice(getProductPublicPrice(variant))}</span>
+                                                        </div>
                                                     </div>
                                                     <div>
                                                         {qty > 0 ? (
                                                             <div className="flex items-center gap-2 bg-white rounded-lg p-1 shadow-sm">
-                                                                <button onClick={() => updateQuantity(product.id, qty - 1, variant.name)} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:text-red-500"><i className="bi bi-dash"></i></button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        if (product.isCombo) {
+                                                                            setComboSelection(prev => ({ ...prev, [variant.name]: Math.max(0, qty - 1) }))
+                                                                        } else {
+                                                                            updateQuantity(product.id, qty - 1, variant.name)
+                                                                        }
+                                                                    }}
+                                                                    className="w-6 h-6 flex items-center justify-center text-gray-500 hover:text-red-500"
+                                                                >
+                                                                    <i className="bi bi-dash"></i>
+                                                                </button>
                                                                 <span className="text-xs font-black w-4 text-center">{qty}</span>
-                                                                <button onClick={() => updateQuantity(product.id, qty + 1, variant.name)} className="w-6 h-6 flex items-center justify-center text-gray-500 hover:text-green-600"><i className="bi bi-plus"></i></button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        if (product.isCombo) {
+                                                                            setComboSelection(prev => ({ ...prev, [variant.name]: qty + 1 }))
+                                                                        } else {
+                                                                            updateQuantity(product.id, qty + 1, variant.name)
+                                                                        }
+                                                                    }}
+                                                                    className="w-6 h-6 flex items-center justify-center text-gray-500 hover:text-green-600"
+                                                                >
+                                                                    <i className="bi bi-plus"></i>
+                                                                </button>
                                                             </div>
                                                         ) : (
                                                             <button
-            onClick={() => {
-              const itemToAdd = {
-                id: product.id,
-                name: product.name,            // Nombre base del producto
-                variant: variant.name,        // Nombre de la variante
-                variantName: variant.name,    // Nombre de la variante
-                productName: product.name,    // Nombre base (redundante pero claro)
-                price: getProductPublicPrice(variant),
-                ...getPriceMetadata(variant),
-                image: product.image,
-                description: variant.description || product.description,
-                businessId: business.id,
-                businessName: business.name,
-                businessImage: business.image,
-                category: product.category
-              };
+                                                                onClick={() => {
+                                                                    if (product.isCombo) {
+                                                                        setComboSelection(prev => ({ ...prev, [variant.name]: 1 }))
+                                                                    } else {
+                                                                        const itemToAdd = {
+                                                                            id: product.id,
+                                                                            name: product.name,            // Nombre base del producto
+                                                                            variant: variant.name,        // Nombre de la variante
+                                                                            variantName: variant.name,    // Nombre de la variante
+                                                                            productName: product.name,    // Nombre base (redundante pero claro)
+                                                                            price: getProductPublicPrice(variant),
+                                                                            ...getPriceMetadata(variant),
+                                                                            image: product.image,
+                                                                            description: variant.description || product.description,
+                                                                            businessId: business.id,
+                                                                            businessName: business.name,
+                                                                            businessImage: business.image,
+                                                                            category: product.category
+                                                                        };
 
-              const enriched = ensureCartItemMetadata(itemToAdd)
-              const currentCart = [...cart];
-              currentCart.push({ ...enriched, quantity: 1 });
-              setCart(currentCart);
-              updateCartInStorage(business.id, currentCart);
-              showNotification(`${product.name} - ${variant.name} agregado`);
-            }}
+                                                                        const enriched = ensureCartItemMetadata(itemToAdd)
+                                                                        const currentCart = [...cart];
+                                                                        currentCart.push({ ...enriched, quantity: 1 });
+                                                                        setCart(currentCart);
+                                                                        updateCartInStorage(business.id, currentCart);
+                                                                        showNotification(`${product.name} - ${variant.name} agregado`);
+                                                                    }
+                                                                }}
                                                                 disabled={!product.isAvailable}
                                                                 className="w-8 h-8 rounded-lg bg-gray-900 text-white flex items-center justify-center hover:bg-black transition-colors disabled:opacity-50"
                                                             >
@@ -333,6 +423,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                 </div>
                                             )
                                         })}
+
+
                                     </div>
                                 </div>
                             ) : (
@@ -449,54 +541,132 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                             </div>
                         )}
 
-                        {/* Spacer for floating cart button */}
-                        <div className="h-24"></div>
-
+                        {/* Spacer for fixed footer */}
+                        <div className="h-32"></div>
                     </div>
                 </div>
 
-                {/* Floating Cart Button inside Sidebar */}
-                {(() => {
-                    const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
-                    const cartItemsCount = cart.reduce((sum, item) => sum + (item.esPremio ? 0 : item.quantity), 0)
+                {/* Fixed Footer for Actions */}
+                <div className="absolute bottom-0 left-0 right-0 p-6 bg-white border-t border-gray-100 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40">
+                    {(() => {
+                        const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+                        const cartItemsCount = cart.reduce((sum, item) => sum + (item.esPremio ? 0 : item.quantity), 0)
+                        const totalComboSelected = product.isCombo ? Object.values(comboSelection).reduce((a, b) => a + b, 0) : 0;
+                        const isComboComplete = !product.isCombo || totalComboSelected >= (product.minComboItems || 1);
+                        const selectedVariantsStr = Object.entries(comboSelection)
+                            .filter(([_, q]) => q > 0)
+                            .map(([name, q]) => `${q}x ${name}`)
+                            .join(', ');
 
-                    if (cartItemsCount > 0) {
+                        const cartButton = cartItemsCount > 0 && (
+                            <button
+                                onClick={() => {
+                                    if (onOpenCart) {
+                                        onOpenCart()
+                                    } else {
+                                        router.push(`/${business.username || `restaurant/${business.id}`}`)
+                                    }
+                                }}
+                                className="bg-gray-900 text-white rounded-2xl shadow-lg hover:bg-black transition-all duration-300 transform active:scale-95 group overflow-hidden"
+                            >
+                                <div className="flex items-center px-4 py-3 space-x-3">
+                                    <div className="relative">
+                                        <i className="bi bi-cart3 text-xl"></i>
+                                        <span className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-[9px] font-black flex items-center justify-center border-2 border-gray-900 shadow-lg">
+                                            {cartItemsCount}
+                                        </span>
+                                    </div>
+                                    <div className="text-left hidden sm:block">
+                                        <div className="text-xs font-black leading-none">{formatPrice(cartTotal)}</div>
+                                    </div>
+                                </div>
+                            </button>
+                        )
+
                         return (
-                            <div className="absolute bottom-6 right-6 z-50">
-                                <button
-                                    onClick={() => {
-                                        if (onOpenCart) {
-                                            onOpenCart()
-                                        } else {
-                                            router.push(`/${business.username || `restaurant/${business.id}`}`)
-                                        }
-                                    }}
-                                    className="relative bg-gray-900 text-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] hover:bg-black transition-all duration-300 transform hover:scale-105 active:scale-95 group overflow-hidden"
-                                >
-                                    {/* Glossy Effect */}
-                                    <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-
-                                    <div className="flex items-center px-6 py-4 space-x-3">
-                                        <div className="relative">
-                                            <i className="bi bi-cart3 text-2xl"></i>
-                                            <span className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full w-6 h-6 text-[10px] font-black flex items-center justify-center border-2 border-gray-900 shadow-lg animate-bounce">
-                                                {cartItemsCount}
-                                            </span>
+                            <div className="space-y-4">
+                                {product.isCombo && comboPrice > 0 && (
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="flex-1 min-w-0">
+                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Tu selección</span>
+                                            <p className="text-xs font-bold text-gray-600 line-clamp-2 leading-tight uppercase">
+                                                {selectedVariantsStr}
+                                            </p>
                                         </div>
-                                        <div className="text-left">
-                                            <div className="text-xs text-gray-400 font-bold uppercase tracking-widest leading-none mb-1 text-[8px]">Total</div>
-                                            <div className="text-lg font-black leading-none">{formatPrice(cartTotal)}</div>
-                                        </div>
-                                        <div className="pl-2 border-l border-white/10 group-hover:translate-x-1 transition-transform">
-                                            <i className="bi bi-chevron-right text-gray-400"></i>
+                                        <div className="text-right flex-shrink-0">
+                                            <span className="text-2xl font-black text-red-600 tracking-tight block leading-none">{formatPrice(comboPrice)}</span>
+                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Combo</span>
                                         </div>
                                     </div>
-                                </button>
+                                )}
+
+                                <div className="flex items-center gap-3">
+                                    {product.isCombo ? (
+                                        <button
+                                            onClick={() => {
+                                                if (!isComboComplete) return;
+
+                                                const comboMeta = Object.entries(comboSelection).reduce((acc, [variantName, qty]) => {
+                                                    const variant = availableVariants.find(v => v.name === variantName);
+                                                    if (variant && qty > 0) {
+                                                        const meta = getPriceMetadata(variant);
+                                                        return {
+                                                            basePrice: acc.basePrice + (meta.basePrice * qty),
+                                                            commission: acc.commission + (meta.commission * qty),
+                                                            publicPrice: acc.publicPrice + (meta.publicPrice * qty),
+                                                            storeReceives: acc.storeReceives + (meta.storeReceives * qty),
+                                                        };
+                                                    }
+                                                    return acc;
+                                                }, { basePrice: 0, commission: 0, publicPrice: 0, storeReceives: 0 });
+
+                                                const itemToAdd = {
+                                                    id: `${product.id}-combo-${Date.now()}`,
+                                                    name: product.name,
+                                                    variantName: `Combo: ${selectedVariantsStr}`,
+                                                    productName: product.name,
+                                                    price: comboMeta.publicPrice,
+                                                    basePrice: comboMeta.basePrice,
+                                                    commission: comboMeta.commission,
+                                                    storeReceives: comboMeta.storeReceives,
+                                                    commissionType: product.commissionType || 'no_commission',
+                                                    image: product.image,
+                                                    description: product.description,
+                                                    businessId: business.id,
+                                                    businessName: business.name,
+                                                    businessImage: business.image,
+                                                    category: product.category,
+                                                    isCombo: true,
+                                                    comboSelection: comboSelection
+                                                };
+
+                                                const currentCart = [...cart];
+                                                currentCart.push({ ...itemToAdd, quantity: 1 });
+                                                setCart(currentCart);
+                                                updateCartInStorage(business.id, currentCart);
+                                                showNotification(`${product.name} (Combo) agregado`);
+                                                setComboSelection({});
+                                            }}
+                                            disabled={!isComboComplete}
+                                            className="flex-1 py-4 bg-gray-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-black transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                        >
+                                            <i className={`bi ${isComboComplete ? 'bi-bag-plus-fill' : 'bi-info-circle'}`}></i>
+                                            {isComboComplete ? 'Agregar Combo' : `Arma tu combo (${totalComboSelected}/${product.minComboItems})`}
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={onClose}
+                                            className="flex-1 py-4 bg-gray-100 text-gray-900 font-bold rounded-2xl hover:bg-gray-200 transition-all active:scale-[0.98]"
+                                        >
+                                            Cerrar
+                                        </button>
+                                    )}
+                                    {cartButton}
+                                </div>
                             </div>
                         )
-                    }
-                    return null
-                })()}
+                    })()}
+                </div>
             </div>
 
             {notification.show && (

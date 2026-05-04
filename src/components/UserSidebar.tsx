@@ -79,6 +79,7 @@ function CartMenuOption({ onClose }: { onClose: () => void }) {
                     return copy
                 })
                 window.dispatchEvent(new Event('storage'))
+                window.dispatchEvent(new Event('cart-updated'))
             }
         } catch (e) {
             console.error('Error deleting cart:', e)
