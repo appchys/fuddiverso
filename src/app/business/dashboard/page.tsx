@@ -287,15 +287,25 @@ export default function TodayOrdersPage() {
     const totalTodaySales = useMemo(() => {
         return orders.reduce((acc, order) => {
             if (order.status === 'cancelled') return acc
+            
+            // Si tiene items, calcular lo que recibe la tienda
             if (order.items && order.items.length > 0) {
-                const itemsTotal = order.items.reduce((sum, item) => {
-                    if (typeof item.subtotal === 'number') return sum + item.subtotal
-                    const price = item.storeReceives || item.product?.price || 0
+                const calculatedStoreTotal = order.items.reduce((sum, item) => {
+                    const price = item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))
                     return sum + (price * (item.quantity || 1))
                 }, 0)
-                if (itemsTotal > 0) return acc + itemsTotal
+                return acc + calculatedStoreTotal
             }
+            
+            // Fallback para órdenes sin items detallados (ej: antiguas o manuales simples)
             if (typeof order.subtotal === 'number') return acc + order.subtotal
+            return acc + (order.total || 0)
+        }, 0)
+    }, [orders])
+
+    const totalTodayPublicSales = useMemo(() => {
+        return orders.reduce((acc, order) => {
+            if (order.status === 'cancelled') return acc
             return acc + (order.total || 0)
         }, 0)
     }, [orders])
@@ -1577,10 +1587,16 @@ export default function TodayOrdersPage() {
                                                         </div>
 
                                                         <div className="text-right">
-                                                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Ventas</p>
-                                                            <p className="text-lg font-bold text-green-600">
-                                                                ${totalTodaySales.toFixed(2)}
-                                                            </p>
+                                                            <div className="flex flex-col items-end">
+                                                                <p className="text-lg font-bold text-emerald-600">
+                                                                    ${totalTodaySales.toFixed(2)}
+                                                                </p>
+                                                                {totalTodayPublicSales > totalTodaySales && (
+                                                                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none">
+                                                                        Público: ${totalTodayPublicSales.toFixed(2)}
+                                                                    </p>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                         {summaryExpanded && (
                                                             <div className="col-span-3 mt-2 pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 flex justify-end">
@@ -1713,10 +1729,16 @@ export default function TodayOrdersPage() {
                                                             </div>
 
                                                             <div className="text-right">
-                                                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Total Ventas</p>
-                                                                <p className="text-xl font-bold text-green-600">
-                                                                    ${totalTodaySales.toFixed(2)}
-                                                                </p>
+                                                                <div className="flex flex-col items-end">
+                                                                    <p className="text-xl font-bold text-emerald-600">
+                                                                        ${totalTodaySales.toFixed(2)}
+                                                                    </p>
+                                                                    {totalTodayPublicSales > totalTodaySales && (
+                                                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                                                                            Público: ${totalTodayPublicSales.toFixed(2)}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                             {summaryExpanded && (
                                                                 <div className="col-span-3 mt-2 pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 flex justify-end px-2">
@@ -2508,7 +2530,14 @@ function OrderCard({
                                 <span className="text-gray-700">
                                     <span className="font-medium text-gray-900">{item.quantity}x</span> {item.variant || item.product?.name || item.name}
                                 </span>
-                                <span className="text-gray-500">${((item.storeReceives || item.price || item.product?.price || 0) * item.quantity).toFixed(2)}</span>
+                                <div className="flex flex-col items-end">
+                                    <span className="text-emerald-600 font-bold text-sm">
+                                        ${((item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))) * item.quantity).toFixed(2)}
+                                    </span>
+                                    {((item.price || item.product?.price || 0) > (item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0)))) && (
+                                        <span className="text-[9px] text-gray-400 font-medium">Público: ${((item.price || item.product?.price || 0) * item.quantity).toFixed(2)}</span>
+                                    )}
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -2530,7 +2559,12 @@ function OrderCard({
                                 <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' :
                                     order.payment?.method === 'mixed' ? 'bi-cash-coin' : 'bi-cash'
                                     }`}></i>
-                                <span>${(order.total || 0).toFixed(2)}</span>
+                                <div className="flex flex-col items-start leading-tight">
+                                    <span className="text-emerald-600 font-black">${(order.items?.reduce((acc, item) => acc + ((item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))) * item.quantity), 0) || order.total || 0).toFixed(2)}</span>
+                                    {((order.total || 0) > (order.items?.reduce((acc, item) => acc + ((item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))) * item.quantity), 0) || order.total || 0)) && (
+                                        <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">Público: ${(order.total || 0).toFixed(2)}</span>
+                                    )}
+                                </div>
                                 <i className="bi bi-pencil-square text-xs opacity-50 ml-1"></i>
                             </button>
                         </div>

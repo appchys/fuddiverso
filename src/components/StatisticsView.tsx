@@ -123,6 +123,10 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
 
         // 1. Monto total de venta (Subtotal)
         const totalSales = filteredOrders.reduce((sum, order) => sum + getOrderSubtotal(order), 0);
+        const totalStoreSales = filteredOrders.reduce((sum, order) => {
+            const calculatedStoreTotal = (order.items || []).reduce((s, item) => s + ((item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))) * (item.quantity || 1)), 0)
+            return sum + (calculatedStoreTotal || getOrderSubtotal(order))
+        }, 0);
 
         // 2. Cantidad de órdenes
         const totalOrdersCount = filteredOrders.length;
@@ -233,6 +237,7 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
 
         return {
             totalSales,
+            totalStoreSales,
             totalOrdersCount,
             topProducts,
             chartData,
@@ -337,11 +342,18 @@ export default function StatisticsView({ orders }: StatisticsViewProps) {
                         </div>
                         <h3 className="text-gray-500 font-medium text-sm">Ventas Totales</h3>
                     </div>
-                    <div className="text-3xl font-bold text-gray-900">
-                        ${stats.totalSales.toFixed(2)}
+                    <div className="flex flex-col">
+                        <div className="text-3xl font-bold text-emerald-600">
+                            ${stats.totalStoreSales.toFixed(2)}
+                        </div>
+                        {stats.totalSales > stats.totalStoreSales && (
+                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
+                                Público: ${stats.totalSales.toFixed(2)}
+                            </div>
+                        )}
                     </div>
                     <p className="text-sm text-gray-400 mt-1">
-                        Ingresos del periodo seleccionado
+                        Lo que recibes en el periodo
                     </p>
                 </div>
 

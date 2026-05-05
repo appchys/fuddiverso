@@ -178,7 +178,7 @@ export default function ProductList({
     setFormData({
       name: product.name,
       description: product.description,
-      price: product.price.toString(),
+      price: (product.basePrice || product.price).toString(),
       category: product.category,
       isAvailable: product.isAvailable,
       image: null,
@@ -186,7 +186,7 @@ export default function ProductList({
       isCombo: product.isCombo || false,
       minComboItems: product.minComboItems || 1
     })
-    setVariants(product.variants || [])
+    setVariants(product.variants?.map(v => ({ ...v, price: v.basePrice || v.price })) || [])
     setIngredients((product.ingredients || []) as any)
 
     // Cargar visibilidad de variantes
@@ -285,7 +285,7 @@ export default function ProductList({
   const handleEditVariant = (variant: ProductVariant) => {
     setCurrentVariant({
       name: variant.name,
-      price: variant.price.toString(),
+      price: (variant.basePrice || variant.price).toString(),
       description: variant.description || '',
       imageFile: null,
       imageUrl: variant.image || ''
@@ -698,15 +698,13 @@ export default function ProductList({
       const productData = {
         name: formData.name,
         description: formData.description,
-        price: editingProduct ? Number(formData.price) : productPricing.publicPrice,
-        basePrice: editingProduct ? editingProduct.basePrice : productPricing.storePrice,
-        commission: editingProduct ? editingProduct.commission : productPricing.commission,
-        commissionType: editingProduct ? editingProduct.commissionType : productPricing.commissionType,
+        price: productPricing.publicPrice,
+        basePrice: productPricing.storePrice,
+        commission: productPricing.commission,
+        commissionType: productPricing.commissionType,
         category: formData.category,
         image: imageUrl,
-        variants: variants.length > 0
-          ? (editingProduct ? processedVariants : variantsWithCommission)
-          : undefined,
+        variants: variants.length > 0 ? variantsWithCommission : undefined,
         ingredients: ingredients.length > 0 ? ingredients : undefined,
         isAvailable: formData.isAvailable,
         // undefined = eliminar campo en Firestore
@@ -989,17 +987,24 @@ export default function ProductList({
                               </p>
                             </div>
 
-                            <div className="mt-2 flex items-center gap-3">
-                              <span className="text-base sm:text-xl font-black text-red-500 tracking-tight">
-                                ${product.price.toFixed(2)}
-                              </span>
-                              {product.variants && product.variants.length > 0 && (
-                                <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
-                                  <i className="bi bi-stack text-gray-400 text-[10px]"></i>
-                                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
-                                    {product.variants.length} variantes
-                                  </span>
-                                </div>
+                            <div className="mt-2 flex flex-col">
+                              <div className="flex items-center gap-3">
+                                <span className="text-base sm:text-xl font-black text-emerald-600 tracking-tight">
+                                  ${(product.basePrice || product.price).toFixed(2)}
+                                </span>
+                                {product.variants && product.variants.length > 0 && (
+                                  <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 rounded-lg border border-gray-100">
+                                    <i className="bi bi-stack text-gray-400 text-[10px]"></i>
+                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
+                                      {product.variants.length} variantes
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                              {product.basePrice && product.basePrice !== product.price && (
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">
+                                  Público: ${product.price.toFixed(2)}
+                                </span>
                               )}
                             </div>
                           </div>
@@ -1672,9 +1677,15 @@ export default function ProductList({
                                 {variant.description && (
                                   <p className="text-[10px] text-gray-500 line-clamp-1 mt-0.5 leading-tight">{variant.description}</p>
                                 )}
-                                <p className="text-sm font-black text-red-500 tracking-tight mt-0.5">
-                                  ${variant.price.toFixed(2)}
-                                </p>
+                                <div className="flex flex-col mt-0.5">
+                                  <p className="text-sm font-black text-emerald-600 tracking-tight">
+                                    ${variant.price.toFixed(2)}
+                                  </p>
+                                  {/* Nota: En el estado local 'variants' durante la edición, 'price' es el precio base */}
+                                  <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">
+                                    Público: ${(Math.round(variant.price * (1 + (commissionSettings.commissionRate / 100)) * 20) / 20).toFixed(2)}
+                                  </p>
+                                </div>
                               </div>
 
                               <div className="flex items-center gap-1">

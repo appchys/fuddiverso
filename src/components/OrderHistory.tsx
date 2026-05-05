@@ -463,7 +463,14 @@ export default function OrderHistory({
                                 <span className="text-gray-700">
                                     <span className="font-medium text-gray-900">{item.quantity}x</span> {item.variant || item.product?.name || item.name}
                                 </span>
-                                <span className="text-gray-500">${((item.price || item.product?.price || 0) * item.quantity).toFixed(2)}</span>
+                                <div className="flex flex-col items-end">
+                                    <span className="text-emerald-600 font-bold text-sm">
+                                        ${((item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))) * item.quantity).toFixed(2)}
+                                    </span>
+                                    {((item.price || item.product?.price || 0) > (item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0)))) && (
+                                        <span className="text-[9px] text-gray-400 font-medium">Público: ${((item.price || item.product?.price || 0) * item.quantity).toFixed(2)}</span>
+                                    )}
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -485,7 +492,12 @@ export default function OrderHistory({
                                 <i className={`bi ${order.payment?.method === 'transfer' ? 'bi-bank' :
                                     order.payment?.method === 'mixed' ? 'bi-cash-coin' : 'bi-cash'
                                     }`}></i>
-                                <span>${(order.total || 0).toFixed(2)}</span>
+                                <div className="flex flex-col items-start leading-tight">
+                                    <span className="text-emerald-600 font-black">${(order.items?.reduce((acc, item) => acc + ((item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))) * item.quantity), 0) || order.total || 0).toFixed(2)}</span>
+                                    {((order.total || 0) > (order.items?.reduce((acc, item) => acc + ((item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))) * item.quantity), 0) || order.total || 0)) && (
+                                        <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">Público: ${(order.total || 0).toFixed(2)}</span>
+                                    )}
+                                </div>
                                 <i className="bi bi-pencil-square text-xs opacity-50 ml-1"></i>
                             </button>
                         </div>
@@ -694,9 +706,16 @@ export default function OrderHistory({
                               </span>
                             </h3>
                             <div className="flex items-center">
-                              <span className="text-sm text-gray-500 mr-2">
-                                ${orders.reduce((sum, order) => sum + (order.total || 0), 0).toFixed(2)} total
-                              </span>
+                              <div className="flex flex-col items-end leading-none">
+                                <span className="text-sm font-black text-emerald-600">
+                                  ${orders.reduce((sum, order) => sum + (order.items?.reduce((acc, item) => acc + ((item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))) * item.quantity), 0) || order.total || 0), 0).toFixed(2)}
+                                </span>
+                                {orders.reduce((sum, order) => sum + (order.total || 0), 0) > orders.reduce((sum, order) => sum + (order.items?.reduce((acc, item) => acc + ((item.storeReceives || (item.price && item.commission ? item.price - item.commission : (item.product?.basePrice || item.product?.price || item.price || 0))) * item.quantity), 0) || order.total || 0), 0) && (
+                                  <span className="text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
+                                    Público: ${orders.reduce((sum, order) => sum + (order.total || 0), 0).toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
                               <i className={`bi ${isExpanded ? 'bi-chevron-up' : 'bi-chevron-down'} text-gray-400`}></i>
                             </div>
                           </div>

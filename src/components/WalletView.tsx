@@ -428,7 +428,7 @@ export default function WalletView({ business, orders, historicalOrders }: Walle
                                                 </div>
                                             </div>
                                             <div className="text-right">
-                                                <div className="text-lg font-bold text-green-600">
+                                                <div className="text-lg font-bold text-emerald-600">
                                                     +${info.storeReceives.toFixed(2)}
                                                 </div>
                                                 <div className="text-xs text-gray-500">
