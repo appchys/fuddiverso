@@ -216,11 +216,13 @@ export interface CartItem {
   product: Product
   quantity: number
   subtotal: number
-  // Metadatos de precios para liquidaciones
-  basePrice?: number
+  storeReceives?: number
+  price?: number
+  variant?: string
+  name?: string
   commission?: number
   commissionType?: CommissionType
-  storeReceives?: number
+  basePrice?: number
 }
 
 export interface Customer {
