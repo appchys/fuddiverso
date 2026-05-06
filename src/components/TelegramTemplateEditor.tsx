@@ -418,6 +418,9 @@ const AVAILABLE_FIELDS: FieldDef[] = [
             { value: 'mixed', label: 'Mixto' },
         ]
     },
+    { key: 'cashAmount', label: 'Monto en Efectivo', example: '$5.00' },
+    { key: 'transferAmount', label: 'Monto Transferencia', example: '$10.50' },
+    { key: 'valorACobrar', label: 'Valor a Cobrar (Efectivo/Mixto)', example: '$5.00' },
     {
         key: 'orderTimingType',
         label: 'Tipo Tiempo (Inmediato/Programado)',

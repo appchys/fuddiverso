@@ -320,6 +320,9 @@ function buildTemplateVariables(orderData, businessName, options = {}) {
             borrador: 'Borrador'
         })[orderData.status || 'pending'] || (orderData.status || 'Pendiente'),
         paymentMethodRaw: paymentMethod,
+        cashAmount: orderData.payment?.cashAmount !== undefined ? `$${orderData.payment.cashAmount.toFixed(2)}` : '',
+        transferAmount: orderData.payment?.transferAmount !== undefined ? `$${orderData.payment.transferAmount.toFixed(2)}` : '',
+        valorACobrar: paymentMethod === 'cash' ? `$${total.toFixed(2)}` : (paymentMethod === 'mixed' ? `$${(orderData.payment?.cashAmount || 0).toFixed(2)}` : ''),
         // Timing: 'immediate' | 'scheduled'
         orderTimingType: orderData.timing?.type || 'immediate',
         // Delivery acceptance status: 'accepted' | 'pending'
