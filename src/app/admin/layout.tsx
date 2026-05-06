@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 
 export default function AdminLayout({
   children,
@@ -10,6 +10,7 @@ export default function AdminLayout({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const router = useRouter()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -17,6 +18,7 @@ export default function AdminLayout({
 
   const navLinks = [
     { href: '/admin/dashboard', label: 'Dashboard', icon: 'bi-grid-1x2-fill' },
+    { href: '/admin/dashboard?tab=transfers', label: 'Revisar Transferencias', icon: 'bi-bank' },
     { href: '/admin/orders', label: 'Gestión de Pedidos', icon: 'bi-cart-fill' },
     { href: '/admin/settlements', label: 'Liquidaciones', icon: 'bi-cash-coin' },
     { href: '/admin/deliveries', label: 'Deliveries', icon: 'bi-scooter' },
@@ -118,7 +120,11 @@ export default function AdminLayout({
           {/* Navigation */}
           <nav className="flex-1 space-y-2">
             {navLinks.map((link) => {
-              const isActive = pathname === link.href
+              const currentPath = pathname ?? ''
+              const currentTab = searchParams?.get('tab')
+              const isActive = link.href.includes('?')
+                ? `${currentPath}?tab=${currentTab || ''}` === link.href
+                : currentPath === link.href && !currentTab
               return (
                 <Link
                   key={link.href}

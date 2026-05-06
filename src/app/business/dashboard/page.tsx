@@ -1090,6 +1090,9 @@ export default function TodayOrdersPage() {
         if (selectedOrderForPayment?.id === updatedOrder.id) {
             setSelectedOrderForPayment(updatedOrder)
         }
+        setOrders(prev => prev.map(order => order.id === updatedOrder.id ? updatedOrder : order))
+        setHistoricalOrders(prev => prev.map(order => order.id === updatedOrder.id ? updatedOrder : order))
+        setAllUpcomingOrders(prev => prev.map(order => order.id === updatedOrder.id ? updatedOrder : order))
     }
 
     const handleSendWhatsAppToDelivery = async (order: Order) => {

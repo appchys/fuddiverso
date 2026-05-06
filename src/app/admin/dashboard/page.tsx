@@ -1,12 +1,15 @@
 'use client'
 
 import { useState, useEffect, Fragment, lazy, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 
 const TelegramTemplateEditor = lazy(() => import('@/components/TelegramTemplateEditor'))
 const WhatsAppTemplateEditor = lazy(() => import('@/components/WhatsAppTemplateEditor'))
 const CustomerBroadcastPanel = lazy(() => import('@/components/CustomerBroadcastPanel'))
 const ProductsList = lazy(() => import('@/components/ProductsList'))
 const RecommendersTab = lazy(() => import('@/components/admin/RecommendersTab'))
+const TransferReviewPanel = lazy(() => import('@/components/TransferReviewPanel'))
+const PaymentManagementModals = lazy(() => import('@/components/PaymentManagementModals'))
 import {
   getAllOrders,
   getAllBusinesses,
@@ -17,6 +20,7 @@ import {
   getAllClientsGlobal,
   getAllDeliveries,
   getCoverageGroups,
+  updateOrder,
   updateBusiness,
   getCoverageZoneForLocation,
   getCoverageZones
@@ -36,6 +40,7 @@ import {
 } from 'recharts';
 
 export default function AdminDashboard() {
+  const searchParams = useSearchParams()
   const [stats, setStats] = useState({
     totalOrdersToday: 0,
     revenueToday: 0,
@@ -47,7 +52,7 @@ export default function AdminDashboard() {
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'templates' | 'products' | 'orders'>('home')
+  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'templates' | 'products' | 'orders' | 'transfers'>('home')
   const [activeTemplateTab, setActiveTemplateTab] = useState<'whatsapp' | 'telegram' | 'broadcast'>('whatsapp')
   const [coverageGroups, setCoverageGroups] = useState<any[]>([])
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
@@ -55,6 +60,9 @@ export default function AdminDashboard() {
   const [showManualZoneModal, setShowManualZoneModal] = useState(false)
   const [selectedBusinessForManualZone, setSelectedBusinessForManualZone] = useState<Business | null>(null)
   const [coverageZones, setCoverageZones] = useState<any[]>([])
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false)
+  const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<Order | null>(null)
+  const [validatingPaymentOrderId, setValidatingPaymentOrderId] = useState<string | null>(null)
 
   // Estados para filtros del historial de órdenes
   const [filterOrdersBusiness, setFilterOrdersBusiness] = useState<string>('all')
@@ -93,6 +101,14 @@ export default function AdminDashboard() {
   useEffect(() => {
     document.title = 'Panel de administración - Fuddi'
   }, [])
+
+  useEffect(() => {
+    if (searchParams?.get('tab') === 'transfers') {
+      setActiveTab('transfers')
+    } else {
+      setActiveTab('home')
+    }
+  }, [searchParams])
 
   useEffect(() => {
     loadData()
@@ -657,6 +673,47 @@ export default function AdminDashboard() {
     );
   };
 
+  const handlePaymentClick = (order: Order) => {
+    setSelectedOrderForPayment(order)
+    setPaymentModalOpen(true)
+  }
+
+  const handleOrderUpdatedFromPaymentModal = (updatedOrder: Order) => {
+    setOrders(prevOrders =>
+      prevOrders.map(order => order.id === updatedOrder.id ? updatedOrder : order)
+    )
+    setSelectedOrderForPayment(updatedOrder)
+  }
+
+  const handleValidateTransferPayment = async (order: Order) => {
+    if (!order?.id) return
+
+    const updatedPayment = {
+      ...order.payment,
+      paymentStatus: 'paid' as const
+    }
+    const updatedOrder = {
+      ...order,
+      payment: updatedPayment
+    }
+
+    setValidatingPaymentOrderId(order.id)
+    try {
+      await updateOrder(order.id, { payment: updatedPayment } as any)
+      setOrders(prevOrders =>
+        prevOrders.map(currentOrder => currentOrder.id === order.id ? updatedOrder : currentOrder)
+      )
+      if (selectedOrderForPayment?.id === order.id) {
+        setSelectedOrderForPayment(updatedOrder)
+      }
+    } catch (error) {
+      console.error('Error validating transfer payment:', error)
+      alert('Error al validar la transferencia')
+    } finally {
+      setValidatingPaymentOrderId(null)
+    }
+  }
+
   const renderOrdersHistoryTab = () => {
     // Aplicar filtros a las órdenes
     let filteredOrders = orders.filter(order => {
@@ -965,6 +1022,13 @@ export default function AdminDashboard() {
           >
             <i className="bi bi-receipt md:hidden me-1.5"></i>
             Historial
+          </button>
+          <button
+            onClick={() => setActiveTab('transfers')}
+            className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'transfers' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <i className="bi bi-bank md:hidden me-1.5"></i>
+            Transferencias
           </button>
         </div>
       </div>
@@ -1568,6 +1632,25 @@ export default function AdminDashboard() {
       ) : activeTab === 'products' ? (
         <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
           <ProductsList />
+        </Suspense>
+      ) : activeTab === 'transfers' ? (
+        <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
+          <TransferReviewPanel
+            orders={orders}
+            businesses={businesses}
+            onPaymentEdit={handlePaymentClick}
+            onPaymentValidate={handleValidateTransferPayment}
+            validatingOrderId={validatingPaymentOrderId}
+          />
+          <PaymentManagementModals
+            isOpen={paymentModalOpen}
+            onClose={() => {
+              setPaymentModalOpen(false)
+              setSelectedOrderForPayment(null)
+            }}
+            order={selectedOrderForPayment}
+            onOrderUpdated={handleOrderUpdatedFromPaymentModal}
+          />
         </Suspense>
       ) : activeTab === 'orders' ? (
         renderOrdersHistoryTab()

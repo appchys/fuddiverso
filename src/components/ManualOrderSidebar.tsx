@@ -83,7 +83,7 @@ interface ManualOrderSidebarProps {
   editOrder?: any
   onOrderUpdated?: () => void
   // Navegación - para que funcione como el DashboardSidebar
-  setActiveTab?: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist') => void
+  setActiveTab?: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses') => void
   setProfileSubTab?: (tab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins') => void
 }
 

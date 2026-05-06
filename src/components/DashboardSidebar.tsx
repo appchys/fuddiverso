@@ -223,8 +223,6 @@ export default function DashboardSidebar({
                         <span className="font-medium">Billetera</span>
                     </button>
 
-
-
                     {user?.email === 'munchys.ec@gmail.com' && (
                         <div>
                             <button
