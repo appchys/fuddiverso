@@ -228,14 +228,26 @@ export default function BottomNavigation() {
             }}
             className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-all relative ${isActive('/my-orders') || showOrdersSheet ? 'text-[#aa1918]' : 'text-gray-400 hover:text-gray-900'}`}
           >
-            <div className={`relative p-1 rounded-xl transition-all ${isActive('/my-orders') || showOrdersSheet ? 'bg-red-50' : ''}`}>
-              <i className={`bi bi-receipt${isActive('/my-orders') || showOrdersSheet ? '-cutoff' : ''} text-xl leading-none`}></i>
-              {/* Notificador visual de órdenes activas */}
-              {activeOrders.length > 0 && (
-                <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full animate-pulse"></span>
-              )}
-            </div>
-            <span className="text-[10px] font-bold tracking-tight">Pedidos</span>
+            {activeOrders.length > 0 ? (
+              <>
+                <div className={`relative p-0.5 rounded-full transition-all ${isActive('/my-orders') || showOrdersSheet ? 'bg-red-100 ring-2 ring-red-100' : 'bg-gray-100 ring-1 ring-gray-100'}`}>
+                  <div className="w-6 h-6 rounded-full overflow-hidden bg-white">
+                    <img src={activeOrders[0].businessImage || '/default-restaurant-og.svg'} alt="Tienda" className="w-full h-full object-cover" />
+                  </div>
+                  <span className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 border-white ${getStatusInfo(activeOrders[0].status).dot} animate-pulse`}></span>
+                </div>
+                <span className={`text-[9px] font-black tracking-tight uppercase line-clamp-1 px-0.5 ${getStatusInfo(activeOrders[0].status).color.split(' ')[1] || ''}`}>
+                  {getStatusInfo(activeOrders[0].status).text}
+                </span>
+              </>
+            ) : (
+              <>
+                <div className={`relative p-1 rounded-xl transition-all ${isActive('/my-orders') || showOrdersSheet ? 'bg-red-50' : ''}`}>
+                  <i className={`bi bi-receipt${isActive('/my-orders') || showOrdersSheet ? '-cutoff' : ''} text-xl leading-none`}></i>
+                </div>
+                <span className="text-[10px] font-bold tracking-tight">Pedidos</span>
+              </>
+            )}
           </button>
         </div>
       </div>

@@ -598,8 +598,8 @@ function HomePageContent() {
         }
 
         // Cargar negocios iniciales (si no hay búsqueda en la URL)
-        const urlSearch = searchParams.get('search') || ''
-        const urlCategory = searchParams.get('category') || 'all'
+        const urlSearch = searchParams?.get('search') || ''
+        const urlCategory = searchParams?.get('category') || 'all'
 
         // Aplicar filtro de grupo si existe o si estamos en una ciudad específica
         let filtered = visibleBusinesses;
@@ -624,8 +624,8 @@ function HomePageContent() {
 
   // Sincronizar parámetros de la URL
   useEffect(() => {
-    const urlSearch = searchParams.get('search') || ''
-    const urlCategory = searchParams.get('category') || 'all'
+    const urlSearch = searchParams?.get('search') || ''
+    const urlCategory = searchParams?.get('category') || 'all'
     if (urlSearch !== searchTerm || urlCategory !== selectedCategory) {
       setSearchTerm(urlSearch)
       setSelectedCategory(urlCategory)
@@ -674,8 +674,8 @@ function HomePageContent() {
 
   // Recargar negocios cuando cambia el groupId (detección de ubicación)
   useEffect(() => {
-    const urlSearch = searchParams.get('search') || ''
-    const urlCategory = searchParams.get('category') || 'all'
+    const urlSearch = searchParams?.get('search') || ''
+    const urlCategory = searchParams?.get('category') || 'all'
     loadBusinessesWithParams(urlSearch, urlCategory)
   }, [groupId, showAllRestaurants])
 
