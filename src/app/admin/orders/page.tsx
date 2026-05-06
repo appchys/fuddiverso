@@ -709,6 +709,8 @@ export default function OrderManagement() {
   const [editOrder, setEditOrder] = useState<Order | null>(null)
   const [editBusiness, setEditBusiness] = useState<Business | null>(null)
   const [editProducts, setEditProducts] = useState<Product[]>([])
+  const [manualSidebarMode, setManualSidebarMode] = useState<'create' | 'edit'>('create')
+  const [loadingManualProducts, setLoadingManualProducts] = useState(false)
 
   const toggleMap = (orderId: string) => {
     setExpandedMaps(prev => ({
@@ -980,6 +982,42 @@ export default function OrderManagement() {
     setIsOrderSidebarOpen(true)
   }
 
+  const handleManualOrderBusinessChange = useCallback(async (businessId: string) => {
+    if (!businessId) {
+      setEditBusiness(null)
+      setEditProducts([])
+      setLoadingManualProducts(false)
+      return
+    }
+
+    const business = businesses.find(b => b.id === businessId) || null
+    setEditBusiness(business)
+    setEditProducts([])
+    setLoadingManualProducts(true)
+    try {
+      const prods = await getProductsByBusiness(businessId)
+      setEditProducts(prods)
+    } catch (error) {
+      console.error('Error loading manual order products:', error)
+      alert('Error al cargar productos de la tienda')
+    } finally {
+      setLoadingManualProducts(false)
+    }
+  }, [businesses])
+
+  const handleOpenCreateManualOrder = async () => {
+    setEditOrder(null)
+    setManualSidebarMode('create')
+    setIsEditSidebarOpen(true)
+
+    if (filters.business !== 'all') {
+      await handleManualOrderBusinessChange(filters.business)
+    } else {
+      setEditBusiness(null)
+      setEditProducts([])
+    }
+  }
+
   const handleEditOrder = async (order: Order) => {
     try {
       const business = businesses.find(b => b.id === order.businessId) || null
@@ -989,6 +1027,7 @@ export default function OrderManagement() {
         setEditProducts(prods)
       }
       setEditOrder(order)
+      setManualSidebarMode('edit')
       setIsEditSidebarOpen(true)
     } catch (error) {
       console.error('Error loading edit data:', error)
@@ -1033,6 +1072,7 @@ export default function OrderManagement() {
 
       // Usar el mismo sidebar pero en modo create con datos precargados
       setEditOrder(tempOrder)
+      setManualSidebarMode('edit')
       setIsEditSidebarOpen(true)
     } catch (error) {
       console.error('Error loading checkout data:', error)
@@ -1346,6 +1386,14 @@ export default function OrderManagement() {
             title="Filtros"
           >
             <i className={`bi ${showFilters ? 'bi-funnel-fill' : 'bi-funnel'}`}></i>
+          </button>
+          <button
+            onClick={handleOpenCreateManualOrder}
+            className="shrink-0 inline-flex items-center justify-center w-10 h-10 md:w-auto md:h-auto md:px-4 md:py-2 border border-blue-600 rounded-xl md:rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
+            title="Crear pedido manual"
+          >
+            <i className="bi bi-plus-lg md:mr-2"></i>
+            <span className="hidden md:inline">Nuevo pedido</span>
           </button>
           <button
             onClick={loadData}
@@ -1971,13 +2019,16 @@ export default function OrderManagement() {
       {/* Sidebar de Editar Orden */}
       <ManualOrderSidebar
         isOpen={isEditSidebarOpen}
-        onClose={() => { setIsEditSidebarOpen(false); setEditOrder(null) }}
+        onClose={() => { setIsEditSidebarOpen(false); setEditOrder(null); setManualSidebarMode('create') }}
         business={editBusiness}
         products={editProducts}
-        onOrderCreated={() => { }}
-        mode="edit"
+        onOrderCreated={() => { setIsEditSidebarOpen(false); setEditOrder(null); setManualSidebarMode('create') }}
+        businesses={businesses}
+        onBusinessChange={handleManualOrderBusinessChange}
+        loadingBusinessProducts={loadingManualProducts}
+        mode={manualSidebarMode}
         editOrder={editOrder}
-        onOrderUpdated={() => { setIsEditSidebarOpen(false); setEditOrder(null) }}
+        onOrderUpdated={() => { setIsEditSidebarOpen(false); setEditOrder(null); setManualSidebarMode('create') }}
       />
     </div >
   )

@@ -75,6 +75,9 @@ interface ManualOrderSidebarProps {
   business: Business | null
   products: Product[]
   onOrderCreated: () => void
+  businesses?: Business[]
+  onBusinessChange?: (businessId: string) => void | Promise<void>
+  loadingBusinessProducts?: boolean
   // Edit mode support
   mode?: 'create' | 'edit'
   editOrder?: any
@@ -90,6 +93,9 @@ export default function ManualOrderSidebar({
   business,
   products,
   onOrderCreated,
+  businesses,
+  onBusinessChange,
+  loadingBusinessProducts = false,
   mode = 'create',
   editOrder,
   onOrderUpdated,
@@ -174,6 +180,8 @@ export default function ManualOrderSidebar({
   })
   const businessDefaultCommissionType = business?.defaultCommissionType
   const businessCommissionRate = business?.commissionRate
+  const businessSelectorOptions = businesses ?? []
+  const showBusinessSelector = mode === 'create' && businessSelectorOptions.length > 0 && !!onBusinessChange
 
   const customProductPricing = useMemo(() => {
     const storePrice = parseFloat(customProductData.price)
@@ -370,22 +378,22 @@ export default function ManualOrderSidebar({
 
   // Obtener categorías en el orden definido en el negocio
   const getBusinessCategories = (): string[] => {
+    const uniqueCategories = (categories: Array<string | null | undefined>) => {
+      const seen = new Set<string>()
+      return categories.reduce<string[]>((result, category) => {
+        const normalizedCategory = category?.trim()
+        if (!normalizedCategory || seen.has(normalizedCategory)) return result
+        seen.add(normalizedCategory)
+        result.push(normalizedCategory)
+        return result
+      }, [])
+    }
     // Usar las categorías del negocio si existen y tienen elementos
     if (business && Array.isArray(business.categories) && business.categories.length > 0) {
-      return business.categories.filter((c): c is string => Boolean(c));
+      return uniqueCategories(business.categories);
     }
     // Si no hay categorías definidas en el negocio, obtenerlas de los productos
-    const categorySet = new Set<string>();
-    const result: string[] = [];
-
-    products.forEach(product => {
-      if (product.category && !categorySet.has(product.category)) {
-        categorySet.add(product.category);
-        result.push(product.category);
-      }
-    });
-
-    return result;
+    return uniqueCategories(products.map(product => product.category));
   }
 
   // Filtrar productos por categoría
@@ -1710,6 +1718,45 @@ export default function ManualOrderSidebar({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 pb-24">
+          {showBusinessSelector && (
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-black mb-2">
+                Tienda
+              </label>
+              <div className="relative">
+                <select
+                  value={business?.id || ''}
+                  onChange={(e) => {
+                    setSelectedCategory('all')
+                    setManualOrderData(prev => ({
+                      ...prev,
+                      selectedProducts: [],
+                      deliveryType: '',
+                      selectedLocation: null,
+                      total: 0,
+                      selectedDelivery: null
+                    }))
+                    onBusinessChange?.(e.target.value)
+                  }}
+                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-sm font-medium appearance-none cursor-pointer"
+                >
+                  <option value="">Selecciona una tienda</option>
+                  {businessSelectorOptions.map(store => (
+                    <option key={store.id} value={store.id}>
+                      {store.name}
+                    </option>
+                  ))}
+                </select>
+                <i className="bi bi-chevron-down absolute right-3 top-2.5 text-gray-400 pointer-events-none"></i>
+              </div>
+              {loadingBusinessProducts && (
+                <p className="mt-2 text-xs text-gray-500 flex items-center">
+                  <span className="inline-block h-3 w-3 mr-2 rounded-full border-2 border-blue-200 border-t-blue-600 animate-spin"></span>
+                  Cargando productos de la tienda...
+                </p>
+              )}
+            </div>
+          )}
           {/* Búsqueda de cliente */}
           <div className="mb-6">
             <div className="flex justify-between items-center mb-2">
@@ -1883,19 +1930,21 @@ export default function ManualOrderSidebar({
 
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-black">Productos</h3>
-              <button
-                onClick={() => {
-                  // Navegar como el DashboardSidebar
-                  setActiveTab?.('profile')
-                  setProfileSubTab?.('products')
-                  onClose() // Cerrar el sidebar manual
-                }}
-                className="text-xs text-blue-600 hover:text-blue-700 flex items-center space-x-1 transition-colors"
-                title="Editar productos"
-              >
-                <i className="bi bi-pencil-square"></i>
-                <span>Editar productos</span>
-              </button>
+              {setActiveTab && setProfileSubTab && (
+                <button
+                  onClick={() => {
+                    // Navegar como el DashboardSidebar
+                    setActiveTab?.('profile')
+                    setProfileSubTab?.('products')
+                    onClose() // Cerrar el sidebar manual
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-700 flex items-center space-x-1 transition-colors"
+                  title="Editar productos"
+                >
+                  <i className="bi bi-pencil-square"></i>
+                  <span>Editar productos</span>
+                </button>
+              )}
             </div>
 
             {/* Filtro de categorías */}
@@ -1934,6 +1983,15 @@ export default function ManualOrderSidebar({
               </div>
             </div>
 
+            {!business?.id && showBusinessSelector ? (
+              <div className="border border-dashed border-gray-300 rounded-lg p-4 text-center text-sm text-gray-500">
+                Selecciona una tienda para ver sus productos.
+              </div>
+            ) : loadingBusinessProducts ? (
+              <div className="border border-gray-200 rounded-lg p-4 text-center text-sm text-gray-500">
+                Cargando productos...
+              </div>
+            ) : (
             <div className="grid grid-cols-4 gap-1 max-h-50 overflow-y-auto">
               {(() => {
                 const filtered = selectedCategory === 'hidden'
@@ -1999,6 +2057,7 @@ export default function ManualOrderSidebar({
                 ];
               })()}
             </div>
+            )}
           </div>
 
           {/* Productos seleccionados - siempre visible */
@@ -2556,6 +2615,8 @@ export default function ManualOrderSidebar({
               onClick={handleSubmitOrder}
               disabled={
                 creatingOrder ||
+                (showBusinessSelector && !business?.id) ||
+                loadingBusinessProducts ||
                 (manualOrderData.paymentMethod === 'mixed' && Math.abs((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0) - manualOrderData.total) >= 0.01)
               }
               className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
