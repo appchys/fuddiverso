@@ -58,6 +58,7 @@ const ProgressiveImage: React.FC<{
           height={!fill ? height : undefined}
           priority={priority}
           sizes={sizes}
+          unoptimized={true}
           className={`transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'} ${className}`}
           onLoad={() => setIsLoaded(true)}
         />
