@@ -35,6 +35,13 @@ export const BusinessProfileSection: React.FC<BusinessProfileSectionProps> = ({
   onToggleDayOpen,
 }) => {
   const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+  const displayedDeliveryTime = business.defaultDeliveryTime ?? business.deliveryTime ?? 30
+  const editedDeliveryTime = editedBusiness?.defaultDeliveryTime ?? editedBusiness?.deliveryTime ?? 30
+
+  const handleDeliveryTimeChange = (value: number) => {
+    onBusinessFieldChange('defaultDeliveryTime', value)
+    onBusinessFieldChange('deliveryTime', value)
+  }
 
   return (
     <div>
@@ -216,7 +223,7 @@ export const BusinessProfileSection: React.FC<BusinessProfileSectionProps> = ({
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   <i className="bi bi-truck me-2"></i>Tiempo de Entrega
                 </label>
-                <p className="text-gray-900 text-sm sm:text-base">{business.deliveryTime || 30} minutos</p>
+                <p className="text-gray-900 text-sm sm:text-base">{displayedDeliveryTime} minutos</p>
               </div>
 
               <div className="sm:col-span-2">
@@ -361,8 +368,8 @@ export const BusinessProfileSection: React.FC<BusinessProfileSectionProps> = ({
                 </label>
                 <input
                   type="number"
-                  value={editedBusiness?.deliveryTime || 30}
-                  onChange={(e) => onBusinessFieldChange('deliveryTime', parseInt(e.target.value) || 0)}
+                  value={editedDeliveryTime}
+                  onChange={(e) => handleDeliveryTimeChange(parseInt(e.target.value) || 0)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
                   min="1"
                 />

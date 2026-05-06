@@ -33,7 +33,11 @@ import {
   UserCredential,
   GoogleAuthProvider,
   signInWithPopup,
-  onAuthStateChanged
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  EmailAuthProvider,
+  linkWithCredential,
+  updatePassword
 } from 'firebase/auth'
 import {
   Business,
@@ -1650,6 +1654,108 @@ export async function signInWithGoogle(): Promise<UserCredential> {
 }
 
 // Función para manejar el resultado del redirect
+export async function resolveBusinessLoginEmail(identifier: string): Promise<string> {
+  const trimmedIdentifier = identifier.trim()
+
+  if (!trimmedIdentifier) {
+    throw new Error('Ingresa tu correo o celular.')
+  }
+
+  if (trimmedIdentifier.includes('@')) {
+    return trimmedIdentifier.toLowerCase()
+  }
+
+  const normalizedPhone = normalizeEcuadorianPhone(trimmedIdentifier)
+
+  if (!normalizedPhone || !/^09\d{8}$/.test(normalizedPhone)) {
+    throw new Error('Ingresa un correo valido o un celular ecuatoriano valido.')
+  }
+
+  const q = query(
+    collection(db, 'businesses'),
+    where('phone', '==', normalizedPhone),
+    limit(2)
+  )
+  const querySnapshot = await getDocs(q)
+
+  if (querySnapshot.empty) {
+    throw new Error('No encontramos una tienda vinculada a ese celular.')
+  }
+
+  if (querySnapshot.size > 1) {
+    throw new Error('Ese celular esta asociado a varias tiendas. Ingresa con tu correo.')
+  }
+
+  const businessData = querySnapshot.docs[0].data() as Business
+  if (!businessData.email) {
+    throw new Error('Esta tienda no tiene un correo vinculado para iniciar sesion.')
+  }
+
+  return businessData.email.toLowerCase()
+}
+
+export async function signInBusinessWithEmailOrPhone(identifier: string, password: string): Promise<UserCredential> {
+  try {
+    const email = await resolveBusinessLoginEmail(identifier)
+    return await signInWithEmailAndPassword(auth, email, password)
+  } catch (error: any) {
+    console.error('Error signing in business with password:', error)
+
+    if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+      throw new Error('Correo/celular o contrasena incorrectos.')
+    }
+
+    throw new Error(error.message || 'Error al iniciar sesion. Intenta de nuevo.')
+  }
+}
+
+export async function linkCurrentBusinessPasswordLogin(businessId: string, password: string): Promise<'linked' | 'updated'> {
+  const user = auth.currentUser
+
+  if (!user?.email) {
+    throw new Error('Tu cuenta necesita un correo para activar el ingreso con contrasena.')
+  }
+
+  if (password.length < 6) {
+    throw new Error('La contrasena debe tener al menos 6 caracteres.')
+  }
+
+  const hasPasswordProvider = user.providerData.some(provider => provider.providerId === 'password')
+
+  try {
+    if (hasPasswordProvider) {
+      await updatePassword(user, password)
+    } else {
+      const credential = EmailAuthProvider.credential(user.email, password)
+      await linkWithCredential(user, credential)
+    }
+
+    await updateBusiness(businessId, {
+      passwordLoginEnabled: true,
+      passwordLoginEmail: user.email.toLowerCase(),
+      passwordLoginUpdatedAt: serverTimestamp()
+    } as any)
+
+    return hasPasswordProvider ? 'updated' : 'linked'
+  } catch (error: any) {
+    console.error('Error linking business password login:', error)
+
+    if (error.code === 'auth/requires-recent-login') {
+      throw new Error('Por seguridad, vuelve a iniciar sesion con Google y luego intenta activar la contrasena.')
+    }
+
+    if (error.code === 'auth/email-already-in-use' || error.code === 'auth/credential-already-in-use') {
+      throw new Error('Ese correo ya esta vinculado a otra cuenta con contrasena.')
+    }
+
+    if (error.code === 'auth/weak-password') {
+      throw new Error('La contrasena debe tener al menos 6 caracteres.')
+    }
+
+    throw new Error(error.message || 'No se pudo activar el ingreso con contrasena.')
+  }
+}
+
 export async function handleGoogleRedirectResult() {
   try {
     const result = await getRedirectResult(auth);

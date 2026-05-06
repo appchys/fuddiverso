@@ -25,7 +25,8 @@ export default function DayPreflightChecklist({
 }: DayPreflightChecklistProps) {
     const storeOpen = isStoreOpen(business)
     const statusDescription = getStoreStatusDescription(business)
-    const deliveryTime = business?.deliveryTime || 30
+    const configuredDeliveryTime = business?.defaultDeliveryTime ?? business?.deliveryTime ?? 30
+    const deliveryTime = business?.deliveryTime ?? configuredDeliveryTime
     const [linkCopied, setLinkCopied] = useState(false)
 
     // Get greeting based on time of day
@@ -220,14 +221,14 @@ export default function DayPreflightChecklist({
                         </button>
                     </div>
 
-                    {deliveryTime !== 30 && (
+                    {deliveryTime !== configuredDeliveryTime && (
                         <button
                             onClick={() => onUpdateDeliveryTime(0)}
                             disabled={updatingDeliveryTime}
                             className="w-full text-[10px] text-blue-500 font-bold uppercase tracking-widest hover:text-blue-600 disabled:opacity-50 transition-all flex items-center justify-center gap-1"
                         >
                             <i className="bi bi-arrow-counterclockwise"></i>
-                            Restaurar a 30 min
+                            Restaurar a {configuredDeliveryTime} min
                         </button>
                     )}
                 </div>

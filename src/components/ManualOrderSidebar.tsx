@@ -5,7 +5,7 @@ import { Business, Product, ProductVariant } from '@/types'
 import { GoogleMap } from './GoogleMap'
 import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation } from '@/lib/database'
 import { searchClients } from '@/lib/client-search'
-import { getProductPublicPrice, getPriceMetadata } from '@/lib/price-utils'
+import { calculateCommissionPricing, getBusinessCommissionSettings, getProductPublicPrice, getPriceMetadata } from '@/lib/price-utils'
 import { GOOGLE_MAPS_API_KEY } from './GoogleMap'
 import { storage } from '@/lib/firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
@@ -172,6 +172,21 @@ export default function ManualOrderSidebar({
     name: '',
     price: ''
   })
+  const businessDefaultCommissionType = business?.defaultCommissionType
+  const businessCommissionRate = business?.commissionRate
+
+  const customProductPricing = useMemo(() => {
+    const storePrice = parseFloat(customProductData.price)
+    if (Number.isNaN(storePrice) || storePrice <= 0) {
+      return null
+    }
+
+    const { defaultCommissionType, commissionRate } = getBusinessCommissionSettings({
+      defaultCommissionType: businessDefaultCommissionType,
+      commissionRate: businessCommissionRate
+    })
+    return calculateCommissionPricing(storePrice, defaultCommissionType, commissionRate)
+  }, [customProductData.price, businessDefaultCommissionType, businessCommissionRate])
 
   const canChangeDelivery = business?.email === 'munchys.ec@gmail.com';
 
@@ -1344,25 +1359,25 @@ export default function ManualOrderSidebar({
       return
     }
 
-    const price = parseFloat(customProductData.price)
-    if (isNaN(price) || price <= 0) {
+    const storePrice = parseFloat(customProductData.price)
+    if (isNaN(storePrice) || storePrice <= 0 || !customProductPricing) {
       alert('Por favor ingresa un precio válido')
       return
     }
 
     const customItem: OrderItem = {
       name: customProductData.name.trim(),
-      price: price,
+      price: customProductPricing.publicPrice,
       productId: `custom_${Date.now()}`, // ID temporal único
       quantity: 1,
       variant: '',
       variantName: '',
       productName: customProductData.name.trim(),
-      // No incluir metadatos de comisión para productos personalizados
-      basePrice: price,
-      commission: 0,
-      commissionType: 'fixed',
-      storeReceives: price
+      // El valor escrito es el valor de tienda; el precio publico se calcula aparte.
+      basePrice: customProductPricing.storePrice,
+      commission: customProductPricing.commission,
+      commissionType: customProductPricing.commissionType,
+      storeReceives: customProductPricing.storeReceives
     }
 
     setManualOrderData(prev => ({
@@ -3256,7 +3271,7 @@ export default function ManualOrderSidebar({
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Precio ($) *
+                  Valor de tienda ($) *
                 </label>
                 <input
                   type="number"
@@ -3268,6 +3283,23 @@ export default function ManualOrderSidebar({
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
+
+              {customProductPricing && (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 space-y-1">
+                  <div className="flex justify-between">
+                    <span>Valor de tienda</span>
+                    <span className="font-medium">${customProductPricing.storePrice.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Comision Fuddi</span>
+                    <span className="font-medium">${customProductPricing.commission.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-gray-200 pt-1 font-semibold text-gray-900">
+                    <span>Precio en orden</span>
+                    <span>${customProductPricing.publicPrice.toFixed(2)}</span>
+                  </div>
+                </div>
+              )}
 
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-sm text-blue-800">

@@ -180,6 +180,10 @@ const getOrderDisplayTime = (order: Order) => {
     }
 }
 
+const getConfiguredDeliveryTime = (business?: Business | null) => {
+    return business?.defaultDeliveryTime ?? business?.deliveryTime ?? 30
+}
+
 export default function TodayOrdersPage() {
     const router = useRouter()
     const { businessId, isAuthenticated, authLoading, logout, user, setBusinessId } = useBusinessAuth()
@@ -427,6 +431,9 @@ export default function TodayOrdersPage() {
     const showCol1 = useMemo(() => orders.some(o => ['borrador', 'pending'].includes(o.status)) || checkoutCount > 0, [orders, checkoutCount]);
     const showCol2 = useMemo(() => orders.some(o => o.status === 'confirmed'), [orders]);
     const showCol3 = useMemo(() => orders.some(o => ['preparing', 'ready', 'on_way', 'delivered', 'cancelled'].includes(o.status)), [orders]);
+    const configuredDeliveryTime = getConfiguredDeliveryTime(business)
+    const currentDeliveryTime = business?.deliveryTime ?? configuredDeliveryTime
+    const isDeliveryTimeExtended = currentDeliveryTime > configuredDeliveryTime
 
     const handleProductsChange = (newProducts: Product[]) => {
         setProducts(newProducts)
@@ -493,7 +500,7 @@ export default function TodayOrdersPage() {
 
     const handleBusinessFieldChange = (field: keyof Business, value: any) => {
         if (!editedBusiness) return
-        setEditedBusiness({ ...editedBusiness, [field]: value })
+        setEditedBusiness(prev => prev ? { ...prev, [field]: value } : prev)
     }
 
     const handleScheduleFieldChange = (day: string, key: 'open' | 'close' | 'isOpen', value: any) => {
@@ -999,10 +1006,17 @@ export default function TodayOrdersPage() {
         if (!business?.id) return
         setUpdatingDeliveryTime(true)
         try {
-            const currentTime = business.deliveryTime || 30
-            const newTime = minutes === 0 ? 30 : currentTime + minutes
-            await updateBusiness(business.id, { deliveryTime: newTime })
-            setBusiness(prev => prev ? { ...prev, deliveryTime: newTime } : null)
+            const baseTime = getConfiguredDeliveryTime(business)
+            const currentTime = business.deliveryTime ?? baseTime
+            const newTime = minutes === 0 ? baseTime : Math.max(1, currentTime + minutes)
+            const updateData: Partial<Business> = { deliveryTime: newTime }
+
+            if (business.defaultDeliveryTime == null) {
+                updateData.defaultDeliveryTime = baseTime
+            }
+
+            await updateBusiness(business.id, updateData)
+            setBusiness(prev => prev ? { ...prev, ...updateData } : null)
         } catch (e) {
             console.log(e);
             alert('Error updating delivery time');
@@ -1268,11 +1282,11 @@ export default function TodayOrdersPage() {
                                             <div className="relative group" ref={timeDropdownRef}>
                                                 <button
                                                     onClick={() => setShowTimeDropdown(!showTimeDropdown)}
-                                                    className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-lg border transition-colors ${(business.deliveryTime || 30) > 30 ? 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+                                                    className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-lg border transition-colors ${isDeliveryTimeExtended ? 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}`}
                                                 >
-                                                    <i className={`bi bi-clock-history hidden sm:inline ${(business.deliveryTime || 30) > 30 ? 'text-orange-600' : 'text-gray-600'}`}></i>
+                                                    <i className={`bi bi-clock-history hidden sm:inline ${isDeliveryTimeExtended ? 'text-orange-600' : 'text-gray-600'}`}></i>
                                                     <span className="text-sm font-bold">
-                                                        {business.deliveryTime || 30}<span className="sm:hidden">m</span><span className="hidden sm:inline"> min</span>
+                                                        {currentDeliveryTime}<span className="sm:hidden">m</span><span className="hidden sm:inline"> min</span>
                                                     </span>
                                                 </button>
 
@@ -1294,7 +1308,7 @@ export default function TodayOrdersPage() {
                                                                 disabled={updatingDeliveryTime}
                                                                 className="w-full px-4 py-2 text-left hover:bg-gray-50 text-xs text-gray-500 font-medium"
                                                             >
-                                                                Restablecer a 30 min
+                                                                Restablecer a {configuredDeliveryTime} min
                                                             </button>
                                                         </div>
                                                     </div>

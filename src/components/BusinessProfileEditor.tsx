@@ -29,7 +29,7 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
         businessType: (business.businessType || 'food_store') as 'food_store' | 'distributor',
         isActive: business.isActive ?? true,
         isHidden: business.isHidden ?? false,
-        deliveryTime: business.deliveryTime || 30,
+        deliveryTime: business.defaultDeliveryTime ?? business.deliveryTime ?? 30,
         defaultDeliveryId: business.defaultDeliveryId || '',
         groupId: business.groupId || '',
         zoneId: business.zoneId || '',
@@ -238,6 +238,8 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
             }
         }
 
+        const deliveryTime = Number(formData.deliveryTime)
+
         await onSave({
             name: formData.name,
             username: formData.username,
@@ -251,7 +253,8 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
             image: logoUrl,
             coverImage: coverUrl,
             schedule,
-            deliveryTime: Number(formData.deliveryTime),
+            deliveryTime,
+            defaultDeliveryTime: deliveryTime,
             defaultDeliveryId: formData.defaultDeliveryId,
             groupId: finalGroupId,
             zoneId: finalZoneId,

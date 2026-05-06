@@ -213,6 +213,7 @@ export default function BusinessProfileDashboard({
   }, [showRewardIngredientSuggestions])
 
   const displayBusiness = isEditingProfile && editedBusiness ? editedBusiness : business
+  const configuredDeliveryTime = displayBusiness.defaultDeliveryTime ?? displayBusiness.deliveryTime ?? 30
 
   const handlePickupLocationChange = (lat: number, lng: number) => {
     const currentSettings = displayBusiness.pickupSettings || { enabled: false, references: '', latlong: '', storePhotoUrl: '' }
@@ -361,7 +362,7 @@ export default function BusinessProfileDashboard({
                                 <i className="bi bi-clock-history text-purple-500 text-lg"></i>
                                 <div>
                                     <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Tiempo de Entrega</p>
-                                    <p className="text-sm font-bold text-gray-900">{displayBusiness.deliveryTime || 30} minutos</p>
+                                    <p className="text-sm font-bold text-gray-900">{configuredDeliveryTime} minutos</p>
                                 </div>
                             </div>
                         </div>

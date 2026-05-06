@@ -4,16 +4,20 @@ import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { Business } from '@/types'
-import { getBusinessesByOwner, updateBusiness, deleteBusiness } from '@/lib/database'
+import { getBusinessesByOwner, updateBusiness, deleteBusiness, linkCurrentBusinessPasswordLogin } from '@/lib/database'
 
 export default function AccountPage() {
     const router = useRouter()
-    const { user, isAuthenticated, authLoading, logout } = useBusinessAuth()
+    const { user, businessId, isAuthenticated, authLoading, logout } = useBusinessAuth()
 
     const [businesses, setBusinesses] = useState<Business[]>([])
     const [loading, setLoading] = useState(true)
     const [showDeleteModal, setShowDeleteModal] = useState<string | null>(null)
     const [actionLoading, setActionLoading] = useState<string | null>(null)
+    const [passwordForm, setPasswordForm] = useState({ password: '', confirmPassword: '' })
+    const [passwordLoading, setPasswordLoading] = useState(false)
+    const [passwordMessage, setPasswordMessage] = useState('')
+    const [passwordError, setPasswordError] = useState('')
 
     // Protección de ruta
     useEffect(() => {
@@ -69,6 +73,37 @@ export default function AccountPage() {
             alert('Error al eliminar la tienda')
         } finally {
             setActionLoading(null)
+        }
+    }
+
+    const handlePasswordLink = async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault()
+        setPasswordMessage('')
+        setPasswordError('')
+
+        if (!businessId) {
+            setPasswordError('No se encontro una tienda activa para vincular.')
+            return
+        }
+
+        if (passwordForm.password !== passwordForm.confirmPassword) {
+            setPasswordError('Las contrasenas no coinciden.')
+            return
+        }
+
+        setPasswordLoading(true)
+        try {
+            const result = await linkCurrentBusinessPasswordLogin(businessId, passwordForm.password)
+            setPasswordForm({ password: '', confirmPassword: '' })
+            setPasswordMessage(result === 'linked'
+                ? 'Listo. Ya puedes iniciar sesion con tu correo o celular y esta contrasena.'
+                : 'Contrasena actualizada. Puedes usarla en el login de negocios.'
+            )
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'No se pudo activar el ingreso con contrasena.'
+            setPasswordError(message)
+        } finally {
+            setPasswordLoading(false)
         }
     }
 
@@ -143,7 +178,89 @@ export default function AccountPage() {
                     </div>
                 </div>
 
-                {/* Sección de tiendas */}
+                {/* Sección de acceso */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+                        <div className="max-w-xl">
+                            <div className="flex items-center gap-3 mb-2">
+                                <div className="w-10 h-10 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">
+                                    <i className="bi bi-shield-lock text-xl"></i>
+                                </div>
+                                <div>
+                                    <h2 className="text-lg font-semibold text-gray-900">Ingreso con contrasena</h2>
+                                    <p className="text-sm text-gray-500">Vincula tu cuenta para entrar tambien con correo o celular.</p>
+                                </div>
+                            </div>
+                            <p className="text-sm text-gray-500 mt-3">
+                                El celular sera el WhatsApp registrado en tu tienda. Si el mismo celular esta en varias tiendas, usa el correo para iniciar sesion.
+                            </p>
+                        </div>
+
+                        <form onSubmit={handlePasswordLink} className="w-full lg:max-w-sm space-y-4">
+                            {passwordMessage && (
+                                <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                                    {passwordMessage}
+                                </div>
+                            )}
+                            {passwordError && (
+                                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                                    {passwordError}
+                                </div>
+                            )}
+
+                            <div>
+                                <label htmlFor="new-password" className="block text-sm font-medium text-gray-700 mb-2">
+                                    Nueva contrasena
+                                </label>
+                                <input
+                                    id="new-password"
+                                    type="password"
+                                    value={passwordForm.password}
+                                    onChange={(event) => setPasswordForm(prev => ({ ...prev, password: event.target.value }))}
+                                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100"
+                                    minLength={6}
+                                    autoComplete="new-password"
+                                    required
+                                />
+                            </div>
+
+                            <div>
+                                <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700 mb-2">
+                                    Confirmar contrasena
+                                </label>
+                                <input
+                                    id="confirm-password"
+                                    type="password"
+                                    value={passwordForm.confirmPassword}
+                                    onChange={(event) => setPasswordForm(prev => ({ ...prev, confirmPassword: event.target.value }))}
+                                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100"
+                                    minLength={6}
+                                    autoComplete="new-password"
+                                    required
+                                />
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={passwordLoading}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {passwordLoading ? (
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        Guardando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <i className="bi bi-key"></i>
+                                        Activar o actualizar
+                                    </>
+                                )}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
                 <div className="flex items-center justify-between mb-6">
                     <h2 className="text-lg font-semibold text-gray-900">
                         <i className="bi bi-shop me-2"></i>
