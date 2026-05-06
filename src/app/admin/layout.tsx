@@ -16,7 +16,7 @@ export default function AdminLayout({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
 
   const navLinks = [
-    { href: '/admin', label: 'Dashboard', icon: 'bi-grid-1x2-fill' },
+    { href: '/admin/dashboard', label: 'Dashboard', icon: 'bi-grid-1x2-fill' },
     { href: '/admin/orders', label: 'Gestión de Pedidos', icon: 'bi-cart-fill' },
     { href: '/admin/settlements', label: 'Liquidaciones', icon: 'bi-cash-coin' },
     { href: '/admin/deliveries', label: 'Deliveries', icon: 'bi-scooter' },

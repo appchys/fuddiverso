@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { getAllBusinesses, updateOrderStatus, updateOrder, getDeliveriesByStatus, getProductsByBusiness } from '@/lib/database'
 import { Order, Business, Product } from '@/types'
 import { db } from '@/lib/firebase'
@@ -9,6 +9,7 @@ import OrderSidebar from '@/components/OrderSidebar'
 import ManualOrderSidebar from '@/components/ManualOrderSidebar'
 import { sendWhatsAppToDelivery, sendOrderToStore } from '@/components/WhatsAppUtils'
 import { LiveCheckoutsPanel, CheckoutSession } from '@/components/LiveCheckoutsPanel'
+import { normalizeEcuadorianPhone } from '@/lib/validation'
 
 // Helper functions for status grouping
 const getStatusText = (status: string) => {
@@ -35,6 +36,15 @@ const getStatusColor = (status: string) => {
     case 'cancelled': return 'bg-red-100 text-red-800 border-red-200'
     default: return 'bg-gray-100 text-gray-800 border-gray-200'
   }
+}
+
+const formatPhoneForWhatsApp = (phone?: string) => {
+  const normalizedPhone = normalizeEcuadorianPhone(phone || '')
+  if (!normalizedPhone) return ''
+
+  return normalizedPhone.startsWith('0')
+    ? `593${normalizedPhone.slice(1)}`
+    : normalizedPhone
 }
 
 function CollapsibleSection({
@@ -241,6 +251,13 @@ function OrderCard({
   const business = businesses.find((b: Business) => b.id === order.businessId)
   const timeElapsed = getTimeElapsed(order)
   const remaining = getTimeRemaining(order)
+  const customerWhatsAppPhone = formatPhoneForWhatsApp(order.customer?.phone)
+  const statusButtonRef = useRef<HTMLButtonElement>(null)
+  const [statusMenuPosition, setStatusMenuPosition] = useState<{
+    top: number
+    left: number
+    maxHeight: number
+  } | null>(null)
 
   const statusConfig: Record<string, { bg: string; text: string; border: string; icon: string }> = {
     pending: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: 'bi-clock-history' },
@@ -252,6 +269,57 @@ function OrderCard({
     on_way: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', icon: 'bi-bicycle' }
   }
   const statusStyle = statusConfig[order.status] || statusConfig.pending
+  const updateStatusMenuPosition = useCallback(() => {
+    const rect = statusButtonRef.current?.getBoundingClientRect()
+    if (!rect) return
+
+    const menuWidth = 224
+    const estimatedMenuHeight = 360
+    const viewportPadding = 8
+    const availableBelow = window.innerHeight - rect.bottom - viewportPadding
+    const availableAbove = rect.top - viewportPadding
+    const opensAbove = availableBelow < 320 && availableAbove > availableBelow
+
+    setStatusMenuPosition({
+      top: opensAbove
+        ? Math.max(viewportPadding, rect.top - estimatedMenuHeight - viewportPadding)
+        : rect.bottom + viewportPadding,
+      left: Math.min(
+        Math.max(viewportPadding, rect.left),
+        window.innerWidth - menuWidth - viewportPadding
+      ),
+      maxHeight: Math.max(
+        180,
+        opensAbove
+          ? availableAbove
+          : availableBelow
+      )
+    })
+  }, [])
+
+  useEffect(() => {
+    if (statusMenuOrderId !== order.id) return
+
+    let frameId: number | null = null
+    const schedulePositionUpdate = () => {
+      if (frameId !== null) return
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null
+        updateStatusMenuPosition()
+      })
+    }
+
+    window.addEventListener('scroll', schedulePositionUpdate, true)
+    window.addEventListener('resize', schedulePositionUpdate)
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+      window.removeEventListener('scroll', schedulePositionUpdate, true)
+      window.removeEventListener('resize', schedulePositionUpdate)
+    }
+  }, [order.id, statusMenuOrderId, updateStatusMenuPosition])
 
   return (
     <div
@@ -303,9 +371,9 @@ function OrderCard({
             <i className="bi bi-shop text-xs"></i>
           </button>
 
-          {order.customer?.phone && (
+          {customerWhatsAppPhone && (
             <a
-              href={`https://wa.me/${order.customer.phone.replace(/\D/g, '')}`}
+              href={`https://wa.me/${customerWhatsAppPhone}`}
               target="_blank"
               rel="noopener noreferrer"
               className="w-8 h-8 flex items-center justify-center rounded-lg transition-all border shadow-sm shrink-0 bg-green-50 text-green-600 border-green-200 hover:bg-green-100"
@@ -328,9 +396,17 @@ function OrderCard({
 
           <div className="relative shrink-0">
             <button
+              ref={statusButtonRef}
               onClick={(e) => {
                 e.stopPropagation()
-                setStatusMenuOrderId(statusMenuOrderId === order.id ? null : order.id!)
+                if (statusMenuOrderId === order.id) {
+                  setStatusMenuOrderId(null)
+                  setStatusMenuPosition(null)
+                  return
+                }
+
+                updateStatusMenuPosition()
+                setStatusMenuOrderId(order.id!)
               }}
               className={`w-8 h-8 flex items-center justify-center rounded-lg border shadow-sm transition-all active:scale-90 ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border}`}
             >
@@ -345,10 +421,16 @@ function OrderCard({
                   onClick={(e) => {
                     e.stopPropagation()
                     setStatusMenuOrderId(null)
+                    setStatusMenuPosition(null)
                   }}
                 />
                 <div
-                  className="absolute left-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
+                  className="fixed w-56 bg-white rounded-2xl shadow-2xl border border-gray-100 py-2 z-50 overflow-y-auto animate-in fade-in zoom-in-95 duration-200"
+                  style={statusMenuPosition ? {
+                    top: statusMenuPosition.top,
+                    left: statusMenuPosition.left,
+                    maxHeight: statusMenuPosition.maxHeight
+                  } : undefined}
                   onClick={(e) => e.stopPropagation()}
                 >
                   {/* Pending */}
@@ -1204,7 +1286,7 @@ export default function OrderManagement() {
 
   return (
     <div className="px-2 md:px-0">
-      <div className="flex items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
         <div className="min-w-0">
           <div className="flex items-center gap-3 mt-2">
             <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 border border-amber-200">
@@ -1226,7 +1308,25 @@ export default function OrderManagement() {
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{orders.length} pedidos totales</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <div className="relative min-w-0 sm:w-72">
+            <select
+              value={filters.business}
+              onChange={(e) => setFilters({ ...filters, business: e.target.value })}
+              className="w-full pl-10 pr-9 py-2.5 text-sm font-bold border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-800 appearance-none cursor-pointer"
+              aria-label="Seleccionar tienda"
+            >
+              <option value="all">Todas las tiendas</option>
+              {businesses.map(business => (
+                <option key={business.id} value={business.id}>
+                  {business.name}
+                </option>
+              ))}
+            </select>
+            <i className="bi bi-shop absolute left-3.5 top-2.5 text-gray-400 pointer-events-none"></i>
+            <i className="bi bi-chevron-down absolute right-3.5 top-2.5 text-gray-400 pointer-events-none"></i>
+          </div>
+          <div className="flex items-center gap-2">
           <button
             onClick={() => setShowSearchBar(!showSearchBar)}
             className={`shrink-0 inline-flex items-center justify-center w-10 h-10 border rounded-xl shadow-sm text-sm font-medium transition-all ${showSearchBar
@@ -1254,6 +1354,7 @@ export default function OrderManagement() {
             <i className="bi bi-arrow-clockwise md:mr-2"></i>
             <span className="hidden md:inline">Actualizar</span>
           </button>
+          </div>
         </div>
       </div>
 
@@ -1298,7 +1399,7 @@ export default function OrderManagement() {
                 <i className="bi bi-chevron-down absolute right-3 top-2 text-gray-400 pointer-events-none"></i>
               </div>
 
-              <div className="relative">
+              <div className="hidden">
                 <select
                   value={filters.business}
                   onChange={(e) => setFilters({ ...filters, business: e.target.value })}
