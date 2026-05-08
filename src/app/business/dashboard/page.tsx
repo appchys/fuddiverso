@@ -461,6 +461,23 @@ export default function TodayOrdersPage() {
     const [uploadingLocation, setUploadingLocation] = useState(false)
     const [userRole, setUserRole] = useState<'owner' | 'admin' | 'manager' | null>(null)
     const [savingProfile, setSavingProfile] = useState(false)
+    const [showAddAdminModal, setShowAddAdminModal] = useState(false)
+    const [newAdminData, setNewAdminData] = useState({
+        email: '',
+        password: '',
+        role: 'admin' as 'admin' | 'manager',
+        permissions: {
+            manageProducts: true,
+            manageOrders: true,
+            manageAdmins: false,
+            viewReports: true,
+            editBusiness: false
+        }
+    })
+    const [addingAdmin, setAddingAdmin] = useState(false)
+    const [passwordAdminEmail, setPasswordAdminEmail] = useState<string | null>(null)
+    const [adminPassword, setAdminPassword] = useState('')
+    const [savingAdminPassword, setSavingAdminPassword] = useState(false)
 
     // Determine user role
     useEffect(() => {
@@ -473,6 +490,10 @@ export default function TodayOrdersPage() {
             setUserRole(adminEntry?.role as any || 'admin')
         }
     }, [business, user])
+
+    const canManageAdmins = userRole === 'owner' || !!business?.administrators?.some(admin =>
+        admin.email === user?.email && admin.permissions?.manageAdmins
+    )
 
     const handleEditProfile = () => {
         setIsEditingProfile(true)
@@ -575,6 +596,115 @@ export default function TodayOrdersPage() {
             alert('Error al subir la foto del local.')
         } finally {
             setUploadingLocation(false)
+        }
+    }
+
+    const handleAddAdmin = async () => {
+        if (!business || !newAdminData.email.trim()) return
+
+        setAddingAdmin(true)
+        try {
+            const currentUser = auth.currentUser
+            if (!currentUser) throw new Error('Usuario no autenticado')
+
+            if (newAdminData.password.trim()) {
+                const token = await currentUser.getIdToken()
+                const response = await fetch('/api/business/admin-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        businessId: business.id,
+                        email: newAdminData.email.trim(),
+                        password: newAdminData.password,
+                        role: newAdminData.role,
+                        permissions: newAdminData.permissions
+                    })
+                })
+                const result = await response.json()
+
+                if (!response.ok) {
+                    throw new Error(result.error || 'Error al crear el acceso del administrador')
+                }
+            } else {
+                await addBusinessAdministrator(
+                    business.id,
+                    newAdminData.email.trim(),
+                    newAdminData.role,
+                    newAdminData.permissions,
+                    currentUser.uid
+                )
+            }
+
+            const updatedBusiness = await getBusiness(business.id)
+            if (updatedBusiness) {
+                setBusiness(updatedBusiness)
+                setBusinesses(prev => prev.map(b => b.id === business.id ? updatedBusiness : b))
+            }
+
+            setNewAdminData({
+                email: '',
+                password: '',
+                role: 'admin',
+                permissions: {
+                    manageProducts: true,
+                    manageOrders: true,
+                    manageAdmins: false,
+                    viewReports: true,
+                    editBusiness: false
+                }
+            })
+            setShowAddAdminModal(false)
+            alert('Administrador agregado exitosamente')
+        } catch (error: any) {
+            alert(error.message || 'Error al agregar administrador')
+        } finally {
+            setAddingAdmin(false)
+        }
+    }
+
+    const handleSaveAdminPassword = async () => {
+        if (!business || !passwordAdminEmail || !adminPassword.trim()) return
+
+        setSavingAdminPassword(true)
+        try {
+            const currentUser = auth.currentUser
+            if (!currentUser) throw new Error('Usuario no autenticado')
+
+            const token = await currentUser.getIdToken()
+            const response = await fetch('/api/business/admin-password', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    businessId: business.id,
+                    email: passwordAdminEmail,
+                    password: adminPassword
+                })
+            })
+            const result = await response.json()
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Error al guardar la contrasena')
+            }
+
+            const updatedBusiness = await getBusiness(business.id)
+            if (updatedBusiness) {
+                setBusiness(updatedBusiness)
+                setBusinesses(prev => prev.map(b => b.id === business.id ? updatedBusiness : b))
+            }
+
+            setPasswordAdminEmail(null)
+            setAdminPassword('')
+            alert('Contrasena actualizada exitosamente')
+        } catch (error: any) {
+            alert(error.message || 'Error al guardar la contrasena')
+        } finally {
+            setSavingAdminPassword(false)
         }
     }
 
@@ -1461,7 +1591,12 @@ export default function TodayOrdersPage() {
                                     onCategoriesChange={handleCategoriesChange}
                                     initialTab={profileSubTab}
                                     onDirectUpdate={handleDirectUpdate}
+                                    onAddAdmin={canManageAdmins ? () => setShowAddAdminModal(true) : undefined}
                                     onRemoveAdmin={handleRemoveAdmin}
+                                    onEditAdminPassword={canManageAdmins ? (email) => {
+                                        setPasswordAdminEmail(email)
+                                        setAdminPassword('')
+                                    } : undefined}
                                     onTransferOwnership={handleTransferOwnership}
                                     userRole={userRole}
                                     printMode={printMode}
@@ -1872,6 +2007,180 @@ export default function TodayOrdersPage() {
                                 order={selectedOrderForCustomerContact}
                             />
                         </>
+                    )}
+                    {showAddAdminModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-lg max-w-md w-full max-h-screen overflow-y-auto">
+                                <div className="px-6 py-4 border-b border-gray-200">
+                                    <h3 className="text-lg font-medium text-gray-900">
+                                        Agregar Administrador
+                                    </h3>
+                                </div>
+
+                                <div className="px-6 py-4 space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Email del Usuario
+                                        </label>
+                                        <input
+                                            type="email"
+                                            value={newAdminData.email}
+                                            onChange={(e) => setNewAdminData(prev => ({ ...prev, email: e.target.value }))}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                                            placeholder="usuario@ejemplo.com"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Contrasena de acceso
+                                        </label>
+                                        <input
+                                            type="password"
+                                            value={newAdminData.password}
+                                            onChange={(e) => setNewAdminData(prev => ({ ...prev, password: e.target.value }))}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                                            placeholder="Minimo 6 caracteres"
+                                            autoComplete="new-password"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Si la dejas vacia, solo se agregara el permiso y podra vincular su acceso luego.
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Rol
+                                        </label>
+                                        <select
+                                            value={newAdminData.role}
+                                            onChange={(e) => setNewAdminData(prev => ({ ...prev, role: e.target.value as 'admin' | 'manager' }))}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                                        >
+                                            <option value="admin">Administrador</option>
+                                            <option value="manager">Gerente</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Permisos
+                                        </label>
+                                        <div className="space-y-2">
+                                            {[
+                                                { key: 'manageProducts', label: 'Gestionar Productos' },
+                                                { key: 'manageOrders', label: 'Gestionar Pedidos' },
+                                                { key: 'viewReports', label: 'Ver Reportes' },
+                                                { key: 'editBusiness', label: 'Editar Informacion de la Tienda' },
+                                                { key: 'manageAdmins', label: 'Gestionar Administradores' },
+                                            ].map(({ key, label }) => (
+                                                <label key={key} className="flex items-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={newAdminData.permissions[key as keyof typeof newAdminData.permissions]}
+                                                        onChange={(e) => setNewAdminData(prev => ({
+                                                            ...prev,
+                                                            permissions: {
+                                                                ...prev.permissions,
+                                                                [key]: e.target.checked
+                                                            }
+                                                        }))}
+                                                        className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
+                                                    />
+                                                    <span className="ml-2 text-sm text-gray-700">{label}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
+                                    <button
+                                        onClick={handleAddAdmin}
+                                        disabled={addingAdmin || !newAdminData.email.trim() || (!!newAdminData.password && newAdminData.password.length < 6)}
+                                        className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                                    >
+                                        {addingAdmin ? (
+                                            <>
+                                                <i className="bi bi-arrow-clockwise animate-spin me-2"></i>
+                                                Agregando...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <i className="bi bi-check me-2"></i>
+                                                Agregar
+                                            </>
+                                        )}
+                                    </button>
+                                    <button
+                                        onClick={() => setShowAddAdminModal(false)}
+                                        disabled={addingAdmin}
+                                        className="w-full sm:w-auto bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
+                                    >
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {passwordAdminEmail && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-lg max-w-md w-full">
+                                <div className="px-6 py-4 border-b border-gray-200">
+                                    <h3 className="text-lg font-medium text-gray-900">
+                                        Editar acceso
+                                    </h3>
+                                    <p className="text-sm text-gray-500 mt-1">{passwordAdminEmail}</p>
+                                </div>
+
+                                <div className="px-6 py-4">
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Nueva contrasena
+                                    </label>
+                                    <input
+                                        type="password"
+                                        value={adminPassword}
+                                        onChange={(e) => setAdminPassword(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                                        placeholder="Minimo 6 caracteres"
+                                        autoComplete="new-password"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-2">
+                                        Esto creara el usuario si no existe o actualizara su contrasena si ya existe.
+                                    </p>
+                                </div>
+
+                                <div className="px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
+                                    <button
+                                        onClick={handleSaveAdminPassword}
+                                        disabled={savingAdminPassword || adminPassword.length < 6}
+                                        className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                                    >
+                                        {savingAdminPassword ? (
+                                            <>
+                                                <i className="bi bi-arrow-clockwise animate-spin me-2"></i>
+                                                Guardando...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <i className="bi bi-key me-2"></i>
+                                                Guardar acceso
+                                            </>
+                                        )}
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setPasswordAdminEmail(null)
+                                            setAdminPassword('')
+                                        }}
+                                        disabled={savingAdminPassword}
+                                        className="w-full sm:w-auto bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
+                                    >
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>

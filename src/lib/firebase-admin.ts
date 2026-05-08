@@ -1,22 +1,19 @@
 import { initializeApp, cert, getApps, App } from 'firebase-admin/app'
+import { getAuth, Auth } from 'firebase-admin/auth'
 import { getFirestore, Firestore } from 'firebase-admin/firestore'
 import * as fs from 'fs'
 import * as path from 'path'
 
 let adminDb: Firestore | null = null
+let adminAuth: Auth | null = null
 
-export function ensureAdminDb(): Firestore | null {
-  if (adminDb) return adminDb
-
+function ensureAdminApp(): App | null {
   let serviceAccount: any = null
 
-  // 1. Intentar desde variable de entorno
   if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
     try {
-      const keyString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
-      serviceAccount = JSON.parse(keyString)
-      
-      // Si la llave privada tiene los saltos de línea escapados como texto literal "\n", corregirlos
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
+
       if (serviceAccount.private_key && typeof serviceAccount.private_key === 'string' && serviceAccount.private_key.includes('\\n')) {
         serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n')
       }
@@ -25,41 +22,62 @@ export function ensureAdminDb(): Firestore | null {
     }
   }
 
-  // 2. Intentar desde archivo local (fallback para desarrollo)
   if (!serviceAccount) {
     try {
-      const credentialsPath = path.join(
-        process.cwd(),
-        'multitienda-69778-firebase-adminsdk-fbsvc-496524456f.json'
-      )
-      if (fs.existsSync(credentialsPath)) {
-        serviceAccount = JSON.parse(fs.readFileSync(credentialsPath, 'utf-8'))
+      const credentialFiles = [
+        'multitienda-69778-firebase-adminsdk-fbsvc-496524456f.json',
+        'sa_key.json'
+      ]
+
+      for (const fileName of credentialFiles) {
+        const credentialsPath = path.join(process.cwd(), fileName)
+        if (fs.existsSync(credentialsPath)) {
+          serviceAccount = JSON.parse(fs.readFileSync(credentialsPath, 'utf-8'))
+          break
+        }
       }
     } catch (error) {
       console.warn('[Firebase Admin] No se pudieron leer las credenciales del archivo:', error)
     }
   }
 
-  // 3. Inicializar o recuperar App
   try {
     const apps = getApps()
-    let app: App
-    
+
     if (apps.length > 0) {
-      app = apps[0]
-    } else if (serviceAccount && serviceAccount.private_key) {
-      app = initializeApp({
+      return apps[0]
+    }
+
+    if (serviceAccount && serviceAccount.private_key) {
+      return initializeApp({
         credential: cert(serviceAccount)
       })
-    } else {
-      console.error('[Firebase Admin] No hay serviceAccount ni apps inicializadas')
-      return null
     }
-    
-    adminDb = getFirestore(app)
-    return adminDb
+
+    console.error('[Firebase Admin] No hay serviceAccount ni apps inicializadas')
+    return null
   } catch (error) {
-    console.error('[Firebase Admin] Error crítico de inicialización:', error)
+    console.error('[Firebase Admin] Error critico de inicializacion:', error)
     return null
   }
+}
+
+export function ensureAdminDb(): Firestore | null {
+  if (adminDb) return adminDb
+
+  const app = ensureAdminApp()
+  if (!app) return null
+
+  adminDb = getFirestore(app)
+  return adminDb
+}
+
+export function ensureAdminAuth(): Auth | null {
+  if (adminAuth) return adminAuth
+
+  const app = ensureAdminApp()
+  if (!app) return null
+
+  adminAuth = getAuth(app)
+  return adminAuth
 }

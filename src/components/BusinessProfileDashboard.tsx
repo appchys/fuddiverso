@@ -34,6 +34,7 @@ interface BusinessProfileDashboardProps {
   // Props para gestión de administradores (opcionales)
   onAddAdmin?: () => void
   onRemoveAdmin?: (email: string) => void
+  onEditAdminPassword?: (email: string) => void
   onTransferOwnership?: (admin: any) => void
   userRole?: 'owner' | 'admin' | 'manager' | null
   printMode?: 'standard' | 'bluetooth'
@@ -64,6 +65,7 @@ export default function BusinessProfileDashboard({
   onDirectUpdate,
   onAddAdmin,
   onRemoveAdmin,
+  onEditAdminPassword,
   onTransferOwnership,
   userRole,
   printMode,
@@ -487,6 +489,15 @@ export default function BusinessProfileDashboard({
                           >
                             <i className="bi bi-trash me-1"></i>
                             Remover
+                          </button>
+                        )}
+                        {onEditAdminPassword && (
+                          <button
+                            onClick={() => onEditAdminPassword(admin.email)}
+                            className="text-blue-600 hover:text-blue-700 text-sm"
+                          >
+                            <i className="bi bi-key me-1"></i>
+                            Editar Acceso
                           </button>
                         )}
                         {userRole === 'owner' && onTransferOwnership && (
