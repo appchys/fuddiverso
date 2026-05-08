@@ -46,7 +46,7 @@ export default function CartSidebar({
     onOpenUserSidebar
 }: CartSidebarProps) {
     const { user, login } = useAuth()
-    const pathname = usePathname()
+    const pathname = usePathname() ?? ''
     const router = useRouter()
 
     const [view, setView] = useState<'cart' | 'checkout'>('cart')

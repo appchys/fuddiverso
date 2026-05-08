@@ -366,8 +366,8 @@ function DeliveryDashboardContent() {
 
   // Detectar acciones desde la URL (procedentes del email de asignación)
   useEffect(() => {
-    const action = searchParams.get('action')
-    const orderId = searchParams.get('orderId')
+    const action = searchParams?.get('action')
+    const orderId = searchParams?.get('orderId')
 
     if (action && orderId) {
       if (action === 'confirm') {

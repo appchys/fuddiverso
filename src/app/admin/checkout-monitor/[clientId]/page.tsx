@@ -10,7 +10,7 @@ export default function CheckoutMonitorPage() {
   const searchParams = useSearchParams()
 
   const clientId = Array.isArray(params?.clientId) ? params.clientId[0] : (params?.clientId as string)
-  const businessId = searchParams.get('businessId')
+  const businessId = searchParams?.get('businessId')
 
   const [progressData, setProgressData] = useState<any>(null)
   const [loading, setLoading] = useState(true)

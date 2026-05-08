@@ -9,7 +9,7 @@ export default function LayoutWrapper({
 }: {
   children: React.ReactNode
 }) {
-  const pathname = usePathname()
+  const pathname = usePathname() ?? ''
 
   // Rutas reservadas que NO son perfiles de tienda
   const reservedRoutes = [

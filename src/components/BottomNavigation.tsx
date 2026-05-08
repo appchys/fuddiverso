@@ -9,7 +9,7 @@ import { getOrdersByClient, getBusiness } from '@/lib/database'
 import OrderSidebar from '@/components/OrderSidebar'
 
 export default function BottomNavigation() {
-  const pathname = usePathname()
+  const pathname = usePathname() ?? ''
   const { user } = useAuth()
   
   // No mostrar en páginas en las que no resulta útil un nav universal

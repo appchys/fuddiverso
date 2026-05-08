@@ -19,7 +19,7 @@ export default function CheckoutMonitorRedirectPage() {
     const clientId = clientIdMatch?.[1]
     
     // Intentar obtener businessId del localStorage (si existe alguno abierto)
-    let businessId = searchParams.get('businessId')
+    let businessId = searchParams?.get('businessId')
     
     if (!businessId) {
       // Si no hay businessId en la query, buscar en localStorage

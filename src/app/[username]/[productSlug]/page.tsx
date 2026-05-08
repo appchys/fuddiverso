@@ -13,8 +13,8 @@ import ClientLoginModal from '@/components/ClientLoginModal'
 
 export default function ProductPageByUsername() {
   const params = useParams()
-  const productSlug = params.productSlug as string
-  const username = params.username as string
+  const productSlug = params?.productSlug as string
+  const username = params?.username as string
 
   const [product, setProduct] = useState<Product | null>(null)
   const [business, setBusiness] = useState<Business | null>(null)

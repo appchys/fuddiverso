@@ -11,7 +11,7 @@ import { normalizeEcuadorianPhone } from '@/lib/validation'
 export default function ScanQRPage() {
   const params = useParams()
   const router = useRouter()
-  const qrCodeId = params.qrCodeId as string
+  const qrCodeId = params?.qrCodeId as string
   const { user } = useAuth()
 
   const [loading, setLoading] = useState(true)

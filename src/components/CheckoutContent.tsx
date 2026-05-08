@@ -416,7 +416,7 @@ export function CheckoutContent({
     if (isEmbedded) return embeddedCartItems || []
     if (typeof window === 'undefined') return []
 
-    const businessId = searchParams.get('businessId')
+    const businessId = searchParams?.get('businessId')
     if (!businessId) return []
 
     const cartsData = localStorage.getItem('carts')
@@ -487,7 +487,7 @@ export function CheckoutContent({
     setCartItems(newItems)
 
     if (!isEmbedded) {
-      const businessId = searchParams.get('businessId')
+      const businessId = searchParams?.get('businessId')
       if (businessId) {
         try {
           const cartsData = localStorage.getItem('carts')
@@ -617,7 +617,7 @@ export function CheckoutContent({
   useEffect(() => {
     const loadUserCredits = async () => {
       const effectiveId = user?.id || clientFound?.id
-      const businessId = embeddedBusinessId || business?.id || searchParams.get('businessId')
+      const businessId = embeddedBusinessId || business?.id || searchParams?.get('businessId')
 
       if (!effectiveId || !businessId) {
         setUserCredits({ available: 0, referral: 0, manual: 0 })
@@ -1173,7 +1173,7 @@ export function CheckoutContent({
     // Cargar datos del negocio y carrito desde localStorage
     if (isEmbedded) return
 
-    const businessIdFromQuery = searchParams.get('businessId')
+    const businessIdFromQuery = searchParams?.get('businessId')
 
     // Si no hay businessId en la query, redirigir
     if (!businessIdFromQuery) {
@@ -1619,7 +1619,7 @@ export function CheckoutContent({
       // Si la campaña de delivery gratis aplica, el cliente no paga el costo de envío
       const clientDeliveryCost = isFreeDeliveryActive ? 0 : deliveryCost;
       const total = Math.max(0, subtotal + clientDeliveryCost - creditToApply);
-      const businessId = (isEmbedded ? embeddedBusinessId : (searchParams.get('businessId') || ''))
+      const businessId = (isEmbedded ? embeddedBusinessId : (searchParams?.get('businessId') || ''))
 
       // El delivery se asignará automáticamente cuando la tienda confirme el pedido en el dashboard
       const assignedDeliveryId = undefined;

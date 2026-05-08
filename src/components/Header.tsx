@@ -165,7 +165,7 @@ export default function Header({ initialShowLoginModal = false }: HeaderProps) {
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [isUserSidebarOpen, setIsUserSidebarOpen] = useState(false)
   const router = useRouter()
-  const pathname = usePathname()
+  const pathname = usePathname() ?? ''
 
   // Cargar categorías
 
