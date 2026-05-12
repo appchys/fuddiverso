@@ -523,30 +523,61 @@ function RestaurantContent() {
         }
 
         // Verificar si el premio ya está en el carrito
-        const tienePremio = businessCart.some((item: any) => item.esPremio === true)
+        const premioIndex = businessCart.findIndex((item: any) => item.id === 'premio-especial-auto')
+        const tienePremio = premioIndex !== -1
 
-        // Auto-agregar premio según configuración dinámica
-        if (business.rewardSettings?.enabled && !tienePremio) {
-          const premioEspecial = {
-            id: 'premio-especial-auto',
-            name: `🎁 ${business.rewardSettings.name}`,
-            variantName: null,
-            productName: `🎁 ${business.rewardSettings.name}`,
-            description: business.rewardSettings.description || '¡Felicidades! Has reclamado tu premio especial gratis',
-            price: 0,
-            isAvailable: true,
-            esPremio: true,
-            quantity: 1,
-            image: business.image || 'https://via.placeholder.com/150?text=Premio',
-            businessId: business.id,
-            businessName: business.name,
-            businessImage: business.image
+        // Auto-agregar o actualizar premio según configuración dinámica
+        if (business.rewardSettings?.enabled) {
+          const currentRewardName = `🎁 ${business.rewardSettings.name}`
+          const currentRewardDesc = business.rewardSettings.description || '¡Felicidades! Has reclamado tu premio especial gratis'
+          const currentIngredients = business.rewardSettings.ingredients || []
+          
+          if (!tienePremio) {
+            const premioEspecial = {
+              id: 'premio-especial-auto',
+              name: currentRewardName,
+              variantName: null,
+              productName: currentRewardName,
+              description: currentRewardDesc,
+              price: 0,
+              isAvailable: true,
+              esPremio: true,
+              quantity: 1,
+              image: business.image || 'https://via.placeholder.com/150?text=Premio',
+              businessId: business.id,
+              businessName: business.name,
+              businessImage: business.image,
+              ingredients: currentIngredients // Persistir ingredientes para consumo de stock
+            }
+            businessCart = [...businessCart, premioEspecial]
+            updateCartInStorage(business.id, businessCart)
+            setPremioAgregado(true)
+          } else {
+            // Verificar si el nombre, descripción o ingredientes cambiaron
+            const existingPremio = businessCart[premioIndex]
+            const nameChanged = existingPremio.name !== currentRewardName
+            const descChanged = existingPremio.description !== currentRewardDesc
+            const ingredientsChanged = JSON.stringify(existingPremio.ingredients || []) !== JSON.stringify(currentIngredients)
+
+            if (nameChanged || descChanged || ingredientsChanged) {
+              businessCart[premioIndex] = {
+                ...existingPremio,
+                name: currentRewardName,
+                productName: currentRewardName,
+                description: currentRewardDesc,
+                ingredients: currentIngredients
+              }
+              updateCartInStorage(business.id, businessCart)
+            }
+            setPremioAgregado(true)
           }
-          businessCart = [...businessCart, premioEspecial]
+        } else if (tienePremio) {
+          // Si el premio estaba habilitado pero ahora está deshabilitado, quitarlo del carrito
+          businessCart = businessCart.filter((item: any) => item.id !== 'premio-especial-auto')
           updateCartInStorage(business.id, businessCart)
-          setPremioAgregado(true)
+          setPremioAgregado(false)
         } else {
-          setPremioAgregado(tienePremio)
+          setPremioAgregado(false)
         }
 
         setCart(businessCart)

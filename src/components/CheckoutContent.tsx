@@ -1644,7 +1644,8 @@ export function CheckoutContent({
           basePrice: item.basePrice,
           commission: item.commission,
           commissionType: item.commissionType,
-          storeReceives: item.storeReceives
+          storeReceives: item.storeReceives,
+          ingredients: item.ingredients || []
         })),
         customer: {
           name: customerData.name,
