@@ -149,21 +149,29 @@ function HomePageContent() {
   }, [businesses, productsByBusiness])
 
   const sortedRestaurants = React.useMemo(() => {
-    return businesses
+    const filtered = businesses
       .filter(b => b.businessType !== 'distributor')
       .filter(b => {
         const products = productsByBusiness[b.id]
         return products && products.length > 0
       })
-      .sort((a, b) => {
-        const aOpen = isStoreOpen(a)
-        const bOpen = isStoreOpen(b)
-        if (aOpen !== bOpen) return aOpen ? -1 : 1
-        
-        const aLastEdit = productsByBusiness[a.id]?.[0]?.updatedAt?.getTime() || 0
-        const bLastEdit = productsByBusiness[b.id]?.[0]?.updatedAt?.getTime() || 0
-        return bLastEdit - aLastEdit
-      })
+    
+    // Separar abiertos y cerrados
+    const open = filtered.filter(b => isStoreOpen(b))
+    const closed = filtered.filter(b => !isStoreOpen(b))
+    
+    // Ordenar abiertos aleatoriamente
+    const shuffledOpen = [...open].sort(() => Math.random() - 0.5)
+    
+    // Ordenar cerrados por última edición
+    const sortedClosed = closed.sort((a, b) => {
+      const aLastEdit = productsByBusiness[a.id]?.[0]?.updatedAt?.getTime() || 0
+      const bLastEdit = productsByBusiness[b.id]?.[0]?.updatedAt?.getTime() || 0
+      return bLastEdit - aLastEdit
+    })
+    
+    // Combinar: abiertos (aleatorio) + cerrados (por edición)
+    return [...shuffledOpen, ...sortedClosed]
   }, [businesses, productsByBusiness])
 
   const sortedDistributors = React.useMemo(() => {
@@ -789,10 +797,29 @@ function HomePageContent() {
     }
   }
 
-  const filteredRandomProducts = randomProducts.filter(product => {
-    const business = businesses.find(b => b.id === product.businessId)
-    return business?.businessType !== 'distributor' && !!product.image
-  })
+  const filteredRandomProducts = React.useMemo(() => {
+    const filtered = randomProducts.filter(product => {
+      const business = businesses.find(b => b.id === product.businessId)
+      return business?.businessType !== 'distributor' && !!product.image
+    })
+    
+    // Separar productos de tiendas abiertas y cerradas
+    const openProducts = filtered.filter(product => {
+      const business = businesses.find(b => b.id === product.businessId)
+      return business && isStoreOpen(business)
+    })
+    
+    const closedProducts = filtered.filter(product => {
+      const business = businesses.find(b => b.id === product.businessId)
+      return business && !isStoreOpen(business)
+    })
+    
+    // Ordenar productos de tiendas abiertas aleatoriamente
+    const shuffledOpen = [...openProducts].sort(() => Math.random() - 0.5)
+    
+    // Combinar: productos de tiendas abiertas (aleatorio) + productos de tiendas cerrados (orden original)
+    return [...shuffledOpen, ...closedProducts]
+  }, [randomProducts, businesses])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1177,12 +1204,12 @@ function HomePageContent() {
                             </h3>
                           </Link>
                           {b.description && (
-                            <p className="text-xs text-gray-400 mt-1 line-clamp-1">
+                            <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">
                               {b.description}
                             </p>
                           )}
                           {/* Estrellas justo debajo del nombre y descripción */}
-                          <div>
+                          <div className="mt-0.5 sm:mt-0">
                             {b.ratingAverage ? (
                               <button
                                 onClick={(e) => {
@@ -1206,6 +1233,16 @@ function HomePageContent() {
                                 <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest ml-1">Sin reseñas</span>
                               </button>
                             )}
+                            {/* Indicador de estado abierto/cerrado */}
+                            <div className="mt-0.5 sm:mt-1">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${isStoreOpen(b)
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                : 'bg-rose-50 text-rose-700 border border-rose-100'
+                                }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${isStoreOpen(b) ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                                {isStoreOpen(b) ? 'Abierto ahora' : 'Cerrado ahora'}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
