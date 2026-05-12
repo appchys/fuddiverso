@@ -149,14 +149,18 @@ export default function PaymentManagementModals({
     return (
         <>
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                <div className="bg-white rounded-xl max-w-md w-full">
-                    <div className="p-6">
+                <div className="bg-white rounded-xl max-w-md w-full max-h-[90vh] flex flex-col">
+                    <div className="p-6 overflow-y-auto flex-1">
                         {/* Header */}
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-xl font-bold text-gray-900">
-                                <i className={`bi ${editPaymentData.method === 'transfer' ? 'bi-bank text-blue-600' : 'bi-credit-card'} me-2`}></i>
-                                Editar Método de Pago
-                            </h2>
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-900">
+                                    {order.customer?.name || 'Cliente sin nombre'}
+                                </h2>
+                                <p className="text-lg font-semibold text-emerald-600">
+                                    ${(order.total || 0).toFixed(2)}
+                                </p>
+                            </div>
                             <button
                                 onClick={onClose}
                                 className="text-gray-500 hover:text-gray-700 text-2xl"
@@ -183,21 +187,99 @@ export default function PaymentManagementModals({
                             {order.payment?.receiptImageUrl && (
                                 <div className="ml-4">
                                     <p className="text-xs text-gray-500 mb-1 text-center">Comprobante</p>
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowReceiptPreviewModal(true)}
-                                        className="block relative group"
-                                        title="Ver comprobante completo"
-                                    >
-                                        <img
-                                            src={order.payment.receiptImageUrl}
-                                            alt="Comprobante de pago"
-                                            className="w-24 h-24 object-cover rounded-lg border border-gray-200 shadow-sm hover:opacity-90 transition-opacity"
-                                        />
-                                        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all rounded-lg">
-                                            <i className="bi bi-zoom-in text-white opacity-0 group-hover:opacity-100 drop-shadow-md"></i>
+                                    <div className="relative group">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowReceiptPreviewModal(true)}
+                                            className="block relative"
+                                            title="Ver comprobante completo"
+                                        >
+                                            <img
+                                                src={order.payment.receiptImageUrl}
+                                                alt="Comprobante de pago"
+                                                className="w-32 h-48 object-cover rounded-lg border border-gray-200 shadow-sm hover:opacity-90 transition-opacity"
+                                            />
+                                            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all rounded-lg">
+                                                <i className="bi bi-zoom-in text-white opacity-0 group-hover:opacity-100 drop-shadow-md"></i>
+                                            </div>
+                                        </button>
+                                        
+                                        {/* Floating Action Buttons */}
+                                        <div className="absolute bottom-2 right-2 flex flex-row gap-1 opacity-100 transition-opacity">
+                                            <button
+                                                type="button"
+                                                onClick={async (e) => {
+                                                    e.stopPropagation();
+                                                    if (!order) return;
+                                                    
+                                                    try {
+                                                        const orderRef = doc(db, 'orders', order.id);
+                                                        await updateDoc(orderRef, {
+                                                            'payment.paymentStatus': 'rejected' as const
+                                                        });
+
+                                                        const updatedPayment = {
+                                                            ...order.payment!,
+                                                            paymentStatus: 'rejected' as const
+                                                        };
+
+                                                        onOrderUpdated({ ...order, payment: updatedPayment });
+                                                        setEditPaymentData(prev => ({
+                                                            ...prev,
+                                                            paymentStatus: 'rejected'
+                                                        }));
+                                                    } catch (error) {
+                                                        alert('Error al rechazar el pago');
+                                                    }
+                                                }}
+                                                className="w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-lg"
+                                                title="Rechazar pago"
+                                            >
+                                                <i className="bi bi-x text-sm"></i>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={async (e) => {
+                                                    e.stopPropagation();
+                                                    if (!order) return;
+                                                    
+                                                    try {
+                                                        let paymentUpdate: any = {
+                                                            method: editPaymentData.method,
+                                                            paymentStatus: 'paid' as const
+                                                        };
+
+                                                        if (editPaymentData.method === 'mixed') {
+                                                            paymentUpdate.cashAmount = editPaymentData.cashAmount;
+                                                            paymentUpdate.transferAmount = editPaymentData.transferAmount;
+                                                        }
+
+                                                        const updatedPayment = {
+                                                            ...order.payment,
+                                                            ...paymentUpdate
+                                                        };
+
+                                                        const orderRef = doc(db, 'orders', order.id);
+                                                        await updateDoc(orderRef, {
+                                                            payment: updatedPayment
+                                                        });
+
+                                                        onOrderUpdated({ ...order, payment: updatedPayment });
+                                                        setEditPaymentData(prev => ({
+                                                            ...prev,
+                                                            paymentStatus: 'paid'
+                                                        }));
+                                                    } catch (error) {
+                                                        alert('Error al validar el pago');
+                                                    }
+                                                }}
+                                                className="w-8 h-8 bg-emerald-500 text-white rounded-full flex items-center justify-center hover:bg-emerald-600 transition-colors shadow-lg"
+                                                title="Validar pago"
+                                            >
+                                                <i className="bi bi-check text-sm"></i>
+                                            </button>
                                         </div>
-                                    </button>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -278,18 +360,67 @@ export default function PaymentManagementModals({
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                     Estado del Pago
                                 </label>
-                                <select
-                                    value={editPaymentData.paymentStatus}
-                                    onChange={(e) => setEditPaymentData({
-                                        ...editPaymentData,
-                                        paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
-                                    })}
-                                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm bg-white"
-                                >
-                                    <option value="pending">Pendiente</option>
-                                    <option value="validating">Validando</option>
-                                    <option value="paid">Pagado</option>
-                                </select>
+                                <div className="flex gap-2">
+                                    <select
+                                        value={editPaymentData.paymentStatus}
+                                        onChange={(e) => setEditPaymentData({
+                                            ...editPaymentData,
+                                            paymentStatus: e.target.value as 'pending' | 'validating' | 'paid'
+                                        })}
+                                        className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm bg-white"
+                                    >
+                                        <option value="pending">Pendiente</option>
+                                        <option value="validating">Validando</option>
+                                        <option value="paid">Pagado</option>
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            if (!order) return;
+                                            
+                                            try {
+                                                let paymentUpdate: any = {
+                                                    method: editPaymentData.method,
+                                                    paymentStatus: 'paid' as const
+                                                };
+
+                                                if (editPaymentData.method === 'mixed') {
+                                                    paymentUpdate.cashAmount = editPaymentData.cashAmount;
+                                                    paymentUpdate.transferAmount = editPaymentData.transferAmount;
+                                                }
+
+                                                const orderRef = doc(db, 'orders', order.id);
+                                                await updateDoc(orderRef, {
+                                                    payment: {
+                                                        ...order.payment,
+                                                        ...paymentUpdate
+                                                    }
+                                                });
+
+                                                onOrderUpdated({
+                                                    ...order,
+                                                    payment: {
+                                                        ...order.payment!,
+                                                        ...paymentUpdate
+                                                    }
+                                                });
+
+                                                onClose();
+                                            } catch (error) {
+                                                console.error('Error updating payment:', error);
+                                                alert('Error al actualizar el pago');
+                                            }
+                                        }}
+                                        className={`px-3 py-2 rounded-lg transition-colors ${
+                                            editPaymentData.paymentStatus === 'paid'
+                                                ? 'bg-green-100 text-green-700 border-green-300'
+                                                : 'bg-gray-100 text-gray-600 hover:bg-green-50 hover:text-green-700 border-gray-300'
+                                        } border`}
+                                        title="Marcar como pagado y cerrar"
+                                    >
+                                        <i className="bi bi-check-lg"></i>
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Mixed Payment Amounts */}
@@ -354,7 +485,10 @@ export default function PaymentManagementModals({
                             )}
                         </div>
 
-                        {/* Action Buttons */}
+                        </div>
+                    
+                    {/* Action Buttons - Fixed at bottom */}
+                    <div className="p-6 pt-0 border-t border-gray-100">
                         <div className="flex space-x-3">
                             <button
                                 onClick={handleSavePaymentEdit}
@@ -373,9 +507,9 @@ export default function PaymentManagementModals({
                                 Cancelar
                             </button>
                         </div>
-                    </div >
-                </div >
-            </div >
+                    </div>
+                </div>
+            </div>
 
             {/* Receipt Preview Modal */}
             {showReceiptPreviewModal && order.payment?.receiptImageUrl && (
