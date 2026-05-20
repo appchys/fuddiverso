@@ -31,8 +31,6 @@ import {
     sendWhatsAppToCustomer,
     getNextStatus
 } from '@/components/WhatsAppUtils'
-import { printOrder } from '@/lib/print-utils'
-import { printOrderBluetooth } from '@/lib/bluetooth-print-utils'
 import { isStoreOpen, getNextOpeningMessage, calculateManualStatusExpiry } from '@/lib/store-utils'
 import QueueStatusIndicator from '@/components/QueueStatusIndicator'
 import NotificationsBell from '@/components/NotificationsBell'
@@ -40,8 +38,9 @@ import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import { auth } from '@/lib/firebase'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import DashboardSidebar from '@/components/DashboardSidebar'
-import ProductList from '@/components/ProductList'
-import DayPreflightChecklist from '@/components/DayPreflightChecklist'
+
+const ProductList = dynamic(() => import('@/components/ProductList'), { ssr: false })
+const DayPreflightChecklist = dynamic(() => import('@/components/DayPreflightChecklist'), { ssr: false })
 
 // Helper function to check point in polygon (if not imported, but we added it to imports above)
 // If isPointInPolygon is not exported from @/lib/database, we might need to define it here or import it.
@@ -125,9 +124,11 @@ const autoAssignDeliveryForOrder = async (order: Order, defaultDeliveryId?: stri
 
 
 
-import PaymentManagementModals from '@/components/PaymentManagementModals'
-import ManualOrderSidebar from '@/components/ManualOrderSidebar'
-import { LiveCheckoutsPanel, CheckoutSession } from '@/components/LiveCheckoutsPanel'
+import type { CheckoutSession } from '@/components/LiveCheckoutsPanel'
+
+const PaymentManagementModals = dynamic(() => import('@/components/PaymentManagementModals'), { ssr: false })
+const ManualOrderSidebar = dynamic(() => import('@/components/ManualOrderSidebar'), { ssr: false })
+const LiveCheckoutsPanel = dynamic(() => import('@/components/LiveCheckoutsPanel').then(m => m.LiveCheckoutsPanel), { ssr: false })
 
 const getStatusText = (status: string) => {
     switch (status) {
@@ -885,38 +886,20 @@ export default function TodayOrdersPage() {
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
         const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
 
-        const q = query(
-            collection(db, 'orders'),
-            where('businessId', '==', businessId),
-            orderBy('createdAt', 'desc')
-        )
+        // Map to hold and merge orders from all three queries
+        const ordersMap = new Map<string, Order>()
+        let activeQueryLoaded = false
+        let createdQueryLoaded = false
+        let scheduledQueryLoaded = false
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            // Manejo de sonido para nuevos pedidos
-            if (!isFirstOrdersLoad.current) {
-                snapshot.docChanges().forEach(change => {
-                    if (change.type === 'added') {
-                        // Verificar si el pedido es de hoy antes de sonar
-                        const orderData = change.doc.data() as Order
-                        const orderDate = orderData.timing?.type === 'scheduled' && orderData.timing.scheduledDate
-                            ? toSafeDate(orderData.timing.scheduledDate)
-                            : toSafeDate(orderData.createdAt)
+        const updateOrdersState = () => {
+            const allMergedOrders = Array.from(ordersMap.values())
 
-                        if (orderDate >= startOfDay && orderDate < endOfDay) {
-                            playNotificationSound()
-                        }
-                    }
-                })
-            }
-            isFirstOrdersLoad.current = false
+            // Filter for active orders OR orders created/scheduled for today
+            const todayOrders = allMergedOrders.filter(order => {
+                const isActive = ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(order.status)
+                if (isActive) return true
 
-            const allOrders = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            })) as Order[]
-
-            // Filter for today's orders
-            const todayOrders = allOrders.filter(order => {
                 const orderDate = order.timing?.type === 'scheduled' && order.timing.scheduledDate
                     ? toSafeDate(order.timing.scheduledDate)
                     : toSafeDate(order.createdAt)
@@ -937,13 +920,139 @@ export default function TodayOrdersPage() {
             });
 
             setOrders(todayOrders)
-            setLoading(false)
+            
+            // Only stop loading spinner when all queries have fetched their initial snapshot
+            if (activeQueryLoaded && createdQueryLoaded && scheduledQueryLoaded) {
+                setLoading(false)
+            }
+        }
+
+        const handleDocChanges = (snapshot: any) => {
+            if (!isFirstOrdersLoad.current) {
+                snapshot.docChanges().forEach((change: any) => {
+                    if (change.type === 'added') {
+                        const orderData = change.doc.data() as Order
+                        const orderDate = orderData.timing?.type === 'scheduled' && orderData.timing.scheduledDate
+                            ? toSafeDate(orderData.timing.scheduledDate)
+                            : toSafeDate(orderData.createdAt)
+
+                        const isActive = ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(orderData.status)
+                        const isToday = orderDate >= startOfDay && orderDate < endOfDay
+
+                        if (isActive || isToday) {
+                            playNotificationSound()
+                        }
+                    }
+                })
+            }
+        }
+
+        // Listener 1: Orders created today
+        const qCreatedToday = query(
+            collection(db, 'orders'),
+            where('businessId', '==', businessId),
+            where('createdAt', '>=', Timestamp.fromDate(startOfDay)),
+            where('createdAt', '<', Timestamp.fromDate(endOfDay))
+        )
+        const unsubCreated = onSnapshot(qCreatedToday, (snapshot) => {
+            handleDocChanges(snapshot)
+            snapshot.docs.forEach(doc => {
+                ordersMap.set(doc.id, { id: doc.id, ...doc.data() } as Order)
+            })
+            snapshot.docChanges().forEach(change => {
+                if (change.type === 'removed') {
+                    const orderData = change.doc.data() as Order
+                    const isActive = ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(orderData.status)
+                    if (!isActive) {
+                        ordersMap.delete(change.doc.id)
+                    }
+                }
+            })
+            createdQueryLoaded = true
+            updateOrdersState()
         }, (error) => {
-            console.error("Error listening to orders:", error)
-            setLoading(false)
+            console.error("Error in unsubCreated:", error)
+            createdQueryLoaded = true
+            updateOrdersState()
         })
 
-        return () => unsubscribe()
+        // Listener 2: Active orders from any time (pending, preparing, etc.)
+        const qActive = query(
+            collection(db, 'orders'),
+            where('businessId', '==', businessId),
+            where('status', 'in', ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'])
+        )
+        const unsubActive = onSnapshot(qActive, (snapshot) => {
+            handleDocChanges(snapshot)
+            snapshot.docs.forEach(doc => {
+                ordersMap.set(doc.id, { id: doc.id, ...doc.data() } as Order)
+            })
+            snapshot.docChanges().forEach(change => {
+                if (change.type === 'removed') {
+                    const orderData = change.doc.data() as Order
+                    const orderDate = orderData.timing?.type === 'scheduled' && orderData.timing.scheduledDate
+                        ? toSafeDate(orderData.timing.scheduledDate)
+                        : toSafeDate(orderData.createdAt)
+                    const isToday = orderDate >= startOfDay && orderDate < endOfDay
+                    if (!isToday) {
+                        ordersMap.delete(change.doc.id)
+                    }
+                }
+            })
+            activeQueryLoaded = true
+            updateOrdersState()
+        }, (error) => {
+            console.error("Error in unsubActive:", error)
+            activeQueryLoaded = true
+            updateOrdersState()
+        })
+
+        // Listener 3: Scheduled orders for today
+        const qScheduledToday = query(
+            collection(db, 'orders'),
+            where('businessId', '==', businessId),
+            where('timing.type', '==', 'scheduled'),
+            where('timing.scheduledDate', '>=', Timestamp.fromDate(startOfDay)),
+            where('timing.scheduledDate', '<', Timestamp.fromDate(endOfDay))
+        )
+        const unsubScheduled = onSnapshot(qScheduledToday, (snapshot) => {
+            handleDocChanges(snapshot)
+            snapshot.docs.forEach(doc => {
+                ordersMap.set(doc.id, { id: doc.id, ...doc.data() } as Order)
+            })
+            snapshot.docChanges().forEach(change => {
+                if (change.type === 'removed') {
+                    const orderData = change.doc.data() as Order
+                    const isActive = ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(orderData.status)
+                    const orderDate = toSafeDate(orderData.createdAt)
+                    const isCreatedToday = orderDate >= startOfDay && orderDate < endOfDay
+                    if (!isActive && !isCreatedToday) {
+                        ordersMap.delete(change.doc.id)
+                    }
+                }
+            })
+            scheduledQueryLoaded = true
+            updateOrdersState()
+        }, (error) => {
+            console.error("Error in unsubScheduled:", error)
+            scheduledQueryLoaded = true
+            updateOrdersState()
+        })
+
+        // Set isFirstOrdersLoad.current = false after all initial queries have reported at least once
+        const checkFirstLoad = setInterval(() => {
+            if (activeQueryLoaded && createdQueryLoaded && scheduledQueryLoaded) {
+                isFirstOrdersLoad.current = false
+                clearInterval(checkFirstLoad)
+            }
+        }, 500)
+
+        return () => {
+            unsubCreated()
+            unsubActive()
+            unsubScheduled()
+            clearInterval(checkFirstLoad)
+        }
     }, [businessId])
 
     // Fetch all upcoming orders (future scheduled)
@@ -1253,6 +1362,7 @@ export default function TodayOrdersPage() {
     const handlePrint = async (order: Order, silent: boolean = false) => {
         try {
             if (printMode === 'bluetooth') {
+                const { printOrderBluetooth } = await import('@/lib/bluetooth-print-utils')
                 await printOrderBluetooth({
                     order: order as any,
                     businessName: business?.name || "Negocio",
@@ -1260,6 +1370,7 @@ export default function TodayOrdersPage() {
                     groupItemsByProduct: business?.notificationSettings?.groupItemsByProduct ?? true
                 })
             } else {
+                const { printOrder } = await import('@/lib/print-utils')
                 await printOrder({
                     order: order as any,
                     businessName: business?.name || "Negocio",
