@@ -164,7 +164,14 @@ const toSafeDate = (val: any): Date => {
     if (val instanceof Timestamp) return val.toDate()
     if (typeof val.toDate === 'function') return val.toDate()
     if (val.seconds) return new Date(val.seconds * 1000)
-    if (typeof val === 'string') return new Date(val)
+    if (typeof val === 'string') {
+        const dateOnlyMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+        if (dateOnlyMatch) {
+            const [, year, month, day] = dateOnlyMatch
+            return new Date(Number(year), Number(month) - 1, Number(day))
+        }
+        return new Date(val)
+    }
     if (val instanceof Date) return val
     return new Date()
 }
@@ -903,6 +910,7 @@ export default function TodayOrdersPage() {
         let cancelled = false
 
         const isActiveOrder = (order: Order) => ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(order.status)
+        const isScheduledOrder = (order: Order) => order.timing?.type === 'scheduled' && Boolean(order.timing.scheduledDate)
         const getOrderReferenceDate = (order: Order) => order.timing?.type === 'scheduled' && order.timing.scheduledDate
             ? toSafeDate(order.timing.scheduledDate)
             : toSafeDate(order.createdAt)
@@ -910,15 +918,16 @@ export default function TodayOrdersPage() {
             const orderDate = getOrderReferenceDate(order)
             return orderDate >= startOfDay && orderDate < endOfDay
         }
+        const shouldShowInTodayOrders = (order: Order) => {
+            if (isScheduledOrder(order)) return isOrderForToday(order)
+            return isActiveOrder(order) || isOrderForToday(order)
+        }
 
         const updateOrdersState = () => {
             const allMergedOrders = Array.from(ordersMap.values())
 
-            // Filter for active orders OR orders created/scheduled for today
-            const todayOrders = allMergedOrders.filter(order => {
-                if (isActiveOrder(order)) return true
-                return isOrderForToday(order)
-            })
+            // Scheduled orders only belong here when their scheduled date is today.
+            const todayOrders = allMergedOrders.filter(shouldShowInTodayOrders)
 
             // Sort by time (nearest first)
             todayOrders.sort((a, b) => {
@@ -946,10 +955,8 @@ export default function TodayOrdersPage() {
                 snapshot.docChanges().forEach((change: any) => {
                     if (change.type === 'added') {
                         const orderData = change.doc.data() as Order
-                        const isActive = isActiveOrder(orderData)
-                        const isToday = isOrderForToday(orderData)
 
-                        if (isActive || isToday) {
+                        if (shouldShowInTodayOrders(orderData)) {
                             playNotificationSound()
                         }
                     }
