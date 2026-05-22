@@ -162,10 +162,18 @@ const getStatusColor = (status: string) => {
 const toSafeDate = (val: any): Date => {
     if (!val) return new Date()
     if (val instanceof Timestamp) return val.toDate()
+    if (typeof val.toDate === 'function') return val.toDate()
     if (val.seconds) return new Date(val.seconds * 1000)
     if (typeof val === 'string') return new Date(val)
     if (val instanceof Date) return val
     return new Date()
+}
+
+const toLocalDateInputValue = (date: Date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
 }
 
 // Helper to get the display time for an order
@@ -891,19 +899,25 @@ export default function TodayOrdersPage() {
         let activeQueryLoaded = false
         let createdQueryLoaded = false
         let scheduledQueryLoaded = false
+        let scheduledStringQueryLoaded = false
+        let cancelled = false
+
+        const isActiveOrder = (order: Order) => ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(order.status)
+        const getOrderReferenceDate = (order: Order) => order.timing?.type === 'scheduled' && order.timing.scheduledDate
+            ? toSafeDate(order.timing.scheduledDate)
+            : toSafeDate(order.createdAt)
+        const isOrderForToday = (order: Order) => {
+            const orderDate = getOrderReferenceDate(order)
+            return orderDate >= startOfDay && orderDate < endOfDay
+        }
 
         const updateOrdersState = () => {
             const allMergedOrders = Array.from(ordersMap.values())
 
             // Filter for active orders OR orders created/scheduled for today
             const todayOrders = allMergedOrders.filter(order => {
-                const isActive = ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(order.status)
-                if (isActive) return true
-
-                const orderDate = order.timing?.type === 'scheduled' && order.timing.scheduledDate
-                    ? toSafeDate(order.timing.scheduledDate)
-                    : toSafeDate(order.createdAt)
-                return orderDate >= startOfDay && orderDate < endOfDay
+                if (isActiveOrder(order)) return true
+                return isOrderForToday(order)
             })
 
             // Sort by time (nearest first)
@@ -922,7 +936,7 @@ export default function TodayOrdersPage() {
             setOrders(todayOrders)
             
             // Only stop loading spinner when all queries have fetched their initial snapshot
-            if (activeQueryLoaded && createdQueryLoaded && scheduledQueryLoaded) {
+            if (activeQueryLoaded && createdQueryLoaded && scheduledQueryLoaded && scheduledStringQueryLoaded) {
                 setLoading(false)
             }
         }
@@ -932,12 +946,8 @@ export default function TodayOrdersPage() {
                 snapshot.docChanges().forEach((change: any) => {
                     if (change.type === 'added') {
                         const orderData = change.doc.data() as Order
-                        const orderDate = orderData.timing?.type === 'scheduled' && orderData.timing.scheduledDate
-                            ? toSafeDate(orderData.timing.scheduledDate)
-                            : toSafeDate(orderData.createdAt)
-
-                        const isActive = ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(orderData.status)
-                        const isToday = orderDate >= startOfDay && orderDate < endOfDay
+                        const isActive = isActiveOrder(orderData)
+                        const isToday = isOrderForToday(orderData)
 
                         if (isActive || isToday) {
                             playNotificationSound()
@@ -962,8 +972,7 @@ export default function TodayOrdersPage() {
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
                     const orderData = change.doc.data() as Order
-                    const isActive = ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(orderData.status)
-                    if (!isActive) {
+                    if (!isActiveOrder(orderData)) {
                         ordersMap.delete(change.doc.id)
                     }
                 }
@@ -990,11 +999,7 @@ export default function TodayOrdersPage() {
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
                     const orderData = change.doc.data() as Order
-                    const orderDate = orderData.timing?.type === 'scheduled' && orderData.timing.scheduledDate
-                        ? toSafeDate(orderData.timing.scheduledDate)
-                        : toSafeDate(orderData.createdAt)
-                    const isToday = orderDate >= startOfDay && orderDate < endOfDay
-                    if (!isToday) {
+                    if (!isOrderForToday(orderData)) {
                         ordersMap.delete(change.doc.id)
                     }
                 }
@@ -1023,7 +1028,7 @@ export default function TodayOrdersPage() {
             snapshot.docChanges().forEach(change => {
                 if (change.type === 'removed') {
                     const orderData = change.doc.data() as Order
-                    const isActive = ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(orderData.status)
+                    const isActive = isActiveOrder(orderData)
                     const orderDate = toSafeDate(orderData.createdAt)
                     const isCreatedToday = orderDate >= startOfDay && orderDate < endOfDay
                     if (!isActive && !isCreatedToday) {
@@ -1039,18 +1044,70 @@ export default function TodayOrdersPage() {
             updateOrdersState()
         })
 
+        const todayString = toLocalDateInputValue(startOfDay)
+        const tomorrowString = toLocalDateInputValue(endOfDay)
+        const qScheduledTodayString = query(
+            collection(db, 'orders'),
+            where('businessId', '==', businessId),
+            where('timing.type', '==', 'scheduled'),
+            where('timing.scheduledDate', '>=', todayString),
+            where('timing.scheduledDate', '<', tomorrowString)
+        )
+        const unsubScheduledString = onSnapshot(qScheduledTodayString, (snapshot) => {
+            handleDocChanges(snapshot)
+            snapshot.docs.forEach(doc => {
+                ordersMap.set(doc.id, { id: doc.id, ...doc.data() } as Order)
+            })
+            snapshot.docChanges().forEach(change => {
+                if (change.type === 'removed') {
+                    const orderData = change.doc.data() as Order
+                    const isActive = isActiveOrder(orderData)
+                    const orderDate = toSafeDate(orderData.createdAt)
+                    const isCreatedToday = orderDate >= startOfDay && orderDate < endOfDay
+                    if (!isActive && !isCreatedToday) {
+                        ordersMap.delete(change.doc.id)
+                    }
+                }
+            })
+            scheduledStringQueryLoaded = true
+            updateOrdersState()
+        }, (error) => {
+            console.error("Error in unsubScheduledString:", error)
+            scheduledStringQueryLoaded = true
+            updateOrdersState()
+        })
+
+        const loadLegacyScheduledToday = async () => {
+            try {
+                const allOrders = await getOrdersByBusinessComplete(businessId)
+                if (cancelled) return
+
+                allOrders.forEach(order => {
+                    if (order.timing?.type === 'scheduled' && isOrderForToday(order)) {
+                        ordersMap.set(order.id, order)
+                    }
+                })
+                updateOrdersState()
+            } catch (error) {
+                console.error("Error loading legacy scheduled orders:", error)
+            }
+        }
+        loadLegacyScheduledToday()
+
         // Set isFirstOrdersLoad.current = false after all initial queries have reported at least once
         const checkFirstLoad = setInterval(() => {
-            if (activeQueryLoaded && createdQueryLoaded && scheduledQueryLoaded) {
+            if (activeQueryLoaded && createdQueryLoaded && scheduledQueryLoaded && scheduledStringQueryLoaded) {
                 isFirstOrdersLoad.current = false
                 clearInterval(checkFirstLoad)
             }
         }, 500)
 
         return () => {
+            cancelled = true
             unsubCreated()
             unsubActive()
             unsubScheduled()
+            unsubScheduledString()
             clearInterval(checkFirstLoad)
         }
     }, [businessId])
