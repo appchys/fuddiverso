@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { getAllBusinesses, updateOrderStatus, updateOrder, getDeliveriesByStatus, getProductsByBusiness } from '@/lib/database'
 import { Order, Business, Product } from '@/types'
 import { db } from '@/lib/firebase'
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
+import { collection, query, orderBy, onSnapshot, limit } from 'firebase/firestore'
 import OrderSidebar from '@/components/OrderSidebar'
 import ManualOrderSidebar from '@/components/ManualOrderSidebar'
 import { sendWhatsAppToDelivery, sendOrderToStore } from '@/components/WhatsAppUtils'
@@ -45,6 +45,24 @@ const formatPhoneForWhatsApp = (phone?: string) => {
   return normalizedPhone.startsWith('0')
     ? `593${normalizedPhone.slice(1)}`
     : normalizedPhone
+}
+
+const ORDER_SNAPSHOT_LIMIT = 250
+
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(false)
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(min-width: 768px)')
+    const handleChange = () => setIsDesktop(mediaQuery.matches)
+
+    handleChange()
+    mediaQuery.addEventListener('change', handleChange)
+
+    return () => mediaQuery.removeEventListener('change', handleChange)
+  }, [])
+
+  return isDesktop
 }
 
 function CollapsibleSection({
@@ -684,6 +702,7 @@ export default function OrderManagement() {
   const [orders, setOrders] = useState<Order[]>([])
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [deliveries, setDeliveries] = useState<any[]>([])
+  const isDesktop = useIsDesktop()
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({
     status: 'all',
@@ -751,7 +770,7 @@ export default function OrderManagement() {
 
     // Suscripción en tiempo real a órdenes
     const ordersRef = collection(db, 'orders')
-    const q = query(ordersRef, orderBy('createdAt', 'desc'))
+    const q = query(ordersRef, orderBy('createdAt', 'desc'), limit(ORDER_SNAPSHOT_LIMIT))
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const ordersData = snapshot.docs.map(doc => ({
@@ -1193,7 +1212,7 @@ export default function OrderManagement() {
     }
   }
 
-  const filteredOrders = orders.filter(order => {
+  const filteredOrders = useMemo(() => orders.filter(order => {
     // Validación básica del pedido
     if (!order || !order.customer || !order.customer.name) return false
 
@@ -1275,7 +1294,7 @@ export default function OrderManagement() {
       default:
         return 0
     }
-  })
+  }), [orders, businesses, filters, sortBy])
 
   // Agrupar órdenes por estado
   const ordersByStatus = useMemo(() => {
@@ -1303,18 +1322,18 @@ export default function OrderManagement() {
   const showCol2 = useMemo(() => ordersByStatus['confirmed'].length > 0, [ordersByStatus])
   const showCol3 = useMemo(() => ['preparing', 'ready', 'on_way', 'delivered', 'cancelled'].some(status => ordersByStatus[status].length > 0), [ordersByStatus])
 
-  const pendingOrdersCount = orders.filter(order => order.status === 'pending').length
-  const activeDeliveryOrders = orders.filter(order =>
+  const pendingOrdersCount = useMemo(() => orders.filter(order => order.status === 'pending').length, [orders])
+  const activeDeliveryOrders = useMemo(() => orders.filter(order =>
     order.delivery?.type === 'delivery' &&
     !['delivered', 'cancelled'].includes(order.status)
-  )
-  const unassignedDeliveryCount = activeDeliveryOrders.filter(order =>
+  ), [orders])
+  const unassignedDeliveryCount = useMemo(() => activeDeliveryOrders.filter(order =>
     !order.delivery?.assignedDelivery
-  ).length
+  ).length, [activeDeliveryOrders])
   const allDeliveryAssigned = unassignedDeliveryCount === 0 && activeDeliveryOrders.length > 0
 
-  const deliveryOrders = filteredOrders.filter(order => order.delivery?.type !== 'pickup')
-  const pickupOrders = filteredOrders.filter(order => order.delivery?.type === 'pickup')
+  const deliveryOrders = useMemo(() => filteredOrders.filter(order => order.delivery?.type !== 'pickup'), [filteredOrders])
+  const pickupOrders = useMemo(() => filteredOrders.filter(order => order.delivery?.type === 'pickup'), [filteredOrders])
 
   if (loading) {
     return (
@@ -1492,7 +1511,8 @@ export default function OrderManagement() {
       />
 
       {/* Vista Móvil - Agrupada por Estado */}
-      <div className="md:hidden space-y-4 p-4 bg-gray-50/50">
+      {!isDesktop ? (
+      <div className="space-y-4 p-4 bg-gray-50/50">
         <div className="flex flex-col gap-6">
           {/* Columna 1: Pendientes */}
           {showCol1 && (
@@ -1610,8 +1630,8 @@ export default function OrderManagement() {
         </div>
       </div>
 
-      {/* Vista Desktop - Tarjetas (igual que móvil) */}
-      <div className="hidden md:block space-y-4 p-4 bg-gray-50/50">
+      ) : (
+      <div className="space-y-4 p-4 bg-gray-50/50">
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
           {/* Columna 1: Pendientes */}
           {showCol1 && (
@@ -1728,6 +1748,7 @@ export default function OrderManagement() {
           )}
         </div>
       </div>
+      )}
 
       {
         filteredOrders.length === 0 && (

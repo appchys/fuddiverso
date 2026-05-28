@@ -22,7 +22,7 @@ export default function AdminSettlementsTab({
   settlementsHistory,
   reloadData
 }: Props) {
-  const [mode, setMode] = useState<'review' | 'stores' | 'deliveries'>('review')
+  const [mode, setMode] = useState<'review' | 'stores' | 'deliveries'>('stores')
   const [selectedSettlementBusiness, setSelectedSettlementBusiness] = useState<string | null>(null)
   const [processingSettlement, setProcessingSettlement] = useState(false)
   const [selectedOrderForProof, setSelectedOrderForProof] = useState<Order | null>(null)

@@ -26,6 +26,10 @@ interface UserSidebarProps {
     onLogin?: () => void
 }
 
+const USER_SIDEBAR_PANEL_BASE_CLASS = 'absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1)'
+const getUserSidebarPanelStateClass = (isOpen: boolean) =>
+    isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-[calc(100%+3rem)] shadow-none'
+
 function CartMenuOption({ onClose }: { onClose: () => void }) {
     const [activeCarts, setActiveCarts] = useState<{ [key: string]: any[] }>({})
     const [showCarts, setShowCarts] = useState(false)
@@ -176,7 +180,7 @@ function ClientNotificationsSidebar({
             />
 
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`${USER_SIDEBAR_PANEL_BASE_CLASS} ${getUserSidebarPanelStateClass(isOpen)}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
@@ -300,7 +304,7 @@ function ClientReviewsSidebar({
             />
 
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`${USER_SIDEBAR_PANEL_BASE_CLASS} ${getUserSidebarPanelStateClass(isOpen)}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
@@ -484,7 +488,7 @@ function ClientRecommendationsSidebar({
             />
 
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`${USER_SIDEBAR_PANEL_BASE_CLASS} ${getUserSidebarPanelStateClass(isOpen)}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
@@ -633,7 +637,7 @@ function ClientFavoritesSidebar({
             />
 
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`${USER_SIDEBAR_PANEL_BASE_CLASS} ${getUserSidebarPanelStateClass(isOpen)}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
@@ -765,7 +769,7 @@ function ClientPersonalInfoSidebar({
             />
 
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`${USER_SIDEBAR_PANEL_BASE_CLASS} ${getUserSidebarPanelStateClass(isOpen)}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
@@ -946,7 +950,7 @@ function ClientCouponsSidebar({
             />
 
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`${USER_SIDEBAR_PANEL_BASE_CLASS} ${getUserSidebarPanelStateClass(isOpen)}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
@@ -1853,7 +1857,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
 
             {/* Sidebar Content */}
             <div
-                className={`absolute left-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl transform transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`${USER_SIDEBAR_PANEL_BASE_CLASS} ${getUserSidebarPanelStateClass(isOpen)}`}
             >
                 <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
                     {/* Header with User Info and Plus Banner */}

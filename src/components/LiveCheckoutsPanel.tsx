@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, limit, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -52,15 +52,19 @@ export function LiveCheckoutsPanel({ businessId, orders = [], onCountChange, onO
     useEffect(() => {
         if (businessId === undefined) return;
 
+        const activeSince = Timestamp.fromDate(new Date(Date.now() - 30 * 60 * 1000));
         const q = businessId && businessId !== "" 
             ? query(
                 collection(db, 'checkoutProgress'),
                 where('businessId', '==', businessId),
-                orderBy('updatedAt', 'desc')
+                orderBy('updatedAt', 'desc'),
+                limit(50)
             )
             : query(
                 collection(db, 'checkoutProgress'),
-                orderBy('updatedAt', 'desc')
+                where('updatedAt', '>=', activeSince),
+                orderBy('updatedAt', 'desc'),
+                limit(50)
             );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
