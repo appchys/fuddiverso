@@ -279,7 +279,7 @@ export default function ManualOrderSidebar({
           }
           return ''
         })(),
-        referencia: eo.delivery?.references || (eo.delivery as any)?.reference || '',
+        referencia: (eo._isFromCheckout && eo.delivery?.address) ? eo.delivery.address : (eo.delivery?.references || (eo.delivery as any)?.reference || eo.delivery?.address || ''),
         sector: 'Sin especificar',
         tarifa: String(eo.delivery?.deliveryCost || 0)
       } as any : null
@@ -320,7 +320,8 @@ export default function ManualOrderSidebar({
         price: it.price || it.product?.price || 0,
         productId: it.productId || it.product?.id || it.id || '',
         quantity: it.quantity || 1,
-        variant: it.variant,
+        variant: it.variant || it.variantName || '',
+        variantName: it.variantName || it.variant || '',
         // Incluir metadatos de comisión guardados en la base de datos
         basePrice: it.basePrice,
         commission: it.commission,

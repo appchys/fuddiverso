@@ -179,11 +179,14 @@ function CheckoutSessionCard({ session, onOpenManualOrder }: { session: Checkout
 
                     {/* Quick Items Preview */}
                     <div className="flex flex-col gap-0.5 mt-1 ml-5">
-                        {session.cartItems?.slice(0, 2).map((item, idx) => (
-                            <div key={idx} className="text-[10px] leading-tight text-gray-600 truncate">
-                                {item.quantity}x {item.name}
-                            </div>
-                        ))}
+                        {session.cartItems?.slice(0, 2).map((item, idx) => {
+                            const variant = item.variant || item.variantName;
+                            return (
+                                <div key={idx} className="text-[10px] leading-tight text-gray-600 truncate">
+                                    {item.quantity}x {item.name}{variant ? ` (${variant})` : ''}
+                                </div>
+                            );
+                        })}
                         {session.cartItems?.length > 2 && (
                             <div className="text-[9px] text-gray-400 italic">
                                 + {session.cartItems.length - 2} más...
@@ -237,15 +240,18 @@ function CheckoutSessionCard({ session, onOpenManualOrder }: { session: Checkout
                     {/* Items List */}
                     <div className="space-y-2 mb-4">
                         <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Carrito</p>
-                        {session.cartItems?.map((item: any, idx: number) => (
-                            <div key={idx} className="flex justify-between text-sm">
-                                <span className="text-gray-700">
-                                    <span className="font-medium text-gray-900">{item.quantity}x</span> {item.name}
-                                    {item.variantName && <span className="text-[10px] text-gray-400 block ml-4">{item.variantName}</span>}
-                                </span>
-                                <span className="text-gray-500">${((item.price || item.product?.price || 0) * item.quantity).toFixed(2)}</span>
-                            </div>
-                        ))}
+                        {session.cartItems?.map((item: any, idx: number) => {
+                            const variant = item.variant || item.variantName;
+                            return (
+                                <div key={idx} className="flex justify-between text-sm">
+                                    <span className="text-gray-700">
+                                        <span className="font-medium text-gray-900">{item.quantity}x</span> {item.name}
+                                        {variant && <span className="text-[10px] text-gray-400 block ml-4">{variant}</span>}
+                                    </span>
+                                    <span className="text-gray-500">${((item.price || item.product?.price || 0) * item.quantity).toFixed(2)}</span>
+                                </div>
+                            );
+                        })}
                     </div>
 
                     <div className="border-t border-dashed border-gray-200 my-3"></div>
