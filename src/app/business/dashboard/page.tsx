@@ -65,6 +65,7 @@ const BusinessProfileDashboard = dynamic(() => import('@/components/BusinessProf
 const BusinessProfileEditor = dynamic(() => import('@/components/BusinessProfileEditor'), { ssr: false })
 const QRCodesContent = dynamic(() => import('@/app/business/qr-codes/qr-codes-content'), { ssr: false })
 const ExpensesView = dynamic(() => import('@/components/ExpensesView'), { ssr: false })
+const FinanceView = dynamic(() => import('@/components/FinanceView'), { ssr: false })
 
 // Auto-assign logic
 const autoAssignDeliveryForOrder = async (order: Order, defaultDeliveryId?: string): Promise<string | undefined> => {
@@ -196,6 +197,25 @@ const getOrderDisplayTime = (order: Order) => {
     }
 }
 
+const isActiveDashboardOrder = (order: Order) =>
+    ['borrador', 'pending', 'confirmed', 'preparing', 'ready', 'on_way'].includes(order.status)
+
+const getOrderReferenceDateForBadge = (order: Order) =>
+    order.timing?.type === 'scheduled' && order.timing.scheduledDate
+        ? toSafeDate(order.timing.scheduledDate)
+        : toSafeDate(order.createdAt)
+
+const isPreviousActiveOrder = (order: Order) => {
+    if (!isActiveDashboardOrder(order)) return false
+
+    const today = new Date()
+    const orderDate = getOrderReferenceDateForBadge(order)
+
+    return orderDate.getFullYear() !== today.getFullYear()
+        || orderDate.getMonth() !== today.getMonth()
+        || orderDate.getDate() !== today.getDate()
+}
+
 const getConfiguredDeliveryTime = (business?: Business | null) => {
     return business?.defaultDeliveryTime ?? business?.deliveryTime ?? 30
 }
@@ -233,7 +253,7 @@ export default function TodayOrdersPage() {
     } = pushNotifications || {} as any
 
     // Sidebar State
-    const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses'>('orders')
+    const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses' | 'finance'>('orders')
     const [profileSubTab, setProfileSubTab] = useState<'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'>('general')
     const [reportsSubTab, setReportsSubTab] = useState<'general' | 'deliveries' | 'costs'>('general')
     const [isTiendaMenuOpen, setIsTiendaMenuOpen] = useState(false)
@@ -1717,6 +1737,10 @@ export default function TodayOrdersPage() {
                         <div className="p-4 sm:p-6">
                             <ExpensesView business={business} user={user} />
                         </div>
+                    ) : activeTab === 'finance' ? (
+                        <div className="p-4 sm:p-6">
+                            <FinanceView business={business} user={user} />
+                        </div>
                     ) : activeTab === 'inventory' ? (
                         <div className="p-4 sm:p-6">
                             <IngredientStockManagement business={business} />
@@ -2836,6 +2860,11 @@ function OrderCard({
                                 <span className="font-mono text-sm sm:font-medium text-gray-600">
                                     {getOrderDisplayTime(order)}
                                 </span>
+                                {isPreviousActiveOrder(order) && (
+                                    <span className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-semibold leading-none bg-amber-100 text-amber-800 border border-amber-200">
+                                        Pendiente anterior
+                                    </span>
+                                )}
                             </div>
                         </div>
                     </div>

@@ -97,7 +97,7 @@ export default function BusinessDashboard() {
   const [historicalOrders, setHistoricalOrders] = useState<Order[]>([])
   const [previousOrdersCount, setPreviousOrdersCount] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses'>('orders')
+  const [activeTab, setActiveTab] = useState<'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses' | 'finance'>('orders')
 
   // ... (other state variables remain the same)
 
@@ -138,7 +138,7 @@ export default function BusinessDashboard() {
     const tab = query.get('tab');
     const subtab = query.get('subtab');
 
-    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes', 'stats', 'wallet', 'checklist', 'expenses'].includes(tab)) {
+    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes', 'stats', 'wallet', 'checklist', 'expenses', 'finance'].includes(tab)) {
 
       setActiveTab(tab as any);
       if (tab === 'profile') {
@@ -576,7 +576,7 @@ export default function BusinessDashboard() {
     const tab = query.get('tab');
     const subtab = query.get('subtab');
 
-    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes', 'stats', 'wallet', 'expenses'].includes(tab)) {
+    if (tab && ['orders', 'profile', 'admins', 'reports', 'inventory', 'qrcodes', 'stats', 'wallet', 'expenses', 'finance'].includes(tab)) {
 
       setActiveTab(tab as any);
       if (tab === 'profile') {

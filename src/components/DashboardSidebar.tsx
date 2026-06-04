@@ -6,8 +6,8 @@ import React from 'react'
 interface DashboardSidebarProps {
     sidebarOpen: boolean
     setSidebarOpen: (open: boolean) => void
-    activeTab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses'
-    setActiveTab: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses') => void
+    activeTab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses' | 'finance'
+    setActiveTab: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses' | 'finance') => void
 
     profileSubTab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins'
     setProfileSubTab: (tab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins') => void
@@ -207,6 +207,20 @@ export default function DashboardSidebar({
                     >
                         <span className="material-symbols-rounded me-3 text-lg">payments</span>
                         <span className="font-medium">Gastos</span>
+                    </button>
+
+                    <button
+                        onClick={() => {
+                            setActiveTab('finance')
+                            setSidebarOpen(false)
+                        }}
+                        className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'finance'
+                            ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                            : 'text-gray-700 hover:bg-gray-50'
+                            }`}
+                    >
+                        <span className="material-symbols-rounded me-3 text-lg">account_balance</span>
+                        <span className="font-medium">Finanzas</span>
                     </button>
 
                     <button
