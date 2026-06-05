@@ -81,7 +81,7 @@ interface ManualOrderSidebarProps {
   // Edit mode support
   mode?: 'create' | 'edit'
   editOrder?: any
-  onOrderUpdated?: () => void
+  onOrderUpdated?: (updatedOrder?: any) => void
   // Navegación - para que funcione como el DashboardSidebar
   setActiveTab?: (tab: 'orders' | 'profile' | 'admins' | 'reports' | 'inventory' | 'qrcodes' | 'stats' | 'wallet' | 'checklist' | 'expenses') => void
   setProfileSubTab?: (tab: 'general' | 'products' | 'fidelizacion' | 'notifications' | 'admins') => void
@@ -1597,7 +1597,11 @@ export default function ManualOrderSidebar({
               notas: orderData.notas
             }
             await updateOrder(editOrder.id, updatePayload)
-            onOrderUpdated && onOrderUpdated()
+            onOrderUpdated && onOrderUpdated({
+              ...editOrder,
+              ...updatePayload,
+              id: editOrder.id
+            })
             console.log('[ManualOrder] Orden actualizada con éxito en segundo plano');
           } else {
             const orderId = await createOrder(orderData as any)

@@ -392,6 +392,36 @@ export default function TodayOrdersPage() {
     const [manualSidebarMode, setManualSidebarMode] = useState<'create' | 'edit'>('create')
     const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<Order | null>(null)
 
+    const updateOrderEverywhere = (updatedOrder: Order) => {
+        const replaceOrder = (order: Order) => order.id === updatedOrder.id ? updatedOrder : order
+        setOrders(prev => prev.map(replaceOrder))
+        setHistoricalOrders(prev => prev.map(replaceOrder))
+        setAllUpcomingOrders(prev => prev.map(replaceOrder))
+        setSelectedOrderForPayment(prev => prev?.id === updatedOrder.id ? updatedOrder : prev)
+        setSelectedOrderForStatusModal(prev => prev?.id === updatedOrder.id ? updatedOrder : prev)
+        setSelectedOrderForEdit(prev => prev?.id === updatedOrder.id ? updatedOrder : prev)
+    }
+
+    const patchOrderEverywhere = (orderId: string, patch: (order: Order) => Order) => {
+        const patchMatchingOrder = (order: Order) => order.id === orderId ? patch(order) : order
+        setOrders(prev => prev.map(patchMatchingOrder))
+        setHistoricalOrders(prev => prev.map(patchMatchingOrder))
+        setAllUpcomingOrders(prev => prev.map(patchMatchingOrder))
+        setSelectedOrderForPayment(prev => prev?.id === orderId ? patch(prev) : prev)
+        setSelectedOrderForStatusModal(prev => prev?.id === orderId ? patch(prev) : prev)
+        setSelectedOrderForEdit(prev => prev?.id === orderId ? patch(prev) : prev)
+    }
+
+    const removeOrderEverywhere = (orderId: string) => {
+        const removeOrder = (order: Order) => order.id !== orderId
+        setOrders(prev => prev.filter(removeOrder))
+        setHistoricalOrders(prev => prev.filter(removeOrder))
+        setAllUpcomingOrders(prev => prev.filter(removeOrder))
+        setSelectedOrderForPayment(prev => prev?.id === orderId ? null : prev)
+        setSelectedOrderForStatusModal(prev => prev?.id === orderId ? null : prev)
+        setSelectedOrderForEdit(prev => prev?.id === orderId ? null : prev)
+    }
+
     const [customerContactModalOpen, setCustomerContactModalOpen] = useState(false)
     const [selectedOrderForCustomerContact, setSelectedOrderForCustomerContact] = useState<Order | null>(null)
 
@@ -1354,7 +1384,9 @@ export default function TodayOrdersPage() {
 
     const handleStatusChange = async (orderId: string, newStatus: Order['status'], reason?: string) => {
         try {
-            const currentOrder = orders.find(o => o.id === orderId);
+            const currentOrder = orders.find(o => o.id === orderId)
+                || historicalOrders.find(o => o.id === orderId)
+                || allUpcomingOrders.find(o => o.id === orderId);
             let assignmentUpdate: any = {};
 
             const isScheduled = currentOrder?.timing?.type === 'scheduled';
@@ -1386,6 +1418,19 @@ export default function TodayOrdersPage() {
                 const orderRef = doc(db, 'orders', orderId);
                 await updateDoc(orderRef, assignmentUpdate);
             }
+
+            patchOrderEverywhere(orderId, order => ({
+                ...order,
+                status: newStatus,
+                updatedAt: new Date(),
+                ...(reason ? { cancellationReason: reason } : {}),
+                delivery: {
+                    ...order.delivery,
+                    ...(assignmentUpdate['delivery.assignedDelivery']
+                        ? { assignedDelivery: assignmentUpdate['delivery.assignedDelivery'] }
+                        : {})
+                }
+            }))
         } catch (error) {
             console.error("Error updating status:", error)
             alert("Error al actualizar estado")
@@ -1396,8 +1441,23 @@ export default function TodayOrdersPage() {
         try {
             const orderRef = doc(db, 'orders', orderId)
             await updateDoc(orderRef, {
-                'delivery.assignedDelivery': deliveryId || null
+                'delivery.assignedDelivery': deliveryId || null,
+                'delivery.acceptanceStatus': 'pending'
             })
+            const applyDeliveryUpdate = (order: Order) => order.id === orderId
+                ? {
+                    ...order,
+                    delivery: {
+                        ...order.delivery,
+                        assignedDelivery: deliveryId || undefined,
+                        acceptanceStatus: 'pending' as const
+                    }
+                }
+                : order
+            setOrders(prev => prev.map(applyDeliveryUpdate))
+            setHistoricalOrders(prev => prev.map(applyDeliveryUpdate))
+            setAllUpcomingOrders(prev => prev.map(applyDeliveryUpdate))
+            setSelectedOrderForStatusModal(prev => prev?.id === orderId ? applyDeliveryUpdate(prev) : prev)
         } catch (error) {
             console.error("Error assigning delivery:", error)
             alert("Error al asignar repartidor")
@@ -1410,12 +1470,7 @@ export default function TodayOrdersPage() {
     }
 
     const handleOrderUpdatedFromModal = (updatedOrder: Order) => {
-        if (selectedOrderForPayment?.id === updatedOrder.id) {
-            setSelectedOrderForPayment(updatedOrder)
-        }
-        setOrders(prev => prev.map(order => order.id === updatedOrder.id ? updatedOrder : order))
-        setHistoricalOrders(prev => prev.map(order => order.id === updatedOrder.id ? updatedOrder : order))
-        setAllUpcomingOrders(prev => prev.map(order => order.id === updatedOrder.id ? updatedOrder : order))
+        updateOrderEverywhere(updatedOrder)
     }
 
     const handleSendWhatsAppToDelivery = async (order: Order) => {
@@ -1437,6 +1492,7 @@ export default function TodayOrdersPage() {
 
         try {
             await deleteOrder(orderId)
+            removeOrderEverywhere(orderId)
         } catch (error) {
             console.error("Error deleting order", error)
             alert("No se pudo eliminar el pedido")
@@ -1510,14 +1566,16 @@ export default function TodayOrdersPage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-50 p-4 flex items-center justify-center">
+            <div className="min-h-screen bg-gray-100 p-4 flex items-center justify-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
             </div>
         )
     }
 
+    const canChangeDelivery = business?.email === 'munchys.ec@gmail.com'
+
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col">
+        <div className="min-h-screen bg-gray-100 flex flex-col">
             <div className="flex flex-1 overflow-hidden">
                 {/* Sidebar Overlay for Mobile */}
                 {sidebarOpen && (
@@ -1854,8 +1912,7 @@ export default function TodayOrdersPage() {
                                         availableDeliveries={availableDeliveries}
                                         onDeliveryAssign={handleDeliveryAssignment}
                                         onPaymentEdit={(order) => {
-                                            setSelectedOrderForPayment(order)
-                                            // Open payment modal logic here if needed
+                                            handlePaymentClick(order)
                                         }}
                                         onWhatsAppDelivery={(order) => {
                                             // WhatsApp logic here if needed
@@ -2004,6 +2061,7 @@ export default function TodayOrdersPage() {
                                                         setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
+                                                        canChangeDelivery={canChangeDelivery}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                     />
                                                 </div>
@@ -2028,6 +2086,7 @@ export default function TodayOrdersPage() {
                                                         setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
+                                                        canChangeDelivery={canChangeDelivery}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                     />
                                                 </div>
@@ -2134,6 +2193,7 @@ export default function TodayOrdersPage() {
                                                         setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
+                                                        canChangeDelivery={canChangeDelivery}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                     />
                                                 </div>
@@ -2169,6 +2229,9 @@ export default function TodayOrdersPage() {
                                 onClose={() => setDeliveryStatusModalOpen(false)}
                                 order={selectedOrderForStatusModal}
                                 deliveryAgent={availableDeliveries.find(d => d.id === selectedOrderForStatusModal?.delivery?.assignedDelivery)}
+                                availableDeliveries={availableDeliveries}
+                                canChangeDelivery={canChangeDelivery}
+                                onDeliveryAssign={handleDeliveryAssignment}
                                 onWhatsApp={() => {
                                     if (selectedOrderForStatusModal) {
                                         handleSendWhatsAppToDelivery(selectedOrderForStatusModal)
@@ -2191,7 +2254,10 @@ export default function TodayOrdersPage() {
                                 }}
                                 mode={manualSidebarMode}
                                 editOrder={selectedOrderForEdit}
-                                onOrderUpdated={() => {
+                                onOrderUpdated={(updatedOrder) => {
+                                    if (updatedOrder) {
+                                        updateOrderEverywhere(updatedOrder as Order)
+                                    }
                                     setManualOrderSidebarOpen(false)
                                     setSelectedOrderForEdit(null)
                                     setManualSidebarMode('create')
@@ -2444,17 +2510,26 @@ function DeliveryStatusModal({
     onClose,
     order,
     deliveryAgent,
+    availableDeliveries,
+    canChangeDelivery,
+    onDeliveryAssign,
     onWhatsApp
 }: {
     isOpen: boolean,
     onClose: () => void,
     order: Order | null,
     deliveryAgent?: Delivery,
+    availableDeliveries: Delivery[],
+    canChangeDelivery: boolean,
+    onDeliveryAssign: (id: string, deliveryId: string) => void | Promise<void>,
     onWhatsApp: () => void
 }) {
     if (!isOpen || !order) return null
 
     const status = order.delivery?.acceptanceStatus
+    const agentCardClass = status === 'accepted'
+        ? 'bg-green-50 border-green-200'
+        : 'bg-yellow-50 border-yellow-200'
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -2469,18 +2544,40 @@ function DeliveryStatusModal({
 
                     <div className="space-y-6">
                         {/* Agent Info */}
-                        <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
-                            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center text-red-600">
+                        <div className={`flex items-center gap-4 p-4 rounded-xl border ${agentCardClass}`}>
+                            <div className={`w-12 h-12 rounded-full flex items-center justify-center ${status === 'accepted' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                                 <i className="bi bi-person-fill text-2xl"></i>
                             </div>
-                            <div>
+                            <div className="min-w-0 flex-1">
                                 <p className="text-xs text-gray-500 font-medium">Repartidor Asignado</p>
-                                <p className="text-lg font-bold text-gray-900">{deliveryAgent?.nombres || 'No identificado'}</p>
+                                {canChangeDelivery ? (
+                                    <select
+                                        value={order.delivery?.assignedDelivery || ''}
+                                        onChange={(e) => onDeliveryAssign(order.id, e.target.value)}
+                                        className="mt-1 w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-red-100 focus:border-red-300"
+                                    >
+                                        <option value="">Asignar repartidor...</option>
+                                        {availableDeliveries.map(delivery => (
+                                            <option key={delivery.id} value={delivery.id}>{delivery.nombres}</option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <p className="text-lg font-bold text-gray-900 truncate">{deliveryAgent?.nombres || 'No identificado'}</p>
+                                )}
+                                <div className="mt-2 flex items-center gap-2">
+                                    <span className={`h-2 w-2 rounded-full ${status === 'accepted' ? 'bg-green-500' :
+                                        status === 'rejected' ? 'bg-red-500' : 'bg-yellow-500 animate-pulse'
+                                        }`} />
+                                    <span className="text-sm font-bold text-gray-900">
+                                        {status === 'accepted' ? 'Confirmado' :
+                                            status === 'rejected' ? 'Rechazado' : 'Esperando confirmacion'}
+                                    </span>
+                                </div>
                             </div>
                         </div>
 
                         {/* Confirmation Status */}
-                        <div className="flex items-start gap-3">
+                        {false && <div className="flex items-start gap-3">
                             <div className={`mt-1 w-2 h-2 rounded-full ${status === 'accepted' ? 'bg-green-500' :
                                 status === 'rejected' ? 'bg-red-500' : 'bg-yellow-500 animate-pulse'
                                 }`} />
@@ -2494,7 +2591,7 @@ function DeliveryStatusModal({
                                         status === 'rejected' ? 'El repartidor ha rechazado el pedido.' : 'El repartidor aún no ha respondido a la notificación.'}
                                 </p>
                             </div>
-                        </div>
+                        </div>}
 
                         {/* WhatsApp Action */}
                         <button
@@ -2560,6 +2657,7 @@ function OrderStatusColumn({
     setSelectedOrderForCustomerContact,
     setCustomerContactModalOpen,
     business,
+    canChangeDelivery,
     autoPrintOnConfirm
 }: any) {
     return (
@@ -2601,6 +2699,7 @@ function OrderStatusColumn({
                                     setCustomerContactModalOpen(true)
                                 }}
                                 businessPhone={business?.phone}
+                                canChangeDelivery={canChangeDelivery}
                                 autoPrintOnConfirm={autoPrintOnConfirm}
                              />
                         ))}
@@ -2641,21 +2740,21 @@ function CollapsibleSection({
     }
 
     return (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-4">
+        <div className="mb-4 overflow-hidden rounded-xl bg-transparent">
             <button
                 onClick={() => setIsExpanded(!isExpanded)}
-                className="w-full px-4 py-3 flex justify-between items-center bg-gray-50/50 hover:bg-gray-100 transition-colors"
+                className="w-full px-4 py-3 flex justify-between items-center bg-gray-100 hover:bg-gray-200 transition-colors"
             >
                 <div className="flex items-center gap-3">
                     <span className={`w-3 h-3 rounded-full shadow-sm ${getDotColor(status)}`}></span>
                     <h3 className="font-bold text-gray-800 text-lg">{title}</h3>
-                    <span className="bg-white border border-gray-200 text-gray-600 text-xs font-bold px-2.5 py-0.5 rounded-full">{count}</span>
+                    <span className="bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold px-2.5 py-0.5 rounded-full">{count}</span>
                 </div>
                 <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 transition-transform duration-200`}></i>
             </button>
 
             {isExpanded && (
-                <div className="p-4 space-y-3 bg-gray-50/30 border-t border-gray-100 animate-in slide-in-from-top-2 duration-200">
+                <div className="p-4 space-y-3 bg-gray-100 animate-in slide-in-from-top-2 duration-200">
                     {children}
                 </div>
             )}
@@ -2676,6 +2775,7 @@ function OrderCard({
     onDelete,
     onCustomerClick,
     businessPhone,
+    canChangeDelivery,
     autoPrintOnConfirm
 }: {
     order: Order,
@@ -2690,14 +2790,33 @@ function OrderCard({
     onDelete: () => void,
     onCustomerClick: () => void,
     businessPhone?: string,
+    canChangeDelivery?: boolean,
     autoPrintOnConfirm?: boolean
 }) {
     const nextStatus = getNextStatus(order.status)
     const isDelivery = order.delivery?.type === 'delivery'
+    const isPickup = order.delivery?.type === 'pickup'
     const [isExpanded, setIsExpanded] = useState(false)
     const [statusMenuOpen, setStatusMenuOpen] = useState(false)
     const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false)
     const [discardReason, setDiscardReason] = useState('')
+    const assignedDelivery = availableDeliveries.find(d => d.id === order.delivery?.assignedDelivery)
+    const deliveryLabel = order.delivery?.assignedDelivery
+        ? assignedDelivery?.nombres || 'Delivery asignado'
+        : 'Buscando delivery'
+    const deliveryLabelClass = !order.delivery?.assignedDelivery
+        ? 'bg-gray-100 text-gray-600 border-gray-200'
+        : order.delivery?.acceptanceStatus === 'accepted'
+            ? 'bg-green-100 text-green-700 border-green-200'
+            : 'bg-yellow-100 text-yellow-800 border-yellow-200'
+    const deliveryLabelTitle = !order.delivery?.assignedDelivery
+        ? 'Buscando delivery'
+        : order.delivery?.acceptanceStatus === 'accepted'
+            ? 'Delivery confirmado'
+            : 'Esperando confirmacion del delivery'
+    const fulfillmentLabel = isPickup ? 'Retiro en tienda' : deliveryLabel
+    const fulfillmentLabelClass = isPickup ? 'bg-blue-100 text-blue-700 border-blue-200' : deliveryLabelClass
+    const fulfillmentLabelTitle = isPickup ? 'Retiro en tienda' : deliveryLabelTitle
 
     // Prevent scroll when modal is open
     useEffect(() => {
@@ -2840,7 +2959,7 @@ function OrderCard({
             )}
             {/* Card Header: Time & Status */}
             <div
-                className="px-4 py-3 border-b border-gray-50 bg-gray-50/50 cursor-pointer hover:bg-gray-100 transition-colors"
+                className={`px-4 py-3 border-b cursor-pointer transition-colors ${isExpanded ? 'border-gray-200 bg-gray-200 hover:bg-gray-200' : 'border-gray-50 bg-gray-50/50 hover:bg-gray-100'}`}
                 onClick={() => setIsExpanded(!isExpanded)}
             >
                 {/* First Row: Customer, Time & Buttons */}
@@ -2930,31 +3049,6 @@ function OrderCard({
                             </button>
                         )}
 
-                        {/* Delivery Acceptance Status */}
-                        {isDelivery && order.delivery?.assignedDelivery && (
-                            <div
-                                className="p-1.5 flex items-center cursor-pointer hover:bg-white hover:shadow-sm rounded-lg transition-all"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    onDeliveryStatusClick(order)
-                                }}
-                                title={
-                                    order.delivery?.acceptanceStatus === 'accepted' ? 'Delivery Confirmado' :
-                                        order.delivery?.acceptanceStatus === 'rejected' ? 'Delivery Rechazado' :
-                                            'Esperando confirmación del delivery'
-                                }
-                            >
-                                <span className={`material-symbols-rounded text-2xl transition-all ${order.delivery?.acceptanceStatus === 'accepted'
-                                    ? 'text-green-500'
-                                    : order.delivery?.acceptanceStatus === 'rejected'
-                                        ? 'text-red-500'
-                                        : 'text-yellow-500 animate-pulse'
-                                    }`}>
-                                    motorcycle
-                                </span>
-                            </div>
-                        )}
-
                         {/* Status Select Menu */}
                         {order.status !== 'pending' &&
                             <div className="relative">
@@ -3014,16 +3108,34 @@ function OrderCard({
                     </div>
                 </div>
 
-                {/* Second Row: Items List (Full Width) */}
-                <div className="flex flex-col gap-0.5">
-                    {sortedItems.map((item: any, idx) => {
-                        return (
-                            <div key={idx} className="text-lg sm:text-sm leading-tight text-gray-600">
-                                {item.quantity}x {item.variant || item.product?.name || item.name}
-                            </div>
-                        )
-                    })}
-                </div>
+                {!isExpanded && (
+                    <div className="flex flex-col gap-0.5">
+                        {sortedItems.map((item: any, idx) => {
+                            return (
+                                <div key={idx} className="text-lg sm:text-sm leading-tight text-gray-600">
+                                    {item.quantity}x {item.variant || item.product?.name || item.name}
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
+
+                {(isDelivery || isPickup) && (
+                    <div className="mt-2 flex justify-end" onClick={(e) => e.stopPropagation()}>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (isDelivery && order.delivery?.assignedDelivery) {
+                                    onDeliveryStatusClick(order)
+                                }
+                            }}
+                            className={`flex h-[20px] min-h-[20px] max-h-[20px] w-36 items-center justify-center truncate rounded-[3px] border px-2 py-0 text-[11px] font-semibold leading-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] transition-colors ${fulfillmentLabelClass} ${isDelivery && order.delivery?.assignedDelivery ? 'cursor-pointer hover:brightness-95' : 'cursor-default'}`}
+                            title={fulfillmentLabelTitle}
+                        >
+                            {fulfillmentLabel}
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Card Body */}
@@ -3033,8 +3145,9 @@ function OrderCard({
                     <div className="flex justify-between items-start mb-4">
                         <div className="flex-1 pr-2">
                             {isDelivery && (
-                                <p className="text-sm text-gray-500 line-clamp-2">
-                                    📍 {order.delivery?.references || (order.delivery as any)?.reference || "Ubicación"}
+                                <p className="flex items-start gap-1.5 text-sm text-gray-500 line-clamp-2">
+                                    <i className="bi bi-geo-alt-fill mt-0.5 flex-shrink-0 text-gray-400"></i>
+                                    <span>{order.delivery?.references || (order.delivery as any)?.reference || "Ubicación"}</span>
                                 </p>
                             )}
                         </div>
@@ -3107,27 +3220,6 @@ function OrderCard({
                             <i className="bi bi-printer"></i>
                         </button>
                     </div>
-
-                    {/* Delivery Assignment */}
-                    {isDelivery && (
-                        <div className="mb-4">
-                            <div className="flex items-center border border-gray-300 rounded-lg bg-white overflow-hidden">
-                                <div className="bg-gray-100 px-3 py-2 border-r border-gray-300 text-gray-600">
-                                    <i className="bi bi-truck text-lg"></i>
-                                </div>
-                                <select
-                                    value={order.delivery?.assignedDelivery || ""}
-                                    onChange={(e) => onDeliveryAssign(order.id, e.target.value)}
-                                    className="w-full text-sm p-2 bg-transparent outline-none cursor-pointer hover:bg-gray-50 transition-colors"
-                                >
-                                    <option value="">Asignar Repartidor...</option>
-                                    {availableDeliveries.map(d => (
-                                        <option key={d.id} value={d.id}>{d.nombres}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-                    )}
 
                     {/* Actions: Edit & Delete */}
                     <div className="flex gap-2 pt-4 border-t border-gray-100">

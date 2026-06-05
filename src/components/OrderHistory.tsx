@@ -176,10 +176,28 @@ export default function OrderHistory({
   }) {
     const nextStatus = getNextStatus(order.status)
     const isDelivery = order.delivery?.type === 'delivery'
+    const isPickup = order.delivery?.type === 'pickup'
     const [isExpanded, setIsExpanded] = useState(false)
     const [statusMenuOpen, setStatusMenuOpen] = useState(false)
     const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false)
     const [discardReason, setDiscardReason] = useState('')
+    const assignedDelivery = availableDeliveries.find(d => d.id === order.delivery?.assignedDelivery)
+    const deliveryLabel = order.delivery?.assignedDelivery
+        ? assignedDelivery?.nombres || 'Delivery asignado'
+        : 'Buscando delivery'
+    const deliveryLabelClass = !order.delivery?.assignedDelivery
+        ? 'bg-gray-100 text-gray-600 border-gray-200'
+        : order.delivery?.acceptanceStatus === 'accepted'
+            ? 'bg-green-100 text-green-700 border-green-200'
+            : 'bg-yellow-100 text-yellow-800 border-yellow-200'
+    const deliveryLabelTitle = !order.delivery?.assignedDelivery
+        ? 'Buscando delivery'
+        : order.delivery?.acceptanceStatus === 'accepted'
+            ? 'Delivery confirmado'
+            : 'Esperando confirmacion del delivery'
+    const fulfillmentLabel = isPickup ? 'Retiro en tienda' : deliveryLabel
+    const fulfillmentLabelClass = isPickup ? 'bg-blue-100 text-blue-700 border-blue-200' : deliveryLabelClass
+    const fulfillmentLabelTitle = isPickup ? 'Retiro en tienda' : deliveryLabelTitle
 
     // Urgency check
     const isUrgent = () => {
@@ -283,7 +301,7 @@ export default function OrderHistory({
             )}
             {/* Card Header: Time & Status */}
             <div
-                className="px-4 py-3 border-b border-gray-50 flex justify-between items-start bg-gray-50/50 cursor-pointer hover:bg-gray-100 transition-colors"
+                className={`px-4 py-3 border-b flex justify-between items-start cursor-pointer transition-colors ${isExpanded ? 'border-gray-200 bg-gray-200 hover:bg-gray-200' : 'border-gray-50 bg-gray-50/50 hover:bg-gray-100'}`}
                 onClick={() => setIsExpanded(!isExpanded)}
             >
                 <div className="flex flex-col">
@@ -304,16 +322,17 @@ export default function OrderHistory({
                         </span>
                     </div>
 
-                    {/* Items List (Small) */}
-                    <div className="flex flex-col gap-0.5 mt-1 ml-5 min-w-0">
-                        {sortedItems.map((item: any, idx) => {
-                            return (
-                                <div key={idx} className="text-xs sm:text-[10px] leading-tight text-gray-600">
-                                    {item.quantity}x {item.variant || item.product?.name || item.name}
-                                </div>
-                            )
-                        })}
-                    </div>
+                    {!isExpanded && (
+                        <div className="flex flex-col gap-0.5 mt-1 ml-5 min-w-0">
+                            {sortedItems.map((item: any, idx) => {
+                                return (
+                                    <div key={idx} className="text-xs sm:text-[10px] leading-tight text-gray-600">
+                                        {item.quantity}x {item.variant || item.product?.name || item.name}
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex flex-col items-end gap-2">
@@ -414,31 +433,24 @@ export default function OrderHistory({
                             </div>
                         }
 
-                        {/* Delivery Acceptance Status */}
-                        {isDelivery && order.delivery?.assignedDelivery && (
-                            <div
-                                className="p-1.5 flex items-center cursor-pointer hover:bg-white hover:shadow-sm rounded-lg transition-all"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    onDeliveryStatusClick(order)
-                                }}
-                                title={
-                                    order.delivery?.acceptanceStatus === 'accepted' ? 'Delivery Confirmado' :
-                                        order.delivery?.acceptanceStatus === 'rejected' ? 'Delivery Rechazado' :
-                                            'Esperando confirmación del delivery'
-                                }
-                            >
-                                <span className={`material-symbols-rounded text-2xl transition-all ${order.delivery?.acceptanceStatus === 'accepted'
-                                    ? 'text-green-500'
-                                    : order.delivery?.acceptanceStatus === 'rejected'
-                                        ? 'text-red-500'
-                                        : 'text-yellow-500 animate-pulse'
-                                    }`}>
-                                    motorcycle
-                                </span>
-                            </div>
-                        )}
                     </div>
+
+                    {(isDelivery || isPickup) && (
+                        <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (isDelivery && order.delivery?.assignedDelivery) {
+                                        onDeliveryStatusClick(order)
+                                    }
+                                }}
+                                className={`flex h-[20px] min-h-[20px] max-h-[20px] w-36 items-center justify-center truncate rounded-[3px] border px-2 py-0 text-[11px] font-semibold leading-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] transition-colors ${fulfillmentLabelClass} ${isDelivery && order.delivery?.assignedDelivery ? 'cursor-pointer hover:brightness-95' : 'cursor-default'}`}
+                                title={fulfillmentLabelTitle}
+                            >
+                                {fulfillmentLabel}
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -449,8 +461,9 @@ export default function OrderHistory({
                     <div className="flex justify-between items-start mb-4">
                         <div className="flex-1 pr-2">
                             {isDelivery && (
-                                <p className="text-sm text-gray-500 line-clamp-2">
-                                    📍 {order.delivery?.references || (order.delivery as any)?.reference || "Ubicación"}
+                                <p className="flex items-start gap-1.5 text-sm text-gray-500 line-clamp-2">
+                                    <i className="bi bi-geo-alt-fill mt-0.5 flex-shrink-0 text-gray-400"></i>
+                                    <span>{order.delivery?.references || (order.delivery as any)?.reference || "Ubicación"}</span>
                                 </p>
                             )}
                         </div>
@@ -510,27 +523,6 @@ export default function OrderHistory({
                             <i className="bi bi-printer"></i>
                         </button>
                     </div>
-
-                    {/* Delivery Assignment */}
-                    {isDelivery && (
-                        <div className="mb-4">
-                            <div className="flex items-center border border-gray-300 rounded-lg bg-white overflow-hidden">
-                                <div className="bg-gray-100 px-3 py-2 border-r border-gray-300 text-gray-600">
-                                    <i className="bi bi-truck text-lg"></i>
-                                </div>
-                                <select
-                                    value={order.delivery?.assignedDelivery || ""}
-                                    onChange={(e) => onDeliveryAssign(order.id, e.target.value)}
-                                    className="w-full text-sm p-2 bg-transparent outline-none cursor-pointer hover:bg-gray-50 transition-colors"
-                                >
-                                    <option value="">Asignar Repartidor...</option>
-                                    {availableDeliveries.map(d => (
-                                        <option key={d.id} value={d.id}>{d.nombres}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-                    )}
 
                     {/* Actions: Edit & Delete */}
                     <div className="flex gap-2 pt-4 border-t border-gray-100">
@@ -770,7 +762,9 @@ export default function OrderHistory({
               </div>
             ) : upcomingOrders.length === 0 && (
               <div className="bg-white rounded-xl p-8 text-center border border-gray-200">
-                <div className="text-6xl mb-4">📋</div>
+                <div className="text-6xl mb-4 text-gray-300">
+                  <i className="bi bi-clipboard-check"></i>
+                </div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No hay pedidos en el historial</h3>
                 <p className="text-gray-500 text-sm">Los pedidos completados aparecerán aquí</p>
               </div>
