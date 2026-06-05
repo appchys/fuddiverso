@@ -2179,7 +2179,11 @@ export default function TodayOrdersPage() {
                                                         </div>
                                                     </div>
                                                     <OrderStatusColumn
-                                                        statuses={['preparing', 'ready', 'on_way', 'delivered', 'cancelled']}
+                                                        statuses={[
+                                                            'preparing',
+                                                            { key: 'delivered-group', title: 'Entregado', statuses: ['ready', 'on_way', 'delivered'], statusColor: 'delivered', countStatus: 'delivered', defaultExpanded: false },
+                                                            'cancelled'
+                                                        ]}
                                                         orders={orders}
                                                         availableDeliveries={availableDeliveries}
                                                         handleStatusChange={handleStatusChange}
@@ -2469,8 +2473,14 @@ function CustomerContactModal({
     if (!isOpen || !order) return null
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onMouseDown={onClose}
+        >
+            <div
+                className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200"
+                onMouseDown={(e) => e.stopPropagation()}
+            >
                 <div className="p-6">
                     <div className="flex justify-between items-start mb-6">
                         <div>
@@ -2558,8 +2568,14 @@ function DeliveryStatusModal({
         : 'bg-yellow-50 border-yellow-200'
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onMouseDown={onClose}
+        >
+            <div
+                className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200"
+                onMouseDown={(e) => e.stopPropagation()}
+            >
                 <div className="p-6">
                     <div className="flex justify-between items-start mb-6">
                         <h3 className="text-xl font-bold text-gray-900">Estado del Delivery</h3>
@@ -2689,17 +2705,30 @@ function OrderStatusColumn({
 }: any) {
     return (
         <>
-            {statuses.map((status: string) => {
-                const statusOrders = orders.filter((o: any) => o.status === status);
+            {statuses.map((statusConfig: any) => {
+                const groupedStatuses = typeof statusConfig === 'string' ? [statusConfig] : statusConfig.statuses;
+                const sectionKey = typeof statusConfig === 'string' ? statusConfig : statusConfig.key;
+                const sectionTitle = typeof statusConfig === 'string' ? getStatusText(statusConfig) : statusConfig.title;
+                const sectionStatusColor = typeof statusConfig === 'string' ? statusConfig : statusConfig.statusColor || groupedStatuses[0];
+                const sectionDefaultExpanded = typeof statusConfig === 'string' || statusConfig.defaultExpanded === undefined
+                    ? !groupedStatuses.every((status: string) => ['delivered', 'cancelled'].includes(status))
+                    : statusConfig.defaultExpanded;
+                const statusOrders = orders.filter((o: any) => groupedStatuses.includes(o.status));
+                const countStatusTotal = typeof statusConfig === 'string' || !statusConfig.countStatus
+                    ? null
+                    : statusOrders.filter((o: any) => o.status === statusConfig.countStatus).length;
+                const sectionCount = countStatusTotal == null || countStatusTotal === statusOrders.length
+                    ? statusOrders.length
+                    : `${countStatusTotal} de ${statusOrders.length}`;
                 if (statusOrders.length === 0) return null;
 
                 return (
                     <CollapsibleSection
-                        key={status}
-                        title={getStatusText(status)}
-                        count={statusOrders.length}
-                        status={status}
-                        defaultExpanded={!['delivered', 'cancelled'].includes(status)}
+                        key={sectionKey}
+                        title={sectionTitle}
+                        count={sectionCount}
+                        status={sectionStatusColor}
+                        defaultExpanded={sectionDefaultExpanded}
                     >
                         {statusOrders.map((order: any) => (
                             <OrderCard
@@ -2725,6 +2754,7 @@ function OrderStatusColumn({
                                     setSelectedOrderForCustomerContact(order)
                                     setCustomerContactModalOpen(true)
                                 }}
+                                sectionKey={sectionKey}
                                 businessPhone={business?.phone}
                                 canChangeDelivery={canChangeDelivery}
                                 deliveryTimeMinutes={deliveryTimeMinutes}
@@ -2746,7 +2776,7 @@ function CollapsibleSection({
     defaultExpanded = true
 }: {
     title: string,
-    count: number,
+    count: number | string,
     status: string,
     children: React.ReactNode,
     defaultExpanded?: boolean
@@ -2768,7 +2798,7 @@ function CollapsibleSection({
     }
 
     return (
-        <div className="mb-4 overflow-hidden rounded-xl bg-transparent">
+        <div className="mb-4 overflow-visible rounded-xl bg-transparent">
             <button
                 onClick={() => setIsExpanded(!isExpanded)}
                 className="w-full px-4 py-3 flex justify-between items-center bg-gray-100 hover:bg-gray-200 transition-colors"
@@ -2802,6 +2832,7 @@ function OrderCard({
     onEdit,
     onDelete,
     onCustomerClick,
+    sectionKey,
     businessPhone,
     canChangeDelivery,
     deliveryTimeMinutes,
@@ -2818,6 +2849,7 @@ function OrderCard({
     onEdit: () => void,
     onDelete: () => void,
     onCustomerClick: () => void,
+    sectionKey?: string,
     businessPhone?: string,
     canChangeDelivery?: boolean,
     deliveryTimeMinutes?: number,
@@ -2854,6 +2886,7 @@ function OrderCard({
     const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false)
     const [discardReason, setDiscardReason] = useState('')
     const [deliveryInfoExpanded, setDeliveryInfoExpanded] = useState(false)
+    const statusMenuRef = useRef<HTMLDivElement>(null)
     const assignedDelivery = availableDeliveries.find(d => d.id === order.delivery?.assignedDelivery)
     const deliveryLabel = order.delivery?.assignedDelivery
         ? assignedDelivery?.nombres || 'Delivery asignado'
@@ -2871,6 +2904,12 @@ function OrderCard({
     const fulfillmentLabel = isPickup ? 'Retiro en tienda' : deliveryLabel
     const fulfillmentLabelClass = isPickup ? 'bg-blue-100 text-blue-700 border-blue-200' : deliveryLabelClass
     const fulfillmentLabelTitle = isPickup ? 'Retiro en tienda' : deliveryLabelTitle
+    const showInlineStatusTag = sectionKey === 'delivered-group'
+    const inlineStatusClass = order.status === 'ready'
+        ? 'bg-green-50 text-green-700 border-green-200'
+        : order.status === 'on_way'
+            ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+            : 'bg-gray-100 text-gray-700 border-gray-200'
     const deliveryCoordinates = getDeliveryCoordinates(order)
     const deliveryZone = getDeliveryZone(order)
     const deliveryCost = order.delivery?.deliveryCost || 0
@@ -2892,6 +2931,19 @@ function OrderCard({
             document.body.style.overflow = ''
         }
     }, [confirmDiscardOpen])
+
+    useEffect(() => {
+        if (!statusMenuOpen) return
+
+        const handleClickOutside = (event: MouseEvent) => {
+            if (!statusMenuRef.current?.contains(event.target as Node)) {
+                setStatusMenuOpen(false)
+            }
+        }
+
+        document.addEventListener('mousedown', handleClickOutside)
+        return () => document.removeEventListener('mousedown', handleClickOutside)
+    }, [statusMenuOpen])
 
     // Urgency check
     const isUrgent = () => {
@@ -3036,9 +3088,7 @@ function OrderCard({
                                 onClick={() => {
                                     // Si el siguiente estado es 'confirmed', verificar el tipo de timing
                                     if (primaryActionStatus === 'confirmed') {
-                                        // Si es inmediata, ir a 'preparando', si es programada, ir a 'confirmed'
-                                        const targetStatus = order.timing?.type === 'immediate' ? 'preparing' : 'confirmed';
-                                        onStatusChange(order.id, targetStatus);
+                                        onStatusChange(order.id, 'confirmed');
                                         
                                         // Imprimir automáticamente (silenciosamente)
                                         if (autoPrintOnConfirm) {
@@ -3093,8 +3143,15 @@ function OrderCard({
                         )}
 
                         {/* Status Select Menu */}
-                        {order.status !== 'pending' &&
-                            <div className="relative">
+                        {showInlineStatusTag ? (
+                            <span
+                                className={`inline-flex h-7 items-center rounded-lg border px-2 text-[11px] font-bold leading-none ${inlineStatusClass}`}
+                                title={getStatusText(order.status)}
+                            >
+                                {getStatusText(order.status)}
+                            </span>
+                        ) : order.status !== 'pending' &&
+                            <div className="relative" ref={statusMenuRef}>
                                 <button
                                     onClick={() => setStatusMenuOpen(!statusMenuOpen)}
                                     className={`p-1.5 text-lg rounded-lg transition-all hover:bg-gray-100 ${statusMenuOpen ? 'bg-gray-100' : ''}`}
