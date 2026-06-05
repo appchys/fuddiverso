@@ -280,7 +280,7 @@ export default function ManualOrderSidebar({
           return ''
         })(),
         referencia: (eo._isFromCheckout && eo.delivery?.address) ? eo.delivery.address : (eo.delivery?.references || (eo.delivery as any)?.reference || eo.delivery?.address || ''),
-        sector: 'Sin especificar',
+        sector: (eo.delivery as any)?.sector || (eo.delivery as any)?.zoneName || 'Sin especificar',
         tarifa: String(eo.delivery?.deliveryCost || 0)
       } as any : null
 
@@ -1108,7 +1108,7 @@ export default function ManualOrderSidebar({
         latlong: newLocationData.latlong.trim(),
         referencia: newLocationData.referencia.trim(),
         tarifa: newLocationData.tarifa,
-        sector: 'Sin especificar',
+        sector: newLocationData.sector || 'Sin especificar',
         createdBy: 'admin',
         ...(photoUrl && { photo: photoUrl })
       });
@@ -1128,9 +1128,9 @@ export default function ManualOrderSidebar({
           try {
             const [lat, lng] = newLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
             if (!isNaN(lat) && !isNaN(lng)) {
-              const { fee } = await calculateDeliveryFee({ lat, lng })
+              const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
               const normalizedFee = fee === 0 ? 1.5 : fee
-              const updatedLocation = { ...newLocation, tarifa: normalizedFee.toString() }
+              const updatedLocation = { ...newLocation, tarifa: normalizedFee.toString(), sector: zoneName }
               setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }));
               calculateTotal(manualOrderData.selectedProducts);
               findDeliveryForLocation(updatedLocation);
@@ -1498,6 +1498,7 @@ export default function ManualOrderSidebar({
           ...(manualOrderData.deliveryType === 'delivery' && {
             latlong: manualOrderData.selectedLocation?.latlong || '',
             references: manualOrderData.selectedLocation?.referencia || '',
+            sector: manualOrderData.selectedLocation?.sector || '',
             photo: manualOrderData.selectedLocation?.photo || '', // AÑADIDO: Guardar la foto de ubicación
             deliveryCost: parseFloat(manualOrderData.selectedLocation?.tarifa || '0'),
             assignedDelivery: manualOrderData.selectedDelivery?.id || null
@@ -2743,12 +2744,12 @@ export default function ManualOrderSidebar({
                               try {
                                 const [lat, lng] = location.latlong.split(',').map(coord => parseFloat(coord.trim()))
                                 if (!isNaN(lat) && !isNaN(lng)) {
-                                  const { fee } = await calculateDeliveryFee({ lat, lng })
+                                  const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
                                   
                                   // Normalizar tarifa fuera de cobertura: si calculatedFee es 0, usar 1.50
                                   const normalizedFee = fee === 0 ? 1.5 : fee
                                   
-                                  const updatedLocation = { ...location, tarifa: normalizedFee.toString() }
+                                  const updatedLocation = { ...location, tarifa: normalizedFee.toString(), sector: zoneName }
                                   setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }));
                                   setShowLocationModal(false);
                                   calculateTotal(manualOrderData.selectedProducts);
@@ -3027,7 +3028,7 @@ export default function ManualOrderSidebar({
                   <div>
                     <div className="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-200 shadow-sm">
                       <div className="flex flex-col">
-                        <span className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">Sector</span>
+                        <span className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">Zona</span>
                         <div className="flex items-center gap-2">
                           <div className={`w-2 h-2 rounded-full ${newLocationData.sector && newLocationData.sector !== 'Fuera de cobertura' ? 'bg-green-500 animate-pulse' : 'bg-amber-500'}`}></div>
                           <span className="text-sm font-bold text-gray-900">{newLocationData.sector || 'Pendiente de ubicación'}</span>

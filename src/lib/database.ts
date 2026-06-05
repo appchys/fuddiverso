@@ -1086,6 +1086,7 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
       delivery: {
         type: cleanOrderData.delivery?.type || 'pickup',
         references: cleanOrderData.delivery?.references || '',
+        sector: cleanOrderData.delivery?.sector || '',
         latlong: cleanOrderData.delivery?.latlong || '',
         deliveryCost: cleanOrderData.delivery?.deliveryCost || 0,
         // Preservar TODOS los campos de delivery, incluyendo photo

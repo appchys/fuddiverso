@@ -234,6 +234,7 @@ export interface Customer {
 export interface DeliveryInfo {
   type: 'delivery' | 'pickup'
   references?: string
+  sector?: string // Zona de cobertura usada para determinar la tarifa
   latlong?: string // Coordenadas en formato "lat, lng" desde tabla ubicaciones
   mapLocation?: {
     lat: number

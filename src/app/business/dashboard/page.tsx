@@ -38,6 +38,7 @@ import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import { auth } from '@/lib/firebase'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import DashboardSidebar from '@/components/DashboardSidebar'
+import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 
 const ProductList = dynamic(() => import('@/components/ProductList'), { ssr: false })
 const DayPreflightChecklist = dynamic(() => import('@/components/DayPreflightChecklist'), { ssr: false })
@@ -2062,6 +2063,7 @@ export default function TodayOrdersPage() {
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
                                                         canChangeDelivery={canChangeDelivery}
+                                                        deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                     />
                                                 </div>
@@ -2087,6 +2089,7 @@ export default function TodayOrdersPage() {
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
                                                         canChangeDelivery={canChangeDelivery}
+                                                        deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                     />
                                                 </div>
@@ -2194,6 +2197,7 @@ export default function TodayOrdersPage() {
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
                                                         canChangeDelivery={canChangeDelivery}
+                                                        deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                     />
                                                 </div>
@@ -2505,6 +2509,28 @@ function CustomerContactModal({
     )
 }
 
+const getDeliveryCoordinates = (order: Order | null) => {
+    if (!order?.delivery) return null
+    if (typeof order.delivery.mapLocation?.lat === 'number' && typeof order.delivery.mapLocation?.lng === 'number') {
+        return {
+            lat: order.delivery.mapLocation.lat,
+            lng: order.delivery.mapLocation.lng
+        }
+    }
+
+    const latlong = order.delivery.latlong
+    if (!latlong || latlong.startsWith('pluscode:')) return null
+    const [lat, lng] = latlong.split(',').map(value => Number(value.trim()))
+
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return null
+    return { lat, lng }
+}
+
+const getDeliveryZone = (order: Order | null) => {
+    const delivery = order?.delivery as any
+    return delivery?.sector || delivery?.address || delivery?.zoneName || delivery?.coverageZoneName || 'No especificado'
+}
+
 function DeliveryStatusModal({
     isOpen,
     onClose,
@@ -2658,6 +2684,7 @@ function OrderStatusColumn({
     setCustomerContactModalOpen,
     business,
     canChangeDelivery,
+    deliveryTimeMinutes,
     autoPrintOnConfirm
 }: any) {
     return (
@@ -2700,6 +2727,7 @@ function OrderStatusColumn({
                                 }}
                                 businessPhone={business?.phone}
                                 canChangeDelivery={canChangeDelivery}
+                                deliveryTimeMinutes={deliveryTimeMinutes}
                                 autoPrintOnConfirm={autoPrintOnConfirm}
                              />
                         ))}
@@ -2776,6 +2804,7 @@ function OrderCard({
     onCustomerClick,
     businessPhone,
     canChangeDelivery,
+    deliveryTimeMinutes,
     autoPrintOnConfirm
 }: {
     order: Order,
@@ -2791,15 +2820,40 @@ function OrderCard({
     onCustomerClick: () => void,
     businessPhone?: string,
     canChangeDelivery?: boolean,
+    deliveryTimeMinutes?: number,
     autoPrintOnConfirm?: boolean
 }) {
     const nextStatus = getNextStatus(order.status)
+    const getOrderTargetDate = () => {
+        const date = order.timing?.scheduledDate
+            ? toSafeDate(order.timing.scheduledDate)
+            : toSafeDate(order.createdAt)
+
+        if (order.timing?.scheduledTime) {
+            const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number)
+            if (!Number.isNaN(hours) && !Number.isNaN(minutes)) {
+                date.setHours(hours, minutes, 0, 0)
+            }
+        }
+
+        return date
+    }
+    const isWithinDeliveryTimeWindow = () => {
+        if (!['confirmed', 'preparing'].includes(order.status)) return false
+        const windowMinutes = deliveryTimeMinutes ?? 30
+        const diffMinutes = (getOrderTargetDate().getTime() - Date.now()) / 60000
+        return diffMinutes <= windowMinutes
+    }
+    const showReadyAction = ['confirmed', 'preparing'].includes(order.status) && isWithinDeliveryTimeWindow()
+    const primaryActionStatus = showReadyAction ? 'ready' : (order.status === 'confirmed' ? null : nextStatus)
+    const primaryActionLabel = showReadyAction ? '¿Pedido listo?' : (primaryActionStatus ? getActionText(primaryActionStatus) : '')
     const isDelivery = order.delivery?.type === 'delivery'
     const isPickup = order.delivery?.type === 'pickup'
     const [isExpanded, setIsExpanded] = useState(false)
     const [statusMenuOpen, setStatusMenuOpen] = useState(false)
     const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false)
     const [discardReason, setDiscardReason] = useState('')
+    const [deliveryInfoExpanded, setDeliveryInfoExpanded] = useState(false)
     const assignedDelivery = availableDeliveries.find(d => d.id === order.delivery?.assignedDelivery)
     const deliveryLabel = order.delivery?.assignedDelivery
         ? assignedDelivery?.nombres || 'Delivery asignado'
@@ -2817,6 +2871,15 @@ function OrderCard({
     const fulfillmentLabel = isPickup ? 'Retiro en tienda' : deliveryLabel
     const fulfillmentLabelClass = isPickup ? 'bg-blue-100 text-blue-700 border-blue-200' : deliveryLabelClass
     const fulfillmentLabelTitle = isPickup ? 'Retiro en tienda' : deliveryLabelTitle
+    const deliveryCoordinates = getDeliveryCoordinates(order)
+    const deliveryZone = getDeliveryZone(order)
+    const deliveryCost = order.delivery?.deliveryCost || 0
+    const deliveryMapsUrl = deliveryCoordinates
+        ? `https://www.google.com/maps/search/?api=1&query=${deliveryCoordinates.lat},${deliveryCoordinates.lng}`
+        : undefined
+    const deliveryMapImageUrl = deliveryCoordinates
+        ? `https://maps.googleapis.com/maps/api/staticmap?center=${deliveryCoordinates.lat},${deliveryCoordinates.lng}&zoom=16&size=600x180&scale=2&maptype=roadmap&markers=color:red%7C${deliveryCoordinates.lat},${deliveryCoordinates.lng}&key=${GOOGLE_MAPS_API_KEY}`
+        : undefined
 
     // Prevent scroll when modal is open
     useEffect(() => {
@@ -2852,28 +2915,6 @@ function OrderCard({
 
         const diffInMinutes = (targetDate.getTime() - now.getTime()) / 60000;
         return diffInMinutes <= 5;
-    }
-
-    // Check if order is confirmed, scheduled, and will be delivered in next 30 minutes
-    const shouldShowPreparingButton = () => {
-        // Only show for confirmed scheduled orders
-        if (order.status !== 'confirmed' || order.timing?.type !== 'scheduled') {
-            return false;
-        }
-
-        const now = new Date();
-        let targetDate = new Date();
-
-        if (order.timing?.scheduledTime) {
-            const [hours, minutes] = order.timing.scheduledTime.split(':').map(Number);
-            targetDate.setHours(hours, minutes, 0, 0);
-            
-            // Check if scheduled time is within next 30 minutes
-            const diffInMinutes = (targetDate.getTime() - now.getTime()) / 60000;
-            return diffInMinutes <= 30 && diffInMinutes > 0;
-        }
-
-        return false;
     }
 
     const urgent = isUrgent();
@@ -2990,11 +3031,11 @@ function OrderCard({
 
                     <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                         {/* Advance Status */}
-                        {nextStatus && (
+                        {primaryActionStatus && (
                             <button
                                 onClick={() => {
                                     // Si el siguiente estado es 'confirmed', verificar el tipo de timing
-                                    if (nextStatus === 'confirmed') {
+                                    if (primaryActionStatus === 'confirmed') {
                                         // Si es inmediata, ir a 'preparando', si es programada, ir a 'confirmed'
                                         const targetStatus = order.timing?.type === 'immediate' ? 'preparing' : 'confirmed';
                                         onStatusChange(order.id, targetStatus);
@@ -3006,28 +3047,30 @@ function OrderCard({
                                             }, 500);
                                         }
                                     } else {
-                                        onStatusChange(order.id, nextStatus);
+                                        onStatusChange(order.id, primaryActionStatus);
                                     }
                                 }}
-                                className={`flex items-center gap-1 rounded-lg transition-colors shadow-sm ${nextStatus === 'confirmed'
-                                    ? 'px-3 py-1.5 text-xs font-bold bg-green-600 text-white hover:bg-green-700'
-                                    : 'p-1.5 text-lg hover:bg-white hover:shadow-md'
+                                className={`flex items-center gap-1 rounded-lg transition-colors ${showReadyAction
+                                    ? 'px-2 py-1.5 text-xs font-bold text-purple-600 hover:text-purple-700 hover:bg-purple-50'
+                                    : primaryActionStatus === 'confirmed'
+                                        ? 'px-3 py-1.5 text-xs font-bold bg-green-600 text-white hover:bg-green-700 shadow-sm'
+                                        : 'p-1.5 text-lg hover:bg-white hover:shadow-md'
                                     }`}
-                                title={getActionText(nextStatus)}
+                                title={primaryActionLabel}
                             >
-                                {nextStatus === 'confirmed' ? (
+                                {(primaryActionStatus === 'confirmed' || showReadyAction) ? (
                                     <>
-                                        <span>{getActionText(nextStatus)}</span>
-                                        <i className="bi bi-check2-circle"></i>
+                                        <span>{primaryActionLabel}</span>
+                                        {!showReadyAction && <i className="bi bi-check2-circle"></i>}
                                     </>
                                 ) : (
-                                    <i className={`bi ${getActionIcon(nextStatus)}`}></i>
+                                    <i className={`bi ${getActionIcon(primaryActionStatus)}`}></i>
                                 )}
                             </button>
                         )}
 
                         {/* Preparing Button for Confirmed Scheduled Orders (within 30 minutes) */}
-                        {shouldShowPreparingButton() && (
+                        {false && (
                             <button
                                 onClick={() => onStatusChange(order.id, 'preparing')}
                                 className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-purple-600 text-white rounded-lg transition-colors shadow-sm hover:bg-purple-700"
@@ -3145,10 +3188,60 @@ function OrderCard({
                     <div className="flex justify-between items-start mb-4">
                         <div className="flex-1 pr-2">
                             {isDelivery && (
-                                <p className="flex items-start gap-1.5 text-sm text-gray-500 line-clamp-2">
-                                    <i className="bi bi-geo-alt-fill mt-0.5 flex-shrink-0 text-gray-400"></i>
-                                    <span>{order.delivery?.references || (order.delivery as any)?.reference || "Ubicación"}</span>
-                                </p>
+                                <div className="space-y-2">
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            setDeliveryInfoExpanded(prev => !prev)
+                                        }}
+                                        className="group flex w-full max-w-full items-start gap-1.5 rounded-lg px-2 py-1.5 text-left text-sm text-gray-600 transition-colors hover:bg-red-50 hover:text-red-700"
+                                        title={deliveryInfoExpanded ? 'Ocultar datos de entrega' : 'Ver datos de entrega'}
+                                        aria-expanded={deliveryInfoExpanded}
+                                    >
+                                        <i className="bi bi-geo-alt-fill mt-0.5 flex-shrink-0 text-gray-400 group-hover:text-red-500"></i>
+                                        <span className="line-clamp-2">{order.delivery?.references || (order.delivery as any)?.reference || "Ubicación"}</span>
+                                        <i className={`bi bi-chevron-${deliveryInfoExpanded ? 'up' : 'down'} mt-0.5 flex-shrink-0 text-[11px] text-gray-300 group-hover:text-red-500`}></i>
+                                    </button>
+                                    {deliveryInfoExpanded && (
+                                        <div className="ml-2 overflow-hidden rounded-xl border border-red-100 bg-red-50/50 animate-in slide-in-from-top-1 duration-150">
+                                            {deliveryMapImageUrl && deliveryMapsUrl ? (
+                                                <a
+                                                    href={deliveryMapsUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className="block"
+                                                    title="Abrir ubicacion en Maps"
+                                                >
+                                                    <img
+                                                        src={deliveryMapImageUrl}
+                                                        alt="Mapa de entrega"
+                                                        className="h-36 w-full object-cover"
+                                                        loading="lazy"
+                                                    />
+                                                </a>
+                                            ) : (
+                                                <div className="flex h-24 items-center justify-center gap-2 text-sm font-medium text-gray-500">
+                                                    <i className="bi bi-map text-gray-300"></i>
+                                                    Sin coordenadas
+                                                </div>
+                                            )}
+
+                                            <div className="grid grid-cols-2 gap-2 p-3 text-sm">
+                                                <div>
+                                                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Zona</p>
+                                                    <p className="font-semibold text-gray-900">{deliveryZone}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Envío</p>
+                                                    <p className="font-semibold text-gray-900">${deliveryCost.toFixed(2)}</p>
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    )}
+                                </div>
                             )}
                         </div>
                     </div>
