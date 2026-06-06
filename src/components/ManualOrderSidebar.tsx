@@ -1383,7 +1383,7 @@ export default function ManualOrderSidebar({
     }))
 
     calculateTotal([...manualOrderData.selectedProducts, newItem])
-    displayToast(`✅ ${product.name} agregado a la orden`)
+    displayToast(`✅ ${product.name} agregado`)
   }
 
   // Agregar producto personalizado a la orden
@@ -1424,7 +1424,7 @@ export default function ManualOrderSidebar({
     // Limpiar y cerrar el modal
     setCustomProductData({ name: '', price: '' })
     setShowCustomProductModal(false)
-    displayToast(`✅ ${customProductData.name.trim()} agregado a la orden`)
+    displayToast(`✅ ${customProductData.name.trim()} agregado`)
   }
 
   // Actualizar cantidad de producto
@@ -2620,19 +2620,6 @@ export default function ManualOrderSidebar({
                 <i className={`bi bi-${showNotasField ? 'chevron-up' : 'note-heart'} text-blue-600`}></i>
                 {showNotasField ? 'Ocultar notas' : 'Agregar notas y adjuntos'}
               </span>
-              {manualOrderData.notas && (
-                <span className="text-xs font-medium text-blue-600 bg-white border border-blue-200 px-3 py-1 rounded-full">
-                  📝 {manualOrderData.notas.length > 15 
-                    ? `${manualOrderData.notas.substring(0, 15)}...` 
-                    : manualOrderData.notas
-                  }
-                </span>
-              )}
-              {!manualOrderData.notas && (notaImagePreview || manualOrderData.notaImageUrl) && (
-                <span className="text-xs font-medium text-green-600 bg-white border border-green-200 px-3 py-1 rounded-full">
-                  📸 Imagen adjunta
-                </span>
-              )}
             </button>
             
             {showNotasField && (
@@ -2649,7 +2636,6 @@ export default function ManualOrderSidebar({
                     rows={3}
                     className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white text-gray-700 placeholder-gray-400"
                   />
-                  <p className="text-xs text-gray-500 mt-1">{manualOrderData.notas.length} caracteres</p>
                 </div>
 
                 <div>
@@ -2657,34 +2643,32 @@ export default function ManualOrderSidebar({
                     <i className="bi bi-image text-blue-600"></i>
                     Imagen para ticket
                   </label>
-                  <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 bg-white hover:bg-blue-50 transition-colors">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (!file) return
-                        if (!file.type.startsWith('image/')) {
-                          alert('Selecciona un archivo de imagen')
-                          return
-                        }
-                        setNotaImageFile(file)
-                        setNotaImagePreview(URL.createObjectURL(file))
-                        setManualOrderData(prev => ({ ...prev, notaImageUrl: '' }))
-                      }}
-                      className="block w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white file:font-medium hover:file:bg-blue-700 cursor-pointer"
-                    />
-                    <p className="text-xs text-gray-500 mt-2 text-center">Arrastra aquí o haz clic para seleccionar</p>
-                  </div>
+                  {!(notaImagePreview || manualOrderData.notaImageUrl) && (
+                    <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 bg-white hover:bg-blue-50 transition-colors">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          if (!file.type.startsWith('image/')) {
+                            alert('Selecciona un archivo de imagen')
+                            return
+                          }
+                          setNotaImageFile(file)
+                          setNotaImagePreview(URL.createObjectURL(file))
+                          setManualOrderData(prev => ({ ...prev, notaImageUrl: '' }))
+                        }}
+                        className="block w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white file:font-medium hover:file:bg-blue-700 cursor-pointer"
+                      />
+                      <p className="text-xs text-gray-500 mt-2 text-center">Arrastra aquí o haz clic para seleccionar</p>
+                    </div>
+                  )}
 
                   {(notaImagePreview || manualOrderData.notaImageUrl) && (
                     <div className="mt-4 p-3 bg-white rounded-lg border border-blue-200">
-                      <div className="flex items-start justify-between mb-3">
-                        <span className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                          <i className="bi bi-check-circle text-green-500"></i>
-                          Imagen cargada
-                        </span>
+                      <div className="flex justify-end mb-3">
                         <button
                           type="button"
                           onClick={() => {
@@ -3514,16 +3498,10 @@ export default function ManualOrderSidebar({
       {/* Toast Notification */}
       {showToast && (
         <div className="fixed top-4 right-4 z-[9999] animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 backdrop-blur-sm border border-green-400">
+          <div className="bg-gray-800/90 text-white px-4 py-2 rounded-md shadow-sm flex items-center gap-2 backdrop-blur-sm">
             <div className="flex-1">
-              <p className="text-sm font-medium">{toastMessage}</p>
+              <p className="text-xs font-medium">{toastMessage}</p>
             </div>
-            <button
-              onClick={() => setShowToast(false)}
-              className="text-white hover:text-gray-100 transition-colors"
-            >
-              <i className="bi bi-x-lg text-lg"></i>
-            </button>
           </div>
         </div>
       )}
