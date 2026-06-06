@@ -66,6 +66,7 @@ interface ManualOrderData {
   selectedDelivery: any
   orderStatus: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'on_way' | 'delivered' | 'cancelled' | 'borrador'
   notas: string
+  notaImageUrl?: string
   receiptImageUrl?: string
 }
 
@@ -122,6 +123,7 @@ export default function ManualOrderSidebar({
     selectedDelivery: null,
     orderStatus: 'pending',
     notas: '',
+    notaImageUrl: '',
     receiptImageUrl: ''
   })
 
@@ -138,6 +140,8 @@ export default function ManualOrderSidebar({
   const [updatingClient, setUpdatingClient] = useState(false)
   const [creatingOrder, setCreatingOrder] = useState(false)
   const [showNotasField, setShowNotasField] = useState(false)
+  const [notaImageFile, setNotaImageFile] = useState<File | null>(null)
+  const [notaImagePreview, setNotaImagePreview] = useState<string>('')
 
   // Estados para búsqueda mejorada
   const [searchResults, setSearchResults] = useState<Client[]>([])
@@ -349,8 +353,11 @@ export default function ManualOrderSidebar({
         selectedDelivery: selectedDeliveryFromId(availableDeliveries, eo.delivery?.assignedDelivery),
         orderStatus: eo.status || 'pending',
         notas: eo.notas || '',
+        notaImageUrl: eo.notaImageUrl || '',
         receiptImageUrl: eo.payment?.receiptImageUrl || ''
       }))
+      setNotaImageFile(null)
+      setNotaImagePreview(eo.notaImageUrl || '')
 
       // Mostrar inmediatamente tarjeta de cliente encontrado y cargar ubicaciones
       setClientFound(true)
@@ -1469,6 +1476,22 @@ export default function ManualOrderSidebar({
     setCreatingOrder(true)
     try {
       const finalStatus = computedStatus;
+      let notaImageUrl = manualOrderData.notaImageUrl || ''
+
+      if (notaImageFile) {
+        const timestamp = Date.now()
+        const optimizedBlob = await optimizeImage(notaImageFile, 576, 0.75, 'image/jpeg')
+        const safeName = (notaImageFile.name || 'nota').split('.')[0].replace(/[^a-zA-Z0-9_-]/g, '_')
+        const optimizedFile = new File(
+          [optimizedBlob],
+          `${timestamp}_${safeName}.jpg`,
+          { type: optimizedBlob.type || 'image/jpeg' }
+        )
+
+        const storageRef = ref(storage, `order-notes/${business.id}/${optimizedFile.name}`)
+        await uploadBytes(storageRef, optimizedFile)
+        notaImageUrl = await getDownloadURL(storageRef)
+      }
 
       const now = new Date();
       const firestoreTimestamp = {
@@ -1563,7 +1586,8 @@ export default function ManualOrderSidebar({
         createdByAdmin: true,
         createdAt: new Date(),
         updatedAt: new Date(),
-        notas: manualOrderData.notas
+        notas: manualOrderData.notas,
+        notaImageUrl
       }
 
       // Log para debugging
@@ -1595,7 +1619,8 @@ export default function ManualOrderSidebar({
               total: orderData.total,
               status: finalStatus,
               updatedAt: new Date(),
-              notas: orderData.notas
+              notas: orderData.notas,
+              notaImageUrl: orderData.notaImageUrl
             }
             await updateOrder(editOrder.id, updatePayload)
             onOrderUpdated && onOrderUpdated({
@@ -1673,8 +1698,11 @@ export default function ManualOrderSidebar({
       selectedDelivery: null,
       orderStatus: 'borrador',
       notas: '',
+      notaImageUrl: '',
       receiptImageUrl: ''
     })
+    setNotaImageFile(null)
+    setNotaImagePreview('')
     setClientFound(false)
     setShowCreateClient(false)
   }
@@ -2581,10 +2609,15 @@ export default function ManualOrderSidebar({
                   }
                 </span>
               )}
+              {!manualOrderData.notas && (notaImagePreview || manualOrderData.notaImageUrl) && (
+                <span className="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded-full">
+                  Imagen adjunta
+                </span>
+              )}
             </button>
             
             {showNotasField && (
-              <div className="mt-3">
+              <div className="mt-3 space-y-3">
                 <textarea
                   value={manualOrderData.notas}
                   onChange={(e) => setManualOrderData(prev => ({ ...prev, notas: e.target.value }))}
@@ -2592,6 +2625,48 @@ export default function ManualOrderSidebar({
                   rows={3}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 resize-vertical"
                 />
+                <div className="border border-dashed border-gray-300 rounded-md p-3 bg-gray-50">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Imagen para imprimir en ticket
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      if (!file.type.startsWith('image/')) {
+                        alert('Selecciona un archivo de imagen')
+                        return
+                      }
+                      setNotaImageFile(file)
+                      setNotaImagePreview(URL.createObjectURL(file))
+                      setManualOrderData(prev => ({ ...prev, notaImageUrl: '' }))
+                    }}
+                    className="block w-full text-sm text-gray-700 file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  />
+                  {(notaImagePreview || manualOrderData.notaImageUrl) && (
+                    <div className="mt-3">
+                      <img
+                        src={notaImagePreview || manualOrderData.notaImageUrl}
+                        alt="Imagen de nota"
+                        className="max-h-40 w-full object-contain rounded-md border border-gray-200 bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNotaImageFile(null)
+                          setNotaImagePreview('')
+                          setManualOrderData(prev => ({ ...prev, notaImageUrl: '' }))
+                        }}
+                        className="mt-2 text-sm text-red-600 hover:text-red-700"
+                      >
+                        Quitar imagen
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

@@ -9,6 +9,22 @@ export interface PrintOrderOptions {
   groupItemsByProduct?: boolean
 }
 
+function getPrintableImageUrl(url: string): string {
+  if (!url || !/^https?:\/\//i.test(url)) return url
+
+  try {
+    const { hostname } = new URL(url)
+    if (hostname === 'firebasestorage.googleapis.com' || hostname === 'storage.googleapis.com') {
+      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+      return `${origin}/api/image-proxy?url=${encodeURIComponent(url)}`
+    }
+  } catch {
+    return url
+  }
+
+  return url
+}
+
 export async function printOrder({ order, businessName, businessLogo, groupItemsByProduct = true }: PrintOrderOptions) {
   return new Promise((resolve, reject) => {
     try {
@@ -80,7 +96,7 @@ export async function printOrder({ order, businessName, businessLogo, groupItems
             .text-xl { font-size: 1.8em; }
             
             .header { margin-bottom: 5mm; }
-            .business-name { font-size: 1.4em; font-weight: bold; text-transform: uppercase; margin-bottom: 2mm; }
+            .business-name { font-size: 1.8em; font-weight: bold; text-transform: uppercase; margin-bottom: 2mm; }
             
             .info-row { display: flex; justify-content: space-between; margin-bottom: 1mm; }
             .divider { border-top: 1px dashed #000; margin: 3mm 0; }
@@ -101,6 +117,14 @@ export async function printOrder({ order, businessName, businessLogo, groupItems
               text-align: center;
               font-size: 1.4em;
             }
+
+            .note-image {
+              width: 100%;
+              max-width: 68mm;
+              margin: 4mm auto;
+              display: block;
+              filter: grayscale(1);
+            }
             
             .footer { margin-top: 5mm; }
             .logo-fuddi { width: 24mm; margin: 2mm auto; display: block; filter: grayscale(1); }
@@ -108,7 +132,7 @@ export async function printOrder({ order, businessName, businessLogo, groupItems
         </head>
         <body>
           <div class="header text-center">
-            ${businessLogo ? `<img src="${businessLogo}" alt="Logo" style="width: 20mm; height: 20mm; object-fit: cover; border-radius: 50%; margin-bottom: 2mm;">` : ''}
+            ${businessLogo ? `<img src="${getPrintableImageUrl(businessLogo)}" alt="Logo" style="width: 20mm; height: 20mm; object-fit: cover; border-radius: 50%; margin-bottom: 2mm;">` : ''}
             <div class="business-name">${businessName}</div>
           </div>
 
@@ -226,16 +250,20 @@ export async function printOrder({ order, businessName, businessLogo, groupItems
             </div>
           ` : ''}
 
+          <div class="footer text-center">
+            <img src="${getPrintableImageUrl((logoUrl as any).src || logoUrl)}" class="logo-fuddi" alt="Fuddi">
+          </div>
+
+          ${order.notaImageUrl ? `
+            <div class="divider"></div>
+            <img src="${getPrintableImageUrl(order.notaImageUrl)}" class="note-image" alt="Imagen de nota">
+          ` : ''}
+
           ${(order.notas && order.notas.trim() !== '') ? `
             <div class="notes-box">
               ${order.notas}
             </div>
           ` : ''}
-
-          <div class="footer text-center">
-            <div class="divider"></div>
-            <img src="${(logoUrl as any).src || logoUrl}" class="logo-fuddi" alt="Fuddi">
-          </div>
 
           <script>
             window.onload = function() {

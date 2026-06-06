@@ -287,6 +287,7 @@ export interface Order {
   createdByAdmin?: boolean
   referralCode?: string // Código de referido si la orden vino de un link de recomendación
   notas?: string // Notas adicionales del pedido
+  notaImageUrl?: string // Imagen adjunta a la nota del pedido
   // Timestamps para cada cambio de estado
   statusHistory?: {
     pendingAt?: Date | Timestamp

@@ -31,6 +31,7 @@ export interface PrintableOrder extends BaseOrder {
     method: 'cash' | 'transfer' | 'mixed'
     paymentStatus: string
   }
+  notaImageUrl?: string
   total: number
 }
 

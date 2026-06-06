@@ -6,6 +6,22 @@ import logoUrl from '@/assets/logo.png'
 const PRINTER_SERVICE_UUID = '000018f0-0000-1000-8000-00805f9b34fb'
 const PRINTER_CHARACTERISTIC_UUID = '00002af1-0000-1000-8000-00805f9b34fb'
 
+function getPrintableImageUrl(url: string): string {
+    if (!url || !/^https?:\/\//i.test(url)) return url;
+
+    try {
+        const { hostname } = new URL(url);
+        if (hostname === 'firebasestorage.googleapis.com' || hostname === 'storage.googleapis.com') {
+            const origin = typeof window !== 'undefined' ? window.location.origin : '';
+            return `${origin}/api/image-proxy?url=${encodeURIComponent(url)}`;
+        }
+    } catch {
+        return url;
+    }
+
+    return url;
+}
+
 export interface BluetoothPrintOptions {
     order: PrintableOrder
     businessName: string
@@ -38,7 +54,7 @@ async function getImageCommands(url: string, maxWidth: number = 384): Promise<nu
     return new Promise((resolve, reject) => {
         const img = new Image();
         img.crossOrigin = "Anonymous";
-        img.src = url;
+        img.src = getPrintableImageUrl(url);
         img.onload = () => {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
@@ -109,7 +125,7 @@ async function getCircularImageCommands(url: string, size: number = 120): Promis
     return new Promise((resolve, reject) => {
         const img = new Image();
         img.crossOrigin = "Anonymous";
-        img.src = url;
+        img.src = getPrintableImageUrl(url);
         img.onload = () => {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
@@ -259,7 +275,7 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
                 console.warn('No se pudo cargar el logo de la tienda:', e);
             }
         }
-        commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_BOLD_ON);
+        commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
         addLine(businessName.toUpperCase());
         commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
         addLine();
@@ -462,19 +478,43 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
             addLine(`$${pendingAmount.toFixed(2)}`);
             commands.push(...ESC_POS.ALIGN_LEFT, ...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
         }
+
+        try {
+            addLine();
+            const fuddiLogoCommands = await getImageCommands((logoUrl as any).src || logoUrl, 120);
+            commands.push(...ESC_POS.ALIGN_CENTER);
+            commands.push(...fuddiLogoCommands);
+            commands.push(...ESC_POS.FEED_LINE);
+            commands.push(...ESC_POS.ALIGN_LEFT);
+        } catch (e) {
+            console.warn('No se pudo cargar el logo para la impresion:', e);
+        }
         
+        if (order.notaImageUrl) {
+            try {
+                addLine();
+                addLine('.'.repeat(32));
+                commands.push(...ESC_POS.ALIGN_CENTER);
+                const noteImageCommands = await getImageCommands(order.notaImageUrl, 384);
+                commands.push(...noteImageCommands);
+                commands.push(...ESC_POS.FEED_LINE);
+                commands.push(...ESC_POS.ALIGN_LEFT);
+            } catch (e) {
+                console.warn('No se pudo cargar la imagen de la nota para la impresion:', e);
+            }
+        }
+
         if (order.notas && order.notas.trim() !== '') {
             addLine();
             addLine('.'.repeat(32));
             commands.push(...ESC_POS.ALIGN_CENTER);
             commands.push(...ESC_POS.TEXT_DOUBLE_HEIGHT, ...ESC_POS.TEXT_DOUBLE_WIDTH, ...ESC_POS.TEXT_BOLD_ON);
-            
-            // Word wrap para notas - dividir por palabras
+
             const noteText = order.notas.toUpperCase();
-            const maxCharsPerLine = 18; // Aproximado para texto grande centrado
+            const maxCharsPerLine = 18;
             const words = noteText.split(' ');
             let currentLine = '';
-            
+
             words.forEach(word => {
                 if (currentLine.length === 0) {
                     currentLine = word;
@@ -485,32 +525,17 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
                     currentLine = word;
                 }
             });
-            
+
             if (currentLine.length > 0) {
                 addLine(currentLine);
             }
-            
+
             commands.push(...ESC_POS.TEXT_NORMAL, ...ESC_POS.TEXT_BOLD_OFF);
-            addLine(); // Espacio extra después de notas
+            addLine();
         }
-        
+
         addLine(); // Extra space for tearing
-        
-        // Footer
-        commands.push(...ESC_POS.ALIGN_CENTER);
-        
-        // Agregar Logo de Fuddi
-        try {
-            const logoCommands = await getImageCommands((logoUrl as any).src || logoUrl, 120); // 120px width for the logo
-            commands.push(...ESC_POS.ALIGN_CENTER);
-            commands.push(...logoCommands);
-            commands.push(...ESC_POS.FEED_LINE);
-        } catch (e) {
-            console.warn('No se pudo cargar el logo para la impresión:', e);
-        }
-        
-        commands.push(...ESC_POS.ALIGN_LEFT);
-        
+
         // Espacio extra para evitar corte en impresora
         addLine();
         addLine();

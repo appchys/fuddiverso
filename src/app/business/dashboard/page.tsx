@@ -3316,6 +3316,18 @@ function OrderCard({
                         </div>
                     )}
 
+                    {order.notaImageUrl && (
+                        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                            <div className="flex items-start gap-2">
+                                <i className="bi bi-image text-amber-600 mt-0.5 flex-shrink-0"></i>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-amber-800 mb-2">Imagen de nota</p>
+                                    <img src={order.notaImageUrl} alt="Imagen de nota" className="max-h-48 w-full object-contain rounded-md border border-amber-200 bg-white" />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Items */}
                     <div className="space-y-2 mb-4">
                         {order.items?.map((item: any, idx: number) => (
