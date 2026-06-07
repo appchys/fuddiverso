@@ -550,6 +550,17 @@ export default function ManualOrderSidebar({
     return cleanPhone
   }
 
+  const normalizePastedPhoneInput = (phone: string): string => {
+    const digitsOnly = phone.replace(/\D/g, '')
+    const trimmedPhone = phone.trim()
+
+    if (trimmedPhone.startsWith('+593') || (digitsOnly.startsWith('593') && digitsOnly.length > 10)) {
+      return normalizePhone(phone)
+    }
+
+    return digitsOnly
+  }
+
   // Pegar desde el portapapeles
   const handlePasteFromClipboard = async () => {
     try {
@@ -1383,7 +1394,10 @@ export default function ManualOrderSidebar({
     }))
 
     calculateTotal([...manualOrderData.selectedProducts, newItem])
-    displayToast(`✅ ${product.name} agregado`)
+    const addedProductLabel = variant?.name && variant.name !== product.name
+      ? `${product.name} - ${variant.name}`
+      : product.name
+    displayToast(`✅ ${addedProductLabel} agregado`)
   }
 
   // Agregar producto personalizado a la orden
@@ -1899,7 +1913,7 @@ export default function ManualOrderSidebar({
                   type="tel"
                   value={manualOrderData.customerPhone}
                   onChange={(e) => {
-                    const val = e.target.value.replace(/\D/g, '')
+                    const val = normalizePastedPhoneInput(e.target.value)
                     setManualOrderData(prev => ({ ...prev, customerPhone: val }))
                     handlePhoneSearchInstant(val)
                   }}
@@ -1908,11 +1922,11 @@ export default function ManualOrderSidebar({
                   onPaste={(e) => {
                     e.preventDefault()
                     const text = e.clipboardData.getData('text') || ''
-                    const digitsOnly = text.replace(/\D/g, '')
+                    const normalizedPhone = normalizePastedPhoneInput(text)
                     
-                    if (digitsOnly) {
-                      setManualOrderData(prev => ({ ...prev, customerPhone: digitsOnly }))
-                      handlePhoneSearchInstant(digitsOnly)
+                    if (normalizedPhone) {
+                      setManualOrderData(prev => ({ ...prev, customerPhone: normalizedPhone }))
+                      handlePhoneSearchInstant(normalizedPhone)
                     }
                   }}
                 />
