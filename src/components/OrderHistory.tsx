@@ -27,6 +27,7 @@ interface OrderHistoryProps {
   hasMore?: boolean
   loadingMore?: boolean
   autoPrintOnConfirm?: boolean
+  canDeleteOrders?: boolean
 }
 
 export default function OrderHistory({
@@ -61,7 +62,8 @@ export default function OrderHistory({
   onLoadMore,
   hasMore = false,
   loadingMore = false,
-  autoPrintOnConfirm = true
+  autoPrintOnConfirm = true,
+  canDeleteOrders = false
 }: OrderHistoryProps) {
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set())
   const observerTarget = useRef(null)
@@ -158,7 +160,8 @@ export default function OrderHistory({
     onEdit,
     onDelete,
     onCustomerClick,
-    businessPhone
+    businessPhone,
+    canDeleteOrders
   }: {
     order: Order,
     availableDeliveries: Delivery[],
@@ -172,6 +175,7 @@ export default function OrderHistory({
     onDelete: () => void,
     onCustomerClick: () => void,
     businessPhone?: string,
+    canDeleteOrders?: boolean,
     autoPrintOnConfirm?: boolean
   }) {
     const nextStatus = getNextStatus(order.status)
@@ -540,12 +544,14 @@ export default function OrderHistory({
                             <i className="bi bi-pencil"></i>
                             Editar
                         </button>
-                        <button
-                            onClick={onDelete}
-                            className="flex items-center justify-center p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
-                        >
-                            <i className="bi bi-trash"></i>
-                        </button>
+                        {canDeleteOrders && (
+                            <button
+                                onClick={onDelete}
+                                className="flex items-center justify-center p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                            >
+                                <i className="bi bi-trash"></i>
+                            </button>
+                        )}
                     </div>
                 </div>
             )}
@@ -663,6 +669,7 @@ export default function OrderHistory({
                         onCustomerClick={() => onCustomerClick?.(order)}
                         businessPhone={businessPhone}
                         autoPrintOnConfirm={autoPrintOnConfirm}
+                        canDeleteOrders={canDeleteOrders}
                       />
                     )
                   )}
@@ -735,6 +742,7 @@ export default function OrderHistory({
                                   onCustomerClick={() => onCustomerClick?.(order)}
                                   businessPhone={businessPhone}
                                   autoPrintOnConfirm={autoPrintOnConfirm}
+                                  canDeleteOrders={canDeleteOrders}
                                 />
                               )
                             )}

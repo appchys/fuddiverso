@@ -221,6 +221,8 @@ const getConfiguredDeliveryTime = (business?: Business | null) => {
     return business?.defaultDeliveryTime ?? business?.deliveryTime ?? 30
 }
 
+const MUNCHYS_BUSINESS_ID = '0FeNtdYThoTRMPJ6qaS7'
+
 export default function TodayOrdersPage() {
     const router = useRouter()
     const { businessId, isAuthenticated, authLoading, logout, user, setBusinessId } = useBusinessAuth()
@@ -1439,6 +1441,11 @@ export default function TodayOrdersPage() {
     }
 
     const handleDeliveryAssignment = async (orderId: string, deliveryId: string) => {
+        if (business?.id !== MUNCHYS_BUSINESS_ID) {
+            alert('Solo Munchys puede cambiar manualmente el delivery asignado.')
+            return
+        }
+
         try {
             const orderRef = doc(db, 'orders', orderId)
             await updateDoc(orderRef, {
@@ -1489,6 +1496,11 @@ export default function TodayOrdersPage() {
     }
 
     const handleDeleteOrder = async (orderId: string) => {
+        if (business?.id !== MUNCHYS_BUSINESS_ID) {
+            alert('Solo Munchys puede borrar órdenes.')
+            return
+        }
+
         if (!window.confirm('¿Estás seguro de que deseas eliminar este pedido?')) return
 
         try {
@@ -1573,7 +1585,7 @@ export default function TodayOrdersPage() {
         )
     }
 
-    const canChangeDelivery = business?.email === 'munchys.ec@gmail.com'
+    const canManageRestrictedOrderActions = business?.id === MUNCHYS_BUSINESS_ID
 
     return (
         <div className="min-h-screen bg-gray-100 flex flex-col">
@@ -1895,7 +1907,7 @@ export default function TodayOrdersPage() {
                                             setManualSidebarMode('edit')
                                             setManualOrderSidebarOpen(true)
                                         }}
-                                        onOrderDelete={(id) => handleDeleteOrder(id)}
+                                        onOrderDelete={canManageRestrictedOrderActions ? (id) => handleDeleteOrder(id) : undefined}
                                         onOrderStatusChange={handleStatusChange}
                                         getStatusColor={getStatusColor}
                                         getStatusText={getStatusText}
@@ -1929,6 +1941,7 @@ export default function TodayOrdersPage() {
                                         }}
                                         businessPhone={business?.phone}
                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
+                                        canDeleteOrders={canManageRestrictedOrderActions}
                                     />
                                     {historyLoading && (
                                         <div className="flex justify-center py-8">
@@ -2062,7 +2075,8 @@ export default function TodayOrdersPage() {
                                                         setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
-                                                        canChangeDelivery={canChangeDelivery}
+                                                        canChangeDelivery={canManageRestrictedOrderActions}
+                                                        canDeleteOrders={canManageRestrictedOrderActions}
                                                         deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                     />
@@ -2088,7 +2102,8 @@ export default function TodayOrdersPage() {
                                                         setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
-                                                        canChangeDelivery={canChangeDelivery}
+                                                        canChangeDelivery={canManageRestrictedOrderActions}
+                                                        canDeleteOrders={canManageRestrictedOrderActions}
                                                         deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                     />
@@ -2200,7 +2215,8 @@ export default function TodayOrdersPage() {
                                                         setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
-                                                        canChangeDelivery={canChangeDelivery}
+                                                        canChangeDelivery={canManageRestrictedOrderActions}
+                                                        canDeleteOrders={canManageRestrictedOrderActions}
                                                         deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
                                                     />
@@ -2238,7 +2254,7 @@ export default function TodayOrdersPage() {
                                 order={selectedOrderForStatusModal}
                                 deliveryAgent={availableDeliveries.find(d => d.id === selectedOrderForStatusModal?.delivery?.assignedDelivery)}
                                 availableDeliveries={availableDeliveries}
-                                canChangeDelivery={canChangeDelivery}
+                                canChangeDelivery={canManageRestrictedOrderActions}
                                 onDeliveryAssign={handleDeliveryAssignment}
                                 onWhatsApp={() => {
                                     if (selectedOrderForStatusModal) {
@@ -2700,6 +2716,7 @@ function OrderStatusColumn({
     setCustomerContactModalOpen,
     business,
     canChangeDelivery,
+    canDeleteOrders,
     deliveryTimeMinutes,
     autoPrintOnConfirm
 }: any) {
@@ -2757,6 +2774,7 @@ function OrderStatusColumn({
                                 sectionKey={sectionKey}
                                 businessPhone={business?.phone}
                                 canChangeDelivery={canChangeDelivery}
+                                canDeleteOrders={canDeleteOrders}
                                 deliveryTimeMinutes={deliveryTimeMinutes}
                                 autoPrintOnConfirm={autoPrintOnConfirm}
                              />
@@ -2835,6 +2853,7 @@ function OrderCard({
     sectionKey,
     businessPhone,
     canChangeDelivery,
+    canDeleteOrders,
     deliveryTimeMinutes,
     autoPrintOnConfirm
 }: {
@@ -2852,6 +2871,7 @@ function OrderCard({
     sectionKey?: string,
     businessPhone?: string,
     canChangeDelivery?: boolean,
+    canDeleteOrders?: boolean,
     deliveryTimeMinutes?: number,
     autoPrintOnConfirm?: boolean
 }) {
@@ -3400,12 +3420,14 @@ function OrderCard({
                             <i className="bi bi-pencil"></i>
                             Editar
                         </button>
-                        <button
-                            onClick={onDelete}
-                            className="flex items-center justify-center p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
-                        >
-                            <i className="bi bi-trash"></i>
-                        </button>
+                        {canDeleteOrders && (
+                            <button
+                                onClick={onDelete}
+                                className="flex items-center justify-center p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                            >
+                                <i className="bi bi-trash"></i>
+                            </button>
+                        )}
                     </div>
                 </div>
             )}
