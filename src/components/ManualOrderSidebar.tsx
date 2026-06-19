@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Business, Product, ProductVariant } from '@/types'
 import { GoogleMap } from './GoogleMap'
 import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation } from '@/lib/database'
@@ -227,6 +227,29 @@ export default function ManualOrderSidebar({
   }, [customProductData.price, businessDefaultCommissionType, businessCommissionRate])
 
   const canChangeDelivery = business?.email === 'munchys.ec@gmail.com';
+
+  const sidebarRef = useRef<HTMLDivElement>(null)
+
+  // Bloquear zoom de pellizco (multi-touch) en el sidebar
+  useEffect(() => {
+    if (!isOpen) return
+
+    const sidebar = sidebarRef.current
+    if (!sidebar) return
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length > 1) {
+        e.preventDefault()
+      }
+    }
+
+    // Agregar listener no pasivo para poder llamar a preventDefault()
+    sidebar.addEventListener('touchmove', handleTouchMove, { passive: false })
+
+    return () => {
+      sidebar.removeEventListener('touchmove', handleTouchMove)
+    }
+  }, [isOpen])
 
   // Cleanup del timeout al desmontar
   useEffect(() => {
@@ -1908,13 +1931,31 @@ export default function ManualOrderSidebar({
     return manualOrderData.orderStatus;
   }, [isInfoComplete, manualOrderData.orderStatus]);
 
+  const isTomorrowSelected = useMemo(() => {
+    if (!manualOrderData.scheduledDate) return false
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const yyyy = tomorrow.getFullYear()
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, '0')
+    const dd = String(tomorrow.getDate()).padStart(2, '0')
+    const tomorrowStr = `${yyyy}-${mm}-${dd}`
+    return manualOrderData.scheduledDate === tomorrowStr
+  }, [manualOrderData.scheduledDate])
+
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
+    <div 
+      className="fixed inset-0 z-50 overflow-hidden"
+      style={{ overscrollBehavior: 'contain', touchAction: 'pan-x pan-y' }}
+    >
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={handleCancel}></div>
 
-      <div className="absolute right-0 top-0 h-full w-full max-w-lg bg-white shadow-xl flex flex-col">
+      <div 
+        ref={sidebarRef}
+        className="absolute right-0 top-0 h-full w-full max-w-lg bg-white shadow-xl flex flex-col"
+        style={{ overscrollBehavior: 'contain', touchAction: 'pan-x pan-y' }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">{mode === 'edit' ? 'Editar pedido' : 'Nuevo pedido'}</h2>
@@ -1929,7 +1970,10 @@ export default function ManualOrderSidebar({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 pb-24">
+        <div 
+          className="flex-1 overflow-y-auto p-4 pb-24"
+          style={{ overscrollBehavior: 'contain' }}
+        >
           {showBusinessSelector && (
             <div className="mb-6">
               <label className="block text-sm font-medium text-black mb-2">
@@ -2725,12 +2769,32 @@ export default function ManualOrderSidebar({
                   <label className="block text-xs font-medium text-gray-600 mb-1">
                     Fecha
                   </label>
-                  <input
-                    type="date"
-                    value={manualOrderData.scheduledDate}
-                    onChange={(e) => setManualOrderData(prev => ({ ...prev, scheduledDate: e.target.value }))}
-                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={manualOrderData.scheduledDate}
+                      onChange={(e) => setManualOrderData(prev => ({ ...prev, scheduledDate: e.target.value }))}
+                      className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const tomorrow = new Date()
+                        tomorrow.setDate(tomorrow.getDate() + 1)
+                        const yyyy = tomorrow.getFullYear()
+                        const mm = String(tomorrow.getMonth() + 1).padStart(2, '0')
+                        const dd = String(tomorrow.getDate()).padStart(2, '0')
+                        setManualOrderData(prev => ({ ...prev, scheduledDate: `${yyyy}-${mm}-${dd}` }))
+                      }}
+                      className={`px-3 py-1 text-xs font-semibold rounded border transition-all duration-200 cursor-pointer ${
+                        isTomorrowSelected
+                          ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+                      }`}
+                    >
+                      Mañana
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -2740,7 +2804,7 @@ export default function ManualOrderSidebar({
                     type="time"
                     value={manualOrderData.scheduledTime}
                     onChange={(e) => setManualOrderData(prev => ({ ...prev, scheduledTime: e.target.value }))}
-                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
                   />
                 </div>
               </div>
@@ -2955,7 +3019,10 @@ export default function ManualOrderSidebar({
         {isVariantModalOpen && selectedProductForVariants && (
           /* ... */
           <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
-            <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div 
+              className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 max-h-[90vh] overflow-y-auto"
+              style={{ overscrollBehavior: 'contain' }}
+            >
               <h3 className="text-lg font-semibold mb-4">Seleccionar variante</h3>
               <p className="text-sm text-gray-600 mb-4">{selectedProductForVariants.name}</p>
 
@@ -3000,7 +3067,10 @@ export default function ManualOrderSidebar({
       {/* Modal de ubicaciones */}
       {showLocationModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[80vh] overflow-y-auto">
+          <div 
+            className="bg-white rounded-lg p-6 w-full max-w-md max-h-[80vh] overflow-y-auto"
+            style={{ overscrollBehavior: 'contain' }}
+          >
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">Seleccionar ubicación</h3>
               <button
