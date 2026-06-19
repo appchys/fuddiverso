@@ -68,6 +68,7 @@ interface ManualOrderData {
   notas: string
   notaImageUrl?: string
   receiptImageUrl?: string
+  customDeliveryCost?: number | null
 }
 
 interface ManualOrderSidebarProps {
@@ -124,7 +125,8 @@ export default function ManualOrderSidebar({
     orderStatus: 'pending',
     notas: '',
     notaImageUrl: '',
-    receiptImageUrl: ''
+    receiptImageUrl: '',
+    customDeliveryCost: null
   })
 
   const [searchingClient, setSearchingClient] = useState(false)
@@ -175,6 +177,13 @@ export default function ManualOrderSidebar({
   const [calculatedDistance, setCalculatedDistance] = useState<number | null>(null)
   // Estados para modal de deliveries
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
+
+  // Estados para edición manual del costo de envío
+  const [isEditingDeliveryCost, setIsEditingDeliveryCost] = useState(false)
+  const [tempDeliveryCost, setTempDeliveryCost] = useState('')
+  
+  // Estado para la vista previa de datos pegados de WhatsApp
+  const [pastePreview, setPastePreview] = useState<{ location: string; reference: string } | null>(null)
 
   // Estados para modal de producto personalizado
   const [showCustomProductModal, setShowCustomProductModal] = useState(false)
@@ -252,9 +261,23 @@ export default function ManualOrderSidebar({
 
   // Recalcular total cuando cambie la ubicación seleccionada o el tipo de entrega
   useEffect(() => {
-    if (manualOrderData.selectedProducts.length > 0) {
-      calculateTotal(manualOrderData.selectedProducts)
-    }
+    // Si cambia la ubicación o el tipo de entrega, reseteamos el costo de envío personalizado
+    setManualOrderData(prev => {
+      const subtotal = prev.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+      const deliveryCost = prev.deliveryType === 'delivery'
+        ? (prev.selectedLocation?.latlong ? parseFloat(prev.selectedLocation?.tarifa || '0') : 1.25)
+        : 0
+      const total = subtotal + deliveryCost
+      return {
+        ...prev,
+        customDeliveryCost: null,
+        total: total,
+        ...(prev.paymentMethod === 'mixed' && (prev.cashAmount === 0 && prev.transferAmount === 0) && {
+          cashAmount: total / 2,
+          transferAmount: total / 2
+        })
+      }
+    })
   }, [manualOrderData.selectedLocation, manualOrderData.deliveryType])
 
   // Eliminar el useEffect que calculaba tarifa automáticamente al cambiar deliveryType
@@ -515,46 +538,46 @@ export default function ManualOrderSidebar({
 
   // Normalizar número de teléfono ecuatoriano
   const normalizePhone = (phone: string): string => {
-    // Remover todos los espacios, guiones y paréntesis
-    let cleanPhone = phone.replace(/[\s\-\(\)]/g, '')
+    // 1. Obtener solo los dígitos
+    let digits = phone.replace(/\D/g, '')
 
-    // Si empieza con +593, convertir a formato nacional (09xxxxxxxx)
-    if (cleanPhone.startsWith('+593')) {
-      cleanPhone = '0' + cleanPhone.substring(4)
-    } 
-    // Si empieza con 593 (sin +), convertir a formato nacional
-    else if (cleanPhone.startsWith('593')) {
-      cleanPhone = '0' + cleanPhone.substring(3)
+    // 2. Si empieza con 00593, remover 00593
+    if (digits.startsWith('00593')) {
+      digits = digits.substring(5)
     }
-    // Si empieza con 9 y tiene 9 dígitos, ya está en formato correcto
-    else if (cleanPhone.startsWith('9') && cleanPhone.length === 9) {
-      // Ya está correcto, no hacer nada
-    }
-    // Si empieza con 0 y tiene 10 dígitos, ya está en formato correcto
-    else if (cleanPhone.startsWith('0') && cleanPhone.length === 10) {
-      // Ya está correcto, no hacer nada
-    }
-    // Si tiene 8 dígitos y no empieza con 0, agregar el 0
-    else if (cleanPhone.length === 8 && !cleanPhone.startsWith('0')) {
-      cleanPhone = '0' + cleanPhone
+    // 3. Si empieza con 593, remover 593
+    else if (digits.startsWith('593')) {
+      digits = digits.substring(3)
     }
 
-    // Validar que el resultado tenga 10 dígitos y empiece con 0
-    if (!/^0\d{9}$/.test(cleanPhone)) {
+    // 4. Si el resultado no empieza con '0' y tiene contenido, agregarle '0'
+    if (digits.length > 0 && !digits.startsWith('0')) {
+      digits = '0' + digits
+    }
+
+    // Validar que el resultado sea un número ecuatoriano típico (9 o 10 dígitos iniciando con 0)
+    if (digits.length > 0 && !/^0\d{8,9}$/.test(digits)) {
       console.warn('[ManualOrder] Teléfono no válido después de normalización:', {
         original: phone,
-        normalized: cleanPhone
+        normalized: digits
       })
     }
 
-    return cleanPhone
+    return digits
   }
 
   const normalizePastedPhoneInput = (phone: string): string => {
     const digitsOnly = phone.replace(/\D/g, '')
     const trimmedPhone = phone.trim()
+    const hasSpecialChars = /[\s\-\(\)\+\–\—\−]/.test(phone)
 
-    if (trimmedPhone.startsWith('+593') || (digitsOnly.startsWith('593') && digitsOnly.length > 10)) {
+    if (
+      hasSpecialChars ||
+      trimmedPhone.startsWith('+593') ||
+      (digitsOnly.startsWith('593') && digitsOnly.length > 10) ||
+      (digitsOnly.startsWith('9') && digitsOnly.length === 9) ||
+      (digitsOnly.length >= 10)
+    ) {
       return normalizePhone(phone)
     }
 
@@ -879,8 +902,8 @@ export default function ManualOrderSidebar({
   // Función para normalizar coordenadas (eliminar espacios, convertir comas decimales a puntos)
   const normalizeLatLong = (coords: string): string => {
 
-    // Primero, trim y eliminar espacios después de comas
-    let normalized = coords.trim();
+    // Primero, trim, eliminar paréntesis o corchetes del inicio/fin y espacios
+    let normalized = coords.trim().replace(/^[\(\[\s]+|[\)\]\s]+$/g, '');
 
     // El problema: -1,8732619, -79,9795561 tiene 3 comas:
     // - Una como separador decimal de lat
@@ -980,6 +1003,102 @@ export default function ManualOrderSidebar({
     }
     return validateCoordinates(location);
   };
+
+  // Función para súper pegar desde WhatsApp
+  const handleSuperPaste = async (isSilent: boolean = false) => {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (!text.trim()) {
+        if (!isSilent) displayToast('El portapapeles está vacío')
+        return
+      }
+
+      // Helper para limpiar referencias de caracteres invisibles y prefijos comunes
+      const cleanReferenceString = (textStr: string): string => {
+        // Remover caracteres invisibles bidi (comunes al copiar de WhatsApp)
+        let cleaned = textStr.replace(/[\u200e\u200f\u202a-\u202e\ufeff\u200b]/g, '')
+        // Limpiar prefijos de ubicación/referencia comunes
+        cleaned = cleaned.replace(/^(Ubicación|Ubicacion|Referencia|Referencias|Indicaciones|Dirección|Direccion|📍|🏠|🚗|📦):\s*/i, '')
+        // Limpiar conectores y espacios del inicio y fin
+        cleaned = cleaned.replace(/^[\s,;\-\|]+|[\s,;\-\|]+$/g, '')
+        return cleaned.trim()
+      }
+
+      const lines = text.split('\n')
+      let extractedLocation = ''
+      let extractedReferences: string[] = []
+
+      for (const line of lines) {
+        const cleanLine = line.trim()
+        if (!cleanLine) continue
+
+        // Intentar extraer el mensaje limpio de WhatsApp
+        let content = cleanLine
+        const waMatch = cleanLine.match(/^\[?\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4},?\s*[^\]\-]*?[\]\-]\s*[^:]+:\s*(.*)$/i)
+        if (waMatch) {
+          content = waMatch[1].trim()
+        }
+
+        const hasGoogleMaps = /google\.(com|es)\/maps|maps\.app\.goo\.gl|maps\.google/i.test(content)
+        const urlMatch = content.match(/https?:\/\/[^\s]+/)
+
+        if (hasGoogleMaps && urlMatch) {
+          extractedLocation = urlMatch[0]
+          // Si la línea tiene más texto aparte del URL, usar el resto como referencia
+          const textWithoutUrl = content.replace(urlMatch[0], '').trim()
+          const cleanText = cleanReferenceString(textWithoutUrl)
+          if (cleanText) {
+            extractedReferences.push(cleanText)
+          }
+        } else if (isPlusCode(content)) {
+          extractedLocation = content
+        } else if (validateCoordinates(content)) {
+          extractedLocation = content
+        } else {
+          // Si no es ubicación, limpiamos prefijos comunes si los hay
+          const cleanContent = cleanReferenceString(content)
+          if (cleanContent) {
+            extractedReferences.push(cleanContent)
+          }
+        }
+      }
+
+      if (extractedLocation || extractedReferences.length > 0) {
+        setPastePreview({
+          location: extractedLocation,
+          reference: extractedReferences.join(' | ')
+        })
+        displayToast('Vista previa cargada')
+      } else {
+        if (!isSilent) displayToast('Formato no reconocido')
+      }
+    } catch (err) {
+      console.error('Error en handleSuperPaste:', err)
+      if (!isSilent) displayToast('Error al leer del portapapeles')
+    }
+  }
+
+  // Obtener latlong limpio de la vista previa para el mapa estático
+  const getPreviewLatLong = (): string => {
+    if (!pastePreview || !pastePreview.location) return ''
+    const loc = pastePreview.location
+    if (loc.startsWith('pluscode:')) return ''
+    const coords = extractCoordinatesFromGoogleMaps(loc)
+    if (coords) {
+      return normalizeLatLong(coords)
+    }
+    if (validateCoordinates(loc)) {
+      return normalizeLatLong(loc)
+    }
+    return ''
+  }
+
+  // Ejecutar súper pegar automáticamente al abrir el formulario de nueva ubicación
+  useEffect(() => {
+    if (showNewLocationForm) {
+      void handleSuperPaste(true)
+    }
+  }, [showNewLocationForm])
 
   // Función para manejar cambio en el campo de ubicación (Enlace, Coordenadas o Plus Code)
   const handleLocationInputChange = async (value: string) => {
@@ -1470,11 +1589,32 @@ export default function ManualOrderSidebar({
     calculateTotal(updatedProducts)
   }
 
+  // Guardar costo de envío editado manualmente
+  const handleSaveDeliveryCost = () => {
+    const val = parseFloat(tempDeliveryCost)
+    if (isNaN(val) || val < 0) {
+      alert('Por favor ingrese un valor de envío válido (mayor o igual a 0)')
+      return
+    }
+    setManualOrderData(prev => ({
+      ...prev,
+      customDeliveryCost: val
+    }))
+    calculateTotal(manualOrderData.selectedProducts, val)
+    setIsEditingDeliveryCost(false)
+  }
+
   // Calcular total
-  const calculateTotal = (products: OrderItem[]) => {
+  const calculateTotal = (products: OrderItem[], overrideCustomDeliveryCost?: number | null) => {
     const subtotal = products.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+    const customCost = overrideCustomDeliveryCost !== undefined
+      ? overrideCustomDeliveryCost
+      : manualOrderData.customDeliveryCost
+
     const deliveryCost = manualOrderData.deliveryType === 'delivery'
-      ? (manualOrderData.selectedLocation?.latlong ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0') : 1.25)
+      ? (customCost !== null && customCost !== undefined
+          ? customCost
+          : (manualOrderData.selectedLocation?.latlong ? parseFloat(manualOrderData.selectedLocation?.tarifa || '0') : 1.25))
       : 0
     const total = subtotal + deliveryCost
 
@@ -1556,7 +1696,9 @@ export default function ManualOrderSidebar({
             references: manualOrderData.selectedLocation?.referencia || '',
             sector: manualOrderData.selectedLocation?.sector || '',
             photo: manualOrderData.selectedLocation?.photo || '', // AÑADIDO: Guardar la foto de ubicación
-            deliveryCost: parseFloat(manualOrderData.selectedLocation?.tarifa || '0'),
+            deliveryCost: manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined
+              ? manualOrderData.customDeliveryCost
+              : parseFloat(manualOrderData.selectedLocation?.tarifa || '0'),
             assignedDelivery: manualOrderData.selectedDelivery?.id || null
           })
         },
@@ -1732,12 +1874,15 @@ export default function ManualOrderSidebar({
       orderStatus: 'borrador',
       notas: '',
       notaImageUrl: '',
-      receiptImageUrl: ''
+      receiptImageUrl: '',
+      customDeliveryCost: null
     })
     setNotaImageFile(null)
     setNotaImagePreview('')
     setClientFound(false)
     setShowCreateClient(false)
+    setIsEditingDeliveryCost(false)
+    setTempDeliveryCost('')
   }
 
   const handleCancel = () => {
@@ -2610,10 +2755,73 @@ export default function ManualOrderSidebar({
                 <span>Subtotal:</span>
                 <span>${manualOrderData.selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2)}</span>
               </div>
-              {manualOrderData.deliveryType === 'delivery' && manualOrderData.selectedLocation && (
-                <div className="flex justify-between">
+              {manualOrderData.deliveryType === 'delivery' && (
+                <div className="flex justify-between items-center py-0.5">
                   <span>Envío:</span>
-                  <span>${parseFloat(manualOrderData.selectedLocation.tarifa)}</span>
+                  {isEditingDeliveryCost ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-gray-500 text-xs font-semibold">$</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={tempDeliveryCost}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          if (val === '' || /^[0-9]*\.?[0-9]*$/.test(val)) {
+                            setTempDeliveryCost(val)
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleSaveDeliveryCost()
+                          } else if (e.key === 'Escape') {
+                            setIsEditingDeliveryCost(false)
+                          }
+                        }}
+                        className="w-16 px-1.5 py-0.5 text-xs text-right border border-blue-400 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium text-gray-800"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveDeliveryCost}
+                        className="text-green-600 hover:text-green-800 transition-colors p-0.5 flex items-center justify-center"
+                        title="Guardar"
+                      >
+                        <i className="bi bi-check-lg text-sm font-bold"></i>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingDeliveryCost(false)}
+                        className="text-red-500 hover:text-red-700 transition-colors p-0.5 flex items-center justify-center"
+                        title="Cancelar"
+                      >
+                        <i className="bi bi-x-lg text-sm font-bold"></i>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 group">
+                      <span>
+                        ${(manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined
+                          ? manualOrderData.customDeliveryCost
+                          : (manualOrderData.selectedLocation ? parseFloat(manualOrderData.selectedLocation.tarifa) : 1.25)
+                        ).toFixed(2)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentCost = manualOrderData.customDeliveryCost !== null && manualOrderData.customDeliveryCost !== undefined
+                            ? manualOrderData.customDeliveryCost
+                            : (manualOrderData.selectedLocation ? parseFloat(manualOrderData.selectedLocation.tarifa) : 1.25)
+                          setTempDeliveryCost(currentCost.toString())
+                          setIsEditingDeliveryCost(true)
+                        }}
+                        className="text-gray-400 hover:text-blue-600 transition-colors ml-1.5 p-0.5 rounded cursor-pointer flex items-center justify-center"
+                        title="Editar costo de envío"
+                      >
+                        <i className="bi bi-pencil-fill text-[10px]"></i>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
               <div className="flex justify-between font-medium border-t pt-1">
@@ -2809,6 +3017,7 @@ export default function ManualOrderSidebar({
                   setShowMapSelection(false);
                   setLocationImageFile(null);
                   setLocationImagePreview('');
+                  setPastePreview(null);
                 }}
                 className="text-gray-500 hover:text-gray-700"
               >
@@ -2984,7 +3193,64 @@ export default function ManualOrderSidebar({
             ) : (
               /* Formulario para nueva ubicación */
               <div>
-                <h4 className="text-md font-medium mb-4">Crear nueva ubicación</h4>
+
+                {/* Vista previa de datos pegados */}
+                {pastePreview && (
+                  <div className="p-2.5 bg-blue-50/70 border border-blue-100 rounded-lg mb-4 text-xs relative flex flex-col gap-2 shadow-sm">
+                    {/* Botones de acción en la esquina superior derecha */}
+                    <div className="absolute right-2 top-2 flex gap-1.5 z-10">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (pastePreview.location) {
+                            await handleLocationInputChange(pastePreview.location)
+                          }
+                          if (pastePreview.reference) {
+                            setNewLocationData(prev => ({ ...prev, referencia: pastePreview.reference }))
+                          }
+                          setPastePreview(null)
+                          displayToast('¡Datos aplicados!')
+                        }}
+                        className="h-6 w-6 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors shadow-sm"
+                        title="Confirmar y Rellenar"
+                      >
+                        <i className="bi bi-check-lg text-sm"></i>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPastePreview(null)}
+                        className="h-6 w-6 flex items-center justify-center bg-gray-200 hover:bg-gray-300 text-gray-600 rounded-md transition-colors"
+                        title="Descartar"
+                      >
+                        <i className="bi bi-x-lg text-xs"></i>
+                      </button>
+                    </div>
+
+                    {/* Información y mapa */}
+                    <div className="pr-16 space-y-1.5">
+                      {getPreviewLatLong() && (
+                        <div className="w-full h-[76px] bg-gray-200 rounded overflow-hidden relative border border-blue-100">
+                          <img
+                            src={`https://maps.googleapis.com/maps/api/staticmap?center=${getPreviewLatLong()}&zoom=14&size=400x152&scale=2&maptype=roadmap&markers=color:red%7C${getPreviewLatLong()}&key=${GOOGLE_MAPS_API_KEY}`}
+                            alt="Vista previa de ubicación"
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        </div>
+                      )}
+                      {pastePreview.location && !getPreviewLatLong() && (
+                        <div className="text-[10px] text-gray-500 font-medium break-all leading-tight">
+                          📍 {pastePreview.location}
+                        </div>
+                      )}
+                      {pastePreview.reference && (
+                        <div className="text-[11px] text-gray-700 font-medium leading-tight">
+                          🏠 {pastePreview.reference}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-4">
                   {/* Referencia */}
