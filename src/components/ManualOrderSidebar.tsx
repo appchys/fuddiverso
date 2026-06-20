@@ -1052,7 +1052,8 @@ export default function ManualOrderSidebar({
       let extractedReferences: string[] = []
 
       for (const line of lines) {
-        const cleanLine = line.trim()
+        // Remover caracteres invisibles bidi antes de limpiar y procesar
+        const cleanLine = line.replace(/[\u200e\u200f\u202a-\u202e\ufeff\u200b]/g, '').trim()
         if (!cleanLine) continue
 
         // Intentar extraer el mensaje limpio de WhatsApp
