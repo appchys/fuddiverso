@@ -1047,7 +1047,7 @@ export default function ManualOrderSidebar({
         return cleaned.trim()
       }
 
-      const lines = text.split('\n')
+      const lines = text.split(/\r?\n|\r/)
       let extractedLocation = ''
       let extractedReferences: string[] = []
 
@@ -1088,12 +1088,62 @@ export default function ManualOrderSidebar({
       }
 
       if (extractedLocation || extractedReferences.length > 0) {
+        let resolvedLatLong = ''
+        let sector = ''
+        let tarifa = '1.25'
+
         if (extractedLocation) {
-          await handleLocationInputChange(extractedLocation)
+          if (isPlusCode(extractedLocation)) {
+            const plusCode = extractPlusCode(extractedLocation)
+            if (plusCode) {
+              resolvedLatLong = `pluscode:${plusCode}`
+              sector = 'Plus Code (Revisar en Maps)'
+            }
+          } else {
+            const coordinates = extractCoordinatesFromGoogleMaps(extractedLocation)
+            if (coordinates) {
+              resolvedLatLong = normalizeLatLong(coordinates)
+            } else if (validateCoordinates(extractedLocation)) {
+              resolvedLatLong = normalizeLatLong(extractedLocation)
+            }
+          }
+
+          if (resolvedLatLong) {
+            if (business?.id) {
+              const [lat, lng] = resolvedLatLong.startsWith('pluscode:') 
+                ? [NaN, NaN] 
+                : resolvedLatLong.split(',').map(p => parseFloat(p.trim()))
+              
+              if (!isNaN(lat) && !isNaN(lng)) {
+                const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
+                tarifa = (fee === 0 ? 1.5 : fee).toString()
+                sector = zoneName
+              }
+            }
+          }
         }
-        if (extractedReferences.length > 0) {
-          setNewLocationData(prev => ({ ...prev, referencia: extractedReferences.join(' | ') }))
+
+        setNewLocationData(prev => ({
+          ...prev,
+          ...(resolvedLatLong ? { latlong: resolvedLatLong } : (extractedLocation ? { latlong: extractedLocation } : {})),
+          ...(sector ? { sector } : {}),
+          ...(tarifa ? { tarifa } : {}),
+          referencia: extractedReferences.join(' | ') || prev.referencia
+        }))
+
+        // Si se extrajo ubicación, también disparamos la asignación de delivery
+        if (resolvedLatLong && !resolvedLatLong.startsWith('pluscode:')) {
+          const tempLocObj = {
+            id: 'temp',
+            id_cliente: '',
+            latlong: resolvedLatLong,
+            referencia: extractedReferences.join(' | '),
+            sector: sector || 'Sin especificar',
+            tarifa: tarifa
+          }
+          findDeliveryForLocation(tempLocObj)
         }
+
         displayToast('¡Información pegada!')
       } else {
         if (!isSilent) displayToast('Formato no reconocido')
