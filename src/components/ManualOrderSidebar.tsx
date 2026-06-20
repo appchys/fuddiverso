@@ -182,8 +182,7 @@ export default function ManualOrderSidebar({
   const [isEditingDeliveryCost, setIsEditingDeliveryCost] = useState(false)
   const [tempDeliveryCost, setTempDeliveryCost] = useState('')
   
-  // Estado para la vista previa de datos pegados de WhatsApp
-  const [pastePreview, setPastePreview] = useState<{ location: string; reference: string } | null>(null)
+
 
   // Estados para modal de producto personalizado
   const [showCustomProductModal, setShowCustomProductModal] = useState(false)
@@ -1028,6 +1027,7 @@ export default function ManualOrderSidebar({
   };
 
   // Función para súper pegar desde WhatsApp
+  // Función para súper pegar desde WhatsApp directamente
   const handleSuperPaste = async (isSilent: boolean = false) => {
     try {
       const text = await navigator.clipboard.readText()
@@ -1087,11 +1087,13 @@ export default function ManualOrderSidebar({
       }
 
       if (extractedLocation || extractedReferences.length > 0) {
-        setPastePreview({
-          location: extractedLocation,
-          reference: extractedReferences.join(' | ')
-        })
-        displayToast('Vista previa cargada')
+        if (extractedLocation) {
+          await handleLocationInputChange(extractedLocation)
+        }
+        if (extractedReferences.length > 0) {
+          setNewLocationData(prev => ({ ...prev, referencia: extractedReferences.join(' | ') }))
+        }
+        displayToast('¡Información pegada!')
       } else {
         if (!isSilent) displayToast('Formato no reconocido')
       }
@@ -1100,28 +1102,6 @@ export default function ManualOrderSidebar({
       if (!isSilent) displayToast('Error al leer del portapapeles')
     }
   }
-
-  // Obtener latlong limpio de la vista previa para el mapa estático
-  const getPreviewLatLong = (): string => {
-    if (!pastePreview || !pastePreview.location) return ''
-    const loc = pastePreview.location
-    if (loc.startsWith('pluscode:')) return ''
-    const coords = extractCoordinatesFromGoogleMaps(loc)
-    if (coords) {
-      return normalizeLatLong(coords)
-    }
-    if (validateCoordinates(loc)) {
-      return normalizeLatLong(loc)
-    }
-    return ''
-  }
-
-  // Ejecutar súper pegar automáticamente al abrir el formulario de nueva ubicación
-  useEffect(() => {
-    if (showNewLocationForm) {
-      void handleSuperPaste(true)
-    }
-  }, [showNewLocationForm])
 
   // Función para manejar cambio en el campo de ubicación (Enlace, Coordenadas o Plus Code)
   const handleLocationInputChange = async (value: string) => {
@@ -3072,27 +3052,40 @@ export default function ManualOrderSidebar({
             style={{ overscrollBehavior: 'contain' }}
           >
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Seleccionar ubicación</h3>
-              <button
-                onClick={() => {
-                  setShowLocationModal(false);
-                  setShowNewLocationForm(false);
-                  setNewLocationData({
-                    referencia: '',
-                    tarifa: '1',
-                    latlong: '',
-                    photo: '',
-                    sector: ''
-                  });
-                  setShowMapSelection(false);
-                  setLocationImageFile(null);
-                  setLocationImagePreview('');
-                  setPastePreview(null);
-                }}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <i className="bi bi-x-lg"></i>
-              </button>
+              <h3 className="text-lg font-semibold">
+                {showNewLocationForm ? 'Nueva ubicación' : 'Seleccionar ubicación'}
+              </h3>
+              <div className="flex items-center gap-2">
+                {showNewLocationForm && (
+                  <button
+                    type="button"
+                    onClick={() => handleSuperPaste(false)}
+                    className="h-8 w-8 flex items-center justify-center bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-md border border-blue-100 transition-all cursor-pointer shadow-sm"
+                    title="Pegar datos de WhatsApp"
+                  >
+                    <i className="bi bi-clipboard-plus text-sm"></i>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setShowLocationModal(false);
+                    setShowNewLocationForm(false);
+                    setNewLocationData({
+                      referencia: '',
+                      tarifa: '1',
+                      latlong: '',
+                      photo: '',
+                      sector: ''
+                    });
+                    setShowMapSelection(false);
+                    setLocationImageFile(null);
+                    setLocationImagePreview('');
+                  }}
+                  className="text-gray-500 hover:text-gray-700 p-1 rounded hover:bg-gray-100 transition-colors"
+                >
+                  <i className="bi bi-x-lg"></i>
+                </button>
+              </div>
             </div>
 
             {!showNewLocationForm ? (
@@ -3264,63 +3257,7 @@ export default function ManualOrderSidebar({
               /* Formulario para nueva ubicación */
               <div>
 
-                {/* Vista previa de datos pegados */}
-                {pastePreview && (
-                  <div className="p-2.5 bg-blue-50/70 border border-blue-100 rounded-lg mb-4 text-xs relative flex flex-col gap-2 shadow-sm">
-                    {/* Botones de acción en la esquina superior derecha */}
-                    <div className="absolute right-2 top-2 flex gap-1.5 z-10">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (pastePreview.location) {
-                            await handleLocationInputChange(pastePreview.location)
-                          }
-                          if (pastePreview.reference) {
-                            setNewLocationData(prev => ({ ...prev, referencia: pastePreview.reference }))
-                          }
-                          setPastePreview(null)
-                          displayToast('¡Datos aplicados!')
-                        }}
-                        className="h-6 w-6 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors shadow-sm"
-                        title="Confirmar y Rellenar"
-                      >
-                        <i className="bi bi-check-lg text-sm"></i>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPastePreview(null)}
-                        className="h-6 w-6 flex items-center justify-center bg-gray-200 hover:bg-gray-300 text-gray-600 rounded-md transition-colors"
-                        title="Descartar"
-                      >
-                        <i className="bi bi-x-lg text-xs"></i>
-                      </button>
-                    </div>
 
-                    {/* Información y mapa */}
-                    <div className="pr-16 space-y-1.5">
-                      {getPreviewLatLong() && (
-                        <div className="w-full h-[76px] bg-gray-200 rounded overflow-hidden relative border border-blue-100">
-                          <img
-                            src={`https://maps.googleapis.com/maps/api/staticmap?center=${getPreviewLatLong()}&zoom=14&size=400x152&scale=2&maptype=roadmap&markers=color:red%7C${getPreviewLatLong()}&key=${GOOGLE_MAPS_API_KEY}`}
-                            alt="Vista previa de ubicación"
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                          />
-                        </div>
-                      )}
-                      {pastePreview.location && !getPreviewLatLong() && (
-                        <div className="text-[10px] text-gray-500 font-medium break-all leading-tight">
-                          📍 {pastePreview.location}
-                        </div>
-                      )}
-                      {pastePreview.reference && (
-                        <div className="text-[11px] text-gray-700 font-medium leading-tight">
-                          🏠 {pastePreview.reference}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
 
                 <div className="space-y-4">
                   {/* Referencia */}
