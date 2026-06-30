@@ -411,37 +411,78 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
             groupedProducts.set(productName, existingGroup);
         });
         
+        // Helper to wrap text for Bluetooth printing
+        const wrapText = (text: string, maxWidth: number): string[] => {
+            const words = text.split(/\s+/);
+            const lines: string[] = [];
+            let currentLine = '';
+
+            for (const word of words) {
+                if (!word) continue;
+                if (word.length > maxWidth) {
+                    if (currentLine) {
+                        lines.push(currentLine);
+                        currentLine = '';
+                    }
+                    let remaining = word;
+                    while (remaining.length > maxWidth) {
+                        lines.push(remaining.substring(0, maxWidth));
+                        remaining = remaining.substring(maxWidth);
+                    }
+                    currentLine = remaining;
+                } else {
+                    if (currentLine.length === 0) {
+                        currentLine = word;
+                    } else if (currentLine.length + 1 + word.length <= maxWidth) {
+                        currentLine += ' ' + word;
+                    } else {
+                        lines.push(currentLine);
+                        currentLine = word;
+                    }
+                }
+            }
+            if (currentLine) {
+                lines.push(currentLine);
+            }
+            return lines;
+        };
+
         // Imprimir productos agrupados
         Array.from(groupedProducts.entries()).forEach(([productName, group]) => {
             if (!group.hasRealVariant || !groupItemsByProduct) {
                 // Sin variantes (o agrupación desactivada) - imprimir líneas directamente
                 group.lines.forEach(line => {
-                    let name = line.substring(4); // Quitar cantidad
-                    // Cortar nombre si es muy largo
-                    const maxNameLength = 28;
-                    if (name.length > maxNameLength) {
-                        name = name.substring(0, maxNameLength);
-                    }
-                    addLine(`${line.substring(0, 4)}${name}`);
+                    const qtyPrefix = line.substring(0, 4);
+                    const name = line.substring(4); // Quitar cantidad
+                    const wrappedNames = wrapText(name, 28);
+                    wrappedNames.forEach((wrappedName, idx) => {
+                        if (idx === 0) {
+                            addLine(`${qtyPrefix}${wrappedName}`);
+                        } else {
+                            addLine(`    ${wrappedName}`);
+                        }
+                    });
                 });
             } else {
                 // Con variantes y agrupación activa - primero el nombre del producto, luego las variantes
-                let displayProductName = productName;
-                const maxNameLength = 32; // Sin cantidad, puede usar más espacio
-                if (displayProductName.length > maxNameLength) {
-                    displayProductName = displayProductName.substring(0, maxNameLength);
-                }
+                const wrappedProductNames = wrapText(productName, 32);
                 commands.push(...ESC_POS.TEXT_BOLD_ON);
-                addLine(displayProductName);
+                wrappedProductNames.forEach(wrappedName => {
+                    addLine(wrappedName);
+                });
                 commands.push(...ESC_POS.TEXT_BOLD_OFF);
                 
                 group.lines.forEach(line => {
-                    let name = line.substring(4); // Quitar cantidad
-                    const maxNameLength = 28;
-                    if (name.length > maxNameLength) {
-                        name = name.substring(0, maxNameLength);
-                    }
-                    addLine(`${line.substring(0, 4)}${name}`);
+                    const qtyPrefix = line.substring(0, 4);
+                    const name = line.substring(4); // Quitar cantidad
+                    const wrappedNames = wrapText(name, 28);
+                    wrappedNames.forEach((wrappedName, idx) => {
+                        if (idx === 0) {
+                            addLine(`${qtyPrefix}${wrappedName}`);
+                        } else {
+                            addLine(`    ${wrappedName}`);
+                        }
+                    });
                 });
             }
         });

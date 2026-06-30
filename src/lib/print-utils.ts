@@ -103,7 +103,13 @@ export async function printOrder({ order, businessName, businessLogo, groupItems
             
             .items-table { width: 100%; border-collapse: collapse; margin-top: 2mm; }
             .items-table th { text-align: left; border-bottom: 1px dashed #000; padding-bottom: 1mm; }
-            .items-table td { vertical-align: top; padding: 1mm 0; }
+            .items-table td { 
+              vertical-align: top; 
+              padding: 1mm 0; 
+              word-break: break-word;
+              overflow-wrap: break-word;
+              white-space: normal;
+            }
             
             .totals-container { margin-top: 3mm; }
             .total-line { display: flex; justify-content: flex-end; gap: 5mm; margin-bottom: 1mm; }

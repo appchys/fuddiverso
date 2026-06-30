@@ -1,0 +1,51 @@
+
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect width="100%" height="100%" fill="#fff"/>
+  <g>
+    <path d="M 648.0005321912472 148.94456959231252 Q 975.5764667881433 152.33867538565647 1301.381161908974 151.18820897041653 Q 1300.1172119026232 433.9609399009132 1298.2281721422712 710.889224669793 Q 970.516930602041 710.5263552726492 651.199033902212 710.1628007461902 Q 652.4530867742869 424.0588394348126 648.0005321912472 148.94456959231252 Z" fill="#fff" stroke="#111111" stroke-width="5" />
+    <path d="M 667.6381581161527 166.52347666073914 Q 973.6180456603114 170.7467353136714 1282.0722642504352 166.5452721496534 Q 1282.3804188560512 425.3994683040301 1280.3890462614495 692.7005444399086 Q 969.8638687924146 694.521440633127 666.0504117124252 693.2696816411518 Q 667.8527247084796 435.4884000955973 667.6381581161527 166.52347666073914 Z" fill="none" stroke="#111111" stroke-width="2.5" stroke-dasharray="12 10" opacity="0.35" />
+    <path d="M 730 260 C 880 235, 1080 235, 1220 270" stroke="#3B76D1" stroke-width="4" fill="none"  opacity="0.22" stroke-linecap="round" stroke-linejoin="round" />
+    <line x1="736" y1="330" x2="1155" y2="330" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-dasharray="16 12" opacity="0.28" />
+    <line x1="1195" y1="318" x2="1235" y2="318" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 10" opacity="0.18" />
+    <line x1="736" y1="408" x2="1155" y2="408" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-dasharray="16 12" opacity="0.28" />
+    <line x1="1195" y1="396" x2="1235" y2="396" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 10" opacity="0.18" />
+    <line x1="736" y1="486" x2="1155" y2="486" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-dasharray="16 12" opacity="0.28" />
+    <line x1="1195" y1="474" x2="1235" y2="474" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 10" opacity="0.18" />
+    <line x1="736" y1="564" x2="1155" y2="564" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-dasharray="16 12" opacity="0.28" />
+    <line x1="1195" y1="552" x2="1235" y2="552" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 10" opacity="0.18" />
+    <text x="975" y="455" fill="#D84B3E" font-size="62" font-family="Segoe Print, Bradley Hand ITC, Comic Sans MS, cursive" font-weight="700" text-anchor="middle" transform="rotate(-4 975 455)">sin menú</text>
+    <text x="975" y="505" fill="#3B76D1" font-size="30" font-family="Segoe Print, Bradley Hand ITC, Comic Sans MS, cursive" font-weight="500" text-anchor="middle" transform="rotate(2 975 505)">carga pendiente</text>
+    <path d="M 1185 205 q 24 -18 48 0 v 80 q -24 18 -48 0 z" stroke="#111111" stroke-width="4" fill="none"  opacity="1" stroke-linecap="round" stroke-linejoin="round" />
+    <line x1="1199" y1="223" x2="1219" y2="223" stroke="#111111" stroke-width="3" stroke-linecap="round"  opacity="0.5" />
+    <line x1="1199" y1="241" x2="1219" y2="241" stroke="#111111" stroke-width="3" stroke-linecap="round"  opacity="0.5" />
+    <line x1="1199" y1="259" x2="1217" y2="259" stroke="#111111" stroke-width="3" stroke-linecap="round"  opacity="0.5" />
+    <path d="M 555 340 C 630 320, 640 385, 706 395" stroke="#E58A2B" stroke-width="7" fill="none"  opacity="1" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 695 385 l 20 8 l -11 -19" stroke="#E58A2B" stroke-width="7" fill="none"  opacity="1" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 535 520 C 615 505, 635 550, 700 555" stroke="#E58A2B" stroke-width="7" fill="none"  opacity="0.72" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 692 545 l 20 10 l -10 -19" stroke="#E58A2B" stroke-width="7" fill="none"  opacity="0.72" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 770 605 q 120 -42 220 0" stroke="#111111" stroke-width="3" fill="none" stroke-dasharray="10 12" opacity="0.28" stroke-linecap="round" stroke-linejoin="round" />
+    <text x="840" y="650" fill="#111111" font-size="24" font-family="Segoe Print, Bradley Hand ITC, Comic Sans MS, cursive" font-weight="500" text-anchor="start" transform="rotate(-3 840 650)">esperando datos</text>
+    <text x="1060" y="685" fill="#3B76D1" font-size="22" font-family="Segoe Print, Bradley Hand ITC, Comic Sans MS, cursive" font-weight="500" text-anchor="start" transform="rotate(5 1060 685)">restaurante abierto</text>
+    <line x1="318" y1="687" x2="296" y2="745" stroke="#111111" stroke-width="5" stroke-linecap="round"  opacity="1" />
+    <line x1="356" y1="690" x2="354" y2="745" stroke="#111111" stroke-width="5" stroke-linecap="round"  opacity="1" />
+    <line x1="394" y1="687" x2="410" y2="745" stroke="#111111" stroke-width="5" stroke-linecap="round"  opacity="1" />
+    <line x1="290" y1="745" x2="314" y2="745" stroke="#111111" stroke-width="5" stroke-linecap="round"  opacity="1" />
+    <line x1="344" y1="745" x2="370" y2="745" stroke="#111111" stroke-width="5" stroke-linecap="round"  opacity="1" />
+    <line x1="404" y1="745" x2="428" y2="745" stroke="#111111" stroke-width="5" stroke-linecap="round"  opacity="1" />
+    <path d="M 275 575 C 282 500, 336 445, 405 450 C 480 455, 505 520, 500 583 C 496 637, 468 677, 416 681 C 362 685, 288 647, 275 575 Z" fill="#111111" stroke="#111111" stroke-width="4" stroke-linejoin="round" />
+    <circle cx="342" cy="513" r="7" fill="#fff" />
+    <circle cx="380" cy="515" r="7" fill="#fff" />
+    <path d="M 358 540 q 4 5 10 0" stroke="#fff" stroke-width="2.2" fill="none"  opacity="0.95" stroke-linecap="round" stroke-linejoin="round" />
+    <line x1="285" y1="577" x2="225" y2="557" stroke="#111111" stroke-width="5" stroke-linecap="round"  opacity="1" />
+    <line x1="480" y1="577" x2="564" y2="533" stroke="#111111" stroke-width="5" stroke-linecap="round"  opacity="1" />
+    <path d="M 189.8468035681609 548.2275869317609 Q 215.3959326580129 548.2201291930118 248.05356815089803 547.3199273760616 Q 246.71136087711096 569.6845903356416 249.01942261589636 586.435913044434 Q 213.90978924456033 583.4139600586276 191.39054221603138 583.8430296078725 Q 191.42674124560014 560.4802542240175 189.8468035681609 548.2275869317609 Z" stroke="#111111" stroke-width="3.5" fill="none"  opacity="1" stroke-linecap="round" stroke-linejoin="round" />
+    <line x1="200" y1="565" x2="236" y2="565" stroke="#111111" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="7 7" opacity="0.45" />
+    <path d="M 566 531 C 608 511, 648 513, 676 535" stroke="#111111" stroke-width="4" fill="none"  opacity="1" stroke-linecap="round" stroke-linejoin="round" />
+    <ellipse cx="686" cy="541" rx="46" ry="22" fill="none" stroke="#111111" stroke-width="4" />
+    <ellipse cx="686" cy="541" rx="20" ry="9" fill="none" stroke="#111111" stroke-width="3" opacity="0.6" />
+    <text x="678" y="503" fill="#D84B3E" font-size="22" font-family="Segoe Print, Bradley Hand ITC, Comic Sans MS, cursive" font-weight="700" text-anchor="middle" transform="rotate(6 678 503)">vacío</text>
+    <text x="250" y="840" fill="#D84B3E" font-size="28" font-family="Segoe Print, Bradley Hand ITC, Comic Sans MS, cursive" font-weight="700" text-anchor="start" transform="rotate(-4 250 840)">tienda lista</text>
+    <text x="250" y="876" fill="#3B76D1" font-size="24" font-family="Segoe Print, Bradley Hand ITC, Comic Sans MS, cursive" font-weight="500" text-anchor="start" transform="rotate(0 250 876)">menú no cargado</text>
+    <path d="M 160 792 C 320 790, 470 800, 620 794" stroke="#111111" stroke-width="4" fill="none"  opacity="0.22" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+</svg>
