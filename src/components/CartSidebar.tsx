@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
-import { QRCode, UserQRProgress } from '@/types'
+import { QRCode, UserQRProgress, Product } from '@/types'
 import {
     getQRCodesByBusiness,
     getUserQRProgress,
@@ -15,10 +15,11 @@ import {
     clearClientPin,
     registerClientForgotPin,
     createClient,
-    updateClient
+    updateClient,
+    getProductsByBusiness
 } from '@/lib/database'
 import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
-import { formatPrice } from '@/lib/price-utils'
+import { formatPrice, getProductPublicPrice, getPriceMetadata, ensureCartItemMetadata } from '@/lib/price-utils'
 import { CheckoutContent } from '@/components/CheckoutContent'
 import OrderSidebar from '@/components/OrderSidebar'
 
@@ -32,6 +33,8 @@ interface CartSidebarProps {
     clearCart: () => void
     addItemToCart: (item: any) => void
     onOpenUserSidebar?: () => void
+    onShowProductDetails?: (product: any) => void
+    products?: Product[]
 }
 
 export default function CartSidebar({
@@ -43,7 +46,9 @@ export default function CartSidebar({
     updateQuantity,
     clearCart,
     addItemToCart,
-    onOpenUserSidebar
+    onOpenUserSidebar,
+    onShowProductDetails,
+    products
 }: CartSidebarProps) {
     const { user, login } = useAuth()
     const pathname = usePathname() ?? ''
@@ -58,6 +63,85 @@ export default function CartSidebar({
     const [localClientProfile, setLocalClientProfile] = useState<any | null>(null)
 
     const [qrCodes, setQrCodes] = useState<QRCode[]>([])
+
+    // Estados y lógica para Añadidos Rápidos
+    const [allProducts, setAllProducts] = useState<Product[]>([])
+
+    useEffect(() => {
+        if (products && products.length > 0) {
+            setAllProducts(products)
+            return
+        }
+
+        if (isOpen && business?.id) {
+            const fetchProducts = async () => {
+                try {
+                    const fetched = await getProductsByBusiness(business.id)
+                    setAllProducts(fetched)
+                } catch (e) {
+                    console.error('Error fetching products in CartSidebar:', e)
+                }
+            }
+            void fetchProducts()
+        }
+    }, [isOpen, business?.id, products])
+
+    const quickAddonsToShow = useMemo(() => {
+        if (!allProducts || allProducts.length === 0 || !cart || cart.length === 0) return []
+
+        // Get the list of product IDs currently in the cart
+        const cartProductIds = new Set(cart.map((item) => item.id))
+
+        // Find all quick addon IDs configured for the products currently in the cart
+        const addonIdsSet = new Set<string>()
+        cart.forEach((cartItem) => {
+            const originalProduct = allProducts.find((p) => p.id === cartItem.id)
+            if (originalProduct && originalProduct.quickAddons && Array.isArray(originalProduct.quickAddons)) {
+                originalProduct.quickAddons.forEach((id) => addonIdsSet.add(id))
+            }
+        })
+
+        if (addonIdsSet.size === 0) return []
+
+        // Filter allProducts to only return the ones matching the addon IDs,
+        // are available, and are not already in the cart
+        return allProducts.filter((product) => 
+            addonIdsSet.has(product.id) &&
+            product.isAvailable &&
+            !cartProductIds.has(product.id)
+        )
+    }, [allProducts, cart])
+
+    const handleProductClick = (productToAdd: Product) => {
+        if (productToAdd.variants && productToAdd.variants.length > 0) {
+            if (onShowProductDetails) {
+                onShowProductDetails(productToAdd)
+            } else {
+                const productUrl = business?.username
+                    ? `/${business.username}/${productToAdd.slug || productToAdd.id}`
+                    : `/${business?.id || 'restaurant'}/${productToAdd.slug || productToAdd.id}`
+                router.push(productUrl)
+                onClose()
+            }
+        } else {
+            const itemToAdd = {
+                id: productToAdd.id,
+                name: productToAdd.name,
+                variantName: null,
+                productName: productToAdd.name,
+                price: getProductPublicPrice(productToAdd),
+                ...getPriceMetadata(productToAdd),
+                image: productToAdd.image || null,
+                description: productToAdd.description || '',
+                businessId: business.id,
+                businessName: business.name,
+                businessImage: business.image || null,
+                category: productToAdd.category || ''
+            };
+            const enriched = ensureCartItemMetadata(itemToAdd)
+            addItemToCart(enriched);
+        }
+    }
     const [qrProgress, setQrProgress] = useState<UserQRProgress | null>(null)
     const [loadingQr, setLoadingQr] = useState(false)
     const [redeemingQrId, setRedeemingQrId] = useState<string | null>(null)
@@ -765,12 +849,76 @@ export default function CartSidebar({
                                                     </div>
                                                 )
                                             })}
+                                        </div>
+
+                                        {/* Quick Addons Carousel Section */}
+                                        {quickAddonsToShow.length > 0 && (
+                                            <div className="mt-8 space-y-4 p-4 border-t border-gray-100">
+                                                <div className="flex items-center justify-between">
+                                                    <h4 className="text-sm font-black text-gray-900 tracking-tight">
+                                                        Acompaña tu pedido
+                                                    </h4>
+                                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-gray-100 px-2 py-0.5 rounded-full">
+                                                        Añadidos rápidos
+                                                    </span>
+                                                </div>
+                                                {/* Horizontal Scroll Carousel container */}
+                                                <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide -mx-6 px-6 snap-x snap-mandatory">
+                                                    {quickAddonsToShow.map((product) => {
+                                                        const displayPrice = getProductPublicPrice(product);
+
+                                                        return (
+                                                            <div
+                                                                key={product.id}
+                                                                onClick={() => handleProductClick(product)}
+                                                                className="flex-shrink-0 w-[130px] bg-white border border-gray-100/80 rounded-2xl p-3 shadow-sm hover:shadow-md transition-all active:scale-[0.98] cursor-pointer snap-start relative group flex flex-col justify-between"
+                                                            >
+                                                                <div>
+                                                                    {/* Product image */}
+                                                                    <div className="w-full aspect-square bg-gray-50 rounded-xl overflow-hidden mb-2 relative border border-gray-50/50">
+                                                                        {product.image ? (
+                                                                            <img
+                                                                                src={product.image}
+                                                                                alt={product.name}
+                                                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                                            />
+                                                                        ) : (
+                                                                            <div className="w-full h-full flex items-center justify-center bg-gray-50 text-gray-400 font-bold text-lg">
+                                                                                {product.name.charAt(0)}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    {/* Product name & price */}
+                                                                    <p className="font-bold text-xs text-gray-950 line-clamp-2 leading-tight">
+                                                                        {product.name}
+                                                                    </p>
+                                                                </div>
+                                                                <div className="mt-2 flex items-center justify-between">
+                                                                    <span className="font-black text-xs text-red-600">
+                                                                        {formatPrice(displayPrice)}
+                                                                    </span>
+                                                                    {/* Floating button with + symbol */}
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleProductClick(product);
+                                                                        }}
+                                                                        className="w-7 h-7 rounded-full bg-gray-900 text-white flex items-center justify-center hover:bg-black hover:scale-110 transition-all shadow-sm active:scale-90"
+                                                                    >
+                                                                        <i className="bi bi-plus text-xs"></i>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                </div>
-                            )}
+                                )}
+                            </div>
 
-
-                        </div>
 
                         {/* Footer */}
                         {cart.length > 0 && view === 'cart' && (

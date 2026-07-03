@@ -110,6 +110,18 @@ export default function ProductList({
   const [isImporting, setIsImporting] = useState(false)
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0 })
 
+  // Estados para Añadidos Rápidos
+  const [quickAddonProduct, setQuickAddonProduct] = useState<Product | null>(null)
+  const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([])
+
+  useEffect(() => {
+    if (quickAddonProduct) {
+      setSelectedAddonIds(quickAddonProduct.quickAddons || [])
+    } else {
+      setSelectedAddonIds([])
+    }
+  }, [quickAddonProduct])
+
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
   const dayLabels: Record<string, string> = {
     Monday: 'Lun',
@@ -1268,6 +1280,17 @@ export default function ProductList({
                             >
                               <i className="bi bi-pencil text-blue-600"></i>
                               Editar
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setQuickAddonProduct(product)
+                                setActiveMenu(null)
+                              }}
+                              className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                            >
+                              <i className="bi bi-plus-circle text-emerald-600"></i>
+                              Añadidos rápidos
                             </button>
                             <button
                               onClick={(e) => {
@@ -2792,6 +2815,131 @@ export default function ProductList({
               )}
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Añadidos Rápidos */}
+      {quickAddonProduct && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-[2.5rem] max-w-lg w-full max-h-[85vh] overflow-y-auto shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-300 flex flex-col">
+            {/* Header */}
+            <div className="p-6 md:p-8 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Configurar Añadidos Rápidos</h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Recomendar complementos para <strong>{quickAddonProduct.name}</strong>
+                </p>
+              </div>
+              <button
+                onClick={() => setQuickAddonProduct(null)}
+                className="text-gray-400 hover:text-gray-600 w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors"
+              >
+                <i className="bi bi-x-lg text-lg"></i>
+              </button>
+            </div>
+
+            {/* List */}
+            <div className="p-6 md:p-8 overflow-y-auto flex-1 space-y-6">
+              {categories.map((categoryName) => {
+                // Get products of this category (excluding the current product itself)
+                const categoryProducts = products.filter(
+                  (p) => p.category === categoryName && p.id !== quickAddonProduct.id
+                )
+
+                if (categoryProducts.length === 0) return null
+
+                return (
+                  <div key={categoryName} className="space-y-3">
+                    <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 pb-2">
+                      {categoryName}
+                    </h4>
+                    <div className="space-y-2">
+                      {categoryProducts.map((p) => {
+                        const isChecked = selectedAddonIds.includes(p.id)
+                        return (
+                          <label
+                            key={p.id}
+                            className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer select-none ${
+                              isChecked
+                                ? 'border-emerald-500 bg-emerald-50/50'
+                                : 'border-gray-100 hover:border-gray-200 bg-white'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  if (isChecked) {
+                                    setSelectedAddonIds(selectedAddonIds.filter((id) => id !== p.id))
+                                  } else {
+                                    setSelectedAddonIds([...selectedAddonIds, p.id])
+                                  }
+                                }}
+                                className="w-4.5 h-4.5 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500 cursor-pointer"
+                              />
+                              <div>
+                                <span className="font-bold text-gray-900 text-sm block">
+                                  {p.name}
+                                </span>
+                                {p.description && (
+                                  <span className="text-[11px] text-gray-400 line-clamp-1">
+                                    {p.description}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span className="font-semibold text-gray-600 text-xs bg-gray-100 px-2 py-0.5 rounded-lg">
+                              ${p.price.toFixed(2)}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+
+              {products.filter((p) => p.id !== quickAddonProduct.id).length === 0 && (
+                <div className="text-center py-8 text-gray-500 text-sm">
+                  No hay otros productos disponibles para configurar como añadidos rápidos.
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 md:p-8 border-t border-gray-100 bg-gray-50/50 flex items-center justify-end gap-3 sticky bottom-0">
+              <button
+                type="button"
+                onClick={() => setQuickAddonProduct(null)}
+                className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-sm font-bold transition-all shadow-sm active:scale-95"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await updateProduct(quickAddonProduct.id, { quickAddons: selectedAddonIds })
+                    onProductsChange(
+                      products.map((p) =>
+                        p.id === quickAddonProduct.id ? { ...p, quickAddons: selectedAddonIds } : p
+                      )
+                    )
+                    setQuickAddonProduct(null)
+                    alert('Añadidos rápidos configurados con éxito.')
+                  } catch (e) {
+                    console.error('Error saving quick addons:', e)
+                    alert('Error al guardar la configuración de añadidos rápidos.')
+                  }
+                }}
+                className="px-6 py-2.5 bg-gray-950 hover:bg-black text-white rounded-xl text-sm font-bold transition-all shadow-sm active:scale-95 flex items-center gap-2"
+              >
+                <i className="bi bi-check2 text-base"></i>
+                Guardar Cambios
+              </button>
+            </div>
           </div>
         </div>
       )}

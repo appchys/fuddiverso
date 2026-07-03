@@ -1421,6 +1421,11 @@ function RestaurantContent() {
             updateCartInStorage(business.id, newCart)
           }}
           onOpenUserSidebar={() => setIsUserSidebarOpen(true)}
+          onShowProductDetails={(p) => {
+            setSelectedProduct(p)
+            setIsVariantModalOpen(true)
+          }}
+          products={products}
         />
 
       <ProductDetailSidebar

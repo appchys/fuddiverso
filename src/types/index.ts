@@ -212,6 +212,7 @@ export interface Product {
   minComboItems?: number // Cantidad mínima de variantes a seleccionar para el combo
   createdAt: Date
   updatedAt: Date
+  quickAddons?: string[]
 }
 
 export interface CartItem {

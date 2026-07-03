@@ -1727,6 +1727,7 @@ function HomePageContent() {
         updateQuantity={updateQuantity}
         clearCart={clearCart}
         addItemToCart={addItemToCart}
+        onShowProductDetails={(p: Product) => handleProductClick(p, selectedProductBusiness || undefined)}
       />
 
       <ReferralModal
