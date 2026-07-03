@@ -58,15 +58,7 @@ export default function PaymentManagementModals({
                 paymentUpdate.transferAmount = editPaymentData.transferAmount
             }
 
-            const orderRef = doc(db, 'orders', order.id)
-            await updateDoc(orderRef, {
-                payment: {
-                    ...order.payment,
-                    ...paymentUpdate
-                }
-            })
-
-            // Update parent state
+            // Close and update state immediately (Optimistic Update)
             onOrderUpdated({
                 ...order,
                 payment: {
@@ -74,8 +66,15 @@ export default function PaymentManagementModals({
                     ...paymentUpdate
                 }
             })
-
             onClose()
+
+            const orderRef = doc(db, 'orders', order.id)
+            await updateDoc(orderRef, {
+                payment: {
+                    ...order.payment,
+                    ...paymentUpdate
+                }
+            })
         } catch (error) {
             console.error('Error updating payment:', error)
             alert('Error al actualizar el pago')
@@ -101,15 +100,15 @@ export default function PaymentManagementModals({
                 ...paymentUpdate
             }
 
+            // Close and update state immediately (Optimistic Update)
+            onOrderUpdated({ ...order, payment: updatedPayment })
+            setShowReceiptPreviewModal(false)
+            onClose()
+
             const orderRef = doc(db, 'orders', order.id)
             await updateDoc(orderRef, {
                 payment: updatedPayment
             })
-
-            onOrderUpdated({ ...order, payment: updatedPayment })
-
-            setShowReceiptPreviewModal(false)
-            onClose()
         } catch (error) {
             console.error('Error validating payment:', error)
             alert('Error al validar el pago')
@@ -120,25 +119,24 @@ export default function PaymentManagementModals({
         if (!order) return
 
         try {
-            const orderRef = doc(db, 'orders', order.id)
-            await updateDoc(orderRef, {
-                'payment.paymentStatus': 'rejected' as const
-            })
-
             const updatedPayment = {
                 ...order.payment!,
                 paymentStatus: 'rejected' as const
             }
 
+            // Close and update state immediately (Optimistic Update)
             onOrderUpdated({ ...order, payment: updatedPayment })
-
-            // Update local state to reflect rejection
             setEditPaymentData(prev => ({
                 ...prev,
                 paymentStatus: 'rejected'
             }))
-
             setShowReceiptPreviewModal(false)
+            onClose()
+
+            const orderRef = doc(db, 'orders', order.id)
+            await updateDoc(orderRef, {
+                'payment.paymentStatus': 'rejected' as const
+            })
         } catch (error) {
             alert('Error al rechazar el pago')
         }
@@ -169,120 +167,55 @@ export default function PaymentManagementModals({
                             </button>
                         </div>
 
-                        {/* Order Info */}
-                        <div className="mb-6 p-4 bg-gray-50 rounded-lg flex justify-between items-start">
-                            <div>
-                                <p className="text-sm text-gray-600">Pedido de:</p>
-                                <p className="text-lg font-semibold text-gray-900">
-                                    {order.customer?.name || 'Cliente sin nombre'}
-                                </p>
-                                <p className="text-sm text-gray-600 mt-1">
-                                    Total: <span className="font-bold text-emerald-600">
-                                        ${(order.total || 0).toFixed(2)}
-                                    </span>
-                                </p>
-                            </div>
-
-                            {/* Receipt Preview Button */}
-                            {order.payment?.receiptImageUrl && (
-                                <div className="ml-4">
-                                    <p className="text-xs text-gray-500 mb-1 text-center">Comprobante</p>
-                                    <div className="relative group">
+                        {/* Receipt Preview if available */}
+                        {order.payment?.receiptImageUrl && (
+                            <div className="mb-6 p-4 bg-gray-50 rounded-lg flex flex-col items-center justify-center">
+                                <p className="text-xs text-gray-500 mb-2 text-center">Comprobante de Pago</p>
+                                <div className="relative group">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowReceiptPreviewModal(true)}
+                                        className="block relative"
+                                        title="Ver comprobante completo"
+                                    >
+                                        <img
+                                            src={order.payment.receiptImageUrl}
+                                            alt="Comprobante de pago"
+                                            className="w-32 h-48 object-cover rounded-lg border border-gray-200 shadow-sm hover:opacity-90 transition-opacity"
+                                        />
+                                        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all rounded-lg">
+                                            <i className="bi bi-zoom-in text-white opacity-0 group-hover:opacity-100 drop-shadow-md"></i>
+                                        </div>
+                                    </button>
+                                    
+                                    {/* Floating Action Buttons */}
+                                    <div className="absolute bottom-2 right-2 flex flex-row gap-1 opacity-100 transition-opacity">
                                         <button
                                             type="button"
-                                            onClick={() => setShowReceiptPreviewModal(true)}
-                                            className="block relative"
-                                            title="Ver comprobante completo"
+                                            onClick={async (e) => {
+                                                e.stopPropagation();
+                                                await handleRejectPayment();
+                                            }}
+                                            className="w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-lg"
+                                            title="Rechazar pago"
                                         >
-                                            <img
-                                                src={order.payment.receiptImageUrl}
-                                                alt="Comprobante de pago"
-                                                className="w-32 h-48 object-cover rounded-lg border border-gray-200 shadow-sm hover:opacity-90 transition-opacity"
-                                            />
-                                            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all rounded-lg">
-                                                <i className="bi bi-zoom-in text-white opacity-0 group-hover:opacity-100 drop-shadow-md"></i>
-                                            </div>
+                                            <i className="bi bi-x text-sm"></i>
                                         </button>
-                                        
-                                        {/* Floating Action Buttons */}
-                                        <div className="absolute bottom-2 right-2 flex flex-row gap-1 opacity-100 transition-opacity">
-                                            <button
-                                                type="button"
-                                                onClick={async (e) => {
-                                                    e.stopPropagation();
-                                                    if (!order) return;
-                                                    
-                                                    try {
-                                                        const orderRef = doc(db, 'orders', order.id);
-                                                        await updateDoc(orderRef, {
-                                                            'payment.paymentStatus': 'rejected' as const
-                                                        });
-
-                                                        const updatedPayment = {
-                                                            ...order.payment!,
-                                                            paymentStatus: 'rejected' as const
-                                                        };
-
-                                                        onOrderUpdated({ ...order, payment: updatedPayment });
-                                                        setEditPaymentData(prev => ({
-                                                            ...prev,
-                                                            paymentStatus: 'rejected'
-                                                        }));
-                                                    } catch (error) {
-                                                        alert('Error al rechazar el pago');
-                                                    }
-                                                }}
-                                                className="w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-lg"
-                                                title="Rechazar pago"
-                                            >
-                                                <i className="bi bi-x text-sm"></i>
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={async (e) => {
-                                                    e.stopPropagation();
-                                                    if (!order) return;
-                                                    
-                                                    try {
-                                                        let paymentUpdate: any = {
-                                                            method: editPaymentData.method,
-                                                            paymentStatus: 'paid' as const
-                                                        };
-
-                                                        if (editPaymentData.method === 'mixed') {
-                                                            paymentUpdate.cashAmount = editPaymentData.cashAmount;
-                                                            paymentUpdate.transferAmount = editPaymentData.transferAmount;
-                                                        }
-
-                                                        const updatedPayment = {
-                                                            ...order.payment,
-                                                            ...paymentUpdate
-                                                        };
-
-                                                        const orderRef = doc(db, 'orders', order.id);
-                                                        await updateDoc(orderRef, {
-                                                            payment: updatedPayment
-                                                        });
-
-                                                        onOrderUpdated({ ...order, payment: updatedPayment });
-                                                        setEditPaymentData(prev => ({
-                                                            ...prev,
-                                                            paymentStatus: 'paid'
-                                                        }));
-                                                    } catch (error) {
-                                                        alert('Error al validar el pago');
-                                                    }
-                                                }}
-                                                className="w-8 h-8 bg-emerald-500 text-white rounded-full flex items-center justify-center hover:bg-emerald-600 transition-colors shadow-lg"
-                                                title="Validar pago"
-                                            >
-                                                <i className="bi bi-check text-sm"></i>
-                                            </button>
-                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={async (e) => {
+                                                e.stopPropagation();
+                                                await handleValidatePayment();
+                                            }}
+                                            className="w-8 h-8 bg-emerald-500 text-white rounded-full flex items-center justify-center hover:bg-emerald-600 transition-colors shadow-lg"
+                                            title="Validar pago"
+                                        >
+                                            <i className="bi bi-check text-sm"></i>
+                                        </button>
                                     </div>
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
 
                         {/* Payment Method Selection */}
                         <div className="space-y-4 mb-6">
@@ -389,14 +322,7 @@ export default function PaymentManagementModals({
                                                     paymentUpdate.transferAmount = editPaymentData.transferAmount;
                                                 }
 
-                                                const orderRef = doc(db, 'orders', order.id);
-                                                await updateDoc(orderRef, {
-                                                    payment: {
-                                                        ...order.payment,
-                                                        ...paymentUpdate
-                                                    }
-                                                });
-
+                                                // Close and update state immediately (Optimistic Update)
                                                 onOrderUpdated({
                                                     ...order,
                                                     payment: {
@@ -404,8 +330,15 @@ export default function PaymentManagementModals({
                                                         ...paymentUpdate
                                                     }
                                                 });
-
                                                 onClose();
+
+                                                const orderRef = doc(db, 'orders', order.id);
+                                                await updateDoc(orderRef, {
+                                                    payment: {
+                                                        ...order.payment,
+                                                        ...paymentUpdate
+                                                    }
+                                                });
                                             } catch (error) {
                                                 console.error('Error updating payment:', error);
                                                 alert('Error al actualizar el pago');

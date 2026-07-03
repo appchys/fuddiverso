@@ -345,7 +345,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                             </div>
                                                         )}
                                                         <div className="flex-1 min-w-0">
-                                                            <span className="block font-bold text-gray-900 text-sm truncate">{variant.name}</span>
+                                                            <span className="block font-bold text-gray-900 text-sm">{variant.name}</span>
                                                             {variant.description && (
                                                                 <p className="text-[11px] text-gray-500 line-clamp-2 leading-tight mt-0.5 mb-1">
                                                                     {variant.description}
