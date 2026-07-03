@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import Header from './Header'
 import BottomNavigation from './BottomNavigation'
@@ -10,6 +11,27 @@ export default function LayoutWrapper({
   children: React.ReactNode
 }) {
   const pathname = usePathname() ?? ''
+
+  useEffect(() => {
+    // Prevent pinch-to-zoom gestures on mobile devices
+    const preventZoom = (e: TouchEvent) => {
+      if (e.touches.length > 1) {
+        e.preventDefault()
+      }
+    }
+
+    const preventGesture = (e: Event) => {
+      e.preventDefault()
+    }
+
+    document.addEventListener('touchstart', preventZoom, { passive: false })
+    document.addEventListener('gesturestart', preventGesture)
+
+    return () => {
+      document.removeEventListener('touchstart', preventZoom)
+      document.removeEventListener('gesturestart', preventGesture)
+    }
+  }, [])
 
   // Rutas reservadas que NO son perfiles de tienda
   const reservedRoutes = [

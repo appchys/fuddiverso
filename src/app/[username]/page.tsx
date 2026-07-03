@@ -1098,40 +1098,40 @@ function RestaurantContent() {
               )}
 
               {/* Navegación por Pestañas - Estilo Minimalista */}
-              <div className="flex items-center justify-center gap-6 mt-8 w-fit mx-auto">
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-6 mt-8 w-full max-w-md mx-auto px-4">
                 <button
                   onClick={() => setActiveTab('perfil')}
-                  className={`flex flex-col items-center justify-center min-w-[80px] sm:min-w-[100px] aspect-square py-3 px-2 rounded-xl text-xs font-bold transition-all duration-300 gap-2 ${activeTab === 'perfil'
+                  className={`flex flex-col items-center justify-center flex-1 min-w-[72px] max-w-[100px] aspect-square py-3 px-2 rounded-xl text-[10px] sm:text-xs font-bold transition-all duration-300 gap-1.5 sm:gap-2 ${activeTab === 'perfil'
                     ? 'bg-white text-gray-900 shadow-md ring-1 ring-black/5'
                     : 'text-gray-400 hover:text-gray-600'
                     }`}
                 >
-                  <i className={`bi bi-shop text-xl ${activeTab === 'perfil' ? 'text-red-500' : ''}`}></i>
+                  <i className={`bi bi-shop text-lg sm:text-xl ${activeTab === 'perfil' ? 'text-red-500' : ''}`}></i>
                   Perfil
                 </button>
                 <button
                   onClick={() => setActiveTab('catalogo')}
-                  className={`flex flex-col items-center justify-center min-w-[80px] sm:min-w-[100px] aspect-square py-3 px-2 rounded-xl text-xs font-bold transition-all duration-300 gap-2 ${activeTab === 'catalogo'
+                  className={`flex flex-col items-center justify-center flex-1 min-w-[72px] max-w-[100px] aspect-square py-3 px-2 rounded-xl text-[10px] sm:text-xs font-bold transition-all duration-300 gap-1.5 sm:gap-2 ${activeTab === 'catalogo'
                     ? 'bg-white text-gray-900 shadow-md ring-1 ring-black/5'
                     : 'text-gray-400 hover:text-gray-600'
                     }`}
                 >
-                  <i className={`bi bi-grid text-xl ${activeTab === 'catalogo' ? 'text-red-500' : ''}`}></i>
+                  <i className={`bi bi-grid text-lg sm:text-xl ${activeTab === 'catalogo' ? 'text-red-500' : ''}`}></i>
                   Catálogo
                 </button>
                 <button
                   onClick={copyStoreLink}
-                  className="flex flex-col items-center justify-center min-w-[80px] sm:min-w-[100px] aspect-square py-3 px-2 rounded-xl text-xs font-bold text-gray-400 hover:text-gray-900 hover:bg-white transition-all duration-300 gap-2"
+                  className="flex flex-col items-center justify-center flex-1 min-w-[72px] max-w-[100px] aspect-square py-3 px-2 rounded-xl text-[10px] sm:text-xs font-bold text-gray-400 hover:text-gray-900 hover:bg-white transition-all duration-300 gap-1.5 sm:gap-2"
                 >
-                  <i className="bi bi-share text-xl"></i>
+                  <i className="bi bi-share text-lg sm:text-xl"></i>
                   Compartir
                 </button>
                 {isOwner && (
                   <Link
                     href="/business/dashboard"
-                    className="flex flex-col items-center justify-center min-w-[80px] sm:min-w-[100px] aspect-square py-3 px-2 rounded-xl text-xs font-bold text-gray-400 hover:text-gray-900 hover:bg-white transition-all duration-300 gap-2"
+                    className="flex flex-col items-center justify-center flex-1 min-w-[72px] max-w-[100px] aspect-square py-3 px-2 rounded-xl text-[10px] sm:text-xs font-bold text-gray-400 hover:text-gray-900 hover:bg-white transition-all duration-300 gap-1.5 sm:gap-2"
                   >
-                    <i className="bi bi-gear text-xl"></i>
+                    <i className="bi bi-gear text-lg sm:text-xl"></i>
                     Administrar
                   </Link>
                 )}
