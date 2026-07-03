@@ -187,6 +187,14 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
     } catch { alert('Error al guardar') }
   }
 
+  const handleDirectUpdate = async (field: keyof Business, value: any) => {
+    try {
+      await updateBusiness(businessId, { [field]: value })
+      setBusiness(prev => prev ? { ...prev, [field]: value } : null)
+      setEdited(prev => prev ? { ...prev, [field]: value } : null)
+    } catch { alert('Error al guardar') }
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center h-64">
       <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
@@ -465,6 +473,7 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
             categories={categories}
             onProductsChange={setProducts}
             onCategoriesChange={setCategories}
+            onDirectUpdate={handleDirectUpdate}
           />
         </div>
       )}

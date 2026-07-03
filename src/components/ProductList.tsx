@@ -102,6 +102,14 @@ export default function ProductList({
     endTime: '17:00'
   })
 
+  // Estados para importación JSON de menú
+  const [showJsonImport, setShowJsonImport] = useState(false)
+  const [jsonText, setJsonText] = useState('')
+  const [jsonError, setJsonError] = useState<string | null>(null)
+  const [parsedProducts, setParsedProducts] = useState<any[]>([])
+  const [isImporting, setIsImporting] = useState(false)
+  const [importProgress, setImportProgress] = useState({ current: 0, total: 0 })
+
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
   const dayLabels: Record<string, string> = {
     Monday: 'Lun',
@@ -884,12 +892,226 @@ export default function ProductList({
     setVariants(newVariants)
   }
 
+  const handleParseJson = () => {
+    setJsonError(null)
+    setParsedProducts([])
+    try {
+      if (!jsonText.trim()) {
+        setJsonError('El contenido JSON está vacío.')
+        return
+      }
+      const parsed = JSON.parse(jsonText)
+      let productsList: any[] = []
+
+      if (Array.isArray(parsed)) {
+        productsList = parsed
+      } else if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed.products)) {
+          productsList = parsed.products
+        } else if (parsed.items && Array.isArray(parsed.items)) {
+          productsList = parsed.items
+        } else if (parsed.menu && Array.isArray(parsed.menu)) {
+          productsList = parsed.menu
+        } else {
+          // Si las llaves son categorías y los valores son arreglos de productos:
+          for (const [category, items] of Object.entries(parsed)) {
+            if (Array.isArray(items)) {
+              items.forEach((item: any) => {
+                if (item && typeof item === 'object') {
+                  productsList.push({
+                    ...item,
+                    category: item.category || category
+                  })
+                }
+              })
+            }
+          }
+        }
+      } else {
+        setJsonError('El formato JSON no es válido. Debe ser un arreglo de productos o un objeto con categorías.')
+        return
+      }
+
+      if (productsList.length === 0) {
+        setJsonError('No se encontraron productos en el JSON provisto.')
+        return
+      }
+
+      // Validar cada producto y mapear a una estructura estándar
+      const validated: any[] = []
+      const errorsList: string[] = []
+
+      productsList.forEach((p, idx) => {
+        const name = typeof p.name === 'string' ? p.name.trim() : ''
+        const price = typeof p.price === 'number' ? p.price : parseFloat(p.price)
+        const category = typeof p.category === 'string' ? p.category.trim() : 'General'
+
+        if (!name) {
+          errorsList.push(`Producto #${idx + 1}: El nombre es obligatorio.`)
+        }
+        if (isNaN(price) || price < 0) {
+          errorsList.push(`Producto #${idx + 1} (${name || 'Sin nombre'}): El precio debe ser un número válido mayor o igual a 0.`)
+        }
+
+        if (name && !isNaN(price)) {
+          validated.push({
+            name,
+            price,
+            category,
+            commissionType: typeof p.commissionType === 'string' ? p.commissionType : undefined,
+            description: typeof p.description === 'string' ? p.description.trim() : '',
+            isAvailable: p.isAvailable !== false,
+            isCombo: !!p.isCombo,
+            minComboItems: typeof p.minComboItems === 'number' ? p.minComboItems : 1,
+            variants: Array.isArray(p.variants) ? p.variants.map((v: any, vIdx: number) => ({
+              id: v.id || Math.random().toString(36).substring(2, 9),
+              name: typeof v.name === 'string' ? v.name.trim() : `Variante ${vIdx + 1}`,
+              description: typeof v.description === 'string' ? v.description.trim() : '',
+              price: typeof v.price === 'number' ? v.price : parseFloat(v.price) || 0,
+              isAvailable: v.isAvailable !== false,
+              image: typeof v.image === 'string' ? v.image : '',
+              ingredients: Array.isArray(v.ingredients) ? v.ingredients.map((ing: any) => ({
+                id: ing.id || Math.random().toString(36).substring(2, 9),
+                name: typeof ing.name === 'string' ? ing.name.trim() : 'Ingrediente',
+                quantity: typeof ing.quantity === 'number' ? ing.quantity : parseFloat(ing.quantity) || 0,
+                unitCost: typeof ing.unitCost === 'number' ? ing.unitCost : parseFloat(ing.unitCost) || 0,
+                unit: typeof ing.unit === 'string' ? ing.unit.trim() : ''
+              })) : []
+            })) : [],
+            ingredients: Array.isArray(p.ingredients) ? p.ingredients.map((ing: any) => ({
+              id: ing.id || Math.random().toString(36).substring(2, 9),
+              name: typeof ing.name === 'string' ? ing.name.trim() : 'Ingrediente',
+              quantity: typeof ing.quantity === 'number' ? ing.quantity : parseFloat(ing.quantity) || 0,
+              unitCost: typeof ing.unitCost === 'number' ? ing.unitCost : parseFloat(ing.unitCost) || 0,
+              unit: typeof ing.unit === 'string' ? ing.unit.trim() : ''
+            })) : [],
+            scheduleAvailability: p.scheduleAvailability || null
+          })
+        }
+      })
+
+      if (errorsList.length > 0) {
+        setJsonError(`Errores de validación:\n${errorsList.slice(0, 5).join('\n')}${errorsList.length > 5 ? `\n...y ${errorsList.length - 5} errores más.` : ''}`)
+        return
+      }
+
+      setParsedProducts(validated)
+    } catch (e: any) {
+      setJsonError(`Error al analizar JSON: ${e.message}`)
+    }
+  }
+
+  const handleImportProducts = async () => {
+    if (!business?.id || parsedProducts.length === 0) return
+    setIsImporting(true)
+    setImportProgress({ current: 0, total: parsedProducts.length })
+
+    const commissionSettings = getBusinessCommissionSettings(business)
+    const newProducts: Product[] = []
+    const importedCategories = new Set<string>()
+
+    try {
+      for (let i = 0; i < parsedProducts.length; i++) {
+        const p = parsedProducts[i]
+        
+        // 1. Calcular comisión sobre precio base
+        const productPricing = calculateCommissionPricing(
+          p.price,
+          (p.commissionType || business.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
+          commissionSettings.commissionRate
+        )
+
+        // 2. Calcular comisión para variantes
+        const variantsWithCommission = (p.variants || []).map((v: any) => {
+          const variantPricing = calculateCommissionPricing(
+            v.price,
+            (p.commissionType || business.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
+            commissionSettings.commissionRate
+          )
+          return {
+            ...v,
+            price: variantPricing.publicPrice,
+            basePrice: variantPricing.storePrice,
+            commission: variantPricing.commission,
+            commissionType: variantPricing.commissionType
+          }
+        })
+
+        const productData = {
+          name: p.name,
+          description: p.description,
+          price: productPricing.publicPrice,
+          basePrice: productPricing.storePrice,
+          commission: productPricing.commission,
+          commissionType: productPricing.commissionType,
+          category: p.category,
+          image: p.image || '',
+          variants: p.variants && p.variants.length > 0 ? variantsWithCommission : undefined,
+          ingredients: p.ingredients && p.ingredients.length > 0 ? p.ingredients : undefined,
+          isAvailable: p.isAvailable,
+          isCombo: p.isCombo,
+          minComboItems: p.minComboItems,
+          businessId: business.id,
+          updatedAt: new Date()
+        }
+
+        const newProductId = await createProduct(productData, business.username)
+        newProducts.push({
+          ...productData,
+          id: newProductId,
+          createdAt: new Date(),
+        } as Product)
+
+        if (p.category) {
+          importedCategories.add(p.category)
+        }
+
+        setImportProgress(prev => ({ ...prev, current: i + 1 }))
+      }
+
+      // Sincronizar categorías
+      const updatedCategoriesList = Array.from(new Set([...categories, ...Array.from(importedCategories)]))
+      if (updatedCategoriesList.length !== categories.length) {
+        onCategoriesChange(updatedCategoriesList)
+        if (onDirectUpdate) {
+          await onDirectUpdate('categories', updatedCategoriesList)
+        }
+      }
+
+      // Agregar a la lista local
+      onProductsChange([...products, ...newProducts])
+      alert(`¡Éxito! Se han importado ${newProducts.length} productos correctamente.`)
+      setShowJsonImport(false)
+      setJsonText('')
+      setParsedProducts([])
+    } catch (error) {
+      console.error('Error importing products:', error)
+      alert('Ocurrió un error al importar los productos. Por favor revisa la consola.')
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Botón para agregar producto */}
-      <div className="flex justify-between items-center">
-        <h2 className="text-lg font-semibold text-gray-900">Productos</h2>
-        {/* El botón de Nuevo Producto ahora es flotante al final del div principal */}
+      <div className="flex justify-between items-center bg-gray-50 p-4 rounded-2xl border border-gray-100 shadow-sm">
+        <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+          <i className="bi bi-box-seam text-blue-600" />
+          Productos
+        </h2>
+        <button
+          onClick={() => {
+            setJsonText('')
+            setJsonError(null)
+            setParsedProducts([])
+            setShowJsonImport(true)
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-xs md:text-sm font-bold text-blue-600 bg-blue-50 border border-blue-100 hover:bg-blue-100 rounded-xl transition-all shadow-sm active:scale-95"
+        >
+          <i className="bi bi-filetype-json text-base" />
+          Subir Menú (JSON)
+        </button>
       </div>
 
       {/* Lista de productos agrupada por categoría */}
@@ -2376,6 +2598,203 @@ export default function ProductList({
           animation: slideInFromTop 0.3s ease-out;
         }
       `}</style>
+
+      {/* Modal del importador JSON de menú */}
+      {showJsonImport && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-200 overflow-hidden">
+            
+            {/* Header del Modal */}
+            <div className="p-6 md:p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+                  <i className="bi bi-filetype-json text-xl"></i>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-950">Subir Menú mediante JSON</h3>
+                  <p className="text-xs text-gray-500">Crea múltiples productos de forma masiva en segundos</p>
+                </div>
+              </div>
+              <button
+                onClick={() => !isImporting && setShowJsonImport(false)}
+                disabled={isImporting}
+                className="w-8 h-8 rounded-full bg-white hover:bg-gray-100 text-gray-400 hover:text-gray-600 border border-gray-200 flex items-center justify-center transition-all shadow-sm disabled:opacity-50"
+              >
+                <i className="bi bi-x-lg text-sm"></i>
+              </button>
+            </div>
+
+            {/* Contenido principal */}
+            <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+              {isImporting ? (
+                /* Estado: Importando/Guardando en BD */
+                <div className="flex flex-col items-center justify-center py-12 space-y-6">
+                  <div className="relative w-20 h-20">
+                    <div className="absolute inset-0 rounded-full border-4 border-blue-100" />
+                    <div className="absolute inset-0 rounded-full border-4 border-blue-600 border-t-transparent animate-spin" />
+                    <div className="absolute inset-0 flex items-center justify-center text-blue-600">
+                      <i className="bi bi-cloud-arrow-up text-2xl"></i>
+                    </div>
+                  </div>
+                  <div className="text-center space-y-2">
+                    <h4 className="text-base font-bold text-gray-900">Guardando productos en la base de datos...</h4>
+                    <p className="text-sm text-gray-500">
+                      Procesando {importProgress.current} de {importProgress.total} ({Math.round((importProgress.current / importProgress.total) * 100)}%)
+                    </p>
+                  </div>
+                  <div className="w-full max-w-md bg-gray-100 rounded-full h-2 overflow-hidden shadow-inner">
+                    <div
+                      className="bg-gradient-to-r from-blue-500 to-indigo-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-400 font-medium truncate max-w-sm italic">
+                    {parsedProducts[importProgress.current - 1]?.name ? `Subiendo: ${parsedProducts[importProgress.current - 1].name}` : 'Inicializando...'}
+                  </p>
+                </div>
+              ) : parsedProducts.length > 0 ? (
+                /* Estado: Visualización Previa de datos parsed */
+                <div className="space-y-5">
+                  <div className="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-emerald-900">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white">
+                        <i className="bi bi-check-lg text-lg"></i>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold">¡JSON analizado correctamente!</p>
+                        <p className="text-xs opacity-90">Se encontraron {parsedProducts.length} productos listos para importar.</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setParsedProducts([])}
+                      className="text-xs font-bold underline hover:no-underline text-emerald-800"
+                    >
+                      Editar JSON
+                    </button>
+                  </div>
+
+                  {/* Resumen y lista */}
+                  <div className="space-y-3">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Previsualización de los Productos</p>
+                    <div className="border border-gray-100 rounded-2xl divide-y divide-gray-100 max-h-64 overflow-y-auto custom-scrollbar shadow-sm bg-gray-50/30">
+                      {parsedProducts.map((p, index) => (
+                        <div key={index} className="p-4 flex items-start justify-between gap-4 text-sm hover:bg-gray-50 transition-colors">
+                          <div className="min-w-0">
+                            <p className="font-bold text-gray-900 truncate">{p.name}</p>
+                            {p.description && <p className="text-xs text-gray-500 truncate mt-0.5">{p.description}</p>}
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 uppercase tracking-wide">
+                                {p.category}
+                              </span>
+                              {p.variants && p.variants.length > 0 && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-700">
+                                  {p.variants.length} variantes
+                                </span>
+                              )}
+                              {p.ingredients && p.ingredients.length > 0 && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-orange-50 text-orange-700">
+                                  Con receta ({p.ingredients.length} ing.)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <span className="font-mono font-bold text-gray-900 bg-gray-100 px-2 py-1 rounded-lg text-xs">
+                              ${Number(p.price).toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Estado: Input Textarea de JSON + Instrucciones */
+                <div className="space-y-4">
+                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Instrucciones y Formatos</h4>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Puedes proporcionar el menú en un arreglo general de productos, o agrupados en un objeto cuyas llaves sean las categorías. Los campos requeridos por producto son: <code className="font-mono font-bold text-red-600">name</code> y <code className="font-mono font-bold text-red-600">price</code>.
+                    </p>
+                    <div className="mt-3">
+                      <p className="text-[11px] font-bold text-slate-400 uppercase">Ejemplo en Arreglo:</p>
+                      <pre className="bg-slate-900 text-slate-300 p-3 rounded-xl text-[10px] overflow-x-auto font-mono mt-1 max-h-36">
+{`[
+  {
+    "name": "Hamburguesa Clásica",
+    "price": 5.50,
+    "category": "Hamburguesas",
+    "description": "Carne de res, queso cheddar y vegetales",
+    "variants": [
+      { "name": "Doble Carne", "price": 7.50 }
+    ]
+  }
+]`}
+                      </pre>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Pega el código JSON aquí</label>
+                    <textarea
+                      value={jsonText}
+                      onChange={(e) => setJsonText(e.target.value)}
+                      placeholder="Paste your JSON menu here..."
+                      rows={8}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-2xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-gray-50 focus:bg-white transition-all shadow-inner"
+                    />
+                  </div>
+
+                  {jsonError && (
+                    <div className="bg-red-50 border border-red-100 rounded-2xl p-4 flex items-start gap-3 text-red-900 animate-in fade-in duration-200">
+                      <i className="bi bi-exclamation-triangle-fill text-red-500 mt-0.5 flex-shrink-0 text-lg"></i>
+                      <div className="text-xs font-medium space-y-1">
+                        <p className="font-bold">Error de validación o sintaxis:</p>
+                        <pre className="whitespace-pre-wrap font-mono break-all opacity-90 max-h-32 overflow-y-auto">{jsonError}</pre>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer del Modal */}
+            <div className="p-6 md:p-8 border-t border-gray-100 bg-gray-50/50 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowJsonImport(false)}
+                disabled={isImporting}
+                className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-sm font-bold transition-all shadow-sm active:scale-95 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+
+              {parsedProducts.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={handleImportProducts}
+                  disabled={isImporting}
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition-all shadow-sm active:scale-95 flex items-center gap-2 disabled:opacity-50"
+                >
+                  <i className="bi bi-cloud-arrow-up-fill text-base"></i>
+                  Confirmar e Importar ({parsedProducts.length})
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleParseJson}
+                  disabled={isImporting || !jsonText.trim()}
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition-all shadow-sm active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:hover:bg-blue-600"
+                >
+                  <i className="bi bi-gear-wide-connected text-base"></i>
+                  Procesar JSON
+                </button>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* Botón flotante para nuevo producto */}
       <button
