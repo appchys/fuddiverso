@@ -352,10 +352,16 @@ export default function BusinessProfileDashboard({
                                     <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Retiro en Local</p>
                                     <div className="flex items-center justify-between">
                                         <p className="text-sm font-bold text-gray-900">
-                                            {displayBusiness.pickupSettings?.enabled ? 'Habilitado' : 'Desactivado'}
+                                            {!displayBusiness.pickupSettings?.enabled 
+                                                ? 'Desactivado' 
+                                                : displayBusiness.pickupSettings.restrictToPrevious 
+                                                    ? 'Solo recurrentes' 
+                                                    : 'Habilitado'}
                                         </p>
                                         {displayBusiness.pickupSettings?.enabled && (
-                                            <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">ACTIVO</span>
+                                            <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                                                {displayBusiness.pickupSettings.restrictToPrevious ? 'RESTRINGIDO' : 'ACTIVO'}
+                                            </span>
                                         )}
                                     </div>
                                 </div>

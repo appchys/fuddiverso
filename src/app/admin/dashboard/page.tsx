@@ -10,6 +10,7 @@ const ProductsList = lazy(() => import('@/components/ProductsList'))
 const RecommendersTab = lazy(() => import('@/components/admin/RecommendersTab'))
 const TransferReviewPanel = lazy(() => import('@/components/TransferReviewPanel'))
 const PaymentManagementModals = lazy(() => import('@/components/PaymentManagementModals'))
+const AdminOrdersLive = lazy(() => import('@/components/AdminLiveOrders'))
 import {
   getAllOrders,
   getAllBusinesses,
@@ -52,7 +53,7 @@ export default function AdminDashboard() {
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [visitsMap, setVisitsMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'templates' | 'products' | 'orders' | 'transfers'>('home')
+  const [activeTab, setActiveTab] = useState<'home' | 'general' | 'customers' | 'recommenders' | 'templates' | 'products' | 'orders' | 'transfers' | 'live-orders'>('live-orders')
   const [activeTemplateTab, setActiveTemplateTab] = useState<'whatsapp' | 'telegram' | 'broadcast'>('whatsapp')
   const [coverageGroups, setCoverageGroups] = useState<any[]>([])
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
@@ -1030,6 +1031,13 @@ export default function AdminDashboard() {
         {/* Tabs - Scroll horizontal en móvil */}
         <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl border border-gray-200 overflow-x-auto -mx-4 px-4 md:mx-0 md:px-1 scrollbar-hide">
           <button
+            onClick={() => setActiveTab('live-orders')}
+            className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'live-orders' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <i className="bi bi-lightning-charge-fill me-1.5"></i>
+            Pedidos
+          </button>
+          <button
             onClick={() => setActiveTab('home')}
             className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'home' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
@@ -1088,7 +1096,11 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {activeTab === 'home' ? (
+      {activeTab === 'live-orders' ? (
+        <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div></div>}>
+          <AdminOrdersLive />
+        </Suspense>
+      ) : activeTab === 'home' ? (
         <div className="space-y-4">
           <div className="flex items-center justify-end">
             <input

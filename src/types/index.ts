@@ -65,6 +65,7 @@ export interface Business {
   }
   pickupSettings?: {
     enabled: boolean
+    restrictToPrevious?: boolean
     references: string
     latlong: string
     storePhotoUrl: string

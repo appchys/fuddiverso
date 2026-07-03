@@ -26,7 +26,8 @@ import {
   getCoverageZones,
   isPointInPolygon,
   getUserCredits,
-  useUserCredits
+  useUserCredits,
+  getOrdersByClient
 } from '@/lib/database'
 import { Business } from '@/types'
 import LocationMap from '@/components/LocationMap'
@@ -356,6 +357,37 @@ export function CheckoutContent({
   const [calculatedDistance, setCalculatedDistance] = useState<number | null>(null)
   const [showStoreImageModal, setShowStoreImageModal] = useState(false)
   const [userCredits, setUserCredits] = useState<{ available: number; referral: number; manual: number }>({ available: 0, referral: 0, manual: 0 })
+  const [hasPreviousPickup, setHasPreviousPickup] = useState<boolean | null>(null)
+
+  // Consultar si el cliente ya tiene órdenes con retiro en tienda previas
+  useEffect(() => {
+    const checkPreviousPickup = async () => {
+      const phone = user?.celular || customerData.phone
+      if (!phone || phone.trim().length < 9) {
+        setHasPreviousPickup(null)
+        return
+      }
+      try {
+        const normalized = normalizeEcuadorianPhone(phone)
+        const orders = await getOrdersByClient(normalized)
+        // Buscar si alguna orden tiene retiro en tienda
+        const hasPickup = orders.some(ord => ord.delivery?.type === 'pickup')
+        setHasPreviousPickup(hasPickup)
+      } catch (error) {
+        console.error('Error checking previous pickup orders:', error)
+        setHasPreviousPickup(false)
+      }
+    }
+    checkPreviousPickup()
+  }, [user?.celular, customerData.phone])
+
+  // Cambiar selección de retiro si cambia el estado de validación a restringido
+  useEffect(() => {
+    if (deliveryData.type === 'pickup' && business?.pickupSettings?.restrictToPrevious && hasPreviousPickup === false) {
+      alert('El retiro en tienda en este negocio está restringido únicamente a clientes que ya han realizado retiros en tienda anteriormente. Se ha cambiado tu selección.')
+      setDeliveryData(prev => ({ ...prev, type: '' }))
+    }
+  }, [hasPreviousPickup, deliveryData.type, business?.pickupSettings?.restrictToPrevious])
   const [collapsedSections, setCollapsedSections] = useState<{ [key: string]: boolean }>({
     'step-1': false,
     'step-2': true,
@@ -1549,6 +1581,16 @@ export function CheckoutContent({
         return
       }
 
+      // Validación de restricción de retiro en tienda
+      if (deliveryData.type === 'pickup' && business?.pickupSettings?.restrictToPrevious) {
+        if (hasPreviousPickup === false) {
+          alert('El retiro en tienda en este negocio está restringido únicamente a clientes que ya han realizado retiros en tienda anteriormente.')
+          setLoading(false)
+          setIsProcessingOrder(false)
+          return
+        }
+      }
+
       // VALIDACIÓN CRÍTICA: Si el método de pago es transferencia, debe existir comprobante
       if (paymentData.method === 'transfer') {
         if (!paymentData.selectedBank) {
@@ -2276,37 +2318,56 @@ export function CheckoutContent({
                     )}
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!business?.pickupSettings?.enabled) return;
-                      setSelectedLocation(null);
-                      setDeliveryData(prev => ({ ...prev, type: 'pickup', address: '', references: '', tarifa: '0' }));
-                    }}
-                    disabled={!business?.pickupSettings?.enabled}
-                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${!business?.pickupSettings?.enabled
-                      ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
-                      : deliveryData.type === 'pickup'
-                        ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
-                        : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
-                      }`}
-                  >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${!business?.pickupSettings?.enabled
-                      ? 'bg-gray-200 text-gray-400'
-                      : deliveryData.type === 'pickup' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'
-                      }`}>
-                      <i className="bi bi-shop"></i>
-                    </div>
-                    <span className="font-bold">Retiro en Tienda</span>
-                    <span className={`text-xs mt-1 ${deliveryData.type === 'pickup' ? 'text-white/80' : 'text-gray-500'}`}>
-                      {business?.pickupSettings?.enabled ? 'Atención local' : 'No disponible'}
-                    </span>
-                    {deliveryData.type === 'pickup' && business?.pickupSettings?.enabled && (
-                      <div className="absolute top-2 right-2 text-white text-xs">
-                        <i className="bi bi-check-circle-fill"></i>
-                      </div>
-                    )}
-                  </button>
+                  {(() => {
+                    const isRestricted = !!business?.pickupSettings?.restrictToPrevious;
+                    const isDisabledByRestriction = isRestricted && hasPreviousPickup === false;
+                    const isDisabled = !business?.pickupSettings?.enabled || isDisabledByRestriction;
+                    
+                    let statusLabel = 'Atención local';
+                    if (!business?.pickupSettings?.enabled) {
+                      statusLabel = 'No disponible';
+                    } else if (isRestricted) {
+                      if (hasPreviousPickup === null) {
+                        statusLabel = 'Identifícate para verificar';
+                      } else if (hasPreviousPickup === false) {
+                        statusLabel = 'Solo clientes frecuentes';
+                      }
+                    }
+
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isDisabled) return;
+                          setSelectedLocation(null);
+                          setDeliveryData(prev => ({ ...prev, type: 'pickup', address: '', references: '', tarifa: '0' }));
+                        }}
+                        disabled={isDisabled}
+                        className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${isDisabled
+                          ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                          : deliveryData.type === 'pickup'
+                            ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
+                            : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+                          }`}
+                      >
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${isDisabled
+                          ? 'bg-gray-200 text-gray-400'
+                          : deliveryData.type === 'pickup' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'
+                          }`}>
+                          <i className="bi bi-shop"></i>
+                        </div>
+                        <span className="font-bold">Retiro en Tienda</span>
+                        <span className={`text-[11px] text-center mt-1 leading-tight ${deliveryData.type === 'pickup' ? 'text-white/80' : 'text-gray-500'}`}>
+                          {statusLabel}
+                        </span>
+                        {deliveryData.type === 'pickup' && !isDisabled && (
+                          <div className="absolute top-2 right-2 text-white text-xs">
+                            <i className="bi bi-check-circle-fill"></i>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })()}
                 </div>
 
                 {/* Selected Location Display */}

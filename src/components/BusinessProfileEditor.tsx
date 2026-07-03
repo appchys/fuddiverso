@@ -33,7 +33,9 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
         defaultDeliveryId: business.defaultDeliveryId || '',
         groupId: business.groupId || '',
         zoneId: business.zoneId || '',
-        pickupSettings: business.pickupSettings || { enabled: false, references: '', latlong: '', storePhotoUrl: '' }
+        pickupSettings: business.pickupSettings 
+            ? { restrictToPrevious: false, ...business.pickupSettings } 
+            : { enabled: false, restrictToPrevious: false, references: '', latlong: '', storePhotoUrl: '' }
     })
 
     const [coverageGroups, setCoverageGroups] = useState<CoverageGroup[]>([])
@@ -711,24 +713,70 @@ export const BusinessProfileEditor: React.FC<BusinessProfileEditorProps> = ({
                                         <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Retiros en Tienda</h3>
                                     </div>
 
-                                    {/* Toggle Principal */}
-                                    <div className="bg-white rounded-3xl p-6 border-2 border-dashed border-gray-100 flex items-center justify-between group hover:border-red-100 transition-colors">
+                                    {/* Selector de Opción de Retiro */}
+                                    <div className="bg-white rounded-3xl p-6 border-2 border-dashed border-gray-100 space-y-4 hover:border-red-100 transition-colors">
                                         <div className="flex items-center gap-4">
                                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all ${formData.pickupSettings.enabled ? 'bg-red-600 text-white shadow-lg shadow-red-200' : 'bg-gray-100 text-gray-400'}`}>
                                                 <i className="bi bi-shop-window"></i>
                                             </div>
                                             <div>
-                                                <h4 className="font-black text-gray-900 uppercase tracking-widest text-[10px]">Estatus del Servicio</h4>
-                                                <p className="text-sm font-bold text-gray-500">{formData.pickupSettings.enabled ? 'Habilitado para clientes' : 'Desactivado temporalmente'}</p>
+                                                <h4 className="font-black text-gray-900 uppercase tracking-widest text-[10px]">Estatus del Servicio de Retiro</h4>
+                                                <p className="text-[11px] font-semibold text-gray-500 leading-snug">Configura cómo tus clientes pueden retirar sus pedidos en tienda</p>
                                             </div>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => handlePickupChange('enabled', !formData.pickupSettings.enabled)}
-                                            className={`w-14 h-8 rounded-full transition-all duration-300 relative ${formData.pickupSettings.enabled ? 'bg-red-600' : 'bg-gray-200'}`}
-                                        >
-                                            <div className={`absolute top-1.5 w-5 h-5 rounded-full bg-white transition-all duration-300 shadow-sm ${formData.pickupSettings.enabled ? 'left-7.5' : 'left-1.5'}`}></div>
-                                        </button>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+                                            {/* Opción: Desactivado */}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    handlePickupChange('enabled', false)
+                                                    handlePickupChange('restrictToPrevious', false)
+                                                }}
+                                                className={`p-3 rounded-2xl border-2 text-left transition-all ${
+                                                    !formData.pickupSettings.enabled
+                                                        ? 'border-red-600 bg-red-50/50 text-red-900 shadow-sm'
+                                                        : 'border-gray-100 bg-gray-50/30 text-gray-500 hover:border-gray-200'
+                                                }`}
+                                            >
+                                                <div className="font-black text-[10px] uppercase tracking-wider mb-1">Desactivado</div>
+                                                <div className="text-[11px] font-semibold opacity-85 leading-snug">Los clientes no podrán seleccionar retiro.</div>
+                                            </button>
+
+                                            {/* Opción: Activado (Todos) */}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    handlePickupChange('enabled', true)
+                                                    handlePickupChange('restrictToPrevious', false)
+                                                }}
+                                                className={`p-3 rounded-2xl border-2 text-left transition-all ${
+                                                    formData.pickupSettings.enabled && !formData.pickupSettings.restrictToPrevious
+                                                        ? 'border-red-600 bg-red-50/50 text-red-900 shadow-sm'
+                                                        : 'border-gray-100 bg-gray-50/30 text-gray-500 hover:border-gray-200'
+                                                }`}
+                                            >
+                                                <div className="font-black text-[10px] uppercase tracking-wider mb-1">Activado (Todos)</div>
+                                                <div className="text-[11px] font-semibold opacity-85 leading-snug">Cualquier cliente podrá retirar en tienda.</div>
+                                            </button>
+
+                                            {/* Opción: Solo clientes con retiros previos */}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    handlePickupChange('enabled', true)
+                                                    handlePickupChange('restrictToPrevious', true)
+                                                }}
+                                                className={`p-3 rounded-2xl border-2 text-left transition-all ${
+                                                    formData.pickupSettings.enabled && formData.pickupSettings.restrictToPrevious
+                                                        ? 'border-red-600 bg-red-50/50 text-red-900 shadow-sm'
+                                                        : 'border-gray-100 bg-gray-50/30 text-gray-500 hover:border-gray-200'
+                                                }`}
+                                            >
+                                                <div className="font-black text-[10px] uppercase tracking-wider mb-1">Solo Históricos</div>
+                                                <div className="text-[11px] font-semibold opacity-85 leading-snug">Solo para clientes que ya hayan retirado antes.</div>
+                                            </button>
+                                        </div>
                                     </div>
 
                                     {formData.pickupSettings.enabled && (
