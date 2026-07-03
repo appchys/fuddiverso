@@ -63,6 +63,7 @@ export default function AdminDashboard() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<Order | null>(null)
   const [validatingPaymentOrderId, setValidatingPaymentOrderId] = useState<string | null>(null)
+  const [isValidatingAllTransfers, setIsValidatingAllTransfers] = useState(false)
 
   // Estados para filtros del historial de órdenes
   const [filterOrdersBusiness, setFilterOrdersBusiness] = useState<string>('all')
@@ -711,6 +712,60 @@ export default function AdminDashboard() {
       alert('Error al validar la transferencia')
     } finally {
       setValidatingPaymentOrderId(null)
+    }
+  }
+
+  const handleValidateAllTransfers = async (ordersToValidate: Order[]) => {
+    if (ordersToValidate.length === 0) return
+
+    setIsValidatingAllTransfers(true)
+    try {
+      const promises = ordersToValidate.map(async (order) => {
+        const updatedPayment = {
+          ...order.payment,
+          paymentStatus: 'paid' as const
+        }
+        await updateOrder(order.id, { payment: updatedPayment } as any)
+        return { id: order.id, payment: updatedPayment }
+      })
+
+      const results = await Promise.all(promises)
+
+      setOrders(prevOrders =>
+        prevOrders.map(currentOrder => {
+          const match = results.find(r => r.id === currentOrder.id)
+          if (match) {
+            return {
+              ...currentOrder,
+              payment: {
+                ...currentOrder.payment,
+                ...match.payment
+              }
+            }
+          }
+          return currentOrder
+        })
+      )
+
+      if (selectedOrderForPayment) {
+        const match = results.find(r => r.id === selectedOrderForPayment.id)
+        if (match) {
+          setSelectedOrderForPayment({
+            ...selectedOrderForPayment,
+            payment: {
+              ...selectedOrderForPayment.payment,
+              ...match.payment
+            }
+          })
+        }
+      }
+
+      alert('Se confirmaron todas las transferencias seleccionadas exitosamente')
+    } catch (error) {
+      console.error('Error validating all transfer payments:', error)
+      alert('Hubo un error al validar algunas transferencias')
+    } finally {
+      setIsValidatingAllTransfers(false)
     }
   }
 
@@ -1641,6 +1696,8 @@ export default function AdminDashboard() {
             onPaymentEdit={handlePaymentClick}
             onPaymentValidate={handleValidateTransferPayment}
             validatingOrderId={validatingPaymentOrderId}
+            onValidateAllPayments={handleValidateAllTransfers}
+            isValidatingAll={isValidatingAllTransfers}
           />
           <PaymentManagementModals
             isOpen={paymentModalOpen}

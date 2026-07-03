@@ -11,6 +11,8 @@ interface TransferReviewPanelProps {
     onPaymentValidate?: (order: Order) => void | Promise<void>
     validatingOrderId?: string | null
     businesses?: Business[]
+    onValidateAllPayments?: (orders: Order[]) => void | Promise<void>
+    isValidatingAll?: boolean
 }
 
 const paymentStatusConfig: Record<PaymentStatus, {
@@ -104,7 +106,9 @@ export default function TransferReviewPanel({
     onPaymentEdit,
     onPaymentValidate,
     validatingOrderId = null,
-    businesses = []
+    businesses = [],
+    onValidateAllPayments,
+    isValidatingAll = false
 }: TransferReviewPanelProps) {
     const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null)
 
@@ -117,6 +121,13 @@ export default function TransferReviewPanel({
             })
             .sort((a, b) => getOrderDate(b).getTime() - getOrderDate(a).getTime())
     }, [orders])
+
+    const unconfirmedOrders = useMemo(() => {
+        return transferOrders.filter(order => {
+            const status = getPaymentStatus(order)
+            return status === 'validating' || status === 'pending'
+        })
+    }, [transferOrders])
 
     const groupedOrders = useMemo(() => {
         return statusOrder.map(status => {
@@ -137,25 +148,52 @@ export default function TransferReviewPanel({
 
     return (
         <div className="space-y-5">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                     <h1 className="text-2xl font-black text-gray-900">Revisar transferencias</h1>
                     <p className="text-sm text-gray-500 mt-1">
                         Pedidos pagados por transferencia, agrupados por estado y ordenados por fecha.
                     </p>
                 </div>
-                <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
-                    <div className="bg-white border border-gray-100 rounded-xl p-3">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total</p>
-                        <p className="text-lg font-black text-gray-900">{transferOrders.length}</p>
-                    </div>
-                    <div className="bg-white border border-amber-100 rounded-xl p-3">
-                        <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Por revisar</p>
-                        <p className="text-lg font-black text-amber-700">{validatingCount + pendingCount}</p>
-                    </div>
-                    <div className="bg-white border border-emerald-100 rounded-xl p-3">
-                        <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Monto</p>
-                        <p className="text-lg font-black text-emerald-700">${totalTransferAmount.toFixed(2)}</p>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    {unconfirmedOrders.length > 0 && onValidateAllPayments && (
+                        <button
+                            type="button"
+                            disabled={isValidatingAll || validatingOrderId !== null}
+                            onClick={(event) => {
+                                event.stopPropagation()
+                                if (window.confirm(`¿Estás seguro de que deseas marcar las ${unconfirmedOrders.length} transferencias pendientes como confirmadas?`)) {
+                                    onValidateAllPayments(unconfirmedOrders)
+                                }
+                            }}
+                            className="flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-black shadow-sm transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                            {isValidatingAll ? (
+                                <>
+                                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                    <span>Confirmando...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="material-symbols-rounded text-lg">check_circle</span>
+                                    <span>Confirmar todas ({unconfirmedOrders.length})</span>
+                                </>
+                            )}
+                        </button>
+                    )}
+                    <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
+                        <div className="bg-white border border-gray-100 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total</p>
+                            <p className="text-lg font-black text-gray-900">{transferOrders.length}</p>
+                        </div>
+                        <div className="bg-white border border-amber-100 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Por revisar</p>
+                            <p className="text-lg font-black text-amber-700">{validatingCount + pendingCount}</p>
+                        </div>
+                        <div className="bg-white border border-emerald-100 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Monto</p>
+                            <p className="text-lg font-black text-emerald-700">${totalTransferAmount.toFixed(2)}</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -249,7 +287,7 @@ export default function TransferReviewPanel({
                                                             <div className="mt-1 flex flex-col items-end gap-1">
                                                                 <button
                                                                     type="button"
-                                                                    disabled={isPaid || isValidating || !onPaymentValidate}
+                                                                    disabled={isPaid || isValidating || isValidatingAll || !onPaymentValidate}
                                                                     onClick={(event) => {
                                                                         event.stopPropagation()
                                                                         onPaymentValidate?.(order)
@@ -353,7 +391,7 @@ export default function TransferReviewPanel({
                                 </button>
                                 <button
                                     type="button"
-                                    disabled={receiptOrderIsPaid || receiptOrderIsValidating || !onPaymentValidate}
+                                    disabled={receiptOrderIsPaid || receiptOrderIsValidating || isValidatingAll || !onPaymentValidate}
                                     onClick={() => onPaymentValidate?.(receiptOrder)}
                                     className={`px-4 py-2 rounded-lg text-sm font-black transition-colors ${
                                         receiptOrderIsPaid
