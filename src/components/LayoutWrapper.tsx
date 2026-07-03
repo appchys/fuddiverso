@@ -27,9 +27,16 @@ export default function LayoutWrapper({
     document.addEventListener('touchstart', preventZoom, { passive: false })
     document.addEventListener('gesturestart', preventGesture)
 
+    // Attempt to hide mobile browser address bar on load
+    const hideAddressBar = () => {
+      window.scrollTo(0, 1)
+    }
+    const timer = setTimeout(hideAddressBar, 800)
+
     return () => {
       document.removeEventListener('touchstart', preventZoom)
       document.removeEventListener('gesturestart', preventGesture)
+      clearTimeout(timer)
     }
   }, [])
 
@@ -54,7 +61,7 @@ export default function LayoutWrapper({
   return (
     <>
       {showHeader && <Header />}
-      <main className={`min-h-screen ${showHeader ? 'pt-16' : ''}`}>
+      <main className={`min-h-[calc(100vh+1px)] ${showHeader ? 'pt-16' : ''}`}>
         {children}
       </main>
       <BottomNavigation />

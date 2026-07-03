@@ -9,6 +9,16 @@ import { SpeedInsights } from "@vercel/speed-insights/next"
 export const metadata: Metadata = {
   title: 'Fuddi',
   description: 'Plataforma de delivery de comida para negocios y clientes',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Fuddi',
+  },
+  icons: {
+    icon: '/favicon.svg',
+    apple: '/icons/apple-icon-180x180.png',
+  },
 }
 
 export const viewport: Viewport = {
