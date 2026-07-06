@@ -336,6 +336,8 @@ export async function createBusinessFromForm(formData: {
   ownerId?: string;
   latlong?: string;
   deliveryTime?: number;
+  pickupReferences?: string;
+  pickupStorePhotoUrl?: string;
 }) {
   // Parse latlong string to existing mapLocation format if available
   let lat = 0;
@@ -373,8 +375,8 @@ export async function createBusinessFromForm(formData: {
     pickupSettings: {
       enabled: false,
       latlong: formData.latlong || '',
-      references: '',
-      storePhotoUrl: ''
+      references: formData.pickupReferences || '',
+      storePhotoUrl: formData.pickupStorePhotoUrl || ''
     },
     schedule: {
       monday: { open: '09:00', close: '18:00', isOpen: true },

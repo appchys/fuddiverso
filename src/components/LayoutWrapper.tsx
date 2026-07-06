@@ -43,7 +43,7 @@ export default function LayoutWrapper({
   // Rutas reservadas que NO son perfiles de tienda
   const reservedRoutes = [
     'checkout', 'profile', 'my-orders', 'my-locations',
-    'collection', 'restaurants', 'restaurant', 'scan', 'delivery', 'admin', 'o', 'business'
+    'collection', 'restaurants', 'restaurant', 'scan', 'delivery', 'admin', 'o', 'business', 'tiendas'
   ]
 
   const pathSegments = pathname.split('/').filter(Boolean)

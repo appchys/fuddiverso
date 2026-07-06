@@ -3,6 +3,15 @@ import { Timestamp } from 'firebase/firestore'
 export type CommissionType = 'fuddi_assumed_by_store' | 'fuddi_assumed_by_customer' | 'no_commission'
 
 
+export interface BankAccount {
+  id: string
+  bankName: string
+  accountType: string
+  accountNumber: string
+  accountHolder: string
+  isDefault?: boolean
+}
+
 export interface Business {
   id: string
   name: string
@@ -29,6 +38,7 @@ export interface Business {
     accountNumber: string
     accountHolder: string
   }
+  bankAccounts?: BankAccount[]
   schedule: {
     [key: string]: {
       open: string
