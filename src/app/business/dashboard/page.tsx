@@ -2630,9 +2630,11 @@ function DeliveryStatusModal({
     if (!isOpen || !order) return null
 
     const status = order.delivery?.acceptanceStatus
-    const agentCardClass = status === 'accepted'
-        ? 'bg-green-50 border-green-200'
-        : 'bg-yellow-50 border-yellow-200'
+    const agentCardClass = !order.delivery?.assignedDelivery
+        ? 'bg-gray-50 border-gray-200'
+        : status === 'accepted'
+            ? 'bg-green-50 border-green-200'
+            : 'bg-yellow-50 border-yellow-200'
 
     return (
         <div
@@ -2654,7 +2656,7 @@ function DeliveryStatusModal({
                     <div className="space-y-6">
                         {/* Agent Info */}
                         <div className={`flex items-center gap-4 p-4 rounded-xl border ${agentCardClass}`}>
-                            <div className={`w-12 h-12 rounded-full flex items-center justify-center ${status === 'accepted' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                            <div className={`w-12 h-12 rounded-full flex items-center justify-center ${!order.delivery?.assignedDelivery ? 'bg-gray-100 text-gray-500' : status === 'accepted' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                                 <i className="bi bi-person-fill text-2xl"></i>
                             </div>
                             <div className="min-w-0 flex-1">
@@ -2674,12 +2676,14 @@ function DeliveryStatusModal({
                                     <p className="text-lg font-bold text-gray-900 truncate">{deliveryAgent?.nombres || 'No identificado'}</p>
                                 )}
                                 <div className="mt-2 flex items-center gap-2">
-                                    <span className={`h-2 w-2 rounded-full ${status === 'accepted' ? 'bg-green-500' :
-                                        status === 'rejected' ? 'bg-red-500' : 'bg-yellow-500 animate-pulse'
+                                    <span className={`h-2 w-2 rounded-full ${!order.delivery?.assignedDelivery ? 'bg-gray-400' :
+                                        status === 'accepted' ? 'bg-green-500' :
+                                            status === 'rejected' ? 'bg-red-500' : 'bg-yellow-500 animate-pulse'
                                         }`} />
                                     <span className="text-sm font-bold text-gray-900">
-                                        {status === 'accepted' ? 'Confirmado' :
-                                            status === 'rejected' ? 'Rechazado' : 'Esperando confirmacion'}
+                                        {!order.delivery?.assignedDelivery ? 'Sin asignar' :
+                                            status === 'accepted' ? 'Confirmado' :
+                                                status === 'rejected' ? 'Rechazado' : 'Esperando confirmacion'}
                                     </span>
                                 </div>
                             </div>
@@ -2703,13 +2707,15 @@ function DeliveryStatusModal({
                         </div>}
 
                         {/* WhatsApp Action */}
-                        <button
-                            onClick={onWhatsApp}
-                            className="w-full flex items-center justify-center gap-2 py-3.5 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-200"
-                        >
-                            <i className="bi bi-whatsapp text-xl"></i>
-                            Notificar por WhatsApp
-                        </button>
+                        {order.delivery?.assignedDelivery && (
+                            <button
+                                onClick={onWhatsApp}
+                                className="w-full flex items-center justify-center gap-2 py-3.5 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-200"
+                            >
+                                <i className="bi bi-whatsapp text-xl"></i>
+                                Notificar por WhatsApp
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -3138,7 +3144,6 @@ function OrderCard({
 
                         <div className="flex flex-col">
                             <span className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
-                                {!isDelivery && <i className="bi bi-shop text-gray-400"></i>}
                                 {order.customer?.name || "Cliente"}
                                 {order.customer?.phone && clientsWithNotes && clientsWithNotes[order.customer.phone] && (
                                     <i 
@@ -3306,11 +3311,11 @@ function OrderCard({
                         <button
                             type="button"
                             onClick={() => {
-                                if (isDelivery && order.delivery?.assignedDelivery) {
+                                if (isDelivery) {
                                     onDeliveryStatusClick(order)
                                 }
                             }}
-                            className={`flex h-[20px] min-h-[20px] max-h-[20px] w-36 items-center justify-center truncate rounded-[3px] border px-2 py-0 text-[11px] font-semibold leading-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] transition-colors ${fulfillmentLabelClass} ${isDelivery && order.delivery?.assignedDelivery ? 'cursor-pointer hover:brightness-95' : 'cursor-default'}`}
+                            className={`flex h-[20px] min-h-[20px] max-h-[20px] w-36 items-center justify-center truncate rounded-[3px] border px-2 py-0 text-[11px] font-semibold leading-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35)] transition-colors ${fulfillmentLabelClass} ${isDelivery ? 'cursor-pointer hover:brightness-95' : 'cursor-default'}`}
                             title={fulfillmentLabelTitle}
                         >
                             {fulfillmentLabel}

@@ -2196,176 +2196,189 @@ export default function ManualOrderSidebar({
           )}
           {/* Búsqueda de cliente */}
           <div className="mb-6">
-            <div className="flex justify-between items-center mb-2">
-              <label className="block text-sm font-medium text-black">
-                Teléfono del cliente
-              </label>
-              {!showNameSearchModal && (
-                <button
-                  type="button"
-                  onClick={() => setShowNameSearchModal(true)}
-                  className="text-xs text-blue-600 hover:text-blue-700 flex items-center bg-blue-50 px-2 py-1 rounded transition-colors"
-                >
-                  <i className="bi bi-search me-1"></i>
-                  Buscar por nombre
-                </button>
-              )}
-            </div>
-
-            {/* Expansión de búsqueda por nombre */}
-            {showNameSearchModal && (
-              <div className="mb-3 p-3 border border-blue-200 bg-blue-50 rounded-md relative z-20">
+            {!clientFound ? (
+              <>
                 <div className="flex justify-between items-center mb-2">
-                  <label className="text-sm font-medium text-blue-800">
-                    Búsqueda por nombre
+                  <label className="block text-sm font-medium text-black">
+                    Teléfono del cliente
                   </label>
-                  <button
-                    onClick={() => {
-                      setShowNameSearchModal(false)
-                      setNameSearchTerm('')
-                      setShowSearchResults(false)
-                    }}
-                    className="text-blue-500 hover:text-blue-700 p-1"
-                    type="button"
-                  >
-                    <i className="bi bi-x-lg"></i>
-                  </button>
-                </div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={nameSearchTerm}
-                    onChange={(e) => handleNameSearchDebounced(e.target.value)}
-                    placeholder="Escriba el nombre a buscar..."
-                    className="w-full px-3 py-2 border border-blue-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm"
-                    autoFocus
-                  />
-                  {searchingClient && nameSearchTerm && (
-                    <div className="absolute right-3 top-2.5">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                    </div>
+                  {!showNameSearchModal && (
+                    <button
+                      type="button"
+                      onClick={() => setShowNameSearchModal(true)}
+                      className="text-xs text-blue-600 hover:text-blue-700 flex items-center bg-blue-50 px-2 py-1 rounded transition-colors"
+                    >
+                      <i className="bi bi-search me-1"></i>
+                      Buscar por nombre
+                    </button>
                   )}
-                  {/* Dropdown de resultados de búsqueda por nombre */}
-                  {showSearchResults && nameSearchTerm.length >= 2 && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-64 overflow-y-auto">
-                      {searchResults.length > 0 ? (
-                        searchResults.map((client) => (
-                          <button
-                            key={client.id}
-                            onClick={() => {
-                              handleSelectClient(client)
-                              setShowNameSearchModal(false)
-                              setNameSearchTerm('')
-                            }}
-                            className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b last:border-b-0 transition-colors flex flex-col"
-                            type="button"
-                          >
-                            <p className="font-medium text-gray-900 flex items-center gap-1.5">
-                              {client.nombres}
-                              {client.notas && (
-                                <i className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse" title={`Nota: ${client.notas}`}></i>
-                              )}
-                            </p>
-                            <p className="text-xs text-gray-500">{client.celular}</p>
-                          </button>
-                        ))
-                      ) : (
-                        !searchingClient && (
-                          <div className="p-3 text-center text-sm text-gray-500">
-                            No se encontraron clientes
-                          </div>
-                        )
+                </div>
+
+                {/* Expansión de búsqueda por nombre */}
+                {showNameSearchModal && (
+                  <div className="mb-3 p-3 border border-blue-200 bg-blue-50 rounded-md relative z-20">
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm font-medium text-blue-800">
+                        Búsqueda por nombre
+                      </label>
+                      <button
+                        onClick={() => {
+                          setShowNameSearchModal(false)
+                          setNameSearchTerm('')
+                          setShowSearchResults(false)
+                        }}
+                        className="text-blue-500 hover:text-blue-700 p-1"
+                        type="button"
+                      >
+                        <i className="bi bi-x-lg"></i>
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={nameSearchTerm}
+                        onChange={(e) => handleNameSearchDebounced(e.target.value)}
+                        placeholder="Escriba el nombre a buscar..."
+                        className="w-full px-3 py-2 border border-blue-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm"
+                        autoFocus
+                      />
+                      {searchingClient && nameSearchTerm && (
+                        <div className="absolute right-3 top-2.5">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                        </div>
+                      )}
+                      {/* Dropdown de resultados de búsqueda por nombre */}
+                      {showSearchResults && nameSearchTerm.length >= 2 && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-64 overflow-y-auto">
+                          {searchResults.length > 0 ? (
+                            searchResults.map((client) => (
+                              <button
+                                key={client.id}
+                                onClick={() => {
+                                  handleSelectClient(client)
+                                  setShowNameSearchModal(false)
+                                  setNameSearchTerm('')
+                                }}
+                                className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b last:border-b-0 transition-colors flex flex-col"
+                                type="button"
+                              >
+                                <p className="font-medium text-gray-900 flex items-center gap-1.5">
+                                  {client.nombres}
+                                  {client.notas && (
+                                    <i className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse" title={`Nota: ${client.notas}`}></i>
+                                  )}
+                                </p>
+                                <p className="text-xs text-gray-500">{client.celular}</p>
+                              </button>
+                            ))
+                          ) : (
+                            !searchingClient && (
+                              <div className="p-3 text-center text-sm text-gray-500">
+                                No se encontraron clientes
+                              </div>
+                            )
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              </div>
-            )}
+                  </div>
+                )}
 
-            <div className="relative">
-              <div className="relative">
-                <input
-                  type="tel"
-                  value={manualOrderData.customerPhone}
-                  onChange={(e) => {
-                    const val = normalizePastedPhoneInput(e.target.value)
-                    setManualOrderData(prev => ({ ...prev, customerPhone: val }))
-                    handlePhoneSearchInstant(val)
-                  }}
-                  placeholder="Ej: 0912345678"
-                  className="w-full px-3 py-2 pr-16 sm:pr-20 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-mono tracking-wide"
-                  onPaste={(e) => {
-                    e.preventDefault()
-                    const text = e.clipboardData.getData('text') || ''
-                    const normalizedPhone = normalizePastedPhoneInput(text)
-                    
-                    if (normalizedPhone) {
-                      setManualOrderData(prev => ({ ...prev, customerPhone: normalizedPhone }))
-                      handlePhoneSearchInstant(normalizedPhone)
-                    }
-                  }}
-                />
-                <div className="absolute right-0 top-0 h-full flex items-center space-x-1 pr-2">
-                  <button
-                    onClick={handlePasteFromClipboard}
-                    className="p-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors flex-shrink-0"
-                    type="button"
-                    title="Pegar desde portapapeles"
-                  >
-                    <i className="bi bi-clipboard"></i>
-                  </button>
-                  {searchingClient && !showNameSearchModal && (
-                    <div className="flex items-center justify-center w-6 h-6">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                <div className="relative">
+                  <div className="relative">
+                    <input
+                      type="tel"
+                      value={manualOrderData.customerPhone}
+                      onChange={(e) => {
+                        const val = normalizePastedPhoneInput(e.target.value)
+                        setManualOrderData(prev => ({ ...prev, customerPhone: val }))
+                        handlePhoneSearchInstant(val)
+                      }}
+                      placeholder="Ej: 0912345678"
+                      className="w-full px-3 py-2 pr-16 sm:pr-20 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-mono tracking-wide"
+                      onPaste={(e) => {
+                        e.preventDefault()
+                        const text = e.clipboardData.getData('text') || ''
+                        const normalizedPhone = normalizePastedPhoneInput(text)
+                        
+                        if (normalizedPhone) {
+                          setManualOrderData(prev => ({ ...prev, customerPhone: normalizedPhone }))
+                          handlePhoneSearchInstant(normalizedPhone)
+                        }
+                      }}
+                    />
+                    <div className="absolute right-0 top-0 h-full flex items-center space-x-1 pr-2">
+                      <button
+                        onClick={handlePasteFromClipboard}
+                        className="p-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors flex-shrink-0"
+                        type="button"
+                        title="Pegar desde portapapeles"
+                      >
+                        <i className="bi bi-clipboard"></i>
+                      </button>
+                      {searchingClient && !showNameSearchModal && (
+                        <div className="flex items-center justify-center w-6 h-6">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            {/* Campo de nombre del cliente - solo visible cuando no se encuentra */}
-            {showCreateClient && manualOrderData.customerPhone.length >= 9 && (
-              <div className="mt-3">
-                <input
-                  type="text"
-                  value={manualOrderData.customerName}
-                  onChange={(e) => setManualOrderData(prev => ({ ...prev, customerName: e.target.value }))}
-                  placeholder="Nombre del cliente"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-            )}
+                {/* Campo de nombre del cliente - solo visible cuando no se encuentra */}
+                {showCreateClient && manualOrderData.customerPhone.length >= 9 && (
+                  <div className="mt-3">
+                    <input
+                      type="text"
+                      value={manualOrderData.customerName}
+                      onChange={(e) => setManualOrderData(prev => ({ ...prev, customerName: e.target.value }))}
+                      placeholder="Nombre del cliente"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                )}
 
-            {/* Resultado de búsqueda - Cliente encontrado */}
-            {clientFound ? (
-              <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md transition-colors">
+                {showCreateClient && manualOrderData.customerPhone.length >= 9 && (
+                  <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                    <p className="text-sm text-yellow-800 mb-2">Cliente no encontrado. Llene el nombre para crearlo.</p>
+                    <button
+                      onClick={handleCreateClient}
+                      disabled={creatingClient || !manualOrderData.customerName}
+                      className="w-full bg-blue-600 text-white px-3 py-2 rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
+                      type="button"
+                    >
+                      {creatingClient ? 'Creando...' : 'Crear Cliente'}
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-md transition-colors">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-green-800 flex items-center gap-1.5">
-                      <i className="bi bi-check-circle me-2"></i>
+                    <p className="text-sm text-gray-800 flex items-center gap-1.5">
                       <span className="font-medium">{manualOrderData.customerName}</span>
                       {manualOrderData.customerNotes && (
                         <i className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse cursor-help" title={`Nota: ${manualOrderData.customerNotes}`}></i>
                       )}
                     </p>
                     {manualOrderData.customerPhone && (
-                      <p className="text-xs text-green-700 ml-6 opacity-80 font-mono tracking-wide">
+                      <p className="text-xs text-gray-500 opacity-85 font-mono tracking-wide">
                         {manualOrderData.customerPhone}
                       </p>
                     )}
                   </div>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-1">
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
                         handleViewClientInfo()
                       }}
-                      className="px-2 py-1 text-xs bg-white border border-green-300 text-green-700 rounded hover:bg-green-100 transition-colors flex items-center gap-1 shadow-sm font-medium"
+                      className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex items-center justify-center"
                       title="Ver historial y datos"
                     >
-                      <i className="bi bi-eye"></i>
-                      <span>Ver</span>
+                      <i className="bi bi-eye text-base"></i>
                     </button>
                     <button
                       type="button"
@@ -2373,26 +2386,36 @@ export default function ManualOrderSidebar({
                         e.stopPropagation()
                         handleEditClient()
                       }}
-                      className="p-1 text-green-600 hover:text-green-800 transition-colors flex items-center justify-center rounded hover:bg-green-100/50"
+                      className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex items-center justify-center"
                       title="Editar cliente"
                     >
-                      <i className="bi bi-pencil-square text-lg"></i>
+                      <i className="bi bi-pencil text-base"></i>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setClientFound(false)
+                        setShowCreateClient(false)
+                        setManualOrderData(prev => ({
+                          ...prev,
+                          customerId: '',
+                          customerPhone: '',
+                          customerName: '',
+                          customerNotes: '',
+                          customerLocations: [],
+                          selectedLocation: null
+                        }))
+                      }}
+                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center"
+                      title="Cambiar cliente"
+                    >
+                      <i className="bi bi-x-lg text-base"></i>
                     </button>
                   </div>
                 </div>
               </div>
-            ) : showCreateClient && manualOrderData.customerPhone.length >= 9 ? (
-              <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                <p className="text-sm text-yellow-800 mb-2">Cliente no encontrado. Llene el nombre para crearlo.</p>
-                <button
-                  onClick={handleCreateClient}
-                  disabled={creatingClient || !manualOrderData.customerName}
-                  className="w-full bg-blue-600 text-white px-3 py-2 rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {creatingClient ? 'Creando...' : 'Crear Cliente'}
-                </button>
-              </div>
-            ) : null}
+            )}
 
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-black">Productos</h3>
