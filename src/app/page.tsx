@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
+import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct, getProductsReferralCounts, getProductsByBusinessesBatch, getUserReferrals } from '@/lib/database'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product, CoverageGroup } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
@@ -132,8 +132,18 @@ function HomePageContent() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedProductBusiness, setSelectedProductBusiness] = useState<Business | null>(null)
   const [isProductSidebarOpen, setIsProductSidebarOpen] = useState(false)
-  const [groupId, setGroupId] = useState<string | null>(null)
-  const [detectedGroupName, setDetectedGroupName] = useState<string | null>('Daule')
+  const [groupId, setGroupId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lastDetectedGroupId')
+    }
+    return null
+  })
+  const [detectedGroupName, setDetectedGroupName] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lastDetectedGroupName') || 'Daule'
+    }
+    return 'Daule'
+  })
   const [coverageGroups, setCoverageGroups] = useState<CoverageGroup[]>([])
   const [loadingProducts, setLoadingProducts] = useState(false)
   const [showGroupSelector, setShowGroupSelector] = useState(false)
@@ -316,27 +326,25 @@ function HomePageContent() {
     }
   }, [selectedStoryBusiness?.id, selectedProductBusiness?.id, isCartOpen])
 
-  // Cargar productos que el usuario ya ha recomendado + contadores globales
+  // Cargar productos que el usuario ya ha recomendado + contadores globales de forma optimizada
   useEffect(() => {
     const loadRecommendedProducts = async () => {
       if (!user?.id || Object.keys(productsByBusiness).length === 0) return
 
       const allProducts = Object.values(productsByBusiness).flat()
       const productIds = allProducts.map(p => p.id)
-      const recommendedSet = new Set<string>()
 
-      await Promise.all(
-        productIds.map(async (productId) => {
-          const hasReferral = await userHasReferralForProduct(user.id, productId)
-          if (hasReferral) {
-            recommendedSet.add(productId)
-          }
-        })
+      // Obtener todos los referidos del usuario de una sola vez
+      const userReferrals = await getUserReferrals(user.id)
+      const recommendedSet = new Set<string>(
+        userReferrals
+          .filter(ref => ref.productId)
+          .map(ref => ref.productId)
       )
 
       setGeneratedReferralProducts(recommendedSet)
 
-      // Cargar contadores de recomendaciones
+      // Cargar contadores de recomendaciones (internamente optimizados en paralelo)
       const counts = await getProductsReferralCounts(productIds)
       setReferralCounts(counts)
     }
@@ -456,7 +464,7 @@ function HomePageContent() {
     }
   }
 
-  // Cargar productos de negocios (tanto restaurantes como proveedores)
+  // Cargar productos de negocios (tanto restaurantes como proveedores) de forma optimizada
   useEffect(() => {
     const fetchBusinessProducts = async () => {
       if (businesses.length === 0) return
@@ -464,21 +472,35 @@ function HomePageContent() {
       try {
         setLoadingProducts(true)
         const productsMap: Record<string, Product[]> = {}
-        // Ejecutamos en paralelo para máxima velocidad, pero limitamos a los negocios visibles
         const targetBusinesses = businesses.slice(0, 60); // Limitar para evitar saturación de red
+        const targetBusinessIds = targetBusinesses.map(b => b.id)
 
-        await Promise.all(targetBusinesses.map(async (business) => {
-          const products = await getProductsByBusiness(business.id)
-          // Filtrar y ordenar por edición más reciente
-          const sorted = products
-            .filter(p => p.isAvailable && p.image)
+        // Obtener productos de todos los negocios en lotes eficientes
+        const allProducts = await getProductsByBusinessesBatch(targetBusinessIds)
+
+        // Inicializar mapas vacíos para cada negocio objetivo
+        targetBusinessIds.forEach(id => {
+          productsMap[id] = []
+        })
+
+        // Agrupar productos por negocio en memoria
+        allProducts.forEach(product => {
+          if (productsMap[product.businessId] && product.image && product.isAvailable) {
+            productsMap[product.businessId].push(product)
+          }
+        })
+
+        // Filtrar, ordenar y recortar a máximo 10 productos
+        targetBusinessIds.forEach(id => {
+          productsMap[id] = productsMap[id]
             .sort((a, b) => {
               const dateA = a.updatedAt?.getTime() || 0
               const dateB = b.updatedAt?.getTime() || 0
               return dateB - dateA
             })
-          productsMap[business.id] = sorted.slice(0, 10)
-        }))
+            .slice(0, 10)
+        })
+
         setProductsByBusiness(prev => ({ ...prev, ...productsMap }))
       } catch (error) {
         console.error("Error loading business products:", error)
@@ -542,12 +564,24 @@ function HomePageContent() {
         const activeGroups = groups.filter(g => g.isActive)
         setCoverageGroups(activeGroups)
 
-        // 2. Buscar el grupo Daule por defecto y establecerlo
-        const daule = activeGroups.find(g => g.name.toLowerCase().includes('daule'))
-        if (daule) {
-          setGroupId(daule.id)
-          setDetectedGroupName(daule.name)
-          localStorage.setItem('lastDetectedGroupId', daule.id)
+        // Verificamos si ya hay un grupo guardado en localStorage y es válido
+        const savedGroupId = localStorage.getItem('lastDetectedGroupId')
+        if (savedGroupId && activeGroups.some(g => g.id === savedGroupId)) {
+          const matchedGroup = activeGroups.find(g => g.id === savedGroupId)
+          if (matchedGroup) {
+            setGroupId(matchedGroup.id)
+            setDetectedGroupName(matchedGroup.name)
+            localStorage.setItem('lastDetectedGroupName', matchedGroup.name)
+          }
+        } else {
+          // 2. Buscar el grupo Daule por defecto y establecerlo
+          const daule = activeGroups.find(g => g.name.toLowerCase().includes('daule'))
+          if (daule) {
+            setGroupId(daule.id)
+            setDetectedGroupName(daule.name)
+            localStorage.setItem('lastDetectedGroupId', daule.id)
+            localStorage.setItem('lastDetectedGroupName', daule.name)
+          }
         }
       } catch (err) {
         console.error('Error in location system init:', err)
@@ -578,16 +612,14 @@ function HomePageContent() {
 
   // Categorías y carga inicial consolidadas en loadBusinessesWithParams
 
-  // Sincronizar parámetros de la URL
+  // Sincronizar parámetros de la URL y ubicación
   useEffect(() => {
     const urlSearch = searchParams?.get('search') || ''
     const urlCategory = searchParams?.get('category') || 'all'
-    if (urlSearch !== searchTerm || urlCategory !== selectedCategory) {
-      setSearchTerm(urlSearch)
-      setSelectedCategory(urlCategory)
-      loadBusinessesWithParams(urlSearch, urlCategory)
-    }
-  }, [searchParams])
+    setSearchTerm(urlSearch)
+    setSelectedCategory(urlCategory)
+    loadBusinessesWithParams(urlSearch, urlCategory)
+  }, [searchParams, groupId, showAllRestaurants])
 
   // Cargar productos aleatorios de forma EFICIENTE (una sola query)
   const loadRandomProducts = async (category: string = 'all') => {
@@ -653,12 +685,7 @@ function HomePageContent() {
     }
   }
 
-  // Recargar negocios cuando cambia el groupId (detección de ubicación)
-  useEffect(() => {
-    const urlSearch = searchParams?.get('search') || ''
-    const urlCategory = searchParams?.get('category') || 'all'
-    loadBusinessesWithParams(urlSearch, urlCategory)
-  }, [groupId, showAllRestaurants])
+  // El recargo de negocios por cambio de groupId se maneja en el hook sincronizado principal anterior
 
   const handleCategoryChange = async (category: string) => {
     setSelectedCategory(category)

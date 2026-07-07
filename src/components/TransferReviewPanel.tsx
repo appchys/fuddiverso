@@ -52,7 +52,7 @@ const paymentStatusConfig: Record<PaymentStatus, {
     }
 }
 
-const statusOrder: PaymentStatus[] = ['validating', 'pending', 'paid', 'rejected']
+const statusOrder: PaymentStatus[] = ['validating', 'pending', 'rejected']
 
 const toSafeDate = (value: any): Date => {
     if (!value) return new Date(0)
@@ -116,6 +116,7 @@ export default function TransferReviewPanel({
         return orders
             .filter(order => {
                 if (order.status === 'cancelled') return false
+                if (getPaymentStatus(order) === 'paid') return false
                 if (order.payment?.method === 'transfer') return true
                 return order.payment?.method === 'mixed' && (order.payment.transferAmount || 0) > 0
             })

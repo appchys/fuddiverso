@@ -448,14 +448,24 @@ export async function getBusinessByOwner(ownerId: string): Promise<Business | nu
   }
 }
 
+let cachedBusinesses: Business[] | null = null
+let cachedBusinessesTime = 0
+
 export async function getAllBusinesses(): Promise<Business[]> {
+  const now = Date.now()
+  if (cachedBusinesses && (now - cachedBusinessesTime < 60000)) {
+    return cachedBusinesses
+  }
   try {
     const querySnapshot = await getDocs(collection(db, 'businesses'))
-    return querySnapshot.docs.map(doc => ({
+    const businesses = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
       createdAt: toSafeDate(doc.data().createdAt)
     })) as Business[]
+    cachedBusinesses = businesses
+    cachedBusinessesTime = now
+    return businesses
   } catch (error) {
     console.error('Error getting businesses:', error)
     throw error
@@ -825,6 +835,45 @@ export async function getProductsByBusiness(businessId: string): Promise<Product
  * Obtener productos disponibles de forma aleatoria/reciente a través de todos los negocios
  * Optimizado para evitar bucles N+1 en la home
  */
+/**
+ * Obtener productos por lotes de IDs de negocios para optimizar carga en la home (evita N+1)
+ */
+export async function getProductsByBusinessesBatch(businessIds: string[]): Promise<Product[]> {
+  try {
+    if (businessIds.length === 0) return []
+
+    // Separar en lotes de 30 para Firestore 'in' query
+    const chunks: string[][] = []
+    for (let i = 0; i < businessIds.length; i += 30) {
+      chunks.push(businessIds.slice(i, i + 30))
+    }
+
+    const allProducts: Product[] = []
+    await Promise.all(chunks.map(async (chunk) => {
+      const q = query(
+        collection(db, 'products'),
+        where('isAvailable', '==', true),
+        where('businessId', 'in', chunk)
+      )
+      const querySnapshot = await getDocs(q)
+      querySnapshot.forEach(doc => {
+        const data = doc.data()
+        allProducts.push({
+          id: doc.id,
+          ...data,
+          createdAt: toSafeDate(data.createdAt),
+          updatedAt: toSafeDate(data.updatedAt)
+        } as Product)
+      })
+    }))
+
+    return allProducts
+  } catch (error) {
+    console.error('Error in getProductsByBusinessesBatch:', error)
+    return []
+  }
+}
+
 export async function getGlobalProducts(category: string = 'all', limitCount: number = 20, groupId?: string): Promise<Product[]> {
   try {
     let products: Product[] = []
@@ -2611,6 +2660,9 @@ export async function getUserBusinessAccess(userEmail: string, userId: string): 
   }
 }
 
+let cachedGlobalZones: CoverageZone[] | null = null
+let cachedGlobalZonesTime = 0
+
 // Funciones para Zonas de Cobertura
 export async function getCoverageZones(businessId?: string): Promise<CoverageZone[]> {
   try {
@@ -2622,43 +2674,75 @@ export async function getCoverageZones(businessId?: string): Promise<CoverageZon
         where('businessId', '==', businessId),
         orderBy('name')
       );
+      const querySnapshot = await getDocs(q);
+      const zones: CoverageZone[] = [];
+
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+
+        zones.push({
+          id: doc.id,
+          name: data.name || '',
+          businessId: data.businessId || null,
+          polygon: data.polygon || [],
+          deliveryFee: data.deliveryFee || 0,
+          isActive: data.isActive !== false,
+          groupId: data.groupId || null,
+          // Compatibilidad con sistema anterior (single delivery)
+          assignedDeliveryId: data.assignedDeliveryId || undefined,
+          // Nuevo sistema Round Robin
+          assignedDeliveryIds: data.assignedDeliveryIds || (data.assignedDeliveryId ? [data.assignedDeliveryId] : []),
+          deliveryAssignmentStrategy: data.deliveryAssignmentStrategy || (data.assignedDeliveryIds?.length > 1 ? 'round-robin' : 'single'),
+          lastAssignedIndex: data.lastAssignedIndex || 0,
+          feeMode: data.feeMode || 'flat',
+          distanceSettings: data.distanceSettings || undefined,
+          createdAt: toSafeDate(data.createdAt),
+          updatedAt: toSafeDate(data.updatedAt)
+        });
+      });
+
+      return zones;
     } else {
-      // Obtener zonas globales (para admin)
+      // Obtener zonas globales (para admin) - Caching
+      const now = Date.now()
+      if (cachedGlobalZones && (now - cachedGlobalZonesTime < 60000)) {
+        return cachedGlobalZones
+      }
       q = query(
         collection(db, 'coverageZones'),
         orderBy('name')
       );
-    }
+      const querySnapshot = await getDocs(q);
+      const zones: CoverageZone[] = [];
 
-    const querySnapshot = await getDocs(q);
-    const zones: CoverageZone[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
 
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-
-      zones.push({
-        id: doc.id,
-        name: data.name || '',
-        businessId: data.businessId || null,
-        polygon: data.polygon || [],
-        deliveryFee: data.deliveryFee || 0,
-        isActive: data.isActive !== false,
-        groupId: data.groupId || null,
-        // Compatibilidad con sistema anterior (single delivery)
-        assignedDeliveryId: data.assignedDeliveryId || undefined,
-        // Nuevo sistema Round Robin
-        assignedDeliveryIds: data.assignedDeliveryIds || (data.assignedDeliveryId ? [data.assignedDeliveryId] : []),
-        deliveryAssignmentStrategy: data.deliveryAssignmentStrategy || (data.assignedDeliveryIds?.length > 1 ? 'round-robin' : 'single'),
-        lastAssignedIndex: data.lastAssignedIndex || 0,
-        feeMode: data.feeMode || 'flat',
-        distanceSettings: data.distanceSettings || undefined,
-        createdAt: toSafeDate(data.createdAt),
-        updatedAt: toSafeDate(data.updatedAt)
+        zones.push({
+          id: doc.id,
+          name: data.name || '',
+          businessId: data.businessId || null,
+          polygon: data.polygon || [],
+          deliveryFee: data.deliveryFee || 0,
+          isActive: data.isActive !== false,
+          groupId: data.groupId || null,
+          // Compatibilidad con sistema anterior (single delivery)
+          assignedDeliveryId: data.assignedDeliveryId || undefined,
+          // Nuevo sistema Round Robin
+          assignedDeliveryIds: data.assignedDeliveryIds || (data.assignedDeliveryId ? [data.assignedDeliveryId] : []),
+          deliveryAssignmentStrategy: data.deliveryAssignmentStrategy || (data.assignedDeliveryIds?.length > 1 ? 'round-robin' : 'single'),
+          lastAssignedIndex: data.lastAssignedIndex || 0,
+          feeMode: data.feeMode || 'flat',
+          distanceSettings: data.distanceSettings || undefined,
+          createdAt: toSafeDate(data.createdAt),
+          updatedAt: toSafeDate(data.updatedAt)
+        });
       });
 
-    });
-
-    return zones;
+      cachedGlobalZones = zones
+      cachedGlobalZonesTime = now
+      return zones;
+    }
   } catch (error) {
     console.error('Error getting coverage zones:', error);
     throw error;
@@ -2702,8 +2786,15 @@ export async function getCoverageZonesByGroup(groupId: string): Promise<Coverage
   }
 }
 
+let cachedCoverageGroups: CoverageGroup[] | null = null
+let cachedCoverageGroupsTime = 0
+
 // Funciones para Grupos de Cobertura
 export async function getCoverageGroups(): Promise<CoverageGroup[]> {
+  const now = Date.now()
+  if (cachedCoverageGroups && (now - cachedCoverageGroupsTime < 60000)) {
+    return cachedCoverageGroups
+  }
   try {
     const q = query(
       collection(db, 'coverageGroups'),
@@ -2725,6 +2816,8 @@ export async function getCoverageGroups(): Promise<CoverageGroup[]> {
       });
     });
 
+    cachedCoverageGroups = groups
+    cachedCoverageGroupsTime = now
     return groups;
   } catch (error) {
     console.error('Error getting coverage groups:', error);
@@ -5828,34 +5921,39 @@ export async function getProductsReferralCounts(productIds: string[]): Promise<R
   try {
     if (productIds.length === 0) return {}
     
-    // Firestore 'in' query limita a 10 elementos, así que hacemos batches
+    // Firestore 'in' query limita a 10 elementos, así que hacemos batches en paralelo
     const counts: Record<string, number> = {}
     const batches: string[][] = []
     
     for (let i = 0; i < productIds.length; i += 10) {
       batches.push(productIds.slice(i, i + 10))
     }
-    
-    for (const batch of batches) {
-      const q = query(
-        collection(db, 'referralLinks'),
-        where('productId', 'in', batch)
-      )
-      const snapshot = await getDocs(q)
-      
-      // Contar por producto
-      const productCounts: Record<string, number> = {}
-      batch.forEach(id => productCounts[id] = 0)
-      
-      snapshot.docs.forEach(doc => {
-        const data = doc.data()
-        if (data.productId && productCounts.hasOwnProperty(data.productId)) {
-          productCounts[data.productId]++
-        }
+
+    const results = await Promise.all(
+      batches.map(async (batch) => {
+        const q = query(
+          collection(db, 'referralLinks'),
+          where('productId', 'in', batch)
+        )
+        const snapshot = await getDocs(q)
+        
+        // Contar por producto
+        const productCounts: Record<string, number> = {}
+        batch.forEach(id => productCounts[id] = 0)
+        
+        snapshot.docs.forEach(doc => {
+          const data = doc.data()
+          if (data.productId && productCounts.hasOwnProperty(data.productId)) {
+            productCounts[data.productId]++
+          }
+        })
+        return productCounts
       })
-      
-      Object.assign(counts, productCounts)
-    }
+    )
+
+    results.forEach(result => {
+      Object.assign(counts, result)
+    })
     
     return counts
   } catch (error) {

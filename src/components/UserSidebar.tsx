@@ -1166,52 +1166,54 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
         if (typeof window !== 'undefined') {
             // Intentar cargar coordenadas existentes
             const storedCoords = localStorage.getItem('userCoordinates')
+            let hasLoaded = false
             if (storedCoords) {
                 try {
                     const coords = JSON.parse(storedCoords)
                     setCurrentLocation(coords)
+                    hasLoaded = true
                 } catch (e) {
                     console.error('Error loading coordinates:', e)
                 }
             }
 
-            // Obtener ubicación actual
-            if ('geolocation' in navigator) {
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        const coords = {
-                            lat: position.coords.latitude,
-                            lng: position.coords.longitude
-                        }
-                        setCurrentLocation(coords)
-                        // Guardar en localStorage para filtrar tiendas cercanas
-                        localStorage.setItem('userCoordinates', JSON.stringify(coords))
-                    },
-                    (error) => {
-                        console.warn('Ubicación no detectada, usando ubicación por defecto:', error)
-                        // Si falla y no hay guardada, usar coordenadas por defecto (Quito, Ecuador)
-                        // Esto permite que el mapa funcione y el usuario pueda seleccionar manualmente
-                        if (!storedCoords) {
+            // Obtener ubicación actual SOLO si no hay guardada
+            if (!hasLoaded) {
+                if ('geolocation' in navigator) {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const coords = {
+                                lat: position.coords.latitude,
+                                lng: position.coords.longitude
+                            }
+                            setCurrentLocation(coords)
+                            // Guardar en localStorage para filtrar tiendas cercanas
+                            localStorage.setItem('userCoordinates', JSON.stringify(coords))
+                        },
+                        (error) => {
+                            console.warn('Ubicación no detectada, usando ubicación por defecto:', error)
+                            // Si falla y no hay guardada, usar coordenadas por defecto (Quito, Ecuador)
+                            // Esto permite que el mapa funcione y el usuario pueda seleccionar manualmente
                             const defaultCoords = {
                                 lat: -0.180653,
                                 lng: -78.467834
                             }
                             setCurrentLocation(defaultCoords)
+                        },
+                        {
+                            enableHighAccuracy: false, // Desactivado para rapidez
+                            timeout: 3000,             // Reducido a 3s para evitar congelamiento prolongado
+                            maximumAge: 300000         // Permitir caché de 5 minutos
                         }
-                    },
-                    {
-                        enableHighAccuracy: true,
-                        timeout: 5000,
-                        maximumAge: 0
+                    )
+                } else {
+                    // Navegador no soporta geo y no hay guardada
+                    const defaultCoords = {
+                        lat: -0.180653,
+                        lng: -78.467834
                     }
-                )
-            } else if (!storedCoords) {
-                // Navegador no soporta geo y no hay guardada
-                const defaultCoords = {
-                    lat: -0.180653,
-                    lng: -78.467834
+                    setCurrentLocation(defaultCoords)
                 }
-                setCurrentLocation(defaultCoords)
             }
         }
     }, [])
