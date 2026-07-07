@@ -32,6 +32,7 @@ const ProgressiveImage: React.FC<{
   height?: number
   priority?: boolean
   sizes?: string
+  style?: React.CSSProperties
 }> = ({
   src,
   alt,
@@ -40,7 +41,8 @@ const ProgressiveImage: React.FC<{
   width,
   height,
   priority = false,
-  sizes = '100vw'
+  sizes = '100vw',
+  style
 }) => {
     const [isLoaded, setIsLoaded] = useState(false)
 
@@ -62,6 +64,7 @@ const ProgressiveImage: React.FC<{
           sizes={sizes}
           unoptimized={true}
           className={`transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'} ${className}`}
+          style={style}
           onLoad={() => setIsLoaded(true)}
         />
       </>
@@ -87,6 +90,18 @@ function HomePageLoading() {
       </div>
     </div>
   )
+}
+
+// Dibuja el encuadre suavizado para contenedores rectangulares (menos altos) en el Home
+function getDampenedImagePosition(position: string | undefined): string {
+  if (!position) return 'center'
+  const parts = position.split(' ')
+  if (parts.length < 2) return position
+  const pctStr = parts[1].replace('%', '')
+  const pct = parseInt(pctStr, 10)
+  if (isNaN(pct)) return position
+  const dampenedPct = Math.round(50 + (pct - 50) * 0.6)
+  return `center ${dampenedPct}%`
 }
 
 function HomePageContent() {
@@ -924,6 +939,7 @@ function HomePageContent() {
                           fill
                           sizes="256px"
                           className="object-cover"
+                          style={{ objectPosition: getDampenedImagePosition(product.imagePosition) }}
                         />
                       ) : (
                         <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
@@ -1233,6 +1249,7 @@ function HomePageContent() {
                                     fill
                                     sizes="288px"
                                     className="object-cover group-hover/product:scale-105 transition-transform duration-500"
+                                    style={{ objectPosition: getDampenedImagePosition(product.imagePosition) }}
                                   />
                                 ) : (
                                   <div className="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
@@ -1369,7 +1386,7 @@ function HomePageContent() {
                             >
                               <div className="relative aspect-square rounded-xl overflow-hidden bg-gray-50 mb-3 flex items-center justify-center">
                                 {product.image ? (
-                                  <ProgressiveImage src={product.image} alt={product.name} fill sizes="(max-width: 640px) 144px, 176px" className="object-cover group-hover/product:scale-110 transition-transform duration-500" />
+                                  <ProgressiveImage src={product.image} alt={product.name} fill sizes="(max-width: 640px) 144px, 176px" className="object-cover group-hover/product:scale-110 transition-transform duration-500" style={{ objectPosition: product.imagePosition || 'center' }} />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center text-gray-200 bg-gray-50">
                                     <i className="bi bi-box text-5xl"></i>

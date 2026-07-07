@@ -784,6 +784,7 @@ export default function CartSidebar({
                                                                 src={item.image || business?.image}
                                                                 alt={displayName}
                                                                 className="w-full h-full object-cover"
+                                                                style={{ objectPosition: item.imagePosition || 'center' }}
                                                                 onError={(e) => {
                                                                     const target = e.target as HTMLImageElement
                                                                     if (target.src !== business?.image) target.src = business?.image || ''

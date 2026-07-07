@@ -224,6 +224,7 @@ export interface Product {
   commissionType?: CommissionType // Tipo de gestión de comisión
   category: string
   image?: string
+  imagePosition?: string
   slug?: string // Slug amigable (ej: "munRJd")
   variants?: ProductVariant[] // Variantes opcionales del producto
   isAvailable: boolean

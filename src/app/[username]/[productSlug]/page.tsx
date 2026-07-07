@@ -436,6 +436,7 @@ export default function ProductPageByUsername() {
                   src={product.image}
                   alt={product.name}
                   className="w-full h-full object-cover"
+                  style={{ objectPosition: product.imagePosition || 'center' }}
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-gray-50">
@@ -626,6 +627,7 @@ export default function ProductPageByUsername() {
                             src={prod.image}
                             alt={prod.name}
                             className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                            style={{ objectPosition: prod.imagePosition || 'center' }}
                           />
                         ) : (
                           <div className="absolute inset-0 flex items-center justify-center">

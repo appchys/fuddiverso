@@ -350,10 +350,26 @@ export function getNextOpeningMessage(business: Business | null): string | null 
                 const diffMs = openTime.getTime() - now.getTime()
                 const diffMins = Math.floor(diffMs / 60000)
 
-                if (diffMins < 60) {
+                if (diffMins <= 60) {
                     return `Abre en ${diffMins} minutos`
                 } else {
-                    return `Abre el ${dayTranslations[dayName]} a las ${schedule.open}`
+                    const isToday = openTime.getDate() === now.getDate() && 
+                                    openTime.getMonth() === now.getMonth() && 
+                                    openTime.getFullYear() === now.getFullYear();
+                    
+                    const tomorrow = new Date(now)
+                    tomorrow.setDate(now.getDate() + 1)
+                    const isTomorrow = openTime.getDate() === tomorrow.getDate() && 
+                                       openTime.getMonth() === tomorrow.getMonth() && 
+                                       openTime.getFullYear() === tomorrow.getFullYear();
+
+                    if (isToday) {
+                        return `Abre hoy a las ${schedule.open}`
+                    } else if (isTomorrow) {
+                        return `Abre mañana a las ${schedule.open}`
+                    } else {
+                        return `Abre el ${dayTranslations[dayName]} a las ${schedule.open}`
+                    }
                 }
             }
         }

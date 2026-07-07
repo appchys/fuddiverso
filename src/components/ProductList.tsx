@@ -34,7 +34,8 @@ export default function ProductList({
     image: null as File | null,
     commissionType: 'fuddi_assumed_by_customer' as CommissionType,
     isCombo: false,
-    minComboItems: 1
+    minComboItems: 1,
+    imagePosition: 'center 50%'
   })
   const [variants, setVariants] = useState<ProductVariant[]>([])
   const [currentVariant, setCurrentVariant] = useState<{
@@ -57,8 +58,6 @@ export default function ProductList({
   const [showVariantForm, setShowVariantForm] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [uploading, setUploading] = useState(false)
-  const [newCategory, setNewCategory] = useState('')
-  const [showNewCategory, setShowNewCategory] = useState(false)
 
   // Estados para ingredientes
   const [ingredients, setIngredients] = useState<Array<{
@@ -157,7 +156,8 @@ export default function ProductList({
       image: null,
       commissionType: (business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
       isCombo: false,
-      minComboItems: 1
+      minComboItems: 1,
+      imagePosition: 'center 50%'
     })
     setVariants([])
     setIngredients([])
@@ -218,7 +218,8 @@ export default function ProductList({
       image: null,
       commissionType: (product.commissionType || business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
       isCombo: product.isCombo || false,
-      minComboItems: product.minComboItems || 1
+      minComboItems: product.minComboItems || 1,
+      imagePosition: product.imagePosition || 'center 50%'
     })
     setVariants(product.variants?.map(v => ({ ...v, price: v.basePrice || v.price })) || [])
     setIngredients((product.ingredients || []) as any)
@@ -284,7 +285,8 @@ export default function ProductList({
       image: null,
       commissionType: (business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
       isCombo: false,
-      minComboItems: 1
+      minComboItems: 1,
+      imagePosition: 'center 50%'
     })
     setVariants([])
     setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
@@ -483,25 +485,7 @@ export default function ProductList({
     }
   }
 
-  const handleAddCategory = async () => {
-    if (!newCategory.trim() || !business?.id) return
-
-    try {
-      const updatedCategories = [...categories, newCategory.trim()]
-      onCategoriesChange(updatedCategories)
-      
-      // Persistir el cambio en el documento del negocio
-      if (onDirectUpdate) {
-        await onDirectUpdate('categories', updatedCategories)
-      }
-      
-      setFormData(prev => ({ ...prev, category: newCategory.trim() }))
-      setNewCategory('')
-      setShowNewCategory(false)
-    } catch (error) {
-      console.error('Error adding category:', error)
-    }
-  }
+  // Funciones para ingredientes
 
   // Funciones para ingredientes
   const handleIngredientChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -839,6 +823,7 @@ export default function ProductList({
         isCombo: formData.isCombo,
         minComboItems: formData.isCombo ? Number(formData.minComboItems) : 1,
         optionGroups: optionGroups.length > 0 ? optionGroups : undefined,
+        imagePosition: formData.imagePosition,
         businessId: business.id,
         updatedAt: new Date()
       }
@@ -899,6 +884,7 @@ export default function ProductList({
         isCombo: product.isCombo || false,
         minComboItems: product.minComboItems || 1,
         optionGroups: product.optionGroups || undefined,
+        imagePosition: product.imagePosition || 'center 50%',
         businessId: business.id,
         updatedAt: new Date(),
         order: (product.order || 0) + 1 // Intentar colocarlo cerca
@@ -1301,6 +1287,7 @@ export default function ProductList({
                               src={product.image}
                               alt={product.name}
                               className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                              style={{ objectPosition: product.imagePosition || 'center' }}
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
@@ -1562,38 +1549,69 @@ export default function ProductList({
                   <div className="space-y-8">
                     {/* Sección Superior: Imagen + Nombre/Precio */}
                     <div className="flex flex-col sm:flex-row gap-8">
-                      {/* Lado Izquierdo: Imagen más pequeña */}
-                      <div className="w-40 h-40 flex-shrink-0 mx-auto sm:mx-0">
-                        <label htmlFor="image-upload" className="block cursor-pointer h-full">
-                          <div className="relative h-full bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200 hover:border-red-400 hover:bg-red-50 transition-all flex items-center justify-center overflow-hidden group shadow-inner">
-                            {uploading && formData.image && (
-                              <div className="absolute inset-0 z-20 bg-black/50 backdrop-blur-[1px] flex flex-col items-center justify-center">
-                                <i className="bi bi-arrow-clockwise animate-spin text-white text-xl mb-1"></i>
-                                <p className="text-white text-[8px] font-black uppercase tracking-widest">Subiendo</p>
-                              </div>
-                            )}
-                            {formData.image ? (
-                              <div className="absolute inset-0 w-full h-full">
-                                <img src={URL.createObjectURL(formData.image)} alt="Preview" className="w-full h-full object-cover" />
-                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                  <i className="bi bi-camera text-white text-xl"></i>
+                      {/* Lado Izquierdo: Imagen más pequeña + Ajuste de encuadre */}
+                      <div className="flex flex-col items-center gap-3 mx-auto sm:mx-0">
+                        <div className="w-40 h-40 flex-shrink-0">
+                          <label htmlFor="image-upload" className="block cursor-pointer h-full">
+                            <div className="relative h-full bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200 hover:border-red-400 hover:bg-red-50 transition-all flex items-center justify-center overflow-hidden group shadow-inner">
+                              {uploading && formData.image && (
+                                <div className="absolute inset-0 z-20 bg-black/50 backdrop-blur-[1px] flex flex-col items-center justify-center">
+                                  <i className="bi bi-arrow-clockwise animate-spin text-white text-xl mb-1"></i>
+                                  <p className="text-white text-[8px] font-black uppercase tracking-widest">Subiendo</p>
                                 </div>
-                              </div>
-                            ) : editingProduct?.image ? (
-                              <div className="absolute inset-0 w-full h-full">
-                                <img src={editingProduct.image} alt="Current" className="w-full h-full object-cover" />
-                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                  <i className="bi bi-camera text-white text-xl"></i>
+                              )}
+                              {formData.image ? (
+                                <div className="absolute inset-0 w-full h-full">
+                                  <img src={URL.createObjectURL(formData.image)} alt="Preview" className="w-full h-full object-cover" style={{ objectPosition: formData.imagePosition }} />
+                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                    <i className="bi bi-camera text-white text-xl"></i>
+                                  </div>
                                 </div>
-                              </div>
-                            ) : (
-                              <div className="text-center p-4">
-                                <i className="bi bi-camera text-3xl text-gray-300 mb-1 block"></i>
-                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Foto</p>
-                              </div>
-                            )}
+                              ) : editingProduct?.image ? (
+                                <div className="absolute inset-0 w-full h-full">
+                                  <img src={editingProduct.image} alt="Current" className="w-full h-full object-cover" style={{ objectPosition: formData.imagePosition }} />
+                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                    <i className="bi bi-camera text-white text-xl"></i>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-center p-4">
+                                  <i className="bi bi-camera text-3xl text-gray-300 mb-1 block"></i>
+                                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Foto</p>
+                                </div>
+                              )}
+                            </div>
+                          </label>
+                        </div>
+
+                        {/* Control de encuadre (slider) */}
+                        {(formData.image || editingProduct?.image) && (
+                          <div className="w-40 space-y-1">
+                            <div className="flex justify-between items-center text-[9px] font-black text-gray-400 uppercase tracking-widest">
+                              <span>Encuadre</span>
+                              <span className="text-red-500 font-bold">
+                                {(() => {
+                                  const pct = parseInt(formData.imagePosition.split(' ')[1] || '50', 10);
+                                  if (pct === 50) return 'Centro';
+                                  if (pct < 40) return 'Arriba';
+                                  if (pct > 60) return 'Abajo';
+                                  return `${pct}%`;
+                                })()}
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={parseInt(formData.imagePosition.split(' ')[1] || '50', 10)}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setFormData(prev => ({ ...prev, imagePosition: `center ${val}%` }));
+                              }}
+                              className="w-full accent-red-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                            />
                           </div>
-                        </label>
+                        )}
                         <input
                           id="image-upload"
                           type="file"
@@ -1767,70 +1785,21 @@ export default function ProductList({
                       {/* Categoría */}
                       <div>
                         <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Categoría</label>
-                        <div className="space-y-2">
-                          <select
+                        <div className="relative">
+                          <input
+                            type="text"
                             name="category"
+                            list="categories-list"
                             value={formData.category}
                             onChange={handleInputChange}
-                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 font-medium bg-white"
-                          >
-                            {/* Caso: La categoría del producto no está en la lista del negocio (ej: asignada manual o error) */}
-                            {formData.category && !categories.includes(formData.category) && (
-                              <option value={formData.category}>{formData.category}</option>
-                            )}
-                            
+                            placeholder="Escribe o selecciona una categoría..."
+                            className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-50 hover:border-gray-200 focus:border-red-500 focus:bg-white rounded-2xl focus:outline-none transition-all text-base font-medium"
+                          />
+                          <datalist id="categories-list">
                             {categories.map((cat) => (
-                              <option key={cat} value={cat}>{cat}</option>
+                              <option key={cat} value={cat} />
                             ))}
-                            
-                            {/* Fallback si no hay nada en absoluto */}
-                            {categories.length === 0 && !formData.category && (
-                              <option value="">Selecciona una categoría</option>
-                            )}
-                          </select>
-
-                          {/* Botón para agregar nueva categoría - Integrado */}
-                          {!showNewCategory ? (
-                            <button
-                              type="button"
-                              onClick={() => setShowNewCategory(true)}
-                              className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-red-400 hover:bg-red-50 transition-colors font-medium text-sm"
-                            >
-                              <i className="bi bi-plus-circle me-2"></i>
-                              Ej: Principales, Postres, Bebidas
-                            </button>
-                          ) : (
-                            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
-                              <input
-                                type="text"
-                                value={newCategory}
-                                onChange={(e) => setNewCategory(e.target.value)}
-                                placeholder="Nombre de la nueva categoría"
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
-                                autoFocus
-                              />
-                              <div className="flex gap-2">
-                                <button
-                                  type="button"
-                                  onClick={handleAddCategory}
-                                  className="flex-1 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm transition-colors"
-                                >
-                                  <i className="bi bi-check-lg me-1"></i>
-                                  Crear
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowNewCategory(false)
-                                    setNewCategory('')
-                                  }}
-                                  className="flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium text-sm transition-colors"
-                                >
-                                  Cancelar
-                                </button>
-                              </div>
-                            </div>
-                          )}
+                          </datalist>
                         </div>
                       </div>
 

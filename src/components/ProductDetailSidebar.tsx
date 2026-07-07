@@ -296,7 +296,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
             businessId: business.id,
             businessName: business.name,
             businessImage: business.image,
-            category: product.category
+            category: product.category,
+            imagePosition: product.imagePosition || 'center 50%'
         };
 
         const currentCart = [...cart];
@@ -367,26 +368,32 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                         </button>
 
                         {/* Business Header */}
-                        <div className="mb-6 flex items-center gap-3 pr-12">
-                            <div className="w-10 h-10 rounded-full overflow-hidden border border-gray-100 flex-shrink-0 bg-white shadow-sm">
-                                {business.image ? (
-                                    <img src={business.image} alt={business.name} className="w-full h-full object-cover" />
-                                ) : (
-                                    <div className="w-full h-full flex items-center justify-center bg-gray-50 text-gray-400 font-bold">
-                                        {business.name.charAt(0)}
-                                    </div>
-                                )}
-                            </div>
-                            <div>
-                                <h3 className="text-sm font-black text-gray-900 leading-tight">{business.name}</h3>
-                                {business.username && <p className="text-xs text-gray-400">@{business.username}</p>}
-                            </div>
-                        </div>
+                        {business && (
+                            <Link 
+                                href={`/${business.username}`}
+                                onClick={onClose}
+                                className="mb-6 flex items-center gap-3 pr-12 group/header hover:opacity-85 transition-opacity inline-flex cursor-pointer"
+                            >
+                                <div className="w-10 h-10 rounded-full overflow-hidden border border-gray-100 flex-shrink-0 bg-white shadow-sm ring-1 ring-gray-100 group-hover/header:shadow-md transition-all">
+                                    {business.image ? (
+                                        <img src={business.image} alt={business.name} className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center bg-gray-50 text-gray-400 font-bold">
+                                            {business.name.charAt(0)}
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black text-gray-900 leading-tight group-hover/header:text-red-600 transition-colors">{business.name}</h3>
+                                    {business.username && <p className="text-xs text-gray-400">@{business.username}</p>}
+                                </div>
+                            </Link>
+                        )}
 
                         {/* Product Image */}
                         <div className="w-full aspect-square bg-gray-50 rounded-[2rem] overflow-hidden shadow-sm border border-gray-100 mb-6 relative">
                             {allImages.length > 0 ? (
-                                <img src={allImages[currentImgIndex]} alt={product.name} className="w-full h-full object-cover transition-all duration-700" />
+                                <img src={allImages[currentImgIndex]} alt={product.name} className="w-full h-full object-cover transition-all duration-700" style={{ objectPosition: allImages[currentImgIndex] === product.image ? (product.imagePosition || 'center') : 'center' }} />
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center text-gray-200">
                                     <i className="bi bi-image text-6xl"></i>
@@ -658,6 +665,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                                             price: getProductPublicPrice(variant),
                                                                             ...getPriceMetadata(variant),
                                                                             image: product.image,
+                                                                            imagePosition: product.imagePosition || 'center 50%',
                                                                             description: variant.description || product.description,
                                                                             businessId: business.id,
                                                                             businessName: business.name,
@@ -716,6 +724,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                                 price: getProductPublicPrice(product),
                                                                 ...getPriceMetadata(product),
                                                                 image: product.image,
+                                                                imagePosition: product.imagePosition || 'center 50%',
                                                                 description: product.description,
                                                                 businessId: business.id,
                                                                 businessName: business.name,
@@ -770,6 +779,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                             src={otherProduct.image}
                                                             alt={otherProduct.name}
                                                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                                            style={{ objectPosition: otherProduct.imagePosition || 'center' }}
                                                         />
                                                     ) : (
                                                         <div className="w-full h-full flex items-center justify-center text-gray-200">
@@ -889,6 +899,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                     storeReceives: comboMeta.storeReceives,
                                                     commissionType: product.commissionType || 'no_commission',
                                                     image: product.image,
+                                                    imagePosition: product.imagePosition || 'center 50%',
                                                     description: product.description,
                                                     businessId: business.id,
                                                     businessName: business.name,

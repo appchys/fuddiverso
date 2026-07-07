@@ -151,6 +151,7 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
           src={product.image || businessImage}
           alt={product.name}
           className="w-full h-full object-cover transition-transform duration-500 md:group-hover:scale-110"
+          style={{ objectPosition: product.imagePosition || 'center' }}
           loading="lazy"
           decoding="async"
           onLoad={() => setImgLoaded(true)}
@@ -1066,16 +1067,22 @@ function RestaurantContent() {
                 </div>
               </div>
               {business.description && (
-                <div className="mt-2 max-w-2xl mx-auto">
-                  <div className="text-gray-500 text-sm sm:text-base leading-relaxed flex flex-wrap">
-                    <span className="line-clamp-3">{business.description}</span>
-                    <button
-                      onClick={() => setActiveTab('perfil')}
-                      className="text-red-500 text-sm sm:text-base font-medium hover:text-red-600 transition-colors"
-                    >
-                      Leer más
-                    </button>
-                  </div>
+                <div className="mt-2 max-w-2xl mx-auto text-center">
+                  <p className="text-gray-500 text-sm sm:text-base leading-relaxed inline-block">
+                    {business.description.length > 120 ? (
+                      <>
+                        <span>{business.description.slice(0, 120)}...</span>{' '}
+                        <button
+                          onClick={() => setActiveTab('perfil')}
+                          className="text-red-500 text-sm sm:text-base font-medium hover:text-red-600 transition-colors inline-block ml-1"
+                        >
+                          Leer más
+                        </button>
+                      </>
+                    ) : (
+                      <span>{business.description}</span>
+                    )}
+                  </p>
                 </div>
               )}
 
@@ -1349,9 +1356,11 @@ function RestaurantContent() {
           ) : (
             Object.entries(productsByCategory).map(([category, categoryProducts]) => (
               <div key={category} className="mb-12">
-                <div className="flex items-center gap-3 mb-6">
-                  <h3 className="text-lg sm:text-xl font-bold text-gray-800 tracking-wide uppercase">{category}</h3>
-                </div>
+                {category.toLowerCase() !== 'sin categoría' && category.toLowerCase() !== 'sin categoria' && (
+                  <div className="flex items-center gap-3 mb-6">
+                    <h3 className="text-lg sm:text-xl font-bold text-gray-800 tracking-wide uppercase">{category}</h3>
+                  </div>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                   {categoryProducts.map((product) => (
                     <ProductVariantSelector
