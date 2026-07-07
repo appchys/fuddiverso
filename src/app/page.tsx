@@ -11,12 +11,14 @@ import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
 import { isStoreOpen } from '@/lib/store-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
-import ProductDetailSidebar from '@/components/ProductDetailSidebar'
-import StoryProductDetail from '@/components/StoryProductDetail'
-import CartSidebar from '@/components/CartSidebar' // Added import for CartSidebar
-import ReferralModal from '@/components/ReferralModal'
-import ClientLoginModal from '@/components/ClientLoginModal'
-import StoreRatingModal from '@/components/StoreRatingModal'
+import dynamic from 'next/dynamic'
+
+const ProductDetailSidebar = dynamic(() => import('@/components/ProductDetailSidebar'), { ssr: false })
+const StoryProductDetail = dynamic(() => import('@/components/StoryProductDetail'), { ssr: false })
+const CartSidebar = dynamic(() => import('@/components/CartSidebar'), { ssr: false })
+const ReferralModal = dynamic(() => import('@/components/ReferralModal'), { ssr: false })
+const ClientLoginModal = dynamic(() => import('@/components/ClientLoginModal'), { ssr: false })
+const StoreRatingModal = dynamic(() => import('@/components/StoreRatingModal'), { ssr: false })
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { Flame } from 'lucide-react'
 
@@ -559,76 +561,7 @@ function HomePageContent() {
     }
   }, [])
 
-  // Cargar categorías únicas solo una vez al inicio
-  useEffect(() => {
-    const init = async () => {
-      try {
-        const allBusinesses = await getAllBusinesses()
-        const visibleBusinesses = allBusinesses.filter(b => !b.isHidden)
-
-        // Aplicar filtro de grupo si existe o si estamos en una ciudad específica
-        let filteredForCategories = visibleBusinesses;
-        if (showAllRestaurants) {
-        } else if (groupId) {
-          filteredForCategories = filteredForCategories.filter(b => b.groupId === groupId)
-        } else {
-          filteredForCategories = filteredForCategories.filter(b => !b.groupId)
-        }
-
-        // Extraer categorías de los productos de los negocios filtrados por ubicación
-        const uniqueCategories = new Set<string>()
-
-        // Primero agregar categorías de los negocios (rápido, no bloquea)
-        filteredForCategories.forEach(b => {
-          b.categories?.forEach(c => uniqueCategories.add(c))
-        })
-
-        // Set inicial de categorías para mostrar UI rápido (mejora FCP)
-        const initialCategories = Array.from(uniqueCategories).sort(() => 0.5 - Math.random())
-        setCategories(['all', ...initialCategories])
-
-        // Luego cargar más categorías de productos en background (no bloquea render)
-        const businessIds = filteredForCategories.map(b => b.id)
-        if (businessIds.length > 0) {
-          // No bloquear - cargar en background
-          getGlobalProducts('all', 100, showAllRestaurants ? 'ALL' : (groupId || undefined))
-            .then(products => {
-              const extraCategories = new Set<string>(uniqueCategories)
-              products.forEach(p => {
-                if (p.category) extraCategories.add(p.category)
-              })
-              const shuffled = Array.from(extraCategories).sort(() => 0.5 - Math.random())
-              setCategories(['all', ...shuffled])
-            })
-            .catch(error => {
-              console.error('Error loading product categories:', error)
-            })
-        }
-
-        // Cargar negocios iniciales (si no hay búsqueda en la URL)
-        const urlSearch = searchParams?.get('search') || ''
-        const urlCategory = searchParams?.get('category') || 'all'
-
-        // Aplicar filtro de grupo si existe o si estamos en una ciudad específica
-        let filtered = visibleBusinesses;
-
-        if (showAllRestaurants) {
-        } else if (groupId) {
-          filtered = filtered.filter(b => b.groupId === groupId)
-        } else {
-          filtered = filtered.filter(b => !b.groupId)
-        }
-
-        setBusinesses(filtered)
-        setLoading(false)
-        if (user) loadFollowedBusinesses()
-      } catch (err) {
-        console.error('Error in init:', err)
-        setLoading(false)
-      }
-    }
-    init()
-  }, [groupId, showAllRestaurants])
+  // Categorías y carga inicial consolidadas en loadBusinessesWithParams
 
   // Sincronizar parámetros de la URL
   useEffect(() => {
@@ -675,6 +608,31 @@ function HomePageContent() {
       }
 
       setBusinesses(visibleBusinesses)
+
+      // Extraer categorías de los negocios (rápido, no bloquea el render)
+      const uniqueCategories = new Set<string>()
+      visibleBusinesses.forEach(b => {
+        b.categories?.forEach(c => uniqueCategories.add(c))
+      })
+      const initialCategories = Array.from(uniqueCategories).sort()
+      setCategories(['all', ...initialCategories])
+
+      // Cargar categorías de productos en background
+      const businessIds = visibleBusinesses.map(b => b.id)
+      if (businessIds.length > 0) {
+        getGlobalProducts('all', 100, showAllRestaurants ? 'ALL' : (groupId || undefined))
+          .then(products => {
+            const extraCategories = new Set<string>(uniqueCategories)
+            products.forEach(p => {
+              if (p.category) extraCategories.add(p.category)
+            })
+            const shuffled = Array.from(extraCategories).sort()
+            setCategories(['all', ...shuffled])
+          })
+          .catch(error => {
+            console.error('Error loading product categories:', error)
+          })
+      }
     } finally {
       setLoading(false)
     }

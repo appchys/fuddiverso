@@ -9,20 +9,22 @@ import { Business, Product, QRCode, UserQRProgress } from '@/types'
 import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
 import { collection, query, where, onSnapshot, doc, limit } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
-import CartSidebar from '@/components/CartSidebar'
-import LocationMap from '@/components/LocationMap'
-import { CheckoutContent } from '@/components/CheckoutContent'
-import UserSidebar from '@/components/UserSidebar'
 import { Flame } from 'lucide-react'
-import ClientLoginModal from '@/components/ClientLoginModal'
 import { isStoreOpen, getNextOpeningMessage } from '@/lib/store-utils'
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
 import Header from '@/components/Header'
-import StoreRatingModal from '@/components/StoreRatingModal'
-import ReferralModal from '@/components/ReferralModal'
-import ProductDetailSidebar from '@/components/ProductDetailSidebar'
+import dynamic from 'next/dynamic'
+
+const CartSidebar = dynamic(() => import('@/components/CartSidebar'), { ssr: false })
+const LocationMap = dynamic(() => import('@/components/LocationMap'), { ssr: false })
+const CheckoutContent = dynamic(() => import('@/components/CheckoutContent').then(m => m.CheckoutContent), { ssr: false })
+const UserSidebar = dynamic(() => import('@/components/UserSidebar'), { ssr: false })
+const ClientLoginModal = dynamic(() => import('@/components/ClientLoginModal'), { ssr: false })
+const StoreRatingModal = dynamic(() => import('@/components/StoreRatingModal'), { ssr: false })
+const ReferralModal = dynamic(() => import('@/components/ReferralModal'), { ssr: false })
+const ProductDetailSidebar = dynamic(() => import('@/components/ProductDetailSidebar'), { ssr: false })
 
 // Componente para structured data JSON-LD
 function BusinessStructuredData({ business }: { business: Business }) {
@@ -329,40 +331,48 @@ function RestaurantContent() {
         const availableProducts = productsData.filter(product => product.isAvailable)
         setProducts(availableProducts)
 
-        // Load user recommended products and referral counts
-        if (clientUser?.id && availableProducts.length > 0) {
-          const productIds = availableProducts.map(p => p.id)
-          const recommendedSet = new Set<string>()
-          await Promise.all(
-            productIds.map(async (productId) => {
-              const hasReferral = await userHasReferralForProduct(clientUser.id, productId)
-              if (hasReferral) recommendedSet.add(productId)
-            })
-          )
-          setGeneratedReferralProducts(recommendedSet)
-          const counts = await getProductsReferralCounts(productIds)
-          setReferralCounts(counts)
-        }
-
-        // Load other businesses
-        try {
-          const all = await getAllBusinesses()
-          const others = all
-            .filter(
-              (b) =>
-                b.username !== username &&
-                b.isActive !== false &&
-                b.isHidden !== true &&
-                b.businessType !== 'distributor'
-            )
-            .sort(() => 0.5 - Math.random())
-            .slice(0, 4)
-          setOtherBusinesses(others)
-        } catch (e) {
-          console.error('Error loading other businesses:', e)
-        }
-
+        // Hide loading screen immediately after products are loaded
         setLoading(false)
+
+        // Defer loading of non-critical background data
+        setTimeout(() => {
+          // Load user recommended products and referral counts
+          if (clientUser?.id && availableProducts.length > 0) {
+            const productIds = availableProducts.map(p => p.id)
+            const recommendedSet = new Set<string>()
+            Promise.all(
+              productIds.map(async (productId) => {
+                try {
+                  const hasReferral = await userHasReferralForProduct(clientUser.id, productId)
+                  if (hasReferral) recommendedSet.add(productId)
+                } catch (e) {
+                  console.error('Error fetching user referral for product:', productId, e)
+                }
+              })
+            ).then(() => {
+              setGeneratedReferralProducts(recommendedSet)
+            }).catch(e => console.error('Error loading user referrals:', e))
+
+            getProductsReferralCounts(productIds).then(counts => {
+              setReferralCounts(counts)
+            }).catch(e => console.error('Error loading referral counts:', e))
+          }
+
+          // Load other businesses
+          getAllBusinesses().then(all => {
+            const others = all
+              .filter(
+                (b) =>
+                  b.username !== username &&
+                  b.isActive !== false &&
+                  b.isHidden !== true &&
+                  b.businessType !== 'distributor'
+              )
+              .sort(() => 0.5 - Math.random())
+              .slice(0, 4)
+            setOtherBusinesses(others)
+          }).catch(e => console.error('Error loading other businesses:', e))
+        }, 50)
       } catch (err) {
         console.error('Error loading restaurant data:', err)
         setError('Error al cargar el restaurante')
