@@ -23,6 +23,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
     const [quantity, setQuantity] = useState(1)
     const [comboSelection, setComboSelection] = useState<Record<string, number>>({})
     const [cart, setCart] = useState<any[]>([])
+    const [selectedOptions, setSelectedOptions] = useState<Record<string, { name: string, price: number }[]>>({})
     const [notification, setNotification] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
         show: false,
         message: '',
@@ -74,6 +75,31 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
         }, 0);
     }, [product, comboSelection, availableVariants]);
 
+    const activeVariantObj = useMemo(() => {
+        if (!product || !product.variants || !selectedVariant) return null;
+        return product.variants.find(v => v.name === selectedVariant) || null;
+    }, [product, selectedVariant]);
+
+    const optionsPrice = useMemo(() => {
+        if (!product || !product.optionGroups) return 0;
+        return Object.values(selectedOptions).reduce((sum, groupSelections) => {
+            return sum + groupSelections.reduce((gSum, opt) => gSum + (opt.price || 0), 0);
+        }, 0);
+    }, [product, selectedOptions]);
+
+    const isOptionsSelectionComplete = useMemo(() => {
+        if (!product || !product.optionGroups) return true;
+        return product.optionGroups.every(group => {
+            const count = (selectedOptions[group.id] || []).length;
+            return count >= group.minSelect;
+        });
+    }, [product, selectedOptions]);
+
+    const baseProductPrice = useMemo(() => {
+        if (!product) return 0;
+        return activeVariantObj ? getProductPublicPrice(activeVariantObj) : getProductPublicPrice(product);
+    }, [product, activeVariantObj]);
+
 
     // Reset state when product changes
     useEffect(() => {
@@ -85,6 +111,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
             }
             setQuantity(1)
             setComboSelection({})
+            setSelectedOptions({})
 
             // Scroll to top
             if (sidebarContentRef.current) {
@@ -217,6 +244,80 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
         window.dispatchEvent(new Event('cart-updated'))
     }
 
+    const handleAddOptionProductToCart = () => {
+        if (!product || !business) return;
+
+        if (!isOptionsSelectionComplete) {
+            alert('Por favor selecciona las opciones obligatorias');
+            return;
+        }
+
+        const basePriceMeta = activeVariantObj 
+            ? getPriceMetadata(activeVariantObj) 
+            : getPriceMetadata(product);
+
+        // Format selectedOptions as a variant string
+        const optionsList: string[] = [];
+        Object.entries(selectedOptions).forEach(([groupId, selections]) => {
+            const group = product.optionGroups?.find(g => g.id === groupId);
+            if (selections.length > 0) {
+                const groupSelections = selections.map(s => {
+                    const priceStr = s.price > 0 ? ` (+$${s.price.toFixed(2)})` : '';
+                    return `${s.name}${priceStr}`;
+                }).join(', ');
+                optionsList.push(`${group?.name || 'Opción'}: ${groupSelections}`);
+            }
+        });
+        const optionsStr = optionsList.join(' | ');
+        
+        let finalVariantName = '';
+        if (activeVariantObj) {
+            finalVariantName = optionsStr ? `${activeVariantObj.name} (${optionsStr})` : activeVariantObj.name;
+        } else {
+            finalVariantName = optionsStr;
+        }
+
+        // Generate cartItemId using the combined variant name
+        const cleanHash = finalVariantName.replace(/[^a-zA-Z0-9]/g, '');
+        const cartItemId = cleanHash ? `${product.id}-${cleanHash}` : product.id;
+
+        const itemToAdd = {
+            id: cartItemId,
+            name: product.name,
+            variantName: finalVariantName || null,
+            productName: product.name,
+            price: baseProductPrice + optionsPrice,
+            ...basePriceMeta,
+            // Include options price in basePrice and storeReceives
+            basePrice: (basePriceMeta.basePrice || baseProductPrice) + optionsPrice,
+            storeReceives: (basePriceMeta.storeReceives || baseProductPrice) + optionsPrice,
+            image: activeVariantObj?.image || product.image,
+            description: activeVariantObj?.description || product.description,
+            businessId: business.id,
+            businessName: business.name,
+            businessImage: business.image,
+            category: product.category
+        };
+
+        const currentCart = [...cart];
+        const existingItemIndex = currentCart.findIndex(item => item.id === cartItemId);
+        
+        if (existingItemIndex > -1) {
+            currentCart[existingItemIndex].quantity += quantity;
+        } else {
+            currentCart.push({ ...itemToAdd, quantity });
+        }
+        
+        setCart(currentCart);
+        updateCartInStorage(business.id, currentCart);
+        showNotification(`${product.name} agregado`);
+        
+        // Reset states
+        setSelectedOptions({});
+        setQuantity(1);
+        onClose();
+    };
+
     const handleCopyProductLink = async () => {
         if (!product || !business) return
         const productUrl = `${window.location.origin}/${business.username || `restaurant/${business.id}`}/${product.slug || product.id}`
@@ -322,7 +423,166 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
 
                         {/* Variants & Actions */}
                         <div className="space-y-4">
-                            {product.variants && product.variants.length > 0 ? (
+                            {product.optionGroups && product.optionGroups.length > 0 ? (
+                                <div className="space-y-6">
+                                    {/* 1. Si hay opciones y también variantes, renderizarlas como un radio list */}
+                                    {product.variants && product.variants.length > 0 && (
+                                        <div>
+                                            <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-3">
+                                                Selecciona una opción
+                                            </label>
+                                            <div className="space-y-2">
+                                                {availableVariants.map((variant) => {
+                                                    const isSelected = selectedVariant === variant.name;
+                                                    return (
+                                                        <label
+                                                            key={variant.name}
+                                                            className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
+                                                                isSelected 
+                                                                    ? 'border-red-500 bg-red-50/50' 
+                                                                    : 'border-gray-100 bg-white hover:border-gray-200'
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-center gap-3">
+                                                                <input
+                                                                    type="radio"
+                                                                    name="product-variant-radio"
+                                                                    checked={isSelected}
+                                                                    onChange={() => setSelectedVariant(variant.name)}
+                                                                    className="w-4 h-4 text-red-600 focus:ring-red-500 border-gray-300"
+                                                                />
+                                                                <span className="font-bold text-gray-900 text-sm">{variant.name}</span>
+                                                            </div>
+                                                            <span className="text-sm font-black text-red-600">
+                                                                {formatPrice(getProductPublicPrice(variant))}
+                                                            </span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* 2. Renderizar los grupos de opciones/modificadores */}
+                                    <div className="space-y-6">
+                                        {product.optionGroups.map((group) => {
+                                            const selections = selectedOptions[group.id] || []
+                                            const isGroupAtMax = selections.length >= group.maxSelect
+
+                                            return (
+                                                <div key={group.id} className="space-y-3">
+                                                    <div className="flex items-center justify-between">
+                                                        <div>
+                                                            <span className="block text-sm font-black text-gray-900 leading-tight">
+                                                                {group.name}
+                                                            </span>
+                                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mt-0.5">
+                                                                {group.minSelect > 0 
+                                                                    ? `Obligatorio · Elige ${group.minSelect === group.maxSelect ? group.minSelect : `de ${group.minSelect} a ${group.maxSelect}`}` 
+                                                                    : `Opcional · Elige hasta ${group.maxSelect}`}
+                                                            </span>
+                                                        </div>
+                                                        {selections.length > 0 && (
+                                                            <span className="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-black">
+                                                                {selections.length}/{group.maxSelect}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        {group.options.map((opt) => {
+                                                            const isSelected = selections.some(s => s.name === opt.name)
+                                                            const disabled = !isSelected && isGroupAtMax
+
+                                                            return (
+                                                                <label
+                                                                    key={opt.name}
+                                                                    className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
+                                                                        isSelected 
+                                                                            ? 'border-red-500 bg-red-50/50' 
+                                                                            : disabled 
+                                                                                ? 'border-gray-50 bg-gray-50/30 opacity-60 cursor-not-allowed' 
+                                                                                : 'border-gray-100 bg-white hover:border-gray-200'
+                                                                    }`}
+                                                                >
+                                                                    <div className="flex items-center gap-3">
+                                                                        <input
+                                                                            type={group.maxSelect === 1 ? 'radio' : 'checkbox'}
+                                                                            name={group.id}
+                                                                            checked={isSelected}
+                                                                            disabled={disabled}
+                                                                            onChange={() => {
+                                                                                if (group.maxSelect === 1) {
+                                                                                    setSelectedOptions(prev => ({
+                                                                                        ...prev,
+                                                                                        [group.id]: [{ name: opt.name, price: opt.price }]
+                                                                                    }))
+                                                                                } else {
+                                                                                    setSelectedOptions(prev => {
+                                                                                        const current = prev[group.id] || []
+                                                                                        const exists = current.some(s => s.name === opt.name)
+                                                                                        let updated
+                                                                                        if (exists) {
+                                                                                            updated = current.filter(s => s.name !== opt.name)
+                                                                                        } else {
+                                                                                            if (current.length >= group.maxSelect) return prev
+                                                                                            updated = [...current, { name: opt.name, price: opt.price }]
+                                                                                        }
+                                                                                        return { ...prev, [group.id]: updated }
+                                                                                    })
+                                                                                }
+                                                                            }}
+                                                                            className="w-4 h-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
+                                                                        />
+                                                                        <span className="font-bold text-gray-900 text-sm">{opt.name}</span>
+                                                                    </div>
+                                                                    {opt.price > 0 && (
+                                                                        <span className="text-xs font-black text-gray-500">
+                                                                            +{formatPrice(opt.price)}
+                                                                        </span>
+                                                                    )}
+                                                                </label>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+
+                                    {/* 3. Panel de control de cantidad y botón Agregar para modificadores */}
+                                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                        <div>
+                                            <span className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Precio</span>
+                                            <span className="text-3xl font-black text-red-600 tracking-tight">{formatPrice((baseProductPrice + optionsPrice) * quantity)}</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-2 bg-white rounded-xl p-1 shadow-sm border border-gray-100">
+                                                <button
+                                                    onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                                                    className="w-8 h-8 flex items-center justify-center bg-gray-50 rounded-lg text-gray-600 hover:text-red-500 text-lg"
+                                                >
+                                                    <i className="bi bi-dash"></i>
+                                                </button>
+                                                <span className="text-lg font-black w-6 text-center">{quantity}</span>
+                                                <button
+                                                    onClick={() => setQuantity(q => q + 1)}
+                                                    className="w-8 h-8 flex items-center justify-center bg-gray-50 rounded-lg text-gray-600 hover:text-green-600 text-lg"
+                                                >
+                                                    <i className="bi bi-plus"></i>
+                                                </button>
+                                            </div>
+                                            <button
+                                                onClick={handleAddOptionProductToCart}
+                                                disabled={!isOptionsSelectionComplete || !product.isAvailable}
+                                                className="px-6 py-3 bg-gray-900 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-black transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                            >
+                                                <i className="bi bi-bag-plus-fill"></i>
+                                                Agregar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : product.variants && product.variants.length > 0 ? (
                                 <div>
                                     <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-3">
                                         Opciones
@@ -423,8 +683,6 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                 </div>
                                             )
                                         })}
-
-
                                     </div>
                                 </div>
                             ) : (

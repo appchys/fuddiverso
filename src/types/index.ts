@@ -199,6 +199,20 @@ export interface ProductScheduleAvailability {
   schedules: ProductSchedule[] // Array de horarios cuando está disponible
 }
 
+export interface ProductOption {
+  name: string
+  price: number // Extra cost (e.g. +$0.50), default 0
+  isAvailable?: boolean
+}
+
+export interface ProductOptionGroup {
+  id: string
+  name: string // e.g. "Elige tus salsas"
+  minSelect: number // minimum options to select
+  maxSelect: number // maximum options to select
+  options: ProductOption[]
+}
+
 export interface Product {
   id: string
   businessId: string
@@ -220,9 +234,18 @@ export interface Product {
   scheduleAvailability?: ProductScheduleAvailability // Disponibilidad por horarios/días
   isCombo?: boolean // Si el producto es un combo que requiere seleccionar múltiples variantes
   minComboItems?: number // Cantidad mínima de variantes a seleccionar para el combo
+  optionGroups?: ProductOptionGroup[] // Modificadores/Opciones del producto
   createdAt: Date
   updatedAt: Date
   quickAddons?: string[]
+}
+
+export interface SelectedOptionGroup {
+  groupName: string
+  selections: {
+    name: string
+    price: number
+  }[]
 }
 
 export interface CartItem {
@@ -236,6 +259,7 @@ export interface CartItem {
   commission?: number
   commissionType?: CommissionType
   basePrice?: number
+  selectedOptions?: SelectedOptionGroup[]
 }
 
 export interface Customer {

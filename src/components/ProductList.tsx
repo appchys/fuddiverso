@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { Business, Product, ProductVariant, Ingredient, CommissionType } from '@/types'
+import { Business, Product, ProductVariant, Ingredient, CommissionType, ProductOption, ProductOptionGroup } from '@/types'
 import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
 import { calculateCommissionPricing, getBusinessCommissionSettings } from '@/lib/price-utils'
@@ -82,10 +82,22 @@ export default function ProductList({
   const [showIngredientSuggestions, setShowIngredientSuggestions] = useState(false)
   const [ingredientSearchTerm, setIngredientSearchTerm] = useState('')
   const [expandedVariantsForIngredients, setExpandedVariantsForIngredients] = useState<Set<string>>(new Set())
-  const [activeTab, setActiveTab] = useState<'general' | 'ingredients'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'ingredients' | 'options'>('general')
   const [variantVisibility, setVariantVisibility] = useState<Record<string, boolean>>({})
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [activeVariantMenu, setActiveVariantMenu] = useState<string | null>(null)
+
+  // Estados para opciones/modificadores
+  const [optionGroups, setOptionGroups] = useState<ProductOptionGroup[]>([])
+  const [editingGroupIndex, setEditingGroupIndex] = useState<number | null>(null)
+  const [currentGroup, setCurrentGroup] = useState<Omit<ProductOptionGroup, 'id'>>({
+    name: '',
+    minSelect: 0,
+    maxSelect: 1,
+    options: []
+  })
+  const [newOptionName, setNewOptionName] = useState('')
+  const [newOptionPrice, setNewOptionPrice] = useState('')
 
   // Estados para disponibilidad por horarios
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
@@ -162,6 +174,8 @@ export default function ProductList({
     setSchedules([])
     setEditingScheduleId(null)
     setCurrentSchedule({ days: [], startTime: '09:00', endTime: '17:00' })
+    setOptionGroups([])
+    setEditingGroupIndex(null)
     setShowProductForm(true)
   }
 
@@ -252,6 +266,8 @@ export default function ProductList({
     setShowVariantForm(false)
     setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
     setVariantImageFiles({})
+    setOptionGroups(product.optionGroups || [])
+    setEditingGroupIndex(null)
     setShowProductForm(true)
   }
 
@@ -285,6 +301,95 @@ export default function ProductList({
     setSchedules([])
     setEditingScheduleId(null)
     setCurrentSchedule({ days: [], startTime: '09:00', endTime: '17:00' })
+    setOptionGroups([])
+    setEditingGroupIndex(null)
+    setCurrentGroup({ name: '', minSelect: 0, maxSelect: 1, options: [] })
+    setNewOptionName('')
+    setNewOptionPrice('')
+  }
+
+  const handleAddOptionGroup = () => {
+    setEditingGroupIndex(-1)
+    setCurrentGroup({
+      name: '',
+      minSelect: 0,
+      maxSelect: 1,
+      options: []
+    })
+    setNewOptionName('')
+    setNewOptionPrice('')
+  }
+
+  const handleEditOptionGroup = (index: number) => {
+    const group = optionGroups[index]
+    setEditingGroupIndex(index)
+    setCurrentGroup({
+      name: group.name,
+      minSelect: group.minSelect,
+      maxSelect: group.maxSelect,
+      options: [...group.options]
+    })
+    setNewOptionName('')
+    setNewOptionPrice('')
+  }
+
+  const handleRemoveOptionGroup = (index: number) => {
+    setOptionGroups(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const handleAddOptionToGroup = () => {
+    if (!newOptionName.trim()) {
+      alert('El nombre del modificador/opción es requerido')
+      return
+    }
+    const price = Number(newOptionPrice) || 0
+    if (price < 0) {
+      alert('El precio no puede ser negativo')
+      return
+    }
+    setCurrentGroup(prev => ({
+      ...prev,
+      options: [...prev.options, { name: newOptionName.trim(), price }]
+    }))
+    setNewOptionName('')
+    setNewOptionPrice('')
+  }
+
+  const handleRemoveOptionFromGroup = (oIdx: number) => {
+    setCurrentGroup(prev => ({
+      ...prev,
+      options: prev.options.filter((_, i) => i !== oIdx)
+    }))
+  }
+
+  const handleSaveOptionGroup = () => {
+    if (!currentGroup.name.trim()) {
+      alert('El nombre del grupo es requerido')
+      return
+    }
+    if (currentGroup.options.length === 0) {
+      alert('Agrega al menos una opción al grupo')
+      return
+    }
+    if (currentGroup.minSelect > currentGroup.maxSelect) {
+      alert('La selección mínima no puede ser mayor que la máxima')
+      return
+    }
+
+    const savedGroup: ProductOptionGroup = {
+      id: editingGroupIndex === -1 ? Date.now().toString() : optionGroups[editingGroupIndex!].id,
+      name: currentGroup.name.trim(),
+      minSelect: currentGroup.minSelect,
+      maxSelect: currentGroup.maxSelect,
+      options: currentGroup.options
+    }
+
+    if (editingGroupIndex === -1) {
+      setOptionGroups(prev => [...prev, savedGroup])
+    } else {
+      setOptionGroups(prev => prev.map((g, i) => i === editingGroupIndex ? savedGroup : g))
+    }
+    setEditingGroupIndex(null)
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -733,6 +838,7 @@ export default function ProductList({
           : undefined,
         isCombo: formData.isCombo,
         minComboItems: formData.isCombo ? Number(formData.minComboItems) : 1,
+        optionGroups: optionGroups.length > 0 ? optionGroups : undefined,
         businessId: business.id,
         updatedAt: new Date()
       }
@@ -792,6 +898,7 @@ export default function ProductList({
         scheduleAvailability: product.scheduleAvailability,
         isCombo: product.isCombo || false,
         minComboItems: product.minComboItems || 1,
+        optionGroups: product.optionGroups || undefined,
         businessId: business.id,
         updatedAt: new Date(),
         order: (product.order || 0) + 1 // Intentar colocarlo cerca
@@ -1427,6 +1534,22 @@ export default function ProductList({
                     {ingredients.length > 0 && (
                       <span className="ml-2 bg-red-100 text-red-800 px-2 py-0.5 rounded-full text-xs">
                         {ingredients.length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('options')}
+                    className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'options'
+                      ? 'border-red-500 text-red-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      }`}
+                  >
+                    <i className="bi bi-gear me-2"></i>
+                    Opciones y Modificadores
+                    {optionGroups.length > 0 && (
+                      <span className="ml-2 bg-red-100 text-red-800 px-2 py-0.5 rounded-full text-xs">
+                        {optionGroups.length}
                       </span>
                     )}
                   </button>
@@ -2543,6 +2666,187 @@ export default function ProductList({
                         </div>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* PESTAÑA: OPCIONES Y MODIFICADORES */}
+                {activeTab === 'options' && (
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-medium text-gray-900">Grupos de Opciones / Modificadores</h3>
+                        <p className="text-sm text-gray-500 mt-1">Permite a tus clientes personalizar su producto (salsas, extras, etc.)</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddOptionGroup}
+                        className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+                      >
+                        <i className="bi bi-plus-lg"></i>
+                        Nuevo Grupo
+                      </button>
+                    </div>
+
+                    {/* Formulario de edición/creación de un grupo */}
+                    {editingGroupIndex !== null && (
+                      <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 space-y-4">
+                        <h4 className="font-bold text-gray-900 text-sm">
+                          {editingGroupIndex === -1 ? 'Crear Grupo de Opciones' : 'Editar Grupo de Opciones'}
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Nombre del Grupo</label>
+                            <input
+                              type="text"
+                              value={currentGroup.name}
+                              onChange={(e) => setCurrentGroup(prev => ({ ...prev, name: e.target.value }))}
+                              placeholder="Ej: Salsas, Extras, Tamaño"
+                              className="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-red-500 outline-none text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Selección Mínima</label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={currentGroup.minSelect}
+                              onChange={(e) => setCurrentGroup(prev => ({ ...prev, minSelect: Math.max(0, parseInt(e.target.value) || 0) }))}
+                              className="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-red-500 outline-none text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Selección Máxima</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={currentGroup.maxSelect}
+                              onChange={(e) => setCurrentGroup(prev => ({ ...prev, maxSelect: Math.max(1, parseInt(e.target.value) || 1) }))}
+                              className="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-red-500 outline-none text-sm"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Listado y formulario de opciones individuales */}
+                        <div className="space-y-2">
+                          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Opciones / Modificadores</label>
+                          
+                          {/* Lista de opciones actuales del grupo */}
+                          {currentGroup.options.length > 0 ? (
+                            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                              {currentGroup.options.map((opt, oIdx) => (
+                                <div key={oIdx} className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 text-sm">
+                                  <span className="font-medium text-gray-900">{opt.name}</span>
+                                  <div className="flex items-center gap-3">
+                                    <span className="text-gray-500 text-xs">
+                                      {opt.price > 0 ? `+$${opt.price.toFixed(2)}` : 'Gratis'}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveOptionFromGroup(oIdx)}
+                                      className="text-gray-400 hover:text-red-600 transition-colors"
+                                    >
+                                      <i className="bi bi-trash"></i>
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-400 italic">No hay opciones agregadas a este grupo aún.</p>
+                          )}
+
+                          {/* Fila para agregar opción rápida */}
+                          <div className="flex gap-2 items-center pt-2">
+                            <input
+                              type="text"
+                              placeholder="Nombre de la opción (ej: Salsa BBQ)"
+                              value={newOptionName}
+                              onChange={(e) => setNewOptionName(e.target.value)}
+                              className="flex-1 px-3 py-2 border rounded-lg text-sm outline-none"
+                            />
+                            <div className="relative w-28">
+                              <span className="absolute left-2.5 top-2 text-gray-400 text-sm">$</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder="Precio"
+                                value={newOptionPrice}
+                                onChange={(e) => setNewOptionPrice(e.target.value)}
+                                className="w-full pl-6 pr-2 py-2 border rounded-lg text-sm outline-none"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleAddOptionToGroup}
+                              className="px-3 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 transition-colors"
+                            >
+                              Agregar
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Botones de acción del grupo */}
+                        <div className="flex gap-2 pt-2 justify-end border-t border-gray-200">
+                          <button
+                            type="button"
+                            onClick={() => setEditingGroupIndex(null)}
+                            className="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-100 transition-colors"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleSaveOptionGroup}
+                            className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors"
+                          >
+                            Guardar Grupo
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Lista de grupos de opciones agregados */}
+                    <div className="space-y-4">
+                      {optionGroups.length > 0 ? (
+                        optionGroups.map((group, idx) => (
+                          <div key={group.id} className="bg-white p-4 rounded-xl border border-gray-200 flex items-start justify-between shadow-sm">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-bold text-gray-900">{group.name}</h4>
+                                <span className="bg-gray-100 text-gray-600 text-[10px] font-black uppercase px-2 py-0.5 rounded">
+                                  {group.minSelect === 0 ? 'Opcional' : `Mínimo: ${group.minSelect}`} | Máximo: {group.maxSelect}
+                                </span>
+                              </div>
+                              <p className="text-xs text-gray-500">
+                                Opciones: {group.options.map(o => `${o.name}${o.price > 0 ? ` (+$${o.price.toFixed(2)})` : ''}`).join(', ')}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleEditOptionGroup(idx)}
+                                className="p-2 text-gray-500 hover:text-red-600 hover:bg-gray-50 rounded-lg transition-all"
+                              >
+                                <i className="bi bi-pencil"></i>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveOptionGroup(idx)}
+                                className="p-2 text-gray-300 hover:text-red-600 hover:bg-gray-50 rounded-lg transition-all"
+                              >
+                                <i className="bi bi-trash"></i>
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                          <p className="text-sm text-gray-400">No hay grupos de opciones o modificadores creados para este producto.</p>
+                          <p className="text-xs text-gray-400 mt-1">Crea uno para que los clientes puedan personalizar su orden (ej: salsas, extras).</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 

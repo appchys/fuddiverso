@@ -107,9 +107,10 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
   const [imgLoaded, setImgLoaded] = useState(false)
   const handleCardClick = () => onShowDetails(product)
 
-  const quantity = getCartItemQuantity(product.id, null)
   const hasVariants = product.variants && product.variants.length > 0
   const isCombo = product.isCombo === true
+  const hasOptions = product.optionGroups && product.optionGroups.length > 0
+  const quantity = (hasVariants || isCombo || hasOptions) ? 0 : getCartItemQuantity(product.id, null)
   const publicPrice = getProductPublicPrice(product)
 
   return (
@@ -215,7 +216,7 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
                 className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-lg transform md:group-hover:scale-110 md:group-hover:bg-red-600 transition-all duration-300"
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (!hasVariants && !isCombo) {
+                  if (!hasVariants && !isCombo && !hasOptions) {
                     onAddToCart({
                       ...product,
                       price: publicPrice,
