@@ -17,6 +17,7 @@ interface Client {
   celular: string
   nombres: string
   fecha_de_registro?: string
+  notas?: string
   [key: string]: any
 }
 
@@ -50,6 +51,7 @@ interface ManualOrderData {
   customerId: string
   customerPhone: string
   customerName: string
+  customerNotes?: string
   selectedProducts: OrderItem[]
   deliveryType: '' | 'delivery' | 'pickup'
   selectedLocation: ClientLocation | null
@@ -108,6 +110,7 @@ export default function ManualOrderSidebar({
     customerId: '',
     customerPhone: '',
     customerName: '',
+    customerNotes: '',
     selectedProducts: [],
     deliveryType: '',
     selectedLocation: null,
@@ -151,6 +154,14 @@ export default function ManualOrderSidebar({
   const [loadingOrders, setLoadingOrders] = useState(false)
   const [clientRegisterDate, setClientRegisterDate] = useState<string | null>(null)
   const [clientEmail, setClientEmail] = useState<string | null>(null)
+  const [clientNotes, setClientNotes] = useState<string | null>(null)
+
+  // Estados para edición de cliente dentro del detalle
+  const [isEditingClientInDetail, setIsEditingClientInDetail] = useState(false)
+  const [detailClientName, setDetailClientName] = useState('')
+  const [detailClientPhone, setDetailClientPhone] = useState('')
+  const [detailClientEmail, setDetailClientEmail] = useState('')
+  const [detailClientNotes, setDetailClientNotes] = useState('')
 
   // Estados para búsqueda mejorada
   const [searchResults, setSearchResults] = useState<Client[]>([])
@@ -734,7 +745,8 @@ export default function ManualOrderSidebar({
       ...prev,
       customerId: selectedClient.id,
       customerPhone: normalizedPhone,
-      customerName: selectedClient.nombres
+      customerName: selectedClient.nombres,
+      customerNotes: selectedClient.notas || ''
     }))
 
     // Cargar ubicaciones del cliente
@@ -799,47 +811,127 @@ export default function ManualOrderSidebar({
       return
     }
 
-    setUpdatingClient(true)
-    try {
-      const nombres = editingClient.nombres.trim()
+    const nombres = editingClient.nombres.trim()
+    const email = (editingClient.email || '').trim()
+    const notas = (editingClient.notas || '').trim()
+    const originalPhone = normalizePhone(manualOrderData.customerPhone)
+    const clientId = editingClient.id
 
-      // Verificar si el teléfono ya existe para otro cliente
-      const originalPhone = normalizePhone(manualOrderData.customerPhone)
-      if (celular !== originalPhone) {
-        const existingClient = await searchClientByPhone(celular)
-        if (existingClient && existingClient.id !== editingClient.id) {
-          alert('Este número de teléfono ya está registrado con otro cliente')
-          setUpdatingClient(false)
+    // ENFOQUE OPTIMISTA: Actualizar los datos en el estado local de inmediato y cerrar el modal
+    setManualOrderData(prev => ({
+      ...prev,
+      customerName: nombres,
+      customerPhone: celular,
+      customerNotes: notas
+    }))
+    setClientEmail(email || null)
+    setClientNotes(notas || null)
+
+    setEditingClient(null)
+    setShowEditClient(false)
+    displayToast('Guardando cambios en segundo plano...');
+
+    // El guardado real se ejecuta en segundo plano
+    (async () => {
+      try {
+        // Verificar si el teléfono ya existe para otro cliente
+        if (celular !== originalPhone) {
+          const existingClient = await searchClientByPhone(celular)
+          if (existingClient && existingClient.id !== clientId) {
+            alert(`El número de teléfono ${celular} ya está registrado con otro cliente. No se pudo actualizar el teléfono.`)
+            // Revertir teléfono en estado local si falló
+            setManualOrderData(prev => ({
+              ...prev,
+              customerPhone: originalPhone
+            }))
+            return
+          }
+        }
+
+        // Actualizar el cliente en la base de datos
+        await updateClient(clientId, {
+          nombres,
+          celular,
+          email,
+          notas
+        })
+        console.log('[ManualOrder] Datos del cliente actualizados con éxito en segundo plano')
+        displayToast('Información del cliente actualizada con éxito')
+      } catch (error) {
+        console.error('Error actualizando cliente en segundo plano:', error)
+        alert('Error al actualizar el cliente en segundo plano: ' + (error instanceof Error ? error.message : 'Error desconocido'))
+      }
+    })()
+  }
+
+  // Guardar datos editados del cliente desde el detalle
+  const handleSaveClientDetail = async () => {
+    if (!detailClientName.trim() || !detailClientPhone.trim()) {
+      alert('Por favor complete todos los campos obligatorios')
+      return
+    }
+
+    const celular = normalizePhone(detailClientPhone.trim())
+    if (celular.length < 9) {
+      alert('El número de teléfono no parece válido')
+      return
+    }
+
+    const nombres = detailClientName.trim()
+    const email = detailClientEmail.trim()
+    const notas = detailClientNotes.trim()
+    const originalPhone = normalizePhone(manualOrderData.customerPhone)
+
+    // ENFOQUE OPTIMISTA: Actualizar los datos en el estado local de inmediato y salir del modo edición
+    setManualOrderData(prev => ({
+      ...prev,
+      customerName: nombres,
+      customerPhone: celular,
+      customerNotes: notas
+    }))
+    setClientEmail(email || null)
+    setClientNotes(notas || null)
+    setIsEditingClientInDetail(false)
+    displayToast('Guardando cambios en segundo plano...');
+
+    // El guardado real y la verificación se ejecutan en segundo plano
+    (async () => {
+      try {
+        // Buscar cliente actual para obtener su ID
+        const client = await searchClientByPhone(originalPhone)
+        if (!client) {
+          console.error('[ManualOrder] No se encontró el registro del cliente para guardar')
           return
         }
+
+        // Verificar si el teléfono ya existe para otro cliente
+        if (celular !== originalPhone) {
+          const existingClient = await searchClientByPhone(celular)
+          if (existingClient && existingClient.id !== client.id) {
+            alert(`El número de teléfono ${celular} ya está registrado con otro cliente. No se pudo actualizar el teléfono.`)
+            // Revertir teléfono en estado local si falló
+            setManualOrderData(prev => ({
+              ...prev,
+              customerPhone: originalPhone
+            }))
+            return
+          }
+        }
+
+        // Actualizar el cliente en la base de datos
+        await updateClient(client.id, {
+          nombres,
+          celular,
+          email,
+          notas
+        })
+        console.log('[ManualOrder] Datos del cliente guardados con éxito en segundo plano')
+        displayToast('Información del cliente actualizada con éxito')
+      } catch (error) {
+        console.error('Error actualizando cliente en segundo plano:', error)
+        alert('Error al actualizar el cliente en segundo plano: ' + (error instanceof Error ? error.message : 'Error desconocido'))
       }
-
-      // Actualizar el cliente en la base de datos
-      await updateClient(editingClient.id, {
-        nombres,
-        celular
-      })
-
-      // Actualizar los datos en el estado local
-      setManualOrderData(prev => ({
-        ...prev,
-        customerName: nombres,
-        customerPhone: celular
-      }))
-
-      // Limpiar estado de edición y cerrar modal
-      setEditingClient(null)
-      setShowEditClient(false)
-
-      // Feedback visual
-      alert('Información del cliente actualizada con éxito')
-
-    } catch (error) {
-      console.error('Error actualizando cliente:', error)
-      alert('Error al actualizar el cliente: ' + (error instanceof Error ? error.message : 'Error desconocido'))
-    } finally {
-      setUpdatingClient(false)
-    }
+    })()
   }
 
   // Formatear fecha de orden
@@ -867,6 +959,7 @@ export default function ManualOrderSidebar({
   const handleViewClientInfo = async () => {
     if (!manualOrderData.customerPhone) return
     setLoadingOrders(true)
+    setIsEditingClientInDetail(false)
     setShowClientDetailSidebar(true)
     try {
       const phoneToSearch = normalizePhone(manualOrderData.customerPhone)
@@ -875,9 +968,11 @@ export default function ManualOrderSidebar({
       if (client) {
         setClientRegisterDate(client.fecha_de_registro || null)
         setClientEmail(client.email || null)
+        setClientNotes(client.notas || null)
       } else {
         setClientRegisterDate(null)
         setClientEmail(null)
+        setClientNotes(null)
       }
 
       // Obtener órdenes del cliente
@@ -2165,7 +2260,12 @@ export default function ManualOrderSidebar({
                             className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b last:border-b-0 transition-colors flex flex-col"
                             type="button"
                           >
-                            <p className="font-medium text-gray-900">{client.nombres}</p>
+                            <p className="font-medium text-gray-900 flex items-center gap-1.5">
+                              {client.nombres}
+                              {client.notas && (
+                                <i className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse" title={`Nota: ${client.notas}`}></i>
+                              )}
+                            </p>
                             <p className="text-xs text-gray-500">{client.celular}</p>
                           </button>
                         ))
@@ -2241,9 +2341,12 @@ export default function ManualOrderSidebar({
               <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md transition-colors">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-green-800">
+                    <p className="text-sm text-green-800 flex items-center gap-1.5">
                       <i className="bi bi-check-circle me-2"></i>
                       <span className="font-medium">{manualOrderData.customerName}</span>
+                      {manualOrderData.customerNotes && (
+                        <i className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse cursor-help" title={`Nota: ${manualOrderData.customerNotes}`}></i>
+                      )}
                     </p>
                     {manualOrderData.customerPhone && (
                       <p className="text-xs text-green-700 ml-6 opacity-80 font-mono tracking-wide">
@@ -3788,6 +3891,32 @@ export default function ManualOrderSidebar({
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Correo (Opcional)
+                </label>
+                <input
+                  type="email"
+                  value={editingClient.email || ''}
+                  onChange={(e) => setEditingClient(prev => prev ? { ...prev, email: e.target.value } : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="ejemplo@correo.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Notas (Opcional)
+                </label>
+                <textarea
+                  value={editingClient.notas || ''}
+                  onChange={(e) => setEditingClient(prev => prev ? { ...prev, notas: e.target.value } : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  rows={3}
+                  placeholder="Ej: Prefiere condimentos adicionales, entrega después de las 6 PM, etc."
+                />
+              </div>
+
               <div className="flex justify-end space-x-3 pt-4">
                 <button
                   onClick={() => setShowEditClient(false)}
@@ -3943,30 +4072,117 @@ export default function ManualOrderSidebar({
             >
               {/* Información General */}
               <div className="bg-gray-50 p-4 rounded-lg border border-gray-100 space-y-3">
-                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Datos Generales
-                </h4>
-                <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm">
-                  <div className="text-gray-500">Nombre:</div>
-                  <div className="font-medium text-gray-900 break-words">{manualOrderData.customerName}</div>
-                  
-                  <div className="text-gray-500">Teléfono:</div>
-                  <div className="font-medium text-gray-900 font-mono">{manualOrderData.customerPhone}</div>
-                  
-                  {clientEmail && (
-                    <>
-                      <div className="text-gray-500">Correo:</div>
-                      <div className="font-medium text-gray-900 break-all">{clientEmail}</div>
-                    </>
-                  )}
-
-                  {clientRegisterDate && (
-                    <>
-                      <div className="text-gray-500">Registrado el:</div>
-                      <div className="font-medium text-gray-900">{clientRegisterDate}</div>
-                    </>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Datos Generales
+                  </h4>
+                  {!isEditingClientInDetail ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDetailClientName(manualOrderData.customerName || '')
+                        setDetailClientPhone(manualOrderData.customerPhone || '')
+                        setDetailClientEmail(clientEmail || '')
+                        setDetailClientNotes(clientNotes || '')
+                        setIsEditingClientInDetail(true)
+                      }}
+                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium transition-colors"
+                    >
+                      <i className="bi bi-pencil-square"></i>
+                      Editar
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveClientDetail}
+                        disabled={updatingClient}
+                        className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 font-medium transition-colors flex items-center gap-1"
+                      >
+                        {updatingClient ? (
+                          <>
+                            <span className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full inline-block"></span>
+                            Guardando
+                          </>
+                        ) : (
+                          'Guardar'
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingClientInDetail(false)}
+                        disabled={updatingClient}
+                        className="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded hover:bg-gray-300 font-medium transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
                   )}
                 </div>
+
+                {isEditingClientInDetail ? (
+                  <div className="space-y-3 text-sm text-black">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Nombre *</label>
+                      <input
+                        type="text"
+                        value={detailClientName}
+                        onChange={(e) => setDetailClientName(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Teléfono *</label>
+                      <input
+                        type="tel"
+                        value={detailClientPhone}
+                        onChange={(e) => setDetailClientPhone(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Correo (Opcional)</label>
+                      <input
+                        type="email"
+                        value={detailClientEmail}
+                        onChange={(e) => setDetailClientEmail(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                        placeholder="ejemplo@correo.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Notas (Opcional)</label>
+                      <textarea
+                        value={detailClientNotes}
+                        onChange={(e) => setDetailClientNotes(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                        rows={3}
+                        placeholder="Ej: Prefiere condimentos adicionales, entrega después de las 6 PM, etc."
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm">
+                    <div className="text-gray-500">Nombre:</div>
+                    <div className="font-medium text-gray-900 break-words">{manualOrderData.customerName}</div>
+                    
+                    <div className="text-gray-500">Teléfono:</div>
+                    <div className="font-medium text-gray-900 font-mono">{manualOrderData.customerPhone}</div>
+                    
+                    <div className="text-gray-500">Correo:</div>
+                    <div className="font-medium text-gray-900 break-all">{clientEmail || <span className="text-gray-400 italic">No registrado</span>}</div>
+
+                    {clientRegisterDate && (
+                      <>
+                        <div className="text-gray-500">Registrado el:</div>
+                        <div className="font-medium text-gray-900">{clientRegisterDate}</div>
+                      </>
+                    )}
+
+                    <div className="text-gray-500">Notas:</div>
+                    <div className="font-medium text-gray-900 whitespace-pre-wrap break-words">{clientNotes || <span className="text-gray-400 italic">Sin notas</span>}</div>
+                  </div>
+                )}
               </div>
 
               {/* Últimos Pedidos */}

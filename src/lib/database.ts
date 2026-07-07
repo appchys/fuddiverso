@@ -1948,6 +1948,7 @@ export interface FirestoreClient {
   lastTelegramLinkDate?: any;
   googleEmail?: string;
   googleUid?: string;
+  notas?: string;
 }
 
 export interface ClientLocation {
@@ -2111,7 +2112,8 @@ export async function searchClientByPhone(phone: string): Promise<FirestoreClien
           email: clientData.email || '',
           photoURL: clientData.photoURL || '',
           fecha_de_registro: clientData.fecha_de_registro || new Date().toISOString(),
-          pinHash: clientData.pinHash || null
+          pinHash: clientData.pinHash || null,
+          notas: clientData.notas || ''
         };
         console.log('[Database] Cliente encontrado con variante:', phoneVariant, client)
         return client;
@@ -2186,7 +2188,7 @@ export async function registerClientForgotPin(clientId: string) {
   }
 }
 
-export async function createClient(clientData: { celular: string; nombres: string; fecha_de_registro?: string; id?: string; pinHash?: string }) {
+export async function createClient(clientData: { celular: string; nombres: string; fecha_de_registro?: string; id?: string; pinHash?: string; notas?: string }) {
   try {
     // Formatear fecha_de_registro como DD/MM/YYYY para mantener compatibilidad con la base histórica
     // Usar el helper superior `formatDateDDMMYYYY` definido en el módulo
@@ -2202,6 +2204,10 @@ export async function createClient(clientData: { celular: string; nombres: strin
       payload.pinHash = clientData.pinHash
     }
 
+    if (clientData.notas !== undefined) {
+      payload.notas = clientData.notas
+    }
+
     const clientRef = await addDoc(collection(db, 'clients'), payload);
 
     // Ensure the document has the correct id field
@@ -2211,7 +2217,8 @@ export async function createClient(clientData: { celular: string; nombres: strin
       celular: clientData.celular,
       nombres: clientData.nombres,
       fecha_de_registro: payload.fecha_de_registro,
-      pinHash: clientData.pinHash
+      pinHash: clientData.pinHash,
+      notas: payload.notas || ''
     } as any;
   } catch (error) {
     console.error('❌ Error creating client:', error);
@@ -2219,7 +2226,7 @@ export async function createClient(clientData: { celular: string; nombres: strin
   }
 }
 
-export async function updateClient(clientId: string, clientData: { celular?: string; nombres?: string; email?: string; photoURL?: string; pinHash?: string; lastLoginAt?: any; lastRegistrationAt?: any; loginSource?: string; googleEmail?: string; googleUid?: string }) {
+export async function updateClient(clientId: string, clientData: { celular?: string; nombres?: string; email?: string; photoURL?: string; pinHash?: string; lastLoginAt?: any; lastRegistrationAt?: any; loginSource?: string; googleEmail?: string; googleUid?: string; notas?: string }) {
   try {
     const clientRef = doc(db, 'clients', clientId);
     const updateData: any = {};
@@ -2234,6 +2241,7 @@ export async function updateClient(clientId: string, clientData: { celular?: str
     if (clientData.loginSource !== undefined) updateData.loginSource = clientData.loginSource;
     if (clientData.googleEmail !== undefined) updateData.googleEmail = clientData.googleEmail;
     if (clientData.googleUid !== undefined) updateData.googleUid = clientData.googleUid;
+    if (clientData.notas !== undefined) updateData.notas = clientData.notas;
 
     await updateDoc(clientRef, updateData);
     return true;

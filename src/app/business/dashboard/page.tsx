@@ -428,6 +428,54 @@ export default function TodayOrdersPage() {
     const [customerContactModalOpen, setCustomerContactModalOpen] = useState(false)
     const [selectedOrderForCustomerContact, setSelectedOrderForCustomerContact] = useState<Order | null>(null)
 
+    // Cache de notas de clientes
+    const [clientsWithNotes, setClientsWithNotes] = useState<Record<string, string>>({})
+
+    // Cargar notas de clientes de las órdenes activas, históricas y futuras
+    useEffect(() => {
+        const fetchNotesForCustomers = async () => {
+            const allOrdersList = [...orders, ...historicalOrders, ...allUpcomingOrders]
+            if (allOrdersList.length === 0) return
+            const { searchClientByPhone } = await import('@/lib/database')
+            
+            const phones = Array.from(new Set(
+                allOrdersList
+                    .map(o => o.customer?.phone)
+                    .filter((phone): phone is string => !!phone && phone.trim().length >= 9)
+            ))
+
+            // Filtrar los teléfonos que aún no hemos consultado
+            const newPhones = phones.filter(phone => clientsWithNotes[phone] === undefined)
+
+            if (newPhones.length === 0) return
+
+            // Buscar en segundo plano para no bloquear
+            for (const phone of newPhones) {
+                try {
+                    // Marcar provisionalmente para evitar peticiones redundantes
+                    setClientsWithNotes(prev => ({ ...prev, [phone]: '' }))
+                    
+                    const client = await searchClientByPhone(phone)
+                    if (client && client.notas) {
+                        const noteVal: string = client.notas
+                        setClientsWithNotes(prev => ({ ...prev, [phone]: noteVal }))
+                    }
+                } catch (error) {
+                    console.error(`Error fetching client notes for phone ${phone}:`, error)
+                }
+            }
+        }
+
+        fetchNotesForCustomers()
+    }, [orders, historicalOrders, allUpcomingOrders])
+
+    // Limpiar caché cuando se cierra el sidebar de pedidos manuales por si se editaron notas
+    useEffect(() => {
+        if (!manualOrderSidebarOpen) {
+            setClientsWithNotes({})
+        }
+    }, [manualOrderSidebarOpen])
+
     // ProductList specific state
     const [categories, setCategories] = useState<string[]>([])
     const [productsLoaded, setProductsLoaded] = useState(false)
@@ -2079,6 +2127,7 @@ export default function TodayOrdersPage() {
                                                         canDeleteOrders={canManageRestrictedOrderActions}
                                                         deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
+                                                        clientsWithNotes={clientsWithNotes}
                                                     />
                                                 </div>
 
@@ -2106,6 +2155,7 @@ export default function TodayOrdersPage() {
                                                         canDeleteOrders={canManageRestrictedOrderActions}
                                                         deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
+                                                        clientsWithNotes={clientsWithNotes}
                                                     />
                                                 </div>
 
@@ -2219,6 +2269,7 @@ export default function TodayOrdersPage() {
                                                         canDeleteOrders={canManageRestrictedOrderActions}
                                                         deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
+                                                        clientsWithNotes={clientsWithNotes}
                                                     />
                                                 </div>
                                             </div>
@@ -2718,7 +2769,8 @@ function OrderStatusColumn({
     canChangeDelivery,
     canDeleteOrders,
     deliveryTimeMinutes,
-    autoPrintOnConfirm
+    autoPrintOnConfirm,
+    clientsWithNotes
 }: any) {
     return (
         <>
@@ -2777,6 +2829,7 @@ function OrderStatusColumn({
                                 canDeleteOrders={canDeleteOrders}
                                 deliveryTimeMinutes={deliveryTimeMinutes}
                                 autoPrintOnConfirm={autoPrintOnConfirm}
+                                clientsWithNotes={clientsWithNotes}
                              />
                         ))}
                     </CollapsibleSection>
@@ -2855,7 +2908,8 @@ function OrderCard({
     canChangeDelivery,
     canDeleteOrders,
     deliveryTimeMinutes,
-    autoPrintOnConfirm
+    autoPrintOnConfirm,
+    clientsWithNotes
 }: {
     order: Order,
     availableDeliveries: Delivery[],
@@ -2873,7 +2927,8 @@ function OrderCard({
     canChangeDelivery?: boolean,
     canDeleteOrders?: boolean,
     deliveryTimeMinutes?: number,
-    autoPrintOnConfirm?: boolean
+    autoPrintOnConfirm?: boolean,
+    clientsWithNotes?: Record<string, string>
 }) {
     const nextStatus = getNextStatus(order.status)
     const getOrderTargetDate = () => {
@@ -3085,6 +3140,12 @@ function OrderCard({
                             <span className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
                                 {!isDelivery && <i className="bi bi-shop text-gray-400"></i>}
                                 {order.customer?.name || "Cliente"}
+                                {order.customer?.phone && clientsWithNotes && clientsWithNotes[order.customer.phone] && (
+                                    <i 
+                                        className="bi bi-exclamation-circle-fill text-amber-500 animate-pulse cursor-help" 
+                                        title={`Nota de cliente: ${clientsWithNotes[order.customer.phone]}`}
+                                    ></i>
+                                )}
                             </span>
 
                             <div className="flex items-center gap-2 mt-0.5">
