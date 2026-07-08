@@ -1885,6 +1885,47 @@ export default function ManualOrderSidebar({
     setCustomizingQuantity(1);
   };
 
+  // Agregar variante directamente (cuando no tiene modificadores ni es combo)
+  const addVariantToOrderDirectly = (product: Product, variant: ProductVariant) => {
+    const basePriceMeta = getPriceMetadata(variant);
+    const baseProductPrice = getProductPublicPrice(variant);
+    const finalVariantName = variant.name;
+
+    const newItem: OrderItem = {
+      name: product.name,
+      variant: finalVariantName,
+      variantName: finalVariantName,
+      productName: product.name,
+      price: baseProductPrice,
+      productId: product.id,
+      quantity: customizingQuantity,
+      basePrice: basePriceMeta.basePrice || baseProductPrice,
+      commission: basePriceMeta.commission || 0,
+      commissionType: basePriceMeta.commissionType || 'no_commission',
+      storeReceives: basePriceMeta.storeReceives || baseProductPrice
+    };
+
+    setManualOrderData(prev => ({
+      ...prev,
+      selectedProducts: [...prev.selectedProducts, newItem]
+    }));
+
+    calculateTotal([...manualOrderData.selectedProducts, newItem]);
+    
+    const addedProductLabel = variant.name && variant.name !== product.name
+      ? `${product.name} - ${variant.name}`
+      : product.name;
+    displayToast(`✅ ${addedProductLabel} agregado`);
+
+    // Resetear y cerrar modal
+    setIsVariantModalOpen(false);
+    setSelectedProductForVariants(null);
+    setSelectedVariant(null);
+    setComboSelection({});
+    setSelectedOptions({});
+    setCustomizingQuantity(1);
+  };
+
   // Agregar producto a la orden
   const addProductToOrder = (product: Product, variant?: ProductVariant) => {
     const item = variant || product
@@ -3486,6 +3527,7 @@ export default function ManualOrderSidebar({
                     <div className="space-y-2">
                       {selectedProductForVariants.variants.filter(v => v.isAvailable !== false).map((variant) => {
                         const isSelected = selectedVariant?.name === variant.name;
+                        const hasOptions = selectedProductForVariants.optionGroups && selectedProductForVariants.optionGroups.length > 0;
                         return (
                           <label
                             key={variant.id || variant.name}
@@ -3498,7 +3540,13 @@ export default function ManualOrderSidebar({
                                 type="radio"
                                 name="modal-variant-selection"
                                 checked={isSelected}
-                                onChange={() => setSelectedVariant(variant)}
+                                onChange={() => {
+                                  if (!hasOptions) {
+                                    addVariantToOrderDirectly(selectedProductForVariants, variant);
+                                  } else {
+                                    setSelectedVariant(variant);
+                                  }
+                                }}
                                 className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
                               />
                               <span className="text-sm font-semibold text-gray-800">{variant.name}</span>
