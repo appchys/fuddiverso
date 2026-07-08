@@ -766,11 +766,15 @@ function AdminOrderCard({ order, businesses, availableDeliveries, onStatusChange
       >
         {/* Row 1: Customer + Store + Actions */}
         <div className="flex justify-between items-center mb-2">
-          <div className="flex items-center gap-3">
-            <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 text-xs`}></i>
+          <div className="flex items-start gap-3">
+            <div className="flex flex-col items-center shrink-0 mt-1">
+              <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 text-xs`}></i>
+              {!order.createdByAdmin && (
+                <i className="bi bi-phone text-blue-500 text-[10px] mt-0.5" title="Pedido del cliente (Checkout)"></i>
+              )}
+            </div>
             <div className="flex flex-col">
               <span className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
-                {!isDelivery && <i className="bi bi-shop text-gray-400"></i>}
                 {order.customer?.name || "Cliente"}
               </span>
               <div className="flex items-center gap-2 mt-0.5">

@@ -309,12 +309,16 @@ export default function OrderHistory({
                 onClick={() => setIsExpanded(!isExpanded)}
             >
                 <div className="flex flex-col">
-                    <div className="flex items-center gap-2">
-                        {/* Chevron for expand/collapse */}
-                        <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 text-xs mr-2 transform transition-transform duration-200`}></i>
+                    <div className="flex items-start gap-2">
+                        {/* Column for expand/collapse chevron + mobile icon */}
+                        <div className="flex flex-col items-center shrink-0 mt-1 mr-1">
+                            <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-gray-400 text-xs transform transition-transform duration-200`}></i>
+                            {!order.createdByAdmin && (
+                                <i className="bi bi-phone text-blue-500 text-[10px] mt-0.5" title="Pedido del cliente (Checkout)"></i>
+                            )}
+                        </div>
 
                         <span className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
-                            {!isDelivery && <i className="bi bi-shop text-gray-400"></i>}
                             {order.customer?.name || "Cliente"}
                         </span>
                     </div>

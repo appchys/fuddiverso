@@ -15,6 +15,15 @@ export default function ProductPageByUsername() {
   const params = useParams()
   const productSlug = params?.productSlug as string
   const username = params?.username as string
+  const searchParams = useSearchParams()
+
+  useEffect(() => {
+    if (username && productSlug) {
+      const ref = searchParams?.get('ref')
+      const queryStr = ref ? `&ref=${ref}` : ''
+      window.location.replace(`/${username}?open=${productSlug}${queryStr}`)
+    }
+  }, [username, productSlug, searchParams])
 
   const [product, setProduct] = useState<Product | null>(null)
   const [business, setBusiness] = useState<Business | null>(null)

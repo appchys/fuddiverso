@@ -264,6 +264,24 @@ function RestaurantContent() {
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<any>(null)
   const [isVariantModalOpen, setIsVariantModalOpen] = useState(false)
+
+  // Abrir producto automáticamente si viene en el query parameter "open"
+  useEffect(() => {
+    if (products && products.length > 0) {
+      const params = new URLSearchParams(window.location.search);
+      const openSlug = params.get('open');
+      if (openSlug) {
+        const prod = products.find(p => p.slug === openSlug || p.id === openSlug);
+        if (prod) {
+          setSelectedProduct(prod);
+          setIsVariantModalOpen(true);
+          // Limpiar el parámetro 'open' de la URL para evitar reabrir al recargar
+          const newUrl = window.location.pathname;
+          window.history.replaceState({}, '', newUrl);
+        }
+      }
+    }
+  }, [products]);
   const [clientPhone, setClientPhone] = useState<string | null>(null)
   const [qrCodes, setQrCodes] = useState<QRCode[]>([])
   const [qrProgress, setQrProgress] = useState<UserQRProgress | null>(null)
