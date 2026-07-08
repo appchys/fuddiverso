@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ensureAdminDb } from '@/lib/firebase-admin'
+import { ensureAdminAuth, ensureAdminDb } from '@/lib/firebase-admin'
 
 export async function DELETE(
   request: NextRequest,
@@ -7,12 +7,26 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+    const adminAuth = ensureAdminAuth()
     const db = ensureAdminDb()
-    if (!db) {
+    if (!adminAuth || !db) {
       return NextResponse.json(
         { error: 'Firebase Admin no inicializado' },
         { status: 500 }
       )
+    }
+
+    const authHeader = request.headers.get('authorization') || ''
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+
+    if (!token) {
+      return NextResponse.json({ error: 'No autenticado.' }, { status: 401 })
+    }
+
+    try {
+      await adminAuth.verifyIdToken(token)
+    } catch (err: any) {
+      return NextResponse.json({ error: 'Token inválido o expirado.' }, { status: 401 })
     }
 
     if (!id) {
@@ -49,12 +63,26 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
+    const adminAuth = ensureAdminAuth()
     const db = ensureAdminDb()
-    if (!db) {
+    if (!adminAuth || !db) {
       return NextResponse.json(
         { error: 'Firebase Admin no inicializado' },
         { status: 500 }
       )
+    }
+
+    const authHeader = request.headers.get('authorization') || ''
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+
+    if (!token) {
+      return NextResponse.json({ error: 'No autenticado.' }, { status: 401 })
+    }
+
+    try {
+      await adminAuth.verifyIdToken(token)
+    } catch (err: any) {
+      return NextResponse.json({ error: 'Token inválido o expirado.' }, { status: 401 })
     }
 
     if (!id) {

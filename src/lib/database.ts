@@ -6733,10 +6733,17 @@ export async function sendTelegramBroadcast(
   errors?: Array<{ clientId?: string; chatId?: string; clientName?: string; error: string }>
 }> {
   try {
+    const currentUser = auth.currentUser
+    if (!currentUser) {
+      throw new Error('No autenticado: no hay un usuario activo.')
+    }
+    const token = await currentUser.getIdToken()
+
     const response = await fetch('/api/telegram/broadcast', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({ message, button, scheduledAt })
     })
@@ -6776,8 +6783,17 @@ export async function deleteTelegramBroadcast(id: string): Promise<{
   errors?: any[];
 }> {
   try {
+    const currentUser = auth.currentUser
+    if (!currentUser) {
+      throw new Error('No autenticado: no hay un usuario activo.')
+    }
+    const token = await currentUser.getIdToken()
+
     const response = await fetch(`/api/telegram/broadcast/${id}`, {
       method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
     })
     
     if (!response.ok) {
@@ -6808,9 +6824,18 @@ export async function updateTelegramBroadcast(
   errors?: any[];
 }> {
   try {
+    const currentUser = auth.currentUser
+    if (!currentUser) {
+      throw new Error('No autenticado: no hay un usuario activo.')
+    }
+    const token = await currentUser.getIdToken()
+
     const response = await fetch(`/api/telegram/broadcast/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
       body: JSON.stringify({ message, button, scheduledAt })
     })
     

@@ -411,14 +411,10 @@ async function notifyStoreOnDeliveryAcceptanceLogic(beforeData, afterData, order
 }
 
 /**
- * Cloud Function: Actualizar mensaje de Telegram del delivery si cambian datos clave de la orden
- * (pago, total, dirección, items) y el delivery ya aceptó.
+ * Cloud Function: Actualizar mensajes de Telegram de la tienda, admin y delivery si cambian datos clave
  */
-async function updateDeliveryMessageOnOrderChange(beforeData, afterData, orderId) {
-  // Solo si el delivery ya aceptó
-  if (afterData.delivery?.acceptanceStatus !== 'accepted') return;
-
-  // Comparar campos relevantes que el delivery necesita conocer
+async function updateTelegramMessagesOnOrderChange(beforeData, afterData, orderId) {
+  // Comparar campos relevantes que cambiaron
   const fieldsChanged = [
     // Método de pago
     beforeData.payment?.method !== afterData.payment?.method,
@@ -447,8 +443,37 @@ async function updateDeliveryMessageOnOrderChange(beforeData, afterData, orderId
     return; // Nada relevante cambió, no hacer nada
   }
 
-  console.log(`🔄 [Telegram] Campos relevantes cambiaron en orden ${orderId} (delivery aceptó). Actualizando mensaje...`);
-  await telegramServices.updateDeliveryTelegramMessage(afterData, orderId);
+  console.log(`🔄 [Telegram] Campos relevantes cambiaron en orden ${orderId}. Actualizando mensajes en Telegram...`);
+
+  // 1. Actualizar mensaje de la Tienda (Store) si existe la referencia
+  if (afterData.telegramBusinessMessages && afterData.telegramBusinessMessages.length > 0) {
+    try {
+      await telegramServices.updateBusinessTelegramMessage(afterData, orderId, true);
+      console.log(`✅ [Telegram] Mensajes de tienda actualizados para orden ${orderId}`);
+    } catch (err) {
+      console.error(`❌ [Telegram] Error actualizando mensajes de tienda para orden ${orderId}:`, err);
+    }
+  }
+
+  // 2. Actualizar mensaje del Administrador si existe la referencia
+  if (afterData.telegramAdminMessage) {
+    try {
+      await telegramServices.updateAdminTelegramMessage(afterData, orderId, true);
+      console.log(`✅ [Telegram] Mensaje de admin actualizado para orden ${orderId}`);
+    } catch (err) {
+      console.error(`❌ [Telegram] Error actualizando mensaje de admin para orden ${orderId}:`, err);
+    }
+  }
+
+  // 3. Actualizar mensaje del Delivery (solo si ya aceptó y tiene referencia)
+  if (afterData.delivery?.assignedDelivery && afterData.delivery?.acceptanceStatus === 'accepted' && afterData.telegramDeliveryMessage) {
+    try {
+      await telegramServices.updateDeliveryTelegramMessage(afterData, orderId);
+      console.log(`✅ [Telegram] Mensaje de delivery actualizado para orden ${orderId}`);
+    } catch (err) {
+      console.error(`❌ [Telegram] Error actualizando mensaje de delivery para orden ${orderId}:`, err);
+    }
+  }
 }
 
 /**
@@ -465,7 +490,7 @@ exports.onOrderUpdated = onDocumentUpdated("orders/{orderId}", async (event) => 
     onOrderStatusChangeLogic(beforeData, afterData, orderId),
     notifyDeliveryAssignmentLogic(beforeData, afterData, orderId),
     notifyStoreOnDeliveryAcceptanceLogic(beforeData, afterData, orderId),
-    updateDeliveryMessageOnOrderChange(beforeData, afterData, orderId)
+    updateTelegramMessagesOnOrderChange(beforeData, afterData, orderId)
   ]);
 });
 

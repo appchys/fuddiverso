@@ -879,7 +879,7 @@ async function handleStoreWebhook(req, res) {
 /**
  * Actualizar el mensaje de Telegram del negocio cuando cambia el estado (ej: delivery acepta)
  */
-async function updateBusinessTelegramMessage(orderData, orderId) {
+async function updateBusinessTelegramMessage(orderData, orderId, hasBeenUpdated = false) {
     try {
         console.log(`🔄 [updateBusinessTelegramMessage] Iniciando actualización para orden ${orderId}`);
 
@@ -928,7 +928,10 @@ async function updateBusinessTelegramMessage(orderData, orderId) {
             finalStatusText = `\n\n❌ <b>Pedido Cancelado</b>`;
         }
 
-        const syncText = telegramText + finalStatusText;
+        let syncText = telegramText + finalStatusText;
+        if (hasBeenUpdated) {
+            syncText += `\n\n⚠️ <i>Datos del pedido actualizados</i>`;
+        }
         console.log(`📝 [updateBusinessTelegramMessage] Texto preparado. Longitud: ${syncText.length}`);
 
         const editUrl = `https://api.telegram.org/bot${STORE_BOT_TOKEN}/editMessageText`;
@@ -960,16 +963,9 @@ async function updateBusinessTelegramMessage(orderData, orderId) {
                         console.error(`❌ [updateBusinessTelegramMessage] Fallback falló en ${msg.chatId}:`, retryErr.message);
                     }
                 }
-                console.error(`❌ [updateBusinessTelegramMessage] Error actualizando mensaje en ${msg.chatId}:`, {
-                    messageId: msg.messageId,
-                    errorCode: err.response?.data?.error_code,
-                    description: err.response?.data?.description,
-                    message: err.message
-                });
                 throw err;
             });
         });
-
         const results = await Promise.allSettled(updatePromises);
         const successful = results.filter(r => r.status === 'fulfilled').length;
         const failed = results.filter(r => r.status === 'rejected').length;
@@ -977,6 +973,63 @@ async function updateBusinessTelegramMessage(orderData, orderId) {
 
     } catch (error) {
         console.error('❌ Error en updateBusinessTelegramMessage:', error);
+    }
+}
+
+/**
+ * Actualizar el mensaje de Telegram del administrador cuando cambia la orden
+ */
+async function updateAdminTelegramMessage(orderData, orderId, hasBeenUpdated = false) {
+    try {
+        console.log(`🔄 [updateAdminTelegramMessage] Iniciando actualización para orden ${orderId}`);
+
+        const adminMsg = orderData.telegramAdminMessage;
+        if (!adminMsg || !adminMsg.chatId || !adminMsg.messageId) {
+            console.warn(`⚠️ [updateAdminTelegramMessage] No hay referencia de mensaje de admin para orden ${orderId}`);
+            return;
+        }
+
+        if (!ADMIN_BOT_TOKEN) {
+            console.error(`❌ [updateAdminTelegramMessage] ADMIN_BOT_TOKEN no configurado`);
+            return;
+        }
+
+        // Obtener datos del negocio
+        let businessData = {};
+        if (orderData.businessId) {
+            const businessDoc = await admin.firestore().collection('businesses').doc(orderData.businessId).get();
+            if (businessDoc.exists) businessData = businessDoc.data();
+        }
+        const businessName = businessData.name || 'Tienda';
+
+        // Formatear el mensaje
+        const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, 'admin_to_store');
+        
+        let syncText = telegramText;
+        if (hasBeenUpdated) {
+            syncText += `\n\n⚠️ <i>Datos del pedido actualizados</i>`;
+        }
+
+        const editUrl = `https://api.telegram.org/bot${ADMIN_BOT_TOKEN}/editMessageText`;
+        try {
+            await axios.post(editUrl, {
+                chat_id: adminMsg.chatId,
+                message_id: adminMsg.messageId,
+                text: syncText,
+                parse_mode: 'HTML',
+                link_preview_options: { is_disabled: true }
+            });
+            console.log(`✅ [updateAdminTelegramMessage] Mensaje de admin actualizado para orden ${orderId}`);
+        } catch (editError) {
+            const errorDesc = editError.response?.data?.description || '';
+            if (errorDesc.includes('message is not modified')) {
+                console.log(`ℹ️ [updateAdminTelegramMessage] Mensaje sin cambios para orden ${orderId}, no se modificó.`);
+                return;
+            }
+            console.error(`❌ [updateAdminTelegramMessage] Error editando mensaje de admin:`, editError.response?.data || editError.message);
+        }
+    } catch (error) {
+        console.error(`❌ Error en updateAdminTelegramMessage para orden ${orderId}:`, error);
     }
 }
 
@@ -2076,6 +2129,17 @@ async function sendAdminNewOrderNotification(businessData, orderData, orderId) {
 
         if (result && result.ok && result.result) {
             console.log(`✅ Notificación (Admin Bot) enviada exitosamente para orden ${orderId}`);
+            try {
+                await admin.firestore().collection('orders').doc(orderId).update({
+                    telegramAdminMessage: {
+                        chatId: chatId.toString(),
+                        messageId: result.result.message_id
+                    }
+                });
+                console.log(`📝 [Telegram] Referencia de mensaje admin guardada en orden ${orderId}. MessageId: ${result.result.message_id}`);
+            } catch (saveErr) {
+                console.error(`❌ [Telegram] Error guardando referencia de mensaje admin:`, saveErr);
+            }
             return true;
         } else if (result) {
             console.error(`❌ [Telegram] Error en respuesta para admin:`, {
@@ -2141,5 +2205,6 @@ module.exports = {
     sendCustomerTelegramNotification,
     sendAdminNewOrderNotification,  // Exportado - Nueva función para admin con URLs
     sendBroadcastToCustomers, // Exportado - Enviar mensajes a todos los clientes
-    updateDeliveryTelegramMessage // Exportado - Actualizar mensaje del delivery si cambia la orden
+    updateDeliveryTelegramMessage, // Exportado - Actualizar mensaje del delivery si cambia la orden
+    updateAdminTelegramMessage // Exportado - Actualizar mensaje del admin si cambia la orden
 };

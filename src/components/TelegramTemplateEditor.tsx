@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { saveTelegramTemplate, getTelegramTemplates } from '@/lib/database'
+import TelegramFlowEditor from './TelegramFlowEditor'
 
 // ─── Visual Editor: Tokenizer + DOM Builder + Extractor ──────
 type VisualToken =
@@ -858,7 +859,7 @@ const CALLBACK_TO_TEMPLATE: Record<string, CallbackMapping> = {
 // ─── Component ───────────────────────────────────────────────
 export default function TelegramTemplateEditor() {
     // ─── Vista y navegación ──────────────────────────────────
-    const [viewMode, setViewMode] = useState<'form' | 'table'>('form')
+    const [viewMode, setViewMode] = useState<'visual' | 'form' | 'table'>('visual')
     const [templateType, setTemplateType] = useState<TemplateType>('entry')
     const [selectedEvent, setSelectedEvent] = useState('new_order')
     const [selectedRecipient, setSelectedRecipient] = useState<Recipient>('store')
@@ -1364,61 +1365,73 @@ export default function TelegramTemplateEditor() {
             </div>
 
             {/* Event Selection - TOP LEVEL */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
-                {/* Template Type */}
-                <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Tipo de Evento</label>
-                    <div className="flex gap-2">
-                        {TEMPLATE_TYPES.map(t => (
-                            <button
-                                key={t.key}
-                                onClick={() => setTemplateType(t.key)}
-                                className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold transition-all border ${templateType === t.key
-                                    ? t.key === 'entry'
-                                        ? 'bg-green-50 text-green-700 border-green-200 shadow-sm'
-                                        : 'bg-amber-50 text-amber-700 border-amber-200 shadow-sm'
-                                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
-                                    }`}
-                                title={t.desc}
-                            >
-                                <i className={`bi ${t.icon}`}></i>
-                                {t.label}
-                            </button>
-                        ))}
+            {viewMode !== 'visual' && (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
+                    {/* Template Type */}
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Tipo de Evento</label>
+                        <div className="flex gap-2">
+                            {TEMPLATE_TYPES.map(t => (
+                                <button
+                                    key={t.key}
+                                    onClick={() => setTemplateType(t.key)}
+                                    className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold transition-all border ${templateType === t.key
+                                        ? t.key === 'entry'
+                                            ? 'bg-green-50 text-green-700 border-green-200 shadow-sm'
+                                            : 'bg-amber-50 text-amber-700 border-amber-200 shadow-sm'
+                                        : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                                        }`}
+                                    title={t.desc}
+                                >
+                                    <i className={`bi ${t.icon}`}></i>
+                                    {t.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                </div>
 
-                {/* Event */}
-                <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Selecciona un Evento</label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                        {currentEventsList.map(evt => (
-                            <button
-                                key={evt.key}
-                                onClick={() => setSelectedEvent(evt.key)}
-                                className={`px-4 py-3 rounded-xl text-sm font-medium transition-all border text-left ${selectedEvent === evt.key
-                                    ? 'bg-blue-50 text-blue-700 border-blue-300 shadow-sm ring-2 ring-blue-200'
-                                    : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
-                                    }`}
-                            >
-                                <div className="font-bold">{evt.label}</div>
-                                <div className="text-[10px] text-gray-500 mt-1">
-                                    {evt.recipients.length > 0 && (
-                                        <>Se envía a: {evt.recipients.map(r => r.label).join(', ')}</>
-                                    )}
-                                </div>
-                            </button>
-                        ))}
+                    {/* Event */}
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Selecciona un Evento</label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {currentEventsList.map(evt => (
+                                <button
+                                    key={evt.key}
+                                    onClick={() => setSelectedEvent(evt.key)}
+                                    className={`px-4 py-3 rounded-xl text-sm font-medium transition-all border text-left ${selectedEvent === evt.key
+                                        ? 'bg-blue-50 text-blue-700 border-blue-300 shadow-sm ring-2 ring-blue-200'
+                                        : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:border-gray-300'
+                                        }`}
+                                >
+                                    <div className="font-bold">{evt.label}</div>
+                                    <div className="text-[10px] text-gray-500 mt-1">
+                                        {evt.recipients.length > 0 && (
+                                            <>Se envía a: {evt.recipients.map(r => r.label).join(', ')}</>
+                                        )}
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
 
             {/* VIEW MODE TABS */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-2 inline-flex gap-2">
                 <button
+                    onClick={() => setViewMode('visual')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-all ${viewMode === 'visual'
+                        ? 'bg-blue-100 text-blue-700 shadow-xs'
+                        : 'text-gray-600 hover:bg-gray-50'
+                        }`}
+                >
+                    <i className="bi bi-diagram-3-fill"></i>
+                    Flujo Visual (n8n)
+                </button>
+                <button
                     onClick={() => setViewMode('form')}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-all ${viewMode === 'form'
-                        ? 'bg-blue-100 text-blue-700'
+                        ? 'bg-blue-100 text-blue-700 shadow-xs'
                         : 'text-gray-600 hover:bg-gray-50'
                         }`}
                 >
@@ -1428,7 +1441,7 @@ export default function TelegramTemplateEditor() {
                 <button
                     onClick={() => setViewMode('table')}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-all ${viewMode === 'table'
-                        ? 'bg-blue-100 text-blue-700'
+                        ? 'bg-blue-100 text-blue-700 shadow-xs'
                         : 'text-gray-600 hover:bg-gray-50'
                         }`}
                 >
@@ -1436,6 +1449,26 @@ export default function TelegramTemplateEditor() {
                     Vista Tabla
                 </button>
             </div>
+
+            {/* VISUAL FLOW VIEW */}
+            {viewMode === 'visual' && (
+                <TelegramFlowEditor
+                    templates={templates}
+                    templateButtons={templateButtons}
+                    onSave={async (recipient, event, text, buttons) => {
+                        await saveTelegramTemplate(recipient, event, text, buttons)
+                        const key = `${recipient}_${event}`
+                        setTemplates(prev => ({ ...prev, [key]: text }))
+                        setTemplateButtons(prev => ({ ...prev, [key]: buttons || [] }))
+                    }}
+                    onDelete={async (recipient, event) => {
+                        await saveTelegramTemplate(recipient, event, '')
+                        const key = `${recipient}_${event}`
+                        setTemplates(prev => ({ ...prev, [key]: '' }))
+                        setTemplateButtons(prev => ({ ...prev, [key]: [] }))
+                    }}
+                />
+            )}
 
             {/* FORM VIEW */}
             {viewMode === 'form' && (
