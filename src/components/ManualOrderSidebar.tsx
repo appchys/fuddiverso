@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Business, Product, ProductVariant } from '@/types'
+import { Business, Product, ProductVariant, ProductOptionGroup } from '@/types'
 import { GoogleMap } from './GoogleMap'
 import { searchClientByPhone, createClient, getDeliveriesByStatus, createOrder, getClientLocations, createClientLocation, updateLocation, deleteLocation, updateOrder, updateClient, registerOrderConsumption, getCoverageZones, isPointInPolygon, getDeliveryForLocation, getDeliveryDetailsForLocation, getCoverageZoneForLocation, getOrdersByClient } from '@/lib/database'
 import { searchClients } from '@/lib/client-search'
@@ -172,6 +172,35 @@ export default function ManualOrderSidebar({
   // Estados para modal de variantes
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<Product | null>(null)
   const [isVariantModalOpen, setIsVariantModalOpen] = useState(false)
+
+  // Estados adicionales para personalización de combos y modificadores
+  const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null)
+  const [comboSelection, setComboSelection] = useState<Record<string, number>>({})
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, { name: string, price: number }[]>>({})
+  const [customizingQuantity, setCustomizingQuantity] = useState(1)
+
+  const currentCustomizedTotalPrice = useMemo(() => {
+    if (!selectedProductForVariants) return 0;
+    if (selectedProductForVariants.isCombo) {
+      return Object.entries(comboSelection).reduce((total, [variantName, qty]) => {
+        const variant = selectedProductForVariants.variants?.find(v => v.name === variantName);
+        if (variant && qty > 0) {
+          return total + (getProductPublicPrice(variant) * qty);
+        }
+        return total;
+      }, 0);
+    } else {
+      const basePrice = selectedVariant
+        ? getProductPublicPrice(selectedVariant)
+        : getProductPublicPrice(selectedProductForVariants);
+      const optionsPrice = selectedProductForVariants.optionGroups
+        ? Object.values(selectedOptions).reduce((sum, groupSelections) => {
+            return sum + groupSelections.reduce((gSum, opt) => gSum + (opt.price || 0), 0);
+          }, 0)
+        : 0;
+      return (basePrice + optionsPrice) * customizingQuantity;
+    }
+  }, [selectedProductForVariants, selectedVariant, comboSelection, selectedOptions, customizingQuantity]);
 
   // Estados para modal de ubicaciones
   const [showLocationModal, setShowLocationModal] = useState(false)
@@ -1694,6 +1723,168 @@ export default function ManualOrderSidebar({
     }
   }
 
+  // Controlar la selección del producto (abrir modal si requiere personalización)
+  const handleSelectProduct = (product: Product) => {
+    const hasVariants = product.variants && product.variants.length > 0
+    const isCombo = product.isCombo === true
+    const hasOptions = product.optionGroups && product.optionGroups.length > 0
+
+    if (hasVariants || isCombo || hasOptions) {
+      setSelectedProductForVariants(product)
+      if (hasVariants) {
+        const firstVariant = product.variants?.find(v => v.isAvailable !== false) || product.variants?.[0] || null
+        setSelectedVariant(firstVariant)
+      } else {
+        setSelectedVariant(null)
+      }
+      setComboSelection({})
+      setSelectedOptions({})
+      setCustomizingQuantity(1)
+      setIsVariantModalOpen(true)
+    } else {
+      addProductToOrder(product)
+    }
+  }
+
+  // Agregar producto personalizado/configurado a la orden
+  const addCustomizedProductToOrder = () => {
+    if (!selectedProductForVariants) return;
+    const product = selectedProductForVariants;
+
+    // 1. Validar opciones/modificadores obligatorios
+    if (product.optionGroups && product.optionGroups.length > 0) {
+      const isOptionsSelectionComplete = product.optionGroups.every(group => {
+        const count = (selectedOptions[group.id] || []).length;
+        return count >= group.minSelect;
+      });
+      if (!isOptionsSelectionComplete) {
+        alert('Por favor selecciona las opciones obligatorias');
+        return;
+      }
+    }
+
+    // 2. Validar combo completo
+    const totalComboSelected = product.isCombo ? Object.values(comboSelection).reduce((a, b) => a + b, 0) : 0;
+    const isComboComplete = !product.isCombo || totalComboSelected >= (product.minComboItems || 1);
+    if (!isComboComplete) {
+      alert(`Por favor completa tu combo (${totalComboSelected}/${product.minComboItems} seleccionados)`);
+      return;
+    }
+
+    // 3. Calcular precio y metadatos de precios
+    let basePriceMeta: any = {};
+    let baseProductPrice = 0;
+    let variantNameStr = '';
+
+    if (product.isCombo) {
+      // Para combos, el precio base es la suma de los precios de las variantes seleccionadas
+      const comboMeta = Object.entries(comboSelection).reduce((acc, [variantName, qty]) => {
+        const variant = product.variants?.find(v => v.name === variantName);
+        if (variant && qty > 0) {
+          const meta = getPriceMetadata(variant);
+          return {
+            basePrice: acc.basePrice + ((meta.basePrice || getProductPublicPrice(variant)) * qty),
+            commission: acc.commission + ((meta.commission || 0) * qty),
+            publicPrice: acc.publicPrice + (getProductPublicPrice(variant) * qty),
+            storeReceives: acc.storeReceives + ((meta.storeReceives || getProductPublicPrice(variant)) * qty),
+          };
+        }
+        return acc;
+      }, { basePrice: 0, commission: 0, publicPrice: 0, storeReceives: 0 });
+
+      basePriceMeta = {
+        basePrice: comboMeta.basePrice,
+        commission: comboMeta.commission,
+        publicPrice: comboMeta.publicPrice,
+        storeReceives: comboMeta.storeReceives,
+        commissionType: product.commissionType || 'no_commission'
+      };
+      baseProductPrice = comboMeta.publicPrice;
+
+      const selectedVariantsStr = Object.entries(comboSelection)
+        .filter(([_, q]) => q > 0)
+        .map(([name, q]) => `${q}x ${name}`)
+        .join(', ');
+      variantNameStr = `Combo: ${selectedVariantsStr}`;
+
+    } else {
+      // Para productos normales (con o sin variantes)
+      basePriceMeta = selectedVariant
+        ? getPriceMetadata(selectedVariant)
+        : getPriceMetadata(product);
+      baseProductPrice = selectedVariant
+        ? getProductPublicPrice(selectedVariant)
+        : getProductPublicPrice(product);
+
+      if (selectedVariant) {
+        variantNameStr = selectedVariant.name;
+      }
+    }
+
+    // 4. Formatear opciones seleccionadas
+    const optionsPrice = product.optionGroups
+      ? Object.values(selectedOptions).reduce((sum, groupSelections) => {
+          return sum + groupSelections.reduce((gSum, opt) => gSum + (opt.price || 0), 0);
+        }, 0)
+      : 0;
+
+    const optionsList: string[] = [];
+    if (product.optionGroups) {
+      Object.entries(selectedOptions).forEach(([groupId, selections]) => {
+        const group = product.optionGroups?.find(g => g.id === groupId);
+        if (selections.length > 0) {
+          const groupSelections = selections.map(s => {
+            const priceStr = s.price > 0 ? ` (+$${s.price.toFixed(2)})` : '';
+            return `${s.name}${priceStr}`;
+          }).join(', ');
+          optionsList.push(`${group?.name || 'Opción'}: ${groupSelections}`);
+        }
+      });
+    }
+    const optionsStr = optionsList.join(' | ');
+
+    let finalVariantName = '';
+    if (product.isCombo) {
+      finalVariantName = variantNameStr;
+    } else if (selectedVariant) {
+      finalVariantName = optionsStr ? `${selectedVariant.name} (${optionsStr})` : selectedVariant.name;
+    } else {
+      finalVariantName = optionsStr;
+    }
+
+    // 5. Crear Item de la orden
+    const newItem: OrderItem = {
+      name: product.name,
+      variant: finalVariantName,
+      variantName: finalVariantName,
+      productName: product.name,
+      price: baseProductPrice + optionsPrice,
+      productId: product.id,
+      quantity: product.isCombo ? 1 : customizingQuantity,
+      basePrice: (basePriceMeta.basePrice || baseProductPrice) + optionsPrice,
+      commission: basePriceMeta.commission || 0,
+      commissionType: basePriceMeta.commissionType || 'no_commission',
+      storeReceives: (basePriceMeta.storeReceives || baseProductPrice) + optionsPrice
+    };
+
+    setManualOrderData(prev => ({
+      ...prev,
+      selectedProducts: [...prev.selectedProducts, newItem]
+    }));
+
+    calculateTotal([...manualOrderData.selectedProducts, newItem]);
+    
+    displayToast(`✅ ${product.name} agregado`);
+
+    // Resetear y cerrar modal
+    setIsVariantModalOpen(false);
+    setSelectedProductForVariants(null);
+    setSelectedVariant(null);
+    setComboSelection({});
+    setSelectedOptions({});
+    setCustomizingQuantity(1);
+  };
+
   // Agregar producto a la orden
   const addProductToOrder = (product: Product, variant?: ProductVariant) => {
     const item = variant || product
@@ -2493,14 +2684,7 @@ export default function ManualOrderSidebar({
                       key={product.id}
                       className={`aspect-square p-1 border rounded-md hover:bg-gray-50 cursor-pointer transition-colors flex flex-col ${!product.isAvailable ? 'opacity-50 grayscale' : ''
                         }`}
-                      onClick={() => {
-                        if (product.variants && product.variants.length > 0) {
-                          setSelectedProductForVariants(product)
-                          setIsVariantModalOpen(true)
-                        } else {
-                          addProductToOrder(product)
-                        }
-                      }}
+                      onClick={() => handleSelectProduct(product)}
                     >
                       {/* Imagen del producto */}
                       <div className="w-full h-8 mb-1 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
@@ -3248,48 +3432,218 @@ export default function ManualOrderSidebar({
           </div>
         </div>
 
-        {/* Modal de variantes */}
+        {/* Modal de variantes y personalización */}
         {isVariantModalOpen && selectedProductForVariants && (
-          /* ... */
           <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
             <div 
-              className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 max-h-[90vh] overflow-y-auto"
+              className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto shadow-xl"
               style={{ overscrollBehavior: 'contain' }}
             >
-              <h3 className="text-lg font-semibold mb-4">Seleccionar variante</h3>
-              <p className="text-sm text-gray-600 mb-4">{selectedProductForVariants.name}</p>
+              <h3 className="text-lg font-bold mb-1 text-gray-900">Personalizar producto</h3>
+              <p className="text-sm font-semibold text-gray-600 mb-4">{selectedProductForVariants.name}</p>
 
-              <div className="space-y-3 mb-6">
-                {selectedProductForVariants.variants?.map((variant) => (
-                  <button
-                    key={variant.id}
-                    onClick={() => {
-                      addProductToOrder(selectedProductForVariants, variant)
-                      setIsVariantModalOpen(false)
-                      setSelectedProductForVariants(null)
-                    }}
-                    className="w-full text-left p-3 border rounded-md hover:bg-gray-50"
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium">{variant.name}</span>
-                      <span className="text-blue-600">${variant.price}</span>
+              {/* 1. SECCIÓN DE COMBO */}
+              {selectedProductForVariants.isCombo ? (
+                <div className="mb-6">
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Arma tu combo</h4>
+                  <div className="space-y-3">
+                    {selectedProductForVariants.variants?.filter(v => v.isAvailable !== false).map((variant) => {
+                      const qty = comboSelection[variant.name] || 0;
+                      return (
+                        <div key={variant.id || variant.name} className="flex items-center justify-between p-3 border rounded-lg bg-gray-50 border-gray-200">
+                          <div className="flex-1 min-w-0 pr-2">
+                            <span className="font-semibold text-sm text-gray-800 block">{variant.name}</span>
+                            {variant.description && <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{variant.description}</p>}
+                            <span className="text-xs font-bold text-blue-600 mt-1 block">${getProductPublicPrice(variant).toFixed(2)}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setComboSelection(prev => ({ ...prev, [variant.name]: Math.max(0, qty - 1) }))}
+                              className="w-8 h-8 flex items-center justify-center bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-100 font-bold"
+                            >
+                              <i className="bi bi-dash"></i>
+                            </button>
+                            <span className="text-sm font-bold w-4 text-center">{qty}</span>
+                            <button
+                              type="button"
+                              onClick={() => setComboSelection(prev => ({ ...prev, [variant.name]: qty + 1 }))}
+                              className="w-8 h-8 flex items-center justify-center bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-100 font-bold"
+                            >
+                              <i className="bi bi-plus"></i>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                /* 2. SECCIÓN DE VARIANTES (Solo si no es combo) */
+                selectedProductForVariants.variants && selectedProductForVariants.variants.length > 0 && (
+                  <div className="mb-6">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Selecciona una opción</h4>
+                    <div className="space-y-2">
+                      {selectedProductForVariants.variants.filter(v => v.isAvailable !== false).map((variant) => {
+                        const isSelected = selectedVariant?.name === variant.name;
+                        return (
+                          <label
+                            key={variant.id || variant.name}
+                            className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all hover:bg-gray-50 ${
+                              isSelected ? 'border-blue-500 bg-blue-50/20' : 'border-gray-200 bg-white'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="radio"
+                                name="modal-variant-selection"
+                                checked={isSelected}
+                                onChange={() => setSelectedVariant(variant)}
+                                className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                              />
+                              <span className="text-sm font-semibold text-gray-800">{variant.name}</span>
+                            </div>
+                            <span className="text-sm font-bold text-blue-600">${getProductPublicPrice(variant).toFixed(2)}</span>
+                          </label>
+                        );
+                      })}
                     </div>
-                    {variant.description && (
-                      <p className="text-sm text-gray-500 mt-1">{variant.description}</p>
-                    )}
-                  </button>
-                ))}
-              </div>
+                  </div>
+                )
+              )}
 
-              <div className="flex space-x-3">
+              {/* 3. SECCIÓN DE MODIFICADORES / OPCIONES */}
+              {selectedProductForVariants.optionGroups && selectedProductForVariants.optionGroups.length > 0 && (
+                <div className="space-y-6 mb-6">
+                  {selectedProductForVariants.optionGroups.map((group) => {
+                    const selections = selectedOptions[group.id] || [];
+                    const isGroupAtMax = selections.length >= group.maxSelect;
+                    return (
+                      <div key={group.id} className="border-t border-gray-100 pt-4">
+                        <div className="flex justify-between items-center mb-3">
+                          <div>
+                            <h4 className="text-sm font-bold text-gray-800 leading-tight">{group.name}</h4>
+                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">
+                              {group.minSelect > 0
+                                ? `Obligatorio · Elige ${group.minSelect === group.maxSelect ? group.minSelect : `de ${group.minSelect} a ${group.maxSelect}`}`
+                                : `Opcional · Elige hasta ${group.maxSelect}`}
+                            </p>
+                          </div>
+                          {selections.length > 0 && (
+                            <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-bold">
+                              {selections.length}/{group.maxSelect}
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          {group.options.map((opt) => {
+                            const isSelected = selections.some(s => s.name === opt.name);
+                            const disabled = !isSelected && isGroupAtMax;
+                            return (
+                              <label
+                                key={opt.name}
+                                className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all ${
+                                  isSelected
+                                    ? 'border-blue-500 bg-blue-50/20'
+                                    : disabled
+                                    ? 'border-gray-100 bg-gray-50/30 opacity-60 cursor-not-allowed'
+                                    : 'border-gray-200 bg-white hover:bg-gray-50'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <input
+                                    type={group.maxSelect === 1 ? 'radio' : 'checkbox'}
+                                    name={`option-group-${group.id}`}
+                                    checked={isSelected}
+                                    disabled={disabled}
+                                    onChange={() => {
+                                      if (group.maxSelect === 1) {
+                                        setSelectedOptions(prev => ({
+                                          ...prev,
+                                          [group.id]: [{ name: opt.name, price: opt.price }]
+                                        }))
+                                      } else {
+                                        setSelectedOptions(prev => {
+                                          const current = prev[group.id] || []
+                                          const exists = current.some(s => s.name === opt.name)
+                                          let updated
+                                          if (exists) {
+                                            updated = current.filter(s => s.name !== opt.name)
+                                          } else {
+                                            if (current.length >= group.maxSelect) return prev
+                                            updated = [...current, { name: opt.name, price: opt.price }]
+                                          }
+                                          return { ...prev, [group.id]: updated }
+                                        })
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500 rounded"
+                                  />
+                                  <span className="text-sm font-semibold text-gray-800">{opt.name}</span>
+                                </div>
+                                {opt.price > 0 && (
+                                  <span className="text-xs font-bold text-gray-600">+${opt.price.toFixed(2)}</span>
+                                )}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 4. SELECTOR DE CANTIDAD GENERAL (Solo si no es combo) */}
+              {!selectedProductForVariants.isCombo && (
+                <div className="flex items-center justify-between border-t border-gray-100 pt-4 mb-6">
+                  <span className="text-sm font-bold text-gray-700">Cantidad</span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setCustomizingQuantity(q => Math.max(1, q - 1))}
+                      className="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded text-gray-600 font-bold"
+                    >
+                      <i className="bi bi-dash"></i>
+                    </button>
+                    <span className="text-sm font-bold w-6 text-center">{customizingQuantity}</span>
+                    <button
+                      type="button"
+                      onClick={() => setCustomizingQuantity(q => q + 1)}
+                      className="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded text-gray-600 font-bold"
+                    >
+                      <i className="bi bi-plus"></i>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 5. RESUMEN DE TOTAL Y ACCIONES */}
+              <div className="flex items-center gap-3 border-t border-gray-100 pt-4">
+                <div className="flex-1">
+                  <span className="text-[10px] text-gray-400 font-bold block uppercase tracking-wider mb-0.5">Total</span>
+                  <span className="text-xl font-black text-red-600">${currentCustomizedTotalPrice.toFixed(2)}</span>
+                </div>
                 <button
+                  type="button"
                   onClick={() => {
-                    setIsVariantModalOpen(false)
-                    setSelectedProductForVariants(null)
+                    setIsVariantModalOpen(false);
+                    setSelectedProductForVariants(null);
+                    setSelectedVariant(null);
+                    setComboSelection({});
+                    setSelectedOptions({});
+                    setCustomizingQuantity(1);
                   }}
-                  className="flex-1 bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600"
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md font-bold text-xs uppercase tracking-wider tracking-widest transition-colors border border-gray-300"
                 >
                   Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={addCustomizedProductToOrder}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-bold text-xs uppercase tracking-wider tracking-widest transition-colors shadow-sm"
+                >
+                  Agregar
                 </button>
               </div>
             </div>
