@@ -72,7 +72,11 @@ export default function OrderHistory({
     const observer = new IntersectionObserver(
       entries => {
         if (entries[0].isIntersecting && hasMore && !loadingMore && onLoadMore) {
-          onLoadMore()
+          // Solo cargar más automáticamente si el contenido de la página supera el alto de la ventana (hay scroll)
+          const isScrollable = document.documentElement.scrollHeight > window.innerHeight;
+          if (isScrollable) {
+            onLoadMore()
+          }
         }
       },
       { threshold: 0.1, rootMargin: '100px' }
@@ -235,7 +239,7 @@ export default function OrderHistory({
     });
 
     return (
-        <div className={`bg-white rounded-xl shadow-sm border border-gray-100 transition-all ${statusMenuOpen ? 'relative z-30' : ''} ${urgent ? 'animate-pulse border-red-300 ring-2 ring-red-100' : ''}`}>
+      <div className={`bg-white rounded-xl shadow-sm border border-gray-100 transition-colors ${statusMenuOpen ? 'relative z-30' : ''} ${urgent ? 'animate-pulse border-red-300 ring-2 ring-red-100' : ''}`}>
             {/* Confirmation Modal for Discard */}
             {confirmDiscardOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
@@ -464,7 +468,7 @@ export default function OrderHistory({
 
             {/* Card Body */}
             {isExpanded && (
-                <div className="p-4 bg-white animate-in slide-in-from-top-2 duration-200">
+              <div className="p-4 bg-white transition-opacity duration-200">
                     {/* Customer Info */}
                     <div className="flex justify-between items-start mb-4">
                         <div className="flex-1 pr-2">
@@ -759,12 +763,19 @@ export default function OrderHistory({
 
                 {/* Sentinel and Loading Indicator */}
                 <div ref={observerTarget} className="py-8 flex flex-col items-center justify-center">
-                  {loadingMore && (
+                  {loadingMore ? (
                     <div className="flex items-center gap-3 text-gray-500">
                       <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-red-600"></div>
                       <span className="text-sm font-medium">Cargando más pedidos...</span>
                     </div>
-                  )}
+                  ) : hasMore && onLoadMore ? (
+                    <button
+                      onClick={onLoadMore}
+                      className="px-6 py-2.5 text-sm font-bold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition-all shadow-sm active:scale-95 mb-4"
+                    >
+                      Cargar más pedidos
+                    </button>
+                  ) : null}
                   {!hasMore && orders.length > 0 && (
                     <div className="text-gray-400 text-sm italic">
                       No hay más pedidos para mostrar

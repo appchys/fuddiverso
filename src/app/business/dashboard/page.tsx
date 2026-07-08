@@ -431,10 +431,10 @@ export default function TodayOrdersPage() {
     // Cache de notas de clientes
     const [clientsWithNotes, setClientsWithNotes] = useState<Record<string, string>>({})
 
-    // Cargar notas de clientes de las órdenes activas, históricas y futuras
+    // Cargar notas de clientes de las órdenes activas y futuras (se excluye el historial para evitar lecturas masivas innecesarias)
     useEffect(() => {
         const fetchNotesForCustomers = async () => {
-            const allOrdersList = [...orders, ...historicalOrders, ...allUpcomingOrders]
+            const allOrdersList = [...orders, ...allUpcomingOrders]
             if (allOrdersList.length === 0) return
             const { searchClientByPhone } = await import('@/lib/database')
             
@@ -449,25 +449,45 @@ export default function TodayOrdersPage() {
 
             if (newPhones.length === 0) return
 
-            // Buscar en segundo plano para no bloquear
+            // Marcar todos como consultados provisionalmente de golpe para evitar peticiones duplicadas
+            const provisionalNotes: Record<string, string> = {}
             for (const phone of newPhones) {
-                try {
-                    // Marcar provisionalmente para evitar peticiones redundantes
-                    setClientsWithNotes(prev => ({ ...prev, [phone]: '' }))
-                    
-                    const client = await searchClientByPhone(phone)
-                    if (client && client.notas) {
-                        const noteVal: string = client.notas
-                        setClientsWithNotes(prev => ({ ...prev, [phone]: noteVal }))
+                provisionalNotes[phone] = ''
+            }
+            setClientsWithNotes(prev => ({ ...prev, ...provisionalNotes }))
+
+            // Buscar notas en paralelo
+            try {
+                const results = await Promise.all(
+                    newPhones.map(async (phone) => {
+                        try {
+                            const client = await searchClientByPhone(phone)
+                            return { phone, notas: client?.notas || '' }
+                        } catch (error) {
+                            console.error(`Error fetching client notes for phone ${phone}:`, error)
+                            return { phone, notas: '' }
+                        }
+                    })
+                )
+
+                // Construir mapa final y actualizar de una sola vez
+                const finalNotes: Record<string, string> = {}
+                for (const r of results) {
+                    if (r.notas) {
+                        finalNotes[r.phone] = r.notas
                     }
-                } catch (error) {
-                    console.error(`Error fetching client notes for phone ${phone}:`, error)
                 }
+                
+                if (Object.keys(finalNotes).length > 0) {
+                    setClientsWithNotes(prev => ({ ...prev, ...finalNotes }))
+                }
+            } catch (error) {
+                console.error("Error fetching notes in parallel:", error)
             }
         }
 
         fetchNotesForCustomers()
-    }, [orders, historicalOrders, allUpcomingOrders])
+    }, [orders, allUpcomingOrders])
 
     // Limpiar caché cuando se cierra el sidebar de pedidos manuales por si se editaron notas
     useEffect(() => {
