@@ -1180,8 +1180,8 @@ function HomePageContent() {
                 return (
                   <div key={b.id} className="animate-in fade-in slide-in-from-bottom-4 duration-700">
                     {/* Header del Restaurante: Logo, Nombre y Reseñas */}
-                    <div className="flex items-start justify-between mb-5 px-1">
-                      <div className="flex items-start gap-4">
+                    <div className="flex items-center justify-between mb-4 px-1">
+                      <div className="flex items-center gap-4">
                         <Link href={link} className="group">
                           <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white shadow-xl bg-gray-50 flex-shrink-0 group-hover:scale-105 transition-transform duration-300">
                             {b.image ? (
@@ -1198,19 +1198,29 @@ function HomePageContent() {
                             )}
                           </div>
                         </Link>
-                        <div className="flex-1 min-w-0">
-                          <Link href={link} className="group">
-                            <h3 className="text-xl font-black text-gray-900 line-clamp-1 group-hover:text-[#aa1918] transition-colors tracking-tight">
-                              {b.name}
-                            </h3>
-                          </Link>
+                        <div className="flex-1 min-w-0 flex flex-col justify-center space-y-0.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Link href={link} className="group">
+                              <h3 className="text-xl font-black text-gray-900 line-clamp-1 group-hover:text-[#aa1918] transition-colors tracking-tight leading-none">
+                                {b.name}
+                              </h3>
+                            </Link>
+                            {/* Indicador de estado abierto/cerrado al lado del nombre */}
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${isStoreOpen(b)
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                              : 'bg-rose-50 text-rose-700 border border-rose-100'
+                              }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${isStoreOpen(b) ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                              {isStoreOpen(b) ? 'Abierto ahora' : 'Cerrado ahora'}
+                            </span>
+                          </div>
                           {b.description && (
-                            <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">
+                            <p className="text-xs text-gray-400 line-clamp-1 leading-tight">
                               {b.description}
                             </p>
                           )}
                           {/* Estrellas justo debajo del nombre y descripción */}
-                          <div className="mt-0.5 sm:mt-0">
+                          <div className="flex items-center">
                             {b.ratingAverage ? (
                               <button
                                 onClick={(e) => {
@@ -1234,21 +1244,11 @@ function HomePageContent() {
                                 <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest ml-1">Sin reseñas</span>
                               </button>
                             )}
-                            {/* Indicador de estado abierto/cerrado */}
-                            <div className="mt-0.5 sm:mt-1">
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${isStoreOpen(b)
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                                : 'bg-rose-50 text-rose-700 border border-rose-100'
-                                }`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${isStoreOpen(b) ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
-                                {isStoreOpen(b) ? 'Abierto ahora' : 'Cerrado ahora'}
-                              </span>
-                            </div>
                           </div>
                         </div>
                       </div>
 
-                      <div className="flex flex-col items-end gap-1">
+                      <div className="flex flex-col items-end justify-center">
                         <button
                           onClick={(e) => handleFollowToggle(b.id, e)}
                           className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${followed ? 'bg-red-50 text-[#aa1918]' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}

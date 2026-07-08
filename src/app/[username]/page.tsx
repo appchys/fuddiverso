@@ -1539,9 +1539,6 @@ function RestaurantContent() {
                     {store.description && (
                       <p className="text-sm text-gray-600 line-clamp-2 mb-3">{store.description}</p>
                     )}
-                    <div className="text-xs text-[#aa1918] font-medium flex items-center gap-2">
-                      <span className="bg-red-50 px-2 py-0.5 rounded-full">Envío $1</span>
-                    </div>
                   </div>
                 </Link>
               ))}
