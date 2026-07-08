@@ -836,3 +836,133 @@ exports.processScheduledBroadcasts = onSchedule("every 5 minutes", async (event)
     console.error('❌ [CRON] Error procesando broadcasts programados:', error);
   }
 });
+
+/**
+ * Cloud Function: Envía email a las tiendas 30 minutos antes de abrir
+ */
+exports.sendPreOpeningNotifications = onSchedule({
+  schedule: "*/5 * * * *", // Cada 5 minutos
+  timeZone: "America/Guayaquil",
+  retryCount: 0
+}, async (event) => {
+  console.log('⏰ [CRON Pre-Apertura] Iniciando verificación de horarios de apertura...');
+  try {
+    const nowUtc = new Date();
+    // Hora local en Ecuador (UTC-5)
+    const nowEcuador = new Date(nowUtc.getTime() - (5 * 60 * 60 * 1000));
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const currentDay = dayNames[nowEcuador.getDay()];
+    
+    // Obtener la fecha en formato YYYY-MM-DD en Ecuador
+    const year = nowEcuador.getFullYear();
+    const month = String(nowEcuador.getMonth() + 1).padStart(2, '0');
+    const date = String(nowEcuador.getDate()).padStart(2, '0');
+    const todayStr = `${year}-${month}-${date}`;
+
+    console.log(`📅 [CRON Pre-Apertura] Hora local Ecuador: ${todayStr} ${nowEcuador.toLocaleTimeString()} - Día: ${currentDay}`);
+
+    const businessesSnapshot = await admin.firestore().collection('businesses').get();
+
+    for (const businessDoc of businessesSnapshot.docs) {
+      const business = businessDoc.data();
+      const businessId = businessDoc.id;
+
+      // Omitir si el negocio no está activo o está oculto
+      if (business.isActive === false || business.isHidden === true) {
+        continue;
+      }
+
+      // Omitir si la configuración de notificaciones pre-apertura está desactivada
+      if (business.notificationSettings?.emailPreOpeningReminder === false) {
+        continue;
+      }
+
+      // Omitir si ya se le envió el correo hoy
+      if (business.lastPreOpeningEmailDate === todayStr) {
+        continue;
+      }
+
+      const schedule = business.schedule?.[currentDay];
+      if (!schedule || !schedule.isOpen || !schedule.open) {
+        continue;
+      }
+
+      // Limpiar y parsear la hora de apertura (ej: "09:00" o "9:00")
+      const openTimeClean = schedule.open.trim();
+      const parts = openTimeClean.split(':');
+      if (parts.length < 2) continue;
+      
+      const openH = parseInt(parts[0]);
+      const openM = parseInt(parts[1]);
+      if (isNaN(openH) || isNaN(openM)) continue;
+
+      const openingDateTime = new Date(nowEcuador);
+      openingDateTime.setHours(openH, openM, 0, 0);
+
+      // Calcular diferencia en minutos (opening - now)
+      const diffMs = openingDateTime.getTime() - nowEcuador.getTime();
+      const diffMins = diffMs / (1000 * 60);
+
+      // Si falta entre 25 y 30 minutos
+      if (diffMins >= 25 && diffMins <= 30) {
+        console.log(`📧 Tienda "${business.name || businessId}" abre en ${Math.round(diffMins)} minutos (a las ${schedule.open}). Iniciando proceso de envío...`);
+
+        // Obtener productos disponibles del negocio
+        const productsSnapshot = await admin.firestore()
+          .collection('products')
+          .where('businessId', '==', businessId)
+          .where('isAvailable', '==', true)
+          .get();
+
+        const availableProducts = [];
+        productsSnapshot.forEach(prodDoc => {
+          const prodData = prodDoc.data();
+          availableProducts.push({
+            id: prodDoc.id,
+            name: prodData.name,
+            price: prodData.price || 0,
+            category: prodData.category || ''
+          });
+        });
+
+        // Obtener correos destinatarios
+        let businessEmail = business.email;
+        let recipients = [];
+        if (businessEmail) {
+          recipients.push(businessEmail);
+        }
+        const adminEmails = await getBusinessAdminEmails(businessId);
+        adminEmails.forEach(email => {
+          if (!recipients.includes(email)) {
+            recipients.push(email);
+          }
+        });
+
+        if (recipients.length === 0) {
+          console.warn(`⚠️ Tienda "${business.name || businessId}" no tiene destinatarios configurados.`);
+          continue;
+        }
+
+        // Llamar al servicio de email
+        const emailSent = await emailServices.sendPreOpeningEmail(
+          business,
+          recipients,
+          schedule.open,
+          availableProducts
+        );
+
+        if (emailSent) {
+          // Registrar que ya se envió hoy
+          await businessDoc.ref.update({
+            lastPreOpeningEmailDate: todayStr,
+            lastPreOpeningEmailSentAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+          console.log(`✅ Registro de envío actualizado para "${business.name || businessId}" el día ${todayStr}.`);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error en sendPreOpeningNotifications:', error);
+  }
+});
+

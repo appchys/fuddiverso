@@ -931,6 +931,125 @@ async function sendReminderEmail(order, orderId, recipients, scheduledTime, sche
   await transporter.sendMail(mailOptions);
 }
 
+/**
+ * Enviar email de pre-apertura
+ */
+async function sendPreOpeningEmail(business, recipients, openingTime, availableProducts) {
+  const businessName = business.name || 'Tu Negocio';
+  const dashboardUrl = 'https://fuddi.shop/business/dashboard';
+  
+  let productsHtml = '';
+  if (!availableProducts || availableProducts.length === 0) {
+    productsHtml = `
+      <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 16px; margin: 15px 0; border-radius: 4px;">
+        <p style="margin: 0; color: #856404; font-size: 14px;">
+          <strong>⚠️ Sin productos disponibles:</strong><br/>
+          Actualmente no tienes productos activos en tu menú. Tus clientes no podrán realizar pedidos hasta que marques productos como disponibles en tu panel de administración.
+        </p>
+      </div>
+    `;
+  } else {
+    productsHtml = `
+      <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px;">
+        <thead>
+          <tr style="background-color: #aa1918; color: white;">
+            <th style="padding: 10px 8px; text-align: left; border-radius: 6px 0 0 0;">Producto</th>
+            <th style="padding: 10px 8px; text-align: left;">Categoría</th>
+            <th style="padding: 10px 8px; text-align: right; border-radius: 0 6px 0 0;">Precio</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    
+    availableProducts.forEach((product, index) => {
+      const bgColor = index % 2 === 0 ? '#ffffff' : '#f9f9f9';
+      productsHtml += `
+        <tr style="background-color: ${bgColor};">
+          <td style="padding: 10px 8px; border-bottom: 1px solid #eee; font-weight: bold; color: #333;">
+            ${product.name}
+          </td>
+          <td style="padding: 10px 8px; border-bottom: 1px solid #eee; color: #666;">
+            ${product.category || 'General'}
+          </td>
+          <td style="padding: 10px 8px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold; color: #aa1918;">
+            $${(product.price || 0).toFixed(2)}
+          </td>
+        </tr>
+      `;
+    });
+    
+    productsHtml += `
+        </tbody>
+      </table>
+    `;
+  }
+
+  const htmlContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+      <!-- Preview text (visible in notification preview, hidden in email body) -->
+      <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
+        ⏰ Prepárate, abres en 30 minutos a las ${openingTime}. Revisa tu menú.
+      </div>
+      <div style="background: linear-gradient(135deg, #aa1918 0%, #ff6b35 100%); color: white; padding: 24px; border-radius: 8px 8px 0 0; text-align: center;">
+        <h1 style="margin: 0; font-size: 22px;">🏪 ¡Abres en 30 minutos!</h1>
+        <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 15px;">
+          Tu tienda está programada para abrir hoy a las <strong>${openingTime}</strong>
+        </p>
+      </div>
+
+      <div style="background-color: #ffffff; padding: 24px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 8px 8px;">
+        <p style="margin: 0 0 16px 0; font-size: 16px;">
+          ¡Hola, <strong>${businessName}</strong>! 👋
+        </p>
+        
+        <p style="margin: 0 0 16px 0; color: #555; line-height: 1.5;">
+          En 30 minutos tu tienda estará abierta al público para recibir pedidos de tus clientes de forma automática.
+        </p>
+        
+        <h3 style="color: #aa1918; margin: 20px 0 10px 0; border-bottom: 1px solid #eee; padding-bottom: 6px;">
+          📦 Productos disponibles para hoy (${availableProducts ? availableProducts.length : 0})
+        </h3>
+        
+        ${productsHtml}
+
+        <p style="margin: 20px 0; color: #555; line-height: 1.5; font-size: 14px;">
+          Si deseas realizar cambios en la disponibilidad de tus productos o modificar tus horarios, puedes hacerlo de inmediato desde tu panel de administración.
+        </p>
+
+        <div style="text-align: center; margin: 25px 0 15px 0;">
+          <a href="${dashboardUrl}" 
+             style="display: inline-block; background-color: #aa1918; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            ⚙️ Gestionar mi Tienda
+          </a>
+        </div>
+
+        <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;">
+        
+        <p style="font-size: 11px; color: #999; margin: 0; text-align: center; line-height: 1.4;">
+          Este es un correo automático enviado 30 minutos antes de abrir. <br/>
+          Si deseas dejar de recibir estas notificaciones, puedes desactivarlas en la sección de configuración de tu panel.
+        </p>
+      </div>
+    </div>
+  `;
+
+  const mailOptions = {
+    from: 'tiendas@fuddi.shop',
+    to: recipients.join(', '),
+    subject: `⏰ ¡Abres en 30 minutos! - ${businessName}`,
+    html: htmlContent
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Email de pre-apertura enviado a: ${recipients.join(', ')}`);
+    return true;
+  } catch (e) {
+    console.error(`❌ Error enviando email de pre-apertura a ${businessName}: ${e.message}`);
+    return false;
+  }
+}
+
 module.exports = {
   transporter,
   sendOrderCreatedEmail,
@@ -939,5 +1058,6 @@ module.exports = {
   sendCheckoutProgressEmail,
   sendDailySummaryEmail,
   sendDeliveryAssignmentEmail,
-  sendReminderEmail
+  sendReminderEmail,
+  sendPreOpeningEmail
 };
