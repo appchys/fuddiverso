@@ -29,6 +29,22 @@ console.log(`✓ DELIVERY_BOT_TOKEN: ${DELIVERY_BOT_TOKEN ? '✅ CONFIGURADO' : 
 console.log(`✓ CUSTOMER_BOT_TOKEN: ${CUSTOMER_BOT_TOKEN ? '✅ CONFIGURADO' : '❌ NO CONFIGURADO'}`);
 console.log(`✓ ADMIN_BOT_TOKEN: ${ADMIN_BOT_TOKEN ? '✅ CONFIGURADO' : '❌ NO CONFIGURADO'}`);
 
+/**
+ * Obtener la URL base de la app desde settings o env variables
+ */
+async function getAppUrl() {
+    try {
+        const doc = await admin.firestore().collection('settings').doc('general').get();
+        if (doc.exists && doc.data().appUrl) {
+            return doc.data().appUrl;
+        }
+    } catch (e) {
+        console.warn('⚠️ Error al obtener settings/general para appUrl:', e.message);
+    }
+    // Fallback variable de entorno o por defecto
+    return process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://multitienda-69778.web.app';
+}
+
 // ─── Template Engine ─────────────────────────────────────────
 let _templateCache = null;
 let _templateCacheTime = 0;
@@ -1265,7 +1281,7 @@ async function handleCustomerWebhook(req, res) {
     try {
         console.log('🚀 [TELEGRAM CUSTOMER WEBHOOK TRIGGERED]');
         console.log('📦 Headers:', JSON.stringify(req.headers));
-        console.log('� Body:', JSON.stringify(req.body));
+        console.log(' Body:', JSON.stringify(req.body));
 
         const update = req.body;
 
@@ -1826,22 +1842,14 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
         return;
     }
 
-    console.log(`✅ [Telegram] STORE_BOT_TOKEN está configurado: ${STORE_BOT_TOKEN.substring(0, 10)}...${STORE_BOT_TOKEN.substring(STORE_BOT_TOKEN.length - 10)}`);
+    const appUrl = await getAppUrl();
+    const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
 
     const businessName = businessData.name || 'Tienda';
     const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, templateKey);
-    console.log(`📝 [Telegram] Mensaje formateado. Longitud: ${telegramText.length}`);
-    console.log(`🔍 [Telegram-DEBUG] Primeros 200 caracteres del HTML: ${telegramText.substring(0, 200)}`);
-    console.log(`🔍 [Telegram-DEBUG] Buscando tags <a> en el mensaje...`);
-    const aTagMatches = telegramText.match(/<a[^>]*>/g);
-    if (aTagMatches) {
-        console.log(`🔍 [Telegram-DEBUG] Tags <a> encontrados: ${JSON.stringify(aTagMatches)}`);
-    } else {
-        console.log(`✅ [Telegram-DEBUG] No hay tags <a> en el mensaje`);
-    }
     const linkPreviewOptions = { is_disabled: true };
 
-    // Botones de acción para la tienda
+        // Botones de acción para la tienda
     const confirmToken = Buffer.from(`${orderId}|biz_confirm`).toString('base64');
     const discardToken = Buffer.from(`${orderId}|biz_discard`).toString('base64');
     const preparingToken = Buffer.from(`${orderId}|store_preparing`).toString('base64');
@@ -1854,6 +1862,9 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
             inline_keyboard: [
                 [
                     { text: "👨‍🍳 Preparando", callback_data: `store_preparing|${preparingToken}` }
+                ],
+                [
+                    { text: "📱 Abrir Detalle (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
                 ]
             ]
         };
@@ -1864,6 +1875,9 @@ async function sendBusinessTelegramNotification(businessData, orderData, orderId
                 [
                     { text: "✅ Aceptar Pedido", callback_data: `biz_confirm|${confirmToken}` },
                     { text: "❌ Descartar", callback_data: `biz_discard|${discardToken}` }
+                ],
+                [
+                    { text: "📱 Abrir Detalle (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
                 ]
             ]
         };
@@ -2238,7 +2252,19 @@ async function sendAdminNewOrderNotification(businessData, orderData, orderId) {
 
         const chatId = adminDoc.data().chatId;
         const linkPreviewOptions = { is_disabled: true };
-        const result = await sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, telegramText, null, linkPreviewOptions);
+
+        const appUrl = await getAppUrl();
+        const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
+
+        const replyMarkup = {
+            inline_keyboard: [
+                [
+                    { text: "📱 Gestionar Pedido (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
+                ]
+            ]
+        };
+
+        const result = await sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, telegramText, replyMarkup, linkPreviewOptions);
 
         if (result && result.ok && result.result) {
             console.log(`✅ Notificación (Admin Bot) enviada exitosamente para orden ${orderId}`);
