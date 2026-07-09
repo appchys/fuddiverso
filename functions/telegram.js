@@ -1546,7 +1546,6 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
                     messageId: result.result.message_id
                 }
             });
-            console.log(`📝 [Telegram] Referencia de mensaje delivery guardada en orden ${orderId}. MessageId: ${result.result.message_id}`);
         } catch (saveErr) {
             console.error(`❌ [Telegram] Error guardando referencia de mensaje delivery:`, saveErr);
         }
@@ -1563,18 +1562,10 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
 
 /**
  * Actualizar el mensaje de Telegram del delivery cuando cambia la orden
- * Solo aplica si el delivery ya aceptó (acceptanceStatus === 'accepted')
- * y tenemos la referencia al mensaje guardada.
  */
 async function updateDeliveryTelegramMessage(orderData, orderId) {
     try {
         console.log(`🔄 [updateDeliveryTelegramMessage] Iniciando actualización para orden ${orderId}`);
-
-        // Solo actualizar si el delivery ya aceptó
-        if (orderData.delivery?.acceptanceStatus !== 'accepted') {
-            console.log(`ℹ️ [updateDeliveryTelegramMessage] Delivery aún no aceptó la orden ${orderId}, no se actualiza.`);
-            return;
-        }
 
         const deliveryMsg = orderData.telegramDeliveryMessage;
         if (!deliveryMsg || !deliveryMsg.chatId || !deliveryMsg.messageId) {
@@ -1598,25 +1589,67 @@ async function updateDeliveryTelegramMessage(orderData, orderId) {
             }
         }
 
-        // Construir el nuevo texto del mensaje (misma plantilla que se usa al aceptar)
+        const isAccepted = orderData.delivery?.acceptanceStatus === 'accepted';
+        let templateKey = isAccepted ? 'delivery_accepted' : 'delivery_assigned';
+        let statusLabel = '';
+        let replyMarkup = null;
+
+        if (!isAccepted) {
+            templateKey = 'delivery_assigned';
+            statusLabel = '⏳ <b>Esperando confirmación</b>';
+
+            const confirmToken = Buffer.from(`${orderId}|confirm`).toString('base64');
+            const discardToken = Buffer.from(`${orderId}|discard`).toString('base64');
+            replyMarkup = {
+                inline_keyboard: [
+                    [
+                        { text: "✅ Aceptar", callback_data: `order_confirm|${confirmToken}` },
+                        { text: "❌ Descartar", callback_data: `order_discard|${discardToken}` }
+                    ]
+                ]
+            };
+        } else {
+            const status = orderData.status;
+            const onWayToken = Buffer.from(`${orderId}|on_way`).toString('base64');
+            const deliveredToken = Buffer.from(`${orderId}|delivered`).toString('base64');
+
+            if (status === 'on_way') {
+                templateKey = 'delivery_on_way';
+                statusLabel = '🛵 <b>En camino</b>';
+                replyMarkup = {
+                    inline_keyboard: [
+                        [
+                            { text: "✅ Entregada", callback_data: `order_delivered|${deliveredToken}` }
+                        ]
+                    ]
+                };
+            } else if (status === 'delivered') {
+                statusLabel = '🏁 <b>Entregado</b>';
+                replyMarkup = null;
+            } else {
+                templateKey = 'delivery_accepted';
+                statusLabel = '✅ <b>Aceptado</b>';
+                replyMarkup = {
+                    inline_keyboard: [
+                        [
+                            { text: "🛵 En camino", callback_data: `order_on_way|${onWayToken}` },
+                            { text: "✅ Entregada", callback_data: `order_delivered|${deliveredToken}` }
+                        ]
+                    ]
+                };
+            }
+        }
+
+        // Construir el nuevo texto del mensaje usando la plantilla adecuada
         const { text: formattedText, mapsLink, locationImageLink } = await formatTelegramMessage(
-            { ...orderData, id: orderId }, businessName, 'delivery_accepted'
+            { ...orderData, id: orderId }, businessName, templateKey
         );
 
-        const statusLabel = '✅ <b>Aceptado</b>';
-        const newText = formattedText + `\n\n${statusLabel}\n\n⚠️ <i>Datos del pedido actualizados</i>`;
-
-        // Reconstruir botones (en camino / entregada)
-        const onWayToken = Buffer.from(`${orderId}|on_way`).toString('base64');
-        const deliveredToken = Buffer.from(`${orderId}|delivered`).toString('base64');
-        const replyMarkup = {
-            inline_keyboard: [
-                [
-                    { text: "🛵 En camino", callback_data: `order_on_way|${onWayToken}` },
-                    { text: "✅ Entregada", callback_data: `order_delivered|${deliveredToken}` }
-                ]
-            ]
-        };
+        let newText = formattedText;
+        if (statusLabel) {
+            newText += `\n\n${statusLabel}`;
+        }
+        newText += `\n\n⚠️ <i>Datos del pedido actualizados</i>`;
 
         // Link preview
         let linkPreviewOptions = { is_disabled: true };

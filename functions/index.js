@@ -465,8 +465,8 @@ async function updateTelegramMessagesOnOrderChange(beforeData, afterData, orderI
     }
   }
 
-  // 3. Actualizar mensaje del Delivery (solo si ya aceptó y tiene referencia)
-  if (afterData.delivery?.assignedDelivery && afterData.delivery?.acceptanceStatus === 'accepted' && afterData.telegramDeliveryMessage) {
+  // 3. Actualizar mensaje del Delivery (si tiene referencia y hay un delivery asignado)
+  if (afterData.delivery?.assignedDelivery && afterData.telegramDeliveryMessage) {
     try {
       await telegramServices.updateDeliveryTelegramMessage(afterData, orderId);
       console.log(`✅ [Telegram] Mensaje de delivery actualizado para orden ${orderId}`);

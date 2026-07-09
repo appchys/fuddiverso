@@ -2126,8 +2126,9 @@ export default function ManualOrderSidebar({
           phone: manualOrderData.customerPhone
         },
         delivery: {
+          ...editOrder?.delivery,
           type: manualOrderData.deliveryType,
-          ...(manualOrderData.deliveryType === 'delivery' && {
+          ...(manualOrderData.deliveryType === 'delivery' ? {
             latlong: manualOrderData.selectedLocation?.latlong || '',
             references: manualOrderData.selectedLocation?.referencia || '',
             sector: manualOrderData.selectedLocation?.sector || '',
@@ -2136,6 +2137,14 @@ export default function ManualOrderSidebar({
               ? manualOrderData.customDeliveryCost
               : parseFloat(manualOrderData.selectedLocation?.tarifa || '0'),
             assignedDelivery: manualOrderData.selectedDelivery?.id || null
+          } : {
+            latlong: '',
+            references: '',
+            sector: '',
+            photo: '',
+            deliveryCost: 0,
+            assignedDelivery: null,
+            acceptanceStatus: null
           })
         },
         timing: (() => {
