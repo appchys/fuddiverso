@@ -1707,6 +1707,86 @@ async function updateDeliveryTelegramMessage(orderData, orderId) {
 }
 
 /**
+ * Actualizar el mensaje de Telegram de un delivery anterior indicando que el pedido fue reasignado
+ */
+async function updateReassignedDeliveryTelegramMessage(deliveryMsg, businessName) {
+    try {
+        if (!deliveryMsg || !deliveryMsg.chatId || !deliveryMsg.messageId) {
+            console.warn(`⚠️ [updateReassignedDeliveryTelegramMessage] No hay chatId/messageId válido`);
+            return;
+        }
+
+        if (!DELIVERY_BOT_TOKEN) {
+            console.error(`❌ [updateReassignedDeliveryTelegramMessage] DELIVERY_BOT_TOKEN no configurado`);
+            return;
+        }
+
+        const editUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/editMessageText`;
+        const newText = `🛵 <b>[${businessName}]</b>\n⚠️ Este pedido fue reasignado.`;
+
+        console.log(`📤 [updateReassignedDeliveryTelegramMessage] Editando mensaje en chat ${deliveryMsg.chatId}, messageId ${deliveryMsg.messageId} (reasignado)`);
+
+        await axios.post(editUrl, {
+            chat_id: deliveryMsg.chatId,
+            message_id: deliveryMsg.messageId,
+            text: newText,
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: [] },
+            link_preview_options: { is_disabled: true }
+        });
+        
+        console.log(`✅ [updateReassignedDeliveryTelegramMessage] Mensaje de delivery anterior actualizado a "reasignado".`);
+    } catch (error) {
+        const errorDesc = error.response?.data?.description || '';
+        if (errorDesc.includes('message is not modified')) {
+            console.log(`ℹ️ [updateReassignedDeliveryTelegramMessage] El mensaje ya estaba actualizado.`);
+            return;
+        }
+        console.error(`❌ [updateReassignedDeliveryTelegramMessage] Error editando mensaje de delivery anterior:`, error.response?.data || error.message);
+    }
+}
+
+/**
+ * Actualizar el mensaje de Telegram del delivery indicando que la orden fue cancelada
+ */
+async function updateCancelledDeliveryTelegramMessage(deliveryMsg, businessName) {
+    try {
+        if (!deliveryMsg || !deliveryMsg.chatId || !deliveryMsg.messageId) {
+            console.warn(`⚠️ [updateCancelledDeliveryTelegramMessage] No hay chatId/messageId válido`);
+            return;
+        }
+
+        if (!DELIVERY_BOT_TOKEN) {
+            console.error(`❌ [updateCancelledDeliveryTelegramMessage] DELIVERY_BOT_TOKEN no configurado`);
+            return;
+        }
+
+        const editUrl = `https://api.telegram.org/bot${DELIVERY_BOT_TOKEN}/editMessageText`;
+        const newText = `🛵 <b>[${businessName}]</b>\n❌ La orden ha sido cancelada.`;
+
+        console.log(`📤 [updateCancelledDeliveryTelegramMessage] Editando mensaje en chat ${deliveryMsg.chatId}, messageId ${deliveryMsg.messageId} (cancelada)`);
+
+        await axios.post(editUrl, {
+            chat_id: deliveryMsg.chatId,
+            message_id: deliveryMsg.messageId,
+            text: newText,
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: [] },
+            link_preview_options: { is_disabled: true }
+        });
+        
+        console.log(`✅ [updateCancelledDeliveryTelegramMessage] Mensaje de delivery actualizado a "cancelado".`);
+    } catch (error) {
+        const errorDesc = error.response?.data?.description || '';
+        if (errorDesc.includes('message is not modified')) {
+            console.log(`ℹ️ [updateCancelledDeliveryTelegramMessage] El mensaje ya estaba actualizado.`);
+            return;
+        }
+        console.error(`❌ [updateCancelledDeliveryTelegramMessage] Error editando mensaje de delivery:`, error.response?.data || error.message);
+    }
+}
+
+/**
  * Enviar notificación de Telegram a la tienda cuando se crea una orden
  */
 /**
@@ -2239,5 +2319,7 @@ module.exports = {
     sendAdminNewOrderNotification,  // Exportado - Nueva función para admin con URLs
     sendBroadcastToCustomers, // Exportado - Enviar mensajes a todos los clientes
     updateDeliveryTelegramMessage, // Exportado - Actualizar mensaje del delivery si cambia la orden
-    updateAdminTelegramMessage // Exportado - Actualizar mensaje del admin si cambia la orden
+    updateAdminTelegramMessage, // Exportado - Actualizar mensaje del admin si cambia la orden
+    updateReassignedDeliveryTelegramMessage,
+    updateCancelledDeliveryTelegramMessage
 };

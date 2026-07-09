@@ -1509,11 +1509,6 @@ export default function TodayOrdersPage() {
     }
 
     const handleDeliveryAssignment = async (orderId: string, deliveryId: string) => {
-        if (business?.id !== MUNCHYS_BUSINESS_ID) {
-            alert('Solo Munchys puede cambiar manualmente el delivery asignado.')
-            return
-        }
-
         try {
             const orderRef = doc(db, 'orders', orderId)
             await updateDoc(orderRef, {
@@ -1654,6 +1649,7 @@ export default function TodayOrdersPage() {
     }
 
     const canManageRestrictedOrderActions = business?.id === MUNCHYS_BUSINESS_ID
+    const canChangeDelivery = true
 
     return (
         <div className="min-h-screen bg-gray-100 flex flex-col">
@@ -2143,7 +2139,7 @@ export default function TodayOrdersPage() {
                                                         setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
-                                                        canChangeDelivery={canManageRestrictedOrderActions}
+                                                        canChangeDelivery={canChangeDelivery}
                                                         canDeleteOrders={canManageRestrictedOrderActions}
                                                         deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
@@ -2171,7 +2167,7 @@ export default function TodayOrdersPage() {
                                                         setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
-                                                        canChangeDelivery={canManageRestrictedOrderActions}
+                                                        canChangeDelivery={canChangeDelivery}
                                                         canDeleteOrders={canManageRestrictedOrderActions}
                                                         deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
@@ -2285,7 +2281,7 @@ export default function TodayOrdersPage() {
                                                         setSelectedOrderForCustomerContact={setSelectedOrderForCustomerContact}
                                                         setCustomerContactModalOpen={setCustomerContactModalOpen}
                                                         business={business}
-                                                        canChangeDelivery={canManageRestrictedOrderActions}
+                                                        canChangeDelivery={canChangeDelivery}
                                                         canDeleteOrders={canManageRestrictedOrderActions}
                                                         deliveryTimeMinutes={currentDeliveryTime}
                                                         autoPrintOnConfirm={business?.notificationSettings?.autoPrintOnConfirm ?? true}
@@ -2325,7 +2321,7 @@ export default function TodayOrdersPage() {
                                 order={selectedOrderForStatusModal}
                                 deliveryAgent={availableDeliveries.find(d => d.id === selectedOrderForStatusModal?.delivery?.assignedDelivery)}
                                 availableDeliveries={availableDeliveries}
-                                canChangeDelivery={canManageRestrictedOrderActions}
+                                canChangeDelivery={canChangeDelivery}
                                 onDeliveryAssign={handleDeliveryAssignment}
                                 onWhatsApp={() => {
                                     if (selectedOrderForStatusModal) {

@@ -38,6 +38,26 @@ async function onOrderStatusChangeLogic(beforeData, afterData, orderId) {
 
   // Notificar al cliente por Telegram
   await telegramServices.sendCustomerTelegramNotification(afterData, orderId);
+
+  // Si pasa a cancelado, actualizar mensaje del delivery anterior/actual indicando cancelación
+  if (afterData.status === 'cancelled') {
+    const deliveryMsg = afterData.telegramDeliveryMessage || beforeData.telegramDeliveryMessage;
+    if (deliveryMsg) {
+      try {
+        console.log(`🔄 [Telegram] Pedido ${orderId} cancelado. Actualizando mensaje del delivery (${deliveryMsg.chatId})...`);
+        let businessName = afterData.businessName;
+        if (!businessName && afterData.businessId) {
+          const businessDoc = await admin.firestore().collection('businesses').doc(afterData.businessId).get();
+          if (businessDoc.exists) businessName = businessDoc.data().name;
+        }
+        if (!businessName) businessName = 'Negocio';
+
+        await telegramServices.updateCancelledDeliveryTelegramMessage(deliveryMsg, businessName);
+      } catch (error) {
+        console.error('❌ Error al actualizar mensaje de delivery cancelado:', error);
+      }
+    }
+  }
 }
 
 /**
@@ -286,13 +306,37 @@ async function notifyDeliveryAssignmentLogic(beforeData, afterData, orderId) {
   const beforeDeliveryId = beforeData.delivery?.assignedDelivery;
   const afterDeliveryId = afterData.delivery?.assignedDelivery;
 
-  if (!afterDeliveryId) {
-    console.log(`ℹ️ Orden ${orderId} no tiene delivery asignado`);
+  if (beforeDeliveryId === afterDeliveryId) {
+    console.log(`ℹ️ Orden ${orderId} delivery no cambió`);
     return;
   }
 
-  if (beforeDeliveryId === afterDeliveryId) {
-    console.log(`ℹ️ Orden ${orderId} delivery no cambió`);
+  // Si había un delivery asignado antes y cambió (a otro o a ninguno, sin ser un descarte iniciado por el propio delivery)
+  if (beforeDeliveryId && beforeData.telegramDeliveryMessage) {
+    const isDiscardedByDelivery = (afterData.delivery?.rejectedBy || []).includes(beforeDeliveryId) &&
+                                  !(beforeData.delivery?.rejectedBy || []).includes(beforeDeliveryId);
+
+    if (!isDiscardedByDelivery) {
+      try {
+        console.log(`🔄 [Telegram] Pedido ${orderId} reasignado/desvinculado. Actualizando mensaje del delivery anterior (${beforeDeliveryId})...`);
+        let businessName = afterData.businessName;
+        if (!businessName && afterData.businessId) {
+          const businessDoc = await admin.firestore().collection('businesses').doc(afterData.businessId).get();
+          if (businessDoc.exists) businessName = businessDoc.data().name;
+        }
+        if (!businessName) businessName = 'Negocio';
+        await telegramServices.updateReassignedDeliveryTelegramMessage(
+          beforeData.telegramDeliveryMessage,
+          businessName
+        );
+      } catch (error) {
+        console.error('❌ Error al actualizar mensaje de delivery anterior:', error);
+      }
+    }
+  }
+
+  if (!afterDeliveryId) {
+    console.log(`ℹ️ Orden ${orderId} no tiene delivery asignado`);
     return;
   }
 
@@ -467,11 +511,16 @@ async function updateTelegramMessagesOnOrderChange(beforeData, afterData, orderI
 
   // 3. Actualizar mensaje del Delivery (si tiene referencia y hay un delivery asignado)
   if (afterData.delivery?.assignedDelivery && afterData.telegramDeliveryMessage) {
-    try {
-      await telegramServices.updateDeliveryTelegramMessage(afterData, orderId);
-      console.log(`✅ [Telegram] Mensaje de delivery actualizado para orden ${orderId}`);
-    } catch (err) {
-      console.error(`❌ [Telegram] Error actualizando mensaje de delivery para orden ${orderId}:`, err);
+    // Si el delivery asignado cambió en esta actualización, NO actualizamos el mensaje anterior
+    // con los nuevos datos; la lógica de reasignación en notifyDeliveryAssignmentLogic se encarga de esto.
+    const deliveryChanged = beforeData.delivery?.assignedDelivery !== afterData.delivery?.assignedDelivery;
+    if (!deliveryChanged) {
+      try {
+        await telegramServices.updateDeliveryTelegramMessage(afterData, orderId);
+        console.log(`✅ [Telegram] Mensaje de delivery actualizado para orden ${orderId}`);
+      } catch (err) {
+        console.error(`❌ [Telegram] Error actualizando mensaje de delivery para orden ${orderId}:`, err);
+      }
     }
   }
 }
