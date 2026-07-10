@@ -3269,6 +3269,7 @@ export async function getAllDeliveries(): Promise<Delivery[]> {
         fechaRegistro: data.fechaRegistro || new Date().toISOString(),
         uid: data.uid,
         manualStatus: data.manualStatus ?? null,
+        emailNotificationsEnabled: data.emailNotificationsEnabled ?? false,
         scheduleAvailability: data.scheduleAvailability
       })
     })
@@ -3300,6 +3301,7 @@ export async function getDeliveryById(deliveryId: string): Promise<Delivery | nu
         fechaRegistro: data.fechaRegistro || new Date().toISOString(),
         uid: data.uid,
         manualStatus: data.manualStatus ?? null,
+        emailNotificationsEnabled: data.emailNotificationsEnabled ?? false,
         scheduleAvailability: data.scheduleAvailability
       }
     }
@@ -3389,6 +3391,7 @@ export async function getDeliveriesByStatus(estado: 'activo' | 'inactivo'): Prom
         fechaRegistro: data.fechaRegistro || new Date().toISOString(),
         uid: data.uid,
         manualStatus: data.manualStatus ?? null,
+        emailNotificationsEnabled: data.emailNotificationsEnabled ?? false,
         scheduleAvailability: data.scheduleAvailability
       })
     })
@@ -3427,6 +3430,7 @@ export async function searchDeliveryByPhone(phone: string): Promise<Delivery | n
       fechaRegistro: data.fechaRegistro || new Date().toISOString(),
       uid: data.uid,
       manualStatus: data.manualStatus ?? null,
+      emailNotificationsEnabled: data.emailNotificationsEnabled ?? false,
       scheduleAvailability: data.scheduleAvailability
     } as Delivery
   } catch (error) {
@@ -3465,6 +3469,7 @@ export async function getDeliveryByEmail(email: string): Promise<Delivery | null
       fechaRegistro: data.fechaRegistro || new Date().toISOString(),
       uid: data.uid,
       manualStatus: data.manualStatus ?? null,
+      emailNotificationsEnabled: data.emailNotificationsEnabled ?? false,
       scheduleAvailability: data.scheduleAvailability
     }
   } catch (error) {

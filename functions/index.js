@@ -193,8 +193,13 @@ async function notifyDeliveryCommon(orderData, orderId, deliveryId, businessId) 
     }
 
     // Enviar Email
+    const emailNotificationsEnabled = deliveryData.emailNotificationsEnabled === true;
     if (deliveryEmail) {
-      await emailServices.sendDeliveryAssignmentEmail(orderData, orderId, deliveryEmail, customerName, customerPhone, businessData);
+      if (emailNotificationsEnabled) {
+        await emailServices.sendDeliveryAssignmentEmail(orderData, orderId, deliveryEmail, customerName, customerPhone, businessData);
+      } else {
+        console.log(`ℹ️ Notificaciones por correo desactivadas para el delivery ${deliveryId} (${deliveryData.nombres || ''})`);
+      }
     } else {
       console.warn(`⚠️ Delivery ${deliveryId} no tiene email`);
     }

@@ -32,6 +32,7 @@ export default function DeliveriesAdmin() {
     email: '',
     estado: 'activo' as 'activo' | 'inactivo',
     scheduleEnabled: false,
+    emailNotificationsEnabled: false,
     schedules: [] as Array<{
       id: string
       days: string[]
@@ -170,6 +171,7 @@ export default function DeliveriesAdmin() {
         celular: normalizePhone(formData.celular.trim()),
         email: formData.email.trim(),
         estado: formData.estado,
+        emailNotificationsEnabled: formData.emailNotificationsEnabled,
         fechaRegistro: new Date().toISOString()
       }
 
@@ -202,6 +204,7 @@ export default function DeliveriesAdmin() {
         email: '',
         estado: 'activo',
         scheduleEnabled: false,
+        emailNotificationsEnabled: false,
         schedules: []
       })
       setCurrentSchedule({ days: [], startTime: '09:00', endTime: '18:00' })
@@ -244,6 +247,22 @@ export default function DeliveriesAdmin() {
     }
   }
 
+  const handleToggleEmailNotifications = async (delivery: Delivery) => {
+    if (!delivery.id) return
+    setTogglingId(delivery.id)
+    try {
+      const next = !delivery.emailNotificationsEnabled
+      await updateDelivery(delivery.id, { emailNotificationsEnabled: next })
+      setDeliveries(prev => prev.map(d =>
+        d.id === delivery.id ? { ...d, emailNotificationsEnabled: next } : d
+      ))
+    } catch (error) {
+      console.error('Error toggling delivery email notifications:', error)
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
   const handleEditDelivery = (delivery: Delivery) => {
     setEditingDelivery(delivery)
     setFormData({
@@ -252,6 +271,7 @@ export default function DeliveriesAdmin() {
       email: delivery.email,
       estado: delivery.estado,
       scheduleEnabled: delivery.scheduleAvailability?.enabled || false,
+      emailNotificationsEnabled: delivery.emailNotificationsEnabled || false,
       schedules: delivery.scheduleAvailability?.schedules || []
     })
     setCurrentSchedule({ days: [], startTime: '09:00', endTime: '18:00' })
@@ -287,6 +307,7 @@ export default function DeliveriesAdmin() {
         celular: normalizePhone(formData.celular),
         email: formData.email.trim(),
         estado: formData.estado,
+        emailNotificationsEnabled: formData.emailNotificationsEnabled,
         scheduleAvailability: formData.scheduleEnabled ? {
           enabled: true,
           schedules: formData.schedules
@@ -313,6 +334,7 @@ export default function DeliveriesAdmin() {
         email: '',
         estado: 'activo',
         scheduleEnabled: false,
+        emailNotificationsEnabled: false,
         schedules: []
       })
       setCurrentSchedule({ days: [], startTime: '09:00', endTime: '18:00' })
@@ -562,7 +584,18 @@ export default function DeliveriesAdmin() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">{delivery.celular}</div>
-                    <div className="text-sm text-gray-500">{delivery.email}</div>
+                    <div className="text-sm text-gray-500 flex items-center gap-1.5">
+                      {delivery.email}
+                      {delivery.emailNotificationsEnabled ? (
+                        <span className="inline-flex items-center" title="Notificaciones por correo activadas">
+                          <i className="bi bi-envelope-check-fill text-green-600 text-sm"></i>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center opacity-40" title="Notificaciones por correo desactivadas">
+                          <i className="bi bi-envelope text-gray-400 text-sm"></i>
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {/* Smart status badge */}
@@ -650,6 +683,26 @@ export default function DeliveriesAdmin() {
                         </button>
                       )}
 
+                      {/* Toggle email notifications */}
+                      <button
+                        onClick={() => handleToggleEmailNotifications(delivery)}
+                        disabled={togglingId === delivery.id}
+                        title={
+                          delivery.emailNotificationsEnabled
+                            ? 'Notificaciones por correo activadas — click para desactivar'
+                            : 'Notificaciones por correo desactivadas — click para activar'
+                        }
+                        className={`p-1 rounded transition-colors disabled:opacity-50 ${delivery.emailNotificationsEnabled
+                          ? 'text-green-600 hover:text-green-800'
+                          : 'text-gray-400 hover:text-gray-600'
+                          }`}
+                      >
+                        <i className={`bi ${delivery.emailNotificationsEnabled
+                          ? 'bi-envelope-check-fill'
+                          : 'bi-envelope-slash'
+                          }`} />
+                      </button>
+
                       <button
                         onClick={() => handleDeleteDelivery(delivery)}
                         className="text-red-600 hover:text-red-900"
@@ -691,7 +744,7 @@ export default function DeliveriesAdmin() {
                 <button
                   onClick={() => {
                     setShowAddModal(false)
-                    setFormData({ nombres: '', celular: '', email: '', estado: 'activo', scheduleEnabled: false, schedules: [] })
+                    setFormData({ nombres: '', celular: '', email: '', estado: 'activo', scheduleEnabled: false, emailNotificationsEnabled: false, schedules: [] })
                     setSelectedImage(null)
                     setPreviewImage(null)
                     setErrors({})
@@ -820,6 +873,23 @@ export default function DeliveriesAdmin() {
                   </select>
                 </div>
 
+                {/* Notificaciones por Correo */}
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <div>
+                    <span className="text-sm font-medium text-gray-900 block">Notificaciones por correo</span>
+                    <span className="text-xs text-gray-500 block">Habilitar aviso de pedidos asignados</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={formData.emailNotificationsEnabled}
+                      onChange={(e) => setFormData({ ...formData, emailNotificationsEnabled: e.target.checked })}
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
+                  </label>
+                </div>
+
                 {renderScheduleEditor()}
 
                 {errors.submit && (
@@ -834,7 +904,7 @@ export default function DeliveriesAdmin() {
                     type="button"
                     onClick={() => {
                       setShowAddModal(false)
-                      setFormData({ nombres: '', celular: '', email: '', estado: 'activo', scheduleEnabled: false, schedules: [] })
+                      setFormData({ nombres: '', celular: '', email: '', estado: 'activo', scheduleEnabled: false, emailNotificationsEnabled: false, schedules: [] })
                       setSelectedImage(null)
                       setPreviewImage(null)
                       setErrors({})
@@ -881,7 +951,7 @@ export default function DeliveriesAdmin() {
                   onClick={() => {
                     setShowEditModal(false)
                     setEditingDelivery(null)
-                    setFormData({ nombres: '', celular: '', email: '', estado: 'activo', scheduleEnabled: false, schedules: [] })
+                    setFormData({ nombres: '', celular: '', email: '', estado: 'activo', scheduleEnabled: false, emailNotificationsEnabled: false, schedules: [] })
                     setSelectedImage(null)
                     setPreviewImage(null)
                     setErrors({})
@@ -1004,6 +1074,23 @@ export default function DeliveriesAdmin() {
                   </select>
                 </div>
 
+                {/* Notificaciones por Correo */}
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <div>
+                    <span className="text-sm font-medium text-gray-900 block">Notificaciones por correo</span>
+                    <span className="text-xs text-gray-500 block">Habilitar aviso de pedidos asignados</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={formData.emailNotificationsEnabled}
+                      onChange={(e) => setFormData({ ...formData, emailNotificationsEnabled: e.target.checked })}
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
+                  </label>
+                </div>
+
                 {renderScheduleEditor()}
 
                 {errors.submit && (
@@ -1019,7 +1106,7 @@ export default function DeliveriesAdmin() {
                     onClick={() => {
                       setShowEditModal(false)
                       setEditingDelivery(null)
-                      setFormData({ nombres: '', celular: '', email: '', estado: 'activo', scheduleEnabled: false, schedules: [] })
+                      setFormData({ nombres: '', celular: '', email: '', estado: 'activo', scheduleEnabled: false, emailNotificationsEnabled: false, schedules: [] })
                       setSelectedImage(null)
                       setPreviewImage(null)
                       setErrors({})

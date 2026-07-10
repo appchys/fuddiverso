@@ -371,6 +371,7 @@ export interface Delivery {
   uid?: string // UID de Firebase Auth para autenticación
   telegramChatId?: string // ID de chat de Telegram para notificaciones
   manualStatus?: 'active' | 'inactive' | null // Override manual: null = usar horario automático
+  emailNotificationsEnabled?: boolean // Enable/disable email notifications for assigned orders
   scheduleAvailability?: {
     enabled: boolean
     schedules: {
