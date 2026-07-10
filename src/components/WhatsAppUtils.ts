@@ -2,6 +2,14 @@ import { getWhatsAppTemplates } from '@/lib/database'
 import { renderWhatsAppTemplate, WHATSAPP_TEMPLATE_DEFAULTS } from '@/lib/whatsappTemplates'
 import { Order, Business } from '@/types'
 
+const openExternalLink = (url: string) => {
+    if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.openLink) {
+        (window as any).Telegram.WebApp.openLink(url)
+    } else {
+        window.open(url, '_blank')
+    }
+}
+
 export const getNextStatus = (status: Order['status']): Order['status'] | null => {
     const flow: Order['status'][] = ['pending', 'confirmed', 'preparing', 'ready', 'delivered']
     const idx = flow.indexOf(status)
@@ -217,7 +225,7 @@ export const sendWhatsAppToDelivery = async (
     })
 
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(phone)}&text=${encodeURIComponent(message)}`
-    window.open(whatsappUrl, '_blank')
+    openExternalLink(whatsappUrl)
 
     if (nextStatus && onStatusUpdate && updateLocalOrder) {
         try {
@@ -287,7 +295,7 @@ export const sendWhatsAppToCustomer = async (order: Order) => {
     })
 
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(customerPhoneRaw)}&text=${encodeURIComponent(message)}`
-    window.open(whatsappUrl, '_blank')
+    openExternalLink(whatsappUrl)
 }
 
 export const sendOrderToStoreFromClient = async (order: Order, business: Business) => {
@@ -335,7 +343,7 @@ export const sendOrderToStoreFromClient = async (order: Order, business: Busines
     })
 
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(storePhone)}&text=${encodeURIComponent(message)}`
-    window.open(whatsappUrl, '_blank')
+    openExternalLink(whatsappUrl)
 }
 
 export const sendOrderToStore = async (order: Order, business: Business) => {
@@ -399,5 +407,5 @@ export const sendOrderToStore = async (order: Order, business: Business) => {
     })
 
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(storePhone)}&text=${encodeURIComponent(message)}`
-    window.open(whatsappUrl, '_blank')
+    openExternalLink(whatsappUrl)
 }
