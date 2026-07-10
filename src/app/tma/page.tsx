@@ -6,6 +6,7 @@ import { db } from '@/lib/firebase'
 import { collection, query, orderBy, onSnapshot, where, doc, updateDoc, Timestamp } from 'firebase/firestore'
 import { getAllBusinesses, updateOrderStatus, updateOrder, getDeliveriesByStatus } from '@/lib/database'
 import { Order, Business, Delivery } from '@/types'
+import { sendWhatsAppToDelivery, sendWhatsAppToCustomer, sendOrderToStore } from '@/components/WhatsAppUtils'
 
 // Helper para parsear fechas de Firestore de forma segura
 const toSafeDate = (val: any): Date => {
@@ -388,14 +389,16 @@ function TMAContent() {
                   >
                     <i className="bi bi-telephone-fill text-xs"></i>
                   </a>
-                  <a
-                    href={getWhatsAppLink(orderBusiness.phone, `Hola ${orderBusiness.name}, me comunico desde administración de Fuddi sobre el pedido #${orderId.substring(0, 6)}`)}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    onClick={() => {
+                      if (order && orderBusiness) {
+                        sendOrderToStore(order, orderBusiness)
+                      }
+                    }}
                     className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center hover:bg-emerald-200 transition-colors"
                   >
                     <i className="bi bi-whatsapp text-sm"></i>
-                  </a>
+                  </button>
                 </div>
               )}
             </div>
@@ -427,14 +430,16 @@ function TMAContent() {
                   >
                     <i className="bi bi-telephone-fill text-xs"></i>
                   </a>
-                  <a
-                    href={getWhatsAppLink(order.customer.phone, `Hola ${order.customer?.name || ''}, me comunico de Fuddi sobre tu pedido.`)}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    onClick={() => {
+                      if (order) {
+                        sendWhatsAppToCustomer(order)
+                      }
+                    }}
                     className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center hover:bg-emerald-200 transition-colors"
                   >
                     <i className="bi bi-whatsapp text-sm"></i>
-                  </a>
+                  </button>
                 </div>
               )}
             </div>
@@ -596,14 +601,16 @@ function TMAContent() {
                         >
                           <i className="bi bi-telephone-fill text-[10px]"></i>
                         </a>
-                        <a
-                          href={getWhatsAppLink(orderDelivery.celular, `Hola ${orderDelivery.nombres}, tienes asignado el pedido #${orderId.substring(0, 6)} de ${orderBusiness?.name || 'la tienda'}.`)}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          onClick={() => {
+                            if (order && orderBusiness) {
+                              sendWhatsAppToDelivery(order, deliveries, orderBusiness)
+                            }
+                          }}
                           className="w-7 h-7 rounded-lg bg-white shadow-sm border border-slate-200 text-emerald-600 flex items-center justify-center hover:bg-slate-100"
                         >
                           <i className="bi bi-whatsapp text-sm"></i>
-                        </a>
+                        </button>
                       </div>
                     </div>
                   )}

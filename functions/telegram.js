@@ -42,7 +42,7 @@ async function getAppUrl() {
         console.warn('⚠️ Error al obtener settings/general para appUrl:', e.message);
     }
     // Fallback variable de entorno o por defecto
-    return process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://multitienda-69778.web.app';
+    return process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://fuddi.shop';
 }
 
 // ─── Template Engine ─────────────────────────────────────────
@@ -1026,6 +1026,33 @@ async function updateAdminTelegramMessage(orderData, orderId, hasBeenUpdated = f
             syncText += `\n\n⚠️ <i>Datos del pedido actualizados</i>`;
         }
 
+        const appUrl = await getAppUrl();
+        const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
+        const waUrls = await generateWhatsAppUrlsForOrder(businessData, orderData, orderId);
+
+        const replyMarkup = {
+            inline_keyboard: [
+                [
+                    { text: "📱 Gestionar Pedido (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
+                ]
+            ]
+        };
+
+        const waRow = [];
+        if (waUrls.customer) {
+            waRow.push({ text: "💬 WhatsApp Cliente", url: waUrls.customer });
+        }
+        if (waUrls.store) {
+            waRow.push({ text: "🏪 WhatsApp Tienda", url: waUrls.store });
+        }
+        if (waUrls.delivery) {
+            waRow.push({ text: "🛵 WhatsApp Delivery", url: waUrls.delivery });
+        }
+
+        if (waRow.length > 0) {
+            replyMarkup.inline_keyboard.push(waRow);
+        }
+
         const editUrl = `https://api.telegram.org/bot${ADMIN_BOT_TOKEN}/editMessageText`;
         try {
             await axios.post(editUrl, {
@@ -1033,7 +1060,8 @@ async function updateAdminTelegramMessage(orderData, orderId, hasBeenUpdated = f
                 message_id: adminMsg.messageId,
                 text: syncText,
                 parse_mode: 'HTML',
-                link_preview_options: { is_disabled: true }
+                link_preview_options: { is_disabled: true },
+                reply_markup: replyMarkup
             });
             console.log(`✅ [updateAdminTelegramMessage] Mensaje de admin actualizado para orden ${orderId}`);
         } catch (editError) {
@@ -2124,13 +2152,13 @@ async function getWhatsAppTemplate(key) {
     try {
         const docRef = admin.firestore().collection('whatsAppTemplates').doc(key);
         const docSnap = await docRef.get();
-        if (docSnap.exists) {
-            return docSnap.data().template || '';
+        if (docSnap.exists && docSnap.data().template) {
+            return docSnap.data().template;
         }
     } catch (error) {
         console.warn(`⚠️ Error obteniendo plantilla WhatsApp '${key}':`, error.message);
     }
-    return null;
+    return WHATSAPP_TEMPLATE_DEFAULTS[key] || '';
 }
 
 /**
@@ -2219,6 +2247,252 @@ function buildWhatsAppTemplateVariables(orderData, businessName) {
     };
 }
 
+const WHATSAPP_TEMPLATE_DEFAULTS = {
+    delivery_assignment: `*Pedido de {{businessName}}*\n{{businessPhoneLine}}\n\n*Datos del cliente*\nCliente: {{customerName}}\nCelular: {{customerPhone}}\n\n{{deliverySection}}\n*Detalle del pedido*\n{{productsList}}\n\n*Detalles del pago*\nValor del pedido: \${{subtotal}}\n{{deliveryCostLine}}{{paymentDetailsBlock}}`,
+    pickup_store_notification: `*Pedido de {{businessName}}*\n{{businessPhoneLine}}\n\n*Datos del cliente*\nCliente: {{customerName}}\nCelular: {{customerPhone}}\n\n*Tipo de entrega*\n{{pickupLine}}\n{{orderType}}\n\n*Detalle del pedido*\n{{productsList}}\n\n*Detalles del pago*\nValor del pedido: \${{subtotal}}\n{{paymentDetailsBlock}}`,
+    customer_status: `{{initialMessage}}\n\n*Direccion:*\n{{deliveryInfo}}\n\n*Tipo de entrega:*\n{{orderType}}\n\nDetalle del pedido:\n{{productsList}}\n\nSubtotal: \${{subtotal}}\n{{deliveryCostLine}}{{customerTotalBlock}}Forma de pago: {{paymentMethod}}\n{{orderLinkLine}}`,
+    client_to_store: `*Hola {{businessName}}, he realizado un pedido!*\n\n*Nombres:* {{customerName}}\n\n*Detalles de la entrega*\n{{orderType}}\nReferencias: {{references}}\n{{locationLine}}*Detalle del pedido*\n{{productsList}}\n\n*Total* \${{total}}\n*Forma de pago:* {{paymentMethod}}\n{{orderLinkLine}}`,
+    admin_to_store: `*Hola {{businessName}}, tienes un pedido por confirmar!*\n\n*Nombres:* {{customerName}}\n\n*Detalles de la entrega*\n{{orderType}}\nReferencias: {{references}}\n{{locationLine}}*Detalle del pedido*\n{{productsList}}\n\n*Total* \${{total}}\n\n¿En qué tiempo estaría listo para recoger?`
+};
+
+function normalizePhoneForWhatsApp(phone) {
+    if (!phone) return '';
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (!cleanPhone) return '';
+    if (cleanPhone.startsWith('593')) return cleanPhone;
+    return `593${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}`;
+}
+
+function buildWhatsAppProductsList(order, includeStorePrice = false) {
+    const groupedProducts = {};
+    if (!Array.isArray(order.items)) return 'Sin productos';
+
+    order.items.forEach((item) => {
+        const productName = item.productName || item.product?.name || item.name || 'Producto';
+        const variantName = item.variant || item.variantName || item.name || productName;
+        const hasRealVariant = !!(item.variant || item.variantName || (item.productName && variantName !== productName));
+        let suffix = '';
+        if (includeStorePrice) {
+            const storeReceives = item.storeReceives !== undefined ? item.storeReceives : (item.basePrice || 0);
+            suffix = ` - $${storeReceives.toFixed(2)}`;
+        }
+        if (!groupedProducts[productName]) {
+            groupedProducts[productName] = { hasRealVariant: false, lines: [] };
+        }
+        if (hasRealVariant) {
+            groupedProducts[productName].hasRealVariant = true;
+            groupedProducts[productName].lines.push(`(${item.quantity || 1}) ${variantName}${suffix}`);
+        } else {
+            groupedProducts[productName].lines.push(`(${item.quantity || 1}) ${productName}${suffix}`);
+        }
+    });
+
+    const entries = Object.entries(groupedProducts);
+    if (entries.length === 0) {
+        return 'Sin productos';
+    }
+
+    return entries.map(([productName, group]) => {
+        if (!group.hasRealVariant) {
+            return group.lines.join('\n');
+        }
+        return `${productName}\n${group.lines.join('\n')}`;
+    }).join('\n\n');
+}
+
+async function generateWhatsAppUrlsForOrder(businessData, orderData, orderId) {
+    const urls = {
+        store: '',
+        customer: '',
+        delivery: ''
+    };
+
+    try {
+        const storePhone = businessData.phone || '';
+        const customerPhoneRaw = orderData.customer?.phone || '';
+        const deliveryId = orderData.delivery?.assignedDelivery || '';
+
+        // 1. Build common variables
+        const customerName = orderData.customer?.name || 'Cliente sin nombre';
+        const customerPhone = customerPhoneRaw ? `+593${customerPhoneRaw.replace(/\D/g, '').replace(/^0/, '')}` : '';
+        const references = orderData.delivery?.references || 'Sin referencia';
+        
+        // Location Link
+        let locationLink = '';
+        if (orderData.delivery?.type === 'delivery') {
+            if (orderData.delivery?.latlong) {
+                const cleanCoords = orderData.delivery.latlong.replace(/\s+/g, '');
+                if (cleanCoords.startsWith('pluscode:')) {
+                    const plusCode = cleanCoords.replace('pluscode:', '');
+                    locationLink = `https://www.google.com/maps/place/${encodeURIComponent(plusCode)}`;
+                } else if (cleanCoords.includes(',')) {
+                    locationLink = `https://www.google.com/maps/place/${cleanCoords}`;
+                } else {
+                    locationLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`;
+                }
+            } else if (orderData.delivery?.mapLocation) {
+                locationLink = `https://www.google.com/maps/place/${orderData.delivery.mapLocation.lat},${orderData.delivery.mapLocation.lng}`;
+            }
+        }
+        const locationLine = locationLink ? `Ubicación: ${locationLink}\n\n` : '';
+
+        // Products List
+        const productsListStandard = buildWhatsAppProductsList(orderData, false);
+        const productsListWithPrice = buildWhatsAppProductsList(orderData, true);
+
+        // Cost and Totals
+        const deliveryCost = orderData.delivery?.type === 'delivery' ? (orderData.delivery?.deliveryCost || 0) : 0;
+        const totalAmount = orderData.total || 0;
+        const subtotal = totalAmount - deliveryCost;
+
+        // Timing
+        let orderType = '⚡ Inmediato';
+        if (orderData.timing?.type === 'scheduled') {
+            const scheduledTime = orderData.timing.scheduledTime || '';
+            const scheduledDate = orderData.timing.scheduledDate;
+            if (scheduledDate) {
+                let date;
+                if (typeof scheduledDate.toDate === 'function') {
+                    date = scheduledDate.toDate();
+                } else if (scheduledDate.seconds !== undefined) {
+                    date = new Date(scheduledDate.seconds * 1000);
+                } else {
+                    date = new Date(scheduledDate);
+                }
+                if (!isNaN(date.getTime())) {
+                    const now = new Date();
+                    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    const tomorrow = new Date(today);
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                    if (checkDate.getTime() === today.getTime()) {
+                        orderType = `⏰ Programado para hoy a las ${scheduledTime}`;
+                    } else if (checkDate.getTime() === tomorrow.getTime()) {
+                        orderType = `⏰ Programado para mañana a las ${scheduledTime}`;
+                    } else {
+                        const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+                        orderType = `⏰ Programado para: ${date.getDate()} de ${months[date.getMonth()]} a las ${scheduledTime}`;
+                    }
+                } else {
+                    orderType = `⏰ Programado para las ${scheduledTime}`;
+                }
+            } else {
+                orderType = `⏰ Programado para las ${scheduledTime}`;
+            }
+        }
+
+        // Payment details
+        const paymentMethodKey = orderData.payment?.method || '';
+        let paymentDetailsBlock = '';
+        if (paymentMethodKey === 'mixed') {
+            const cashAmount = orderData.payment?.cashAmount || 0;
+            const transferAmount = orderData.payment?.transferAmount || 0;
+            paymentDetailsBlock = `🏦 Transferencia: $${transferAmount.toFixed(2)}\n💵 *Cobrar:* $${cashAmount.toFixed(2)}`;
+        } else if (paymentMethodKey === 'cash') {
+            paymentDetailsBlock = `💵 *Cobrar:* $${totalAmount.toFixed(2)}`;
+        } else if (paymentMethodKey === 'transfer') {
+            paymentDetailsBlock = '🏦 Transferencia';
+        }
+        const paymentMethodName = paymentMethodKey === 'cash' ? 'Efectivo' : paymentMethodKey === 'transfer' ? 'Transferencia' : paymentMethodKey === 'mixed' ? 'Pago Mixto' : 'Sin especificar';
+
+        // 2. Generate Store URL
+        if (storePhone) {
+            const storeReceives = orderData.items?.reduce((sum, item) => {
+                const itemStoreReceives = item.storeReceives !== undefined ? item.storeReceives : (item.basePrice || 0);
+                return sum + (itemStoreReceives * (item.quantity || 1));
+            }, 0) || orderData.total || 0;
+            const commissionAmount = orderData.items?.reduce((sum, item) => {
+                const itemCommission = item.commission || 0;
+                return sum + (itemCommission * (item.quantity || 1));
+            }, 0) || 0;
+            const deliveryCostLine = orderData.delivery?.type === 'delivery' ? `Envío: $${(orderData.delivery?.deliveryCost || 0).toFixed(2)}\n` : '';
+            const referencesStore = orderData.delivery?.type === 'pickup' ? '🏪 Retira en tienda' : references;
+
+            const storeTemplate = await getWhatsAppTemplate('admin_to_store');
+            const storeMsg = renderTemplate(storeTemplate, {
+                businessName: businessData.name || 'Tienda',
+                customerName,
+                customerPhone,
+                orderType,
+                references: referencesStore,
+                productsList: productsListWithPrice,
+                total: storeReceives.toFixed(2),
+                storeSubtotal: storeReceives.toFixed(2),
+                commissionAmount: commissionAmount.toFixed(2),
+                paymentDetailsBlock,
+                deliveryCostLine,
+                locationLine
+            });
+            urls.store = `https://wa.me/${normalizePhoneForWhatsApp(storePhone)}?text=${encodeURIComponent(storeMsg)}`;
+        }
+
+        // 3. Generate Customer URL
+        if (customerPhoneRaw) {
+            const initialMessage = orderData.timing?.type === 'scheduled' ? 'Tu pedido está agendado!' : 'Tu pedido está en preparación!';
+            const deliveryInfo = orderData.delivery?.type === 'delivery' ? references : 'Retiro en tienda';
+            let orderLinkLine = `\nVer tu orden: https://fuddi.shop/o/${encodeURIComponent(orderId)}`;
+
+            const customerTemplate = await getWhatsAppTemplate('customer_status');
+            const customerMsg = renderTemplate(customerTemplate, {
+                initialMessage,
+                deliveryInfo,
+                orderType,
+                productsList: productsListStandard,
+                subtotal: subtotal.toFixed(2),
+                deliveryCostLine: orderData.delivery?.type === 'delivery' ? `Envío: $${(orderData.delivery?.deliveryCost || 0).toFixed(2)}\n` : '',
+                customerTotalBlock: (paymentMethodKey === 'cash' || paymentMethodKey === 'mixed') ? `*Total:* $${totalAmount.toFixed(2)}\n\n` : '',
+                paymentMethod: paymentMethodName,
+                orderLinkLine
+            });
+            urls.customer = `https://wa.me/${normalizePhoneForWhatsApp(customerPhoneRaw)}?text=${encodeURIComponent(customerMsg)}`;
+        }
+
+        // 4. Generate Delivery URL
+        if (deliveryId) {
+            let deliveryPhone = '';
+            try {
+                const deliveryDoc = await admin.firestore().collection('deliveries').doc(deliveryId).get();
+                if (deliveryDoc.exists) {
+                    deliveryPhone = deliveryDoc.data().celular || '';
+                }
+            } catch (e) {
+                console.error('Error fetching delivery phone for WhatsApp link:', e);
+            }
+
+            if (deliveryPhone) {
+                const bizPhoneStr = businessData.phone ? `+593${businessData.phone.replace(/\D/g, '').replace(/^0/, '')}` : '';
+                const deliverySection = orderData.delivery?.type === 'delivery'
+                    ? `*Detalles de la entrega*\n${orderType}\nReferencias: ${references}\n${locationLink ? `Ubicación: ${locationLink}\n` : ''}`
+                    : '';
+
+                const templateKey = orderData.delivery?.type === 'delivery' ? 'delivery_assignment' : 'pickup_store_notification';
+                const deliveryTemplate = await getWhatsAppTemplate(templateKey);
+                const deliveryMsg = renderTemplate(deliveryTemplate, {
+                    businessName: businessData.name || 'Tienda',
+                    businessPhoneLine: bizPhoneStr ? `${bizPhoneStr}` : '',
+                    customerName,
+                    customerPhone,
+                    deliverySection,
+                    pickupLine: '🏪 Retiro en tienda',
+                    orderType,
+                    references,
+                    locationLine,
+                    productsList: productsListStandard,
+                    subtotal: subtotal.toFixed(2),
+                    deliveryCostLine: orderData.delivery?.type === 'delivery' ? `Envío: $${deliveryCost.toFixed(2)}\n` : '',
+                    paymentDetailsBlock,
+                    total: totalAmount.toFixed(2)
+                });
+                urls.delivery = `https://wa.me/${normalizePhoneForWhatsApp(deliveryPhone)}?text=${encodeURIComponent(deliveryMsg)}`;
+            }
+        }
+    } catch (e) {
+        console.error('Error generating WhatsApp URLs:', e);
+    }
+
+    return urls;
+}
+
 /**
  * Enviar notificación de admin con URLs de WhatsApp directas
  */
@@ -2256,6 +2530,8 @@ async function sendAdminNewOrderNotification(businessData, orderData, orderId) {
         const appUrl = await getAppUrl();
         const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
 
+        const waUrls = await generateWhatsAppUrlsForOrder(businessData, orderData, orderId);
+
         const replyMarkup = {
             inline_keyboard: [
                 [
@@ -2263,6 +2539,21 @@ async function sendAdminNewOrderNotification(businessData, orderData, orderId) {
                 ]
             ]
         };
+
+        const waRow = [];
+        if (waUrls.customer) {
+            waRow.push({ text: "💬 WhatsApp Cliente", url: waUrls.customer });
+        }
+        if (waUrls.store) {
+            waRow.push({ text: "🏪 WhatsApp Tienda", url: waUrls.store });
+        }
+        if (waUrls.delivery) {
+            waRow.push({ text: "🛵 WhatsApp Delivery", url: waUrls.delivery });
+        }
+
+        if (waRow.length > 0) {
+            replyMarkup.inline_keyboard.push(waRow);
+        }
 
         const result = await sendTelegramMessageGeneric(ADMIN_BOT_TOKEN, chatId, telegramText, replyMarkup, linkPreviewOptions);
 
