@@ -1554,11 +1554,17 @@ async function sendDeliveryTelegramNotification(deliveryData, orderData, orderId
     const confirmToken = Buffer.from(`${orderId}|confirm`).toString('base64');
     const discardToken = Buffer.from(`${orderId}|discard`).toString('base64');
 
+    const appUrl = await getAppUrl();
+    const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
+
     const replyMarkup = {
         inline_keyboard: [
             [
                 { text: "✅ Aceptar", callback_data: `order_confirm|${confirmToken}` },
                 { text: "❌ Descartar", callback_data: `order_discard|${discardToken}` }
+            ],
+            [
+                { text: "📱 Abrir Detalle (Mini App)", web_app: { url: `${cleanAppUrl}/tma/delivery?orderId=${orderId}` } }
             ]
         ]
     };
