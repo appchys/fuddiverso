@@ -2471,21 +2471,54 @@ async function generateWhatsAppUrlsForOrder(businessData, orderData, orderId) {
             const deliveryCostLine = orderData.delivery?.type === 'delivery' ? `Envío: $${(orderData.delivery?.deliveryCost || 0).toFixed(2)}\n` : '';
             const referencesStore = orderData.delivery?.type === 'pickup' ? '🏪 Retira en tienda' : references;
 
-            const storeTemplate = await getWhatsAppTemplate('admin_to_store');
-            const storeMsg = renderTemplate(storeTemplate, {
-                businessName: businessData.name || 'Tienda',
-                customerName,
-                customerPhone,
-                orderType,
-                references: referencesStore,
-                productsList: productsListWithPrice,
-                total: storeReceives.toFixed(2),
-                storeSubtotal: storeReceives.toFixed(2),
-                commissionAmount: commissionAmount.toFixed(2),
-                paymentDetailsBlock,
-                deliveryCostLine,
-                locationLine
-            });
+            const isConfirmedOrLater = orderData.status !== 'pending' && orderData.status !== 'borrador';
+            let storeMsg = '';
+
+            if (isConfirmedOrLater) {
+                const subtotalVal = orderData.subtotal || subtotal || 0;
+                const paymentMethod = orderData.payment?.method || 'No especificado';
+                let paymentMethodText = 'No especificado';
+                if (paymentMethod === 'cash') paymentMethodText = '💵 Efectivo';
+                else if (paymentMethod === 'transfer') paymentMethodText = '🏦 Transferencia';
+                else if (paymentMethod === 'mixed') paymentMethodText = '💳 Mixto';
+
+                const statusLabel = ({
+                    pending: 'Pendiente',
+                    confirmed: 'Confirmado',
+                    preparing: 'Preparando',
+                    ready: 'Listo',
+                    on_way: 'En camino',
+                    delivered: 'Entregado',
+                    cancelled: 'Cancelado',
+                    borrador: 'Borrador'
+                })[orderData.status] || (orderData.status || 'Confirmado');
+
+                storeMsg = `Tienda: ${businessData.name || 'Tienda'}\n` +
+                           `Cliente: ${customerName}\n\n` +
+                           `*Detalles del pago*\n` +
+                           `Pedido: $${subtotalVal.toFixed(2)}\n` +
+                           `Comisión: $${commissionAmount.toFixed(2)}\n` +
+                           `Delivery: $${deliveryCost.toFixed(2)}\n\n` +
+                           `${paymentMethodText}\n\n` +
+                           `${statusLabel}`;
+            } else {
+                const storeTemplate = await getWhatsAppTemplate('admin_to_store');
+                storeMsg = renderTemplate(storeTemplate, {
+                    businessName: businessData.name || 'Tienda',
+                    customerName,
+                    customerPhone,
+                    orderType,
+                    references: referencesStore,
+                    productsList: productsListWithPrice,
+                    total: storeReceives.toFixed(2),
+                    storeSubtotal: storeReceives.toFixed(2),
+                    commissionAmount: commissionAmount.toFixed(2),
+                    paymentDetailsBlock,
+                    deliveryCostLine,
+                    locationLine
+                });
+            }
+
             urls.store = `https://wa.me/${normalizePhoneForWhatsApp(storePhone)}?text=${encodeURIComponent(storeMsg)}`;
         }
 

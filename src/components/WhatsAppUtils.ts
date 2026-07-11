@@ -390,21 +390,55 @@ export const sendOrderToStore = async (order: Order, business: Business) => {
         ? '🏪 Retira en tienda'
         : (order.delivery?.references || (order.delivery as any)?.reference || 'Sin referencia')
 
-    const template = await getSavedTemplate('admin_to_store')
-    const message = renderWhatsAppTemplate(template, {
-        businessName: business.name,
-        customerName,
-        customerPhone: customerPhone ? `+593${customerPhone.replace(/\D/g, '').startsWith('0') ? customerPhone.replace(/\D/g, '').slice(1) : customerPhone.replace(/\D/g, '')}` : '',
-        orderType,
-        references,
-        productsList,
-        total,
-        storeSubtotal,
-        commissionAmount: commissionAmountStr,
-        paymentDetailsBlock,
-        deliveryCostLine,
-        locationLine
-    })
+    let message = ''
+    const isConfirmedOrLater = order.status !== 'pending' && order.status !== 'borrador'
+
+    if (isConfirmedOrLater) {
+        const subtotalVal = order.subtotal || (order.total - (order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0))
+        const paymentMethod = order.payment?.method || 'No especificado'
+        let paymentMethodText = 'No especificado'
+        if (paymentMethod === 'cash') paymentMethodText = '💵 Efectivo'
+        else if (paymentMethod === 'transfer') paymentMethodText = '🏦 Transferencia'
+        else if (paymentMethod === 'mixed') paymentMethodText = '💳 Mixto'
+
+        const statusLabel = ({
+            pending: 'Pendiente',
+            confirmed: 'Confirmado',
+            preparing: 'Preparando',
+            ready: 'Listo',
+            on_way: 'En camino',
+            delivered: 'Entregado',
+            cancelled: 'Cancelado',
+            borrador: 'Borrador'
+        })[order.status || 'pending'] || (order.status || 'Confirmado')
+
+        const deliveryCost = order.delivery?.deliveryCost || 0
+
+        message = `Tienda: ${business.name || 'Tienda'}\n` +
+                  `Cliente: ${customerName}\n\n` +
+                  `*Detalles del pago*\n` +
+                  `Pedido: $${subtotalVal.toFixed(2)}\n` +
+                  `Comisión: $${commissionAmount.toFixed(2)}\n` +
+                  `Delivery: $${deliveryCost.toFixed(2)}\n\n` +
+                  `${paymentMethodText}\n\n` +
+                  `${statusLabel}`
+    } else {
+        const template = await getSavedTemplate('admin_to_store')
+        message = renderWhatsAppTemplate(template, {
+            businessName: business.name,
+            customerName,
+            customerPhone: customerPhone ? `+593${customerPhone.replace(/\D/g, '').startsWith('0') ? customerPhone.replace(/\D/g, '').slice(1) : customerPhone.replace(/\D/g, '')}` : '',
+            orderType,
+            references,
+            productsList,
+            total,
+            storeSubtotal,
+            commissionAmount: commissionAmountStr,
+            paymentDetailsBlock,
+            deliveryCostLine,
+            locationLine
+        })
+    }
 
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(storePhone)}&text=${encodeURIComponent(message)}`
     openExternalLink(whatsappUrl)
