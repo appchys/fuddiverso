@@ -1848,19 +1848,7 @@ export default function TodayOrdersPage() {
                     </header>
 
                     {/* Main Content Area: Conditional Rendering */}
-                    {activeTab === 'checklist' ? (
-                        <div className="p-4 sm:p-6">
-                            <DayPreflightChecklist
-                                business={business}
-                                onToggleStoreStatus={handleToggleStoreStatus}
-                                updatingStoreStatus={updatingStoreStatus}
-                                onUpdateDeliveryTime={handleUpdateDeliveryTime}
-                                updatingDeliveryTime={updatingDeliveryTime}
-                                onGoToProducts={() => { setActiveTab('profile'); setProfileSubTab('products') }}
-                                historicalOrders={historicalOrders}
-                            />
-                        </div>
-                    ) : activeTab === 'stats' ? (
+                    {activeTab === 'stats' ? (
                         <div className="p-4 sm:p-6">
                             <StatisticsView key={business?.id} orders={[...orders, ...historicalOrders]} />
                         </div>
@@ -2017,15 +2005,13 @@ export default function TodayOrdersPage() {
                                 <>
                                     <div className="p-4 space-y-6">
                                         {orders.length === 0 ? (
-                                            <DayPreflightChecklist
-                                                business={business}
-                                                onToggleStoreStatus={handleToggleStoreStatus}
-                                                updatingStoreStatus={updatingStoreStatus}
-                                                onUpdateDeliveryTime={handleUpdateDeliveryTime}
-                                                updatingDeliveryTime={updatingDeliveryTime}
-                                                onGoToProducts={() => { setActiveTab('profile'); setProfileSubTab('products') }}
-                                                historicalOrders={historicalOrders}
-                                            />
+                                            <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white rounded-2xl border border-gray-100 shadow-sm max-w-sm mx-auto animate-in fade-in duration-300">
+                                                <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-[#aa1918] mb-4">
+                                                    <i className="bi bi-inbox text-xl"></i>
+                                                </div>
+                                                <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider mb-1">Sin pedidos para hoy</h3>
+                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider leading-relaxed">Aquí aparecerán los pedidos de tus clientes conforme vayan llegando.</p>
+                                            </div>
                                         ) : (
                                             <>
                                                 {/* Totals Summary for Mobile (Top) */}

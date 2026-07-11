@@ -76,19 +76,7 @@ export default function DashboardSidebar({
 
 
                     <div className="space-y-1">
-                        <button
-                            onClick={() => {
-                                setActiveTab('checklist')
-                                setSidebarOpen(false)
-                            }}
-                            className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'checklist'
-                                ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                                : 'text-gray-700 hover:bg-gray-50'
-                                }`}
-                        >
-                            <span className="material-symbols-rounded me-3 text-lg">space_dashboard</span>
-                            <span className="font-medium">Inicio</span>
-                        </button>
+
 
                         <button
                             onClick={() => {

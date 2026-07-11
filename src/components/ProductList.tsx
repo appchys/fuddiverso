@@ -85,6 +85,8 @@ export default function ProductList({
   const [variantVisibility, setVariantVisibility] = useState<Record<string, boolean>>({})
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [activeVariantMenu, setActiveVariantMenu] = useState<string | null>(null)
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false)
+  const [hasVariants, setHasVariants] = useState(false)
 
   // Estados para opciones/modificadores
   const [optionGroups, setOptionGroups] = useState<ProductOptionGroup[]>([])
@@ -169,13 +171,14 @@ export default function ProductList({
     setShowVariantForm(false)
     setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
     setVariantImageFiles({})
+    setOptionGroups([])
+    setEditingGroupIndex(null)
+    setHasVariants(false)
     // Resetear horarios
     setScheduleEnabled(false)
     setSchedules([])
     setEditingScheduleId(null)
     setCurrentSchedule({ days: [], startTime: '09:00', endTime: '17:00' })
-    setOptionGroups([])
-    setEditingGroupIndex(null)
     setShowProductForm(true)
   }
 
@@ -269,6 +272,7 @@ export default function ProductList({
     setVariantImageFiles({})
     setOptionGroups(product.optionGroups || [])
     setEditingGroupIndex(null)
+    setHasVariants(!!(product.variants && product.variants.length > 0))
     setShowProductForm(true)
   }
 
@@ -712,11 +716,14 @@ export default function ProductList({
       if (activeVariantMenu && !target.closest('.variant-action-menu')) {
         setActiveVariantMenu(null)
       }
+      if (showHeaderMenu && !target.closest('.header-action-menu')) {
+        setShowHeaderMenu(false)
+      }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showIngredientSuggestions, activeMenu, activeVariantMenu])
+  }, [showIngredientSuggestions, activeMenu, activeVariantMenu, showHeaderMenu])
 
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -813,7 +820,7 @@ export default function ProductList({
         commissionType: productPricing.commissionType,
         category: formData.category,
         image: imageUrl,
-        variants: variants.length > 0 ? variantsWithCommission : undefined,
+        variants: hasVariants ? (variants.length > 0 ? variantsWithCommission : undefined) : undefined,
         ingredients: ingredients.length > 0 ? ingredients : undefined,
         isAvailable: formData.isAvailable,
         // undefined = eliminar campo en Firestore
@@ -1205,18 +1212,34 @@ export default function ProductList({
           <i className="bi bi-box-seam text-blue-600" />
           Productos
         </h2>
-        <button
-          onClick={() => {
-            setJsonText('')
-            setJsonError(null)
-            setParsedProducts([])
-            setShowJsonImport(true)
-          }}
-          className="flex items-center gap-2 px-4 py-2 text-xs md:text-sm font-bold text-blue-600 bg-blue-50 border border-blue-100 hover:bg-blue-100 rounded-xl transition-all shadow-sm active:scale-95"
-        >
-          <i className="bi bi-filetype-json text-base" />
-          Subir Menú (JSON)
-        </button>
+        
+        <div className="relative header-action-menu">
+          <button
+            onClick={() => setShowHeaderMenu(!showHeaderMenu)}
+            className="w-9 h-9 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-gray-100 transition-all active:scale-95 border border-gray-200 bg-white shadow-sm"
+            title="Más opciones"
+          >
+            <i className="bi bi-three-dots-vertical text-lg"></i>
+          </button>
+
+          {showHeaderMenu && (
+            <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
+              <button
+                onClick={() => {
+                  setJsonText('')
+                  setJsonError(null)
+                  setParsedProducts([])
+                  setShowJsonImport(true)
+                  setShowHeaderMenu(false)
+                }}
+                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+              >
+                <i className="bi bi-filetype-json text-blue-600 text-base" />
+                Subir Menú (JSON)
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Lista de productos agrupada por categoría */}
@@ -1475,51 +1498,53 @@ export default function ProductList({
         </div>
       )}
 
-
-      {/* Modal del formulario - Versión Visual */}
       {showProductForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[2.5rem] max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-300">
-            <div className="p-8">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl max-w-2xl w-full h-[95vh] sm:h-auto sm:max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 animate-in slide-in-from-bottom sm:zoom-in duration-300 overflow-hidden">
+            <form onSubmit={handleSaveProduct} className="flex flex-col flex-1 overflow-hidden">
               {/* Encabezado */}
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-semibold text-gray-900">
+              <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 flex-shrink-0">
+                <h3 className="text-lg font-bold text-gray-900">
                   {editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
                 </h3>
                 <button
+                  type="button"
                   onClick={handleCloseForm}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-all"
                 >
-                  <i className="bi bi-x-lg text-xl"></i>
+                  <i className="bi bi-x-lg text-lg"></i>
                 </button>
               </div>
 
-              {/* Pestañas */}
-              <div className="border-b border-gray-200 mb-6">
-                <nav className="-mb-px flex space-x-8">
+              {/* Cuerpo del Modal - Con Scroll */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                {/* Pestañas */}
+                <div className="flex bg-gray-50 p-1 rounded-xl mb-6 max-w-md mx-auto text-xs font-semibold border border-gray-100">
                   <button
                     type="button"
                     onClick={() => setActiveTab('general')}
-                    className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'general'
-                      ? 'border-red-500 text-red-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                      }`}
+                    className={`flex-1 py-2 px-3 rounded-lg text-center transition-all flex items-center justify-center gap-1.5 ${
+                      activeTab === 'general'
+                        ? 'bg-white text-gray-900 shadow-sm border border-gray-100'
+                        : 'text-gray-500 hover:text-gray-900'
+                    }`}
                   >
-                    <i className="bi bi-info-circle me-2"></i>
-                    Información General
+                    <i className="bi bi-info-circle text-sm"></i>
+                    General
                   </button>
                   <button
                     type="button"
                     onClick={() => setActiveTab('ingredients')}
-                    className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'ingredients'
-                      ? 'border-red-500 text-red-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                      }`}
+                    className={`flex-1 py-2 px-3 rounded-lg text-center transition-all flex items-center justify-center gap-1.5 ${
+                      activeTab === 'ingredients'
+                        ? 'bg-white text-gray-900 shadow-sm border border-gray-100'
+                        : 'text-gray-500 hover:text-gray-900'
+                    }`}
                   >
-                    <i className="bi bi-basket me-2"></i>
-                    Ingredientes y Costos
+                    <i className="bi bi-basket text-sm"></i>
+                    <span>Ingredientes</span>
                     {ingredients.length > 0 && (
-                      <span className="ml-2 bg-red-100 text-red-800 px-2 py-0.5 rounded-full text-xs">
+                      <span className="bg-red-500 text-white px-1.5 py-0.5 rounded-full text-[9px] font-black leading-none">
                         {ingredients.length}
                       </span>
                     )}
@@ -1527,33 +1552,32 @@ export default function ProductList({
                   <button
                     type="button"
                     onClick={() => setActiveTab('options')}
-                    className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'options'
-                      ? 'border-red-500 text-red-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                      }`}
+                    className={`flex-1 py-2 px-3 rounded-lg text-center transition-all flex items-center justify-center gap-1.5 ${
+                      activeTab === 'options'
+                        ? 'bg-white text-gray-900 shadow-sm border border-gray-100'
+                        : 'text-gray-500 hover:text-gray-900'
+                    }`}
                   >
-                    <i className="bi bi-gear me-2"></i>
-                    Opciones y Modificadores
+                    <i className="bi bi-gear text-sm"></i>
+                    <span>Toppings</span>
                     {optionGroups.length > 0 && (
-                      <span className="ml-2 bg-red-100 text-red-800 px-2 py-0.5 rounded-full text-xs">
+                      <span className="bg-red-500 text-white px-1.5 py-0.5 rounded-full text-[9px] font-black leading-none">
                         {optionGroups.length}
                       </span>
                     )}
                   </button>
-                </nav>
-              </div>
+                </div>
 
-              <form onSubmit={handleSaveProduct} className="space-y-6">
                 {/* PESTAÑA: INFORMACIÓN GENERAL */}
                 {activeTab === 'general' && (
-                  <div className="space-y-8">
-                    {/* Sección Superior: Imagen + Nombre/Precio */}
-                    <div className="flex flex-col sm:flex-row gap-8">
-                      {/* Lado Izquierdo: Imagen más pequeña + Ajuste de encuadre */}
+                  <div className="space-y-6">
+                    {/* Sección Superior: Información Básica (Imagen + Campos) */}
+                    <div className="flex flex-col sm:flex-row gap-6">
+                      {/* Lado Izquierdo: Imagen + Ajuste de encuadre */}
                       <div className="flex flex-col items-center gap-3 mx-auto sm:mx-0">
                         <div className="w-40 h-40 flex-shrink-0">
                           <label htmlFor="image-upload" className="block cursor-pointer h-full">
-                            <div className="relative h-full bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200 hover:border-red-400 hover:bg-red-50 transition-all flex items-center justify-center overflow-hidden group shadow-inner">
+                            <div className="relative h-full bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 hover:border-red-400 hover:bg-red-50 transition-all flex items-center justify-center overflow-hidden group shadow-inner">
                               {uploading && formData.image && (
                                 <div className="absolute inset-0 z-20 bg-black/50 backdrop-blur-[1px] flex flex-col items-center justify-center">
                                   <i className="bi bi-arrow-clockwise animate-spin text-white text-xl mb-1"></i>
@@ -1621,8 +1645,8 @@ export default function ProductList({
                         />
                       </div>
 
-                      {/* Lado Derecho: Nombre y Precio */}
-                      <div className="flex-1 space-y-6">
+                      {/* Lado Derecho: Nombre, Precio y Descripción */}
+                      <div className="flex-1 space-y-5">
                         {/* Nombre del Producto */}
                         <div>
                           <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1">Nombre del Producto</label>
@@ -1633,7 +1657,7 @@ export default function ProductList({
                               value={formData.name}
                               onChange={handleInputChange}
                               placeholder="Ej: Hamburguesa VIP"
-                              className={`w-full text-xl font-bold text-gray-900 border-b-2 focus:outline-none transition-colors py-1 px-0 ${errors.name ? 'border-red-500 text-red-600' : 'border-gray-100 hover:border-gray-300 focus:border-red-500'
+                              className={`w-full text-lg font-bold text-gray-900 border-b-2 focus:outline-none transition-colors py-1.5 px-0 ${errors.name ? 'border-red-500 text-red-600' : 'border-gray-100 hover:border-gray-300 focus:border-red-500'
                                 }`}
                             />
                           </div>
@@ -1654,7 +1678,7 @@ export default function ProductList({
                               onChange={handleInputChange}
                               onWheel={(e) => (e.target as HTMLInputElement).blur()}
                               placeholder="0.00"
-                              className={`w-full pl-6 pr-0 py-1 text-2xl font-bold border-b-2 focus:outline-none transition-colors bg-transparent ${errors.price ? 'border-red-500 text-red-600' : 'border-gray-100 hover:border-gray-300 focus:border-red-500 text-gray-900'
+                              className={`w-full pl-6 pr-0 py-1 text-xl font-bold border-b-2 focus:outline-none transition-colors bg-transparent ${errors.price ? 'border-red-500 text-red-600' : 'border-gray-100 hover:border-gray-300 focus:border-red-500 text-gray-900'
                                 }`}
                             />
                           </div>
@@ -1679,179 +1703,234 @@ export default function ProductList({
                             </div>
                           )}
                         </div>
-                      </div>
-                    </div>
 
-                    {/* Gestión de Comisión - Colapsable */}
-                    {showCommissionSettings && (
-                      <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-6 animate-in fade-in zoom-in duration-300">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center shadow-sm">
-                            <i className="bi bi-percent text-xl"></i>
-                          </div>
-                          <div>
-                            <h4 className="font-black text-slate-800 uppercase text-[11px] tracking-[0.2em] leading-none">Gestión de Comisión ({commissionSettings.commissionRate}%)</h4>
-                            <p className="text-[10px] text-slate-500 font-medium mt-1">Fuddi cobra una comisión fija del {commissionSettings.commissionRate}% por servicio</p>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <button
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_customer' }))}
-                            className={`p-5 rounded-3xl border-2 text-left transition-all duration-300 group ${
-                              formData.commissionType === 'fuddi_assumed_by_customer'
-                                ? 'border-red-500 bg-white shadow-xl shadow-red-100 scale-[1.02]'
-                                : 'border-slate-100 bg-white/50 hover:border-slate-200'
-                            }`}
-                          >
-                            <div className="flex items-center gap-3 mb-3">
-                              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                                formData.commissionType === 'fuddi_assumed_by_customer' ? 'border-red-500 bg-red-500' : 'border-slate-200'
-                              }`}>
-                                {formData.commissionType === 'fuddi_assumed_by_customer' && <div className="w-2 h-2 bg-white rounded-full"></div>}
-                              </div>
-                              <span className={`font-bold text-sm transition-colors ${formData.commissionType === 'fuddi_assumed_by_customer' ? 'text-red-600' : 'text-slate-600'}`}>Cliente paga comisión</span>
-                            </div>
-                            <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
-                              El sistema suma el {commissionSettings.commissionRate}% al precio base. <span className="text-slate-800 font-bold">Tú recibes el 100%</span> de tu precio ingresado.
-                            </p>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_store' }))}
-                            className={`p-5 rounded-3xl border-2 text-left transition-all duration-300 group ${
-                              formData.commissionType === 'fuddi_assumed_by_store'
-                                ? 'border-red-500 bg-white shadow-xl shadow-red-100 scale-[1.02]'
-                                : 'border-slate-100 bg-white/50 hover:border-slate-200'
-                            }`}
-                          >
-                            <div className="flex items-center gap-3 mb-3">
-                              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                                formData.commissionType === 'fuddi_assumed_by_store' ? 'border-red-500 bg-red-500' : 'border-slate-200'
-                              }`}>
-                                {formData.commissionType === 'fuddi_assumed_by_store' && <div className="w-2 h-2 bg-white rounded-full"></div>}
-                              </div>
-                              <span className={`font-bold text-sm transition-colors ${formData.commissionType === 'fuddi_assumed_by_store' ? 'text-red-600' : 'text-slate-600'}`}>Negocio asume comisión</span>
-                            </div>
-                            <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
-                              El precio ingresado es el final para el cliente. <span className="text-slate-800 font-bold">Fuddi descuenta el {commissionSettings.commissionRate}%</span> de tu ganancia.
-                            </p>
-                          </button>
-                        </div>
-
-                        {formData.price && Number(formData.price) > 0 && (
-                          <div className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-6">
-                            <div className="flex-1 text-center sm:text-left">
-                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Precio al público</p>
-                                <p className="text-2xl font-black text-slate-900 tracking-tight">
-                                  ${formData.commissionType === 'fuddi_assumed_by_customer' 
-                                    ? (Math.round(Number(formData.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
-                                    : Number(formData.price).toFixed(2)}
-                                </p>
-                            </div>
-                            <div className="hidden sm:block h-10 w-px bg-slate-100"></div>
-                            <div className="flex-1 text-center sm:text-right">
-                                <p className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.2em] mb-1">Recibes en tu cuenta</p>
-                                <p className="text-2xl font-black text-emerald-600 tracking-tight">
-                                  ${formData.commissionType === 'fuddi_assumed_by_store' 
-                                    ? (Number(formData.price) * (1 - commissionSettings.commissionRate / 100)).toFixed(2) 
-                                    : Number(formData.price).toFixed(2)}
-                                </p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Descripción */}
-                    <div>
-                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1">Descripción</label>
-                      <textarea
-                        name="description"
-                        value={formData.description}
-                        onChange={handleInputChange}
-                        rows={3}
-                        placeholder="Cuéntanos más sobre este delicioso producto..."
-                        className={`w-full px-4 py-3 bg-gray-50 border-2 rounded-2xl focus:outline-none transition-all text-base font-medium ${errors.description ? 'border-red-500 text-red-600' : 'border-gray-50 hover:border-gray-200 focus:border-red-500 focus:bg-white'
-                          }`}
-                      />
-                      {errors.description && <p className="text-red-500 text-[10px] mt-1 font-bold italic">{errors.description}</p>}
-                    </div>
-
-                    {/* Categoría y Disponibilidad en una fila */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-end">
-                      {/* Categoría */}
-                      <div>
-                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Categoría</label>
-                        <div className="relative">
-                          <input
-                            type="text"
-                            name="category"
-                            list="categories-list"
-                            value={formData.category}
-                            onChange={handleInputChange}
-                            placeholder="Escribe o selecciona una categoría..."
-                            className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-50 hover:border-gray-200 focus:border-red-500 focus:bg-white rounded-2xl focus:outline-none transition-all text-base font-medium"
-                          />
-                          <datalist id="categories-list">
-                            {categories.map((cat) => (
-                              <option key={cat} value={cat} />
-                            ))}
-                          </datalist>
-                        </div>
-                      </div>
-
-                      {/* Disponibilidad */}
-                      <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors">
-                        <input
-                          type="checkbox"
-                          checked={formData.isAvailable}
-                          onChange={(e) => setFormData(prev => ({ ...prev, isAvailable: e.target.checked }))}
-                          className="w-5 h-5 rounded text-red-600 cursor-pointer"
-                        />
-                        <span className="font-medium text-gray-700">Producto disponible</span>
-                      </label>
-                    </div>
-
-                    {/* Configuración de Combo */}
-                    <div className="border-t pt-6">
-                      <label className="flex items-center gap-3 p-4 bg-orange-50 rounded-lg cursor-pointer hover:bg-orange-100 transition-colors mb-4 border-2 border-orange-100">
-                        <input
-                          type="checkbox"
-                          checked={formData.isCombo}
-                          onChange={(e) => setFormData(prev => ({ ...prev, isCombo: e.target.checked }))}
-                          className="w-5 h-5 rounded text-orange-600 cursor-pointer"
-                        />
+                        {/* Descripción */}
                         <div>
-                          <span className="font-bold text-gray-900">Este producto es un Combo</span>
-                          <p className="text-xs text-gray-600 mt-0.5">
-                            Requiere que el cliente seleccione múltiples opciones (variantes) para armar su combo
-                          </p>
+                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1">Descripción</label>
+                          <textarea
+                            name="description"
+                            value={formData.description}
+                            onChange={handleInputChange}
+                            rows={3}
+                            placeholder="Cuéntanos más sobre este delicioso producto..."
+                            className={`w-full px-4 py-2.5 bg-gray-50 border-2 rounded-xl focus:outline-none transition-all text-sm font-medium ${errors.description ? 'border-red-500 text-red-600' : 'border-gray-50 hover:border-gray-200 focus:border-red-500 focus:bg-white'
+                              }`}
+                          />
+                          {errors.description && <p className="text-red-500 text-[10px] mt-1 font-bold italic">{errors.description}</p>}
                         </div>
-                      </label>
+                      </div>
+                    </div>
 
-                      {formData.isCombo && (
-                        <div className="space-y-4 bg-gray-50 p-6 rounded-2xl border border-orange-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
-                              Cantidad de opciones a elegir
-                            </label>
+                    {/* Estructura del Producto / Opciones de Personalización */}
+                    <div className="border-t border-gray-100 pt-6 space-y-4">
+                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Configuración y Estructura</label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* Tarjeta Con Variantes */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newHasVariants = !hasVariants;
+                            setHasVariants(newHasVariants);
+                            if (!newHasVariants) {
+                              setFormData(prev => ({ ...prev, isCombo: false }));
+                            }
+                          }}
+                          className={`p-4 rounded-xl border-2 text-left transition-all flex flex-col justify-between h-28 group ${
+                            hasVariants
+                              ? 'border-blue-500 bg-blue-50/20'
+                              : 'border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200'
+                          }`}
+                        >
+                          <div className="flex justify-between items-start w-full">
+                            <i className="bi bi-layers text-xl text-blue-600"></i>
                             <input
-                              type="number"
-                              min="1"
-                              value={formData.minComboItems}
-                              onChange={(e) => setFormData(prev => ({ ...prev, minComboItems: Number(e.target.value) }))}
-                              className="w-full sm:w-1/2 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium bg-white"
+                              type="checkbox"
+                              checked={hasVariants}
+                              onChange={() => {}}
+                              className="w-4 h-4 rounded text-blue-600"
                             />
-                            <p className="text-xs text-gray-500 mt-2 font-medium">
-                              El cliente deberá seleccionar exactamente esta cantidad de variantes para poder agregar el combo al carrito.
-                            </p>
                           </div>
+                          <div>
+                            <span className="font-bold text-xs text-gray-900 block">Con Variantes</span>
+                            <span className="text-[10px] text-gray-500 leading-tight block mt-0.5">Diferentes precios, tamaños o sabores</span>
+                          </div>
+                        </button>
+
+                        {/* Tarjeta Es Combo */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newIsCombo = !formData.isCombo;
+                            setFormData(prev => ({ ...prev, isCombo: newIsCombo }));
+                            if (newIsCombo) {
+                              setHasVariants(true);
+                            }
+                          }}
+                          className={`p-4 rounded-xl border-2 text-left transition-all flex flex-col justify-between h-28 group ${
+                            formData.isCombo
+                              ? 'border-orange-500 bg-orange-50/20'
+                              : 'border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200'
+                          }`}
+                        >
+                          <div className="flex justify-between items-start w-full">
+                            <i className="bi bi-box-seam text-xl text-orange-600"></i>
+                            <input
+                              type="checkbox"
+                              checked={formData.isCombo}
+                              onChange={() => {}}
+                              className="w-4 h-4 rounded text-orange-600"
+                            />
+                          </div>
+                          <div>
+                            <span className="font-bold text-xs text-gray-900 block">Es un Combo</span>
+                            <span className="text-[10px] text-gray-500 leading-tight block mt-0.5">Armar paquetes seleccionando elementos</span>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Divider and Additional Settings */}
+                    <div className="border-t border-gray-100 pt-6 space-y-6">
+                      
+                      {/* Categoría y Disponibilidad en una fila */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-end">
+                        {/* Categoría */}
+                        <div>
+                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Categoría</label>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              name="category"
+                              list="categories-list"
+                              value={formData.category}
+                              onChange={handleInputChange}
+                              placeholder="Escribe o selecciona una categoría..."
+                              className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-50 hover:border-gray-200 focus:border-red-500 focus:bg-white rounded-xl focus:outline-none transition-all text-base font-medium"
+                            />
+                            <datalist id="categories-list">
+                              {categories.map((cat) => (
+                                <option key={cat} value={cat} />
+                              ))}
+                            </datalist>
+                          </div>
+                        </div>
+
+                        {/* Disponibilidad */}
+                        <label className="flex items-center gap-3 p-3.5 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors border border-gray-100">
+                          <input
+                            type="checkbox"
+                            checked={formData.isAvailable}
+                            onChange={(e) => setFormData(prev => ({ ...prev, isAvailable: e.target.checked }))}
+                            className="w-5 h-5 rounded text-red-600 cursor-pointer"
+                          />
+                          <span className="font-semibold text-gray-700 text-sm">Producto disponible</span>
+                        </label>
+                      </div>
+
+                      {/* Gestión de Comisión - Colapsable */}
+                      {showCommissionSettings && (
+                        <div className="bg-slate-50 p-6 rounded-xl border border-slate-100 space-y-6 animate-in fade-in zoom-in duration-300">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center shadow-sm">
+                              <i className="bi bi-percent text-xl"></i>
+                            </div>
+                            <div>
+                              <h4 className="font-black text-slate-800 uppercase text-[11px] tracking-[0.2em] leading-none">Gestión de Comisión ({commissionSettings.commissionRate}%)</h4>
+                              <p className="text-[10px] text-slate-500 font-medium mt-1">Fuddi cobra una comisión fija del {commissionSettings.commissionRate}% por servicio</p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <button
+                              type="button"
+                              onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_customer' }))}
+                              className={`p-5 rounded-xl border-2 text-left transition-all duration-300 group ${
+                                formData.commissionType === 'fuddi_assumed_by_customer'
+                                  ? 'border-red-500 bg-white shadow-xl shadow-red-100 scale-[1.02]'
+                                  : 'border-slate-100 bg-white/50 hover:border-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 mb-3">
+                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                                  formData.commissionType === 'fuddi_assumed_by_customer' ? 'border-red-500 bg-red-500' : 'border-slate-200'
+                                }`}>
+                                  {formData.commissionType === 'fuddi_assumed_by_customer' && <div className="w-2 h-2 bg-white rounded-full"></div>}
+                                </div>
+                                <span className={`font-bold text-sm transition-colors ${formData.commissionType === 'fuddi_assumed_by_customer' ? 'text-red-600' : 'text-slate-600'}`}>Cliente paga comisión</span>
+                              </div>
+                              <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
+                                El sistema suma el {commissionSettings.commissionRate}% al precio base. <span className="text-slate-800 font-bold">Tú recibes el 100%</span> de tu precio ingresado.
+                              </p>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_store' }))}
+                              className={`p-5 rounded-xl border-2 text-left transition-all duration-300 group ${
+                                formData.commissionType === 'fuddi_assumed_by_store'
+                                  ? 'border-red-500 bg-white shadow-xl shadow-red-100 scale-[1.02]'
+                                  : 'border-slate-100 bg-white/50 hover:border-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 mb-3">
+                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                                  formData.commissionType === 'fuddi_assumed_by_store' ? 'border-red-500 bg-red-500' : 'border-slate-200'
+                                }`}>
+                                  {formData.commissionType === 'fuddi_assumed_by_store' && <div className="w-2 h-2 bg-white rounded-full"></div>}
+                                </div>
+                                <span className={`font-bold text-sm transition-colors ${formData.commissionType === 'fuddi_assumed_by_store' ? 'text-red-600' : 'text-slate-600'}`}>Negocio asume comisión</span>
+                              </div>
+                              <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
+                                El precio ingresado es el final para el cliente. <span className="text-slate-800 font-bold">Fuddi descuenta el {commissionSettings.commissionRate}%</span> de tu ganancia.
+                              </p>
+                            </button>
+                          </div>
+
+                          {formData.price && Number(formData.price) > 0 && (
+                            <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-6">
+                              <div className="flex-1 text-center sm:text-left">
+                                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Precio al público</p>
+                                  <p className="text-2xl font-black text-slate-900 tracking-tight">
+                                    ${formData.commissionType === 'fuddi_assumed_by_customer' 
+                                      ? (Math.round(Number(formData.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
+                                      : Number(formData.price).toFixed(2)}
+                                  </p>
+                              </div>
+                              <div className="hidden sm:block h-10 w-px bg-slate-100"></div>
+                              <div className="flex-1 text-center sm:text-right">
+                                  <p className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.2em] mb-1">Recibes en tu cuenta</p>
+                                  <p className="text-2xl font-black text-emerald-600 tracking-tight">
+                                    ${formData.commissionType === 'fuddi_assumed_by_store' 
+                                      ? (Number(formData.price) * (1 - commissionSettings.commissionRate / 100)).toFixed(2) 
+                                      : Number(formData.price).toFixed(2)}
+                                  </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
+
+                    {/* Configuración de Combo */}
+                    {formData.isCombo && (
+                      <div className="border-t pt-6 space-y-4">
+                        <div>
+                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                            Cantidad de opciones a elegir en el combo
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={formData.minComboItems}
+                            onChange={(e) => setFormData(prev => ({ ...prev, minComboItems: Number(e.target.value) }))}
+                            className="w-full sm:w-1/2 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium bg-white"
+                          />
+                          <p className="text-xs text-gray-500 mt-2 font-medium">
+                            El cliente deberá seleccionar exactamente esta cantidad de variantes para poder agregar el combo al carrito.
+                          </p>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Disponibilidad por Horarios */}
                     <div className="border-t pt-6">
@@ -1972,8 +2051,9 @@ export default function ProductList({
                     </div>
 
                     {/* Variantes */}
-                    <div className="border-t pt-6">
-                      <h4 className="font-semibold text-gray-900 mb-4">Variantes</h4>
+                    {(hasVariants || formData.isCombo) && (
+                      <div className="border-t pt-6">
+                        <h4 className="font-semibold text-gray-900 mb-4">Variantes</h4>
 
                       {variants.length > 0 && (
                         <div className="space-y-3 mb-6">
@@ -2225,7 +2305,8 @@ export default function ProductList({
                           </div>
                         </div>
                       )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2638,103 +2719,103 @@ export default function ProductList({
                   </div>
                 )}
 
-                {/* PESTAÑA: OPCIONES Y MODIFICADORES */}
                 {activeTab === 'options' && (
                   <div className="space-y-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h3 className="text-lg font-medium text-gray-900">Grupos de Opciones / Modificadores</h3>
-                        <p className="text-sm text-gray-500 mt-1">Permite a tus clientes personalizar su producto (salsas, extras, etc.)</p>
+                        <h3 className="text-lg font-bold text-gray-900">Configuración de Toppings</h3>
+                        <p className="text-xs text-gray-500 mt-1">Configura las salsas, ingredientes adicionales o aderezos que el cliente puede sumar al producto.</p>
                       </div>
                       <button
                         type="button"
                         onClick={handleAddOptionGroup}
-                        className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+                        className="px-4 py-2.5 bg-red-600 text-white text-xs font-semibold rounded-xl hover:bg-red-700 transition-colors flex items-center gap-2 shadow-sm shadow-red-100"
                       >
                         <i className="bi bi-plus-lg"></i>
-                        Nuevo Grupo
+                        Nuevo Grupo de Toppings
                       </button>
                     </div>
 
                     {/* Formulario de edición/creación de un grupo */}
                     {editingGroupIndex !== null && (
-                      <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 space-y-4">
-                        <h4 className="font-bold text-gray-900 text-sm">
-                          {editingGroupIndex === -1 ? 'Crear Grupo de Opciones' : 'Editar Grupo de Opciones'}
-                        </h4>
+                      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200/60 space-y-5 shadow-inner">
+                        <div className="flex items-center gap-2">
+                          <div className="w-1.5 h-4 bg-red-500 rounded-full"></div>
+                          <h4 className="font-black text-slate-800 text-xs uppercase tracking-wider">
+                            {editingGroupIndex === -1 ? 'Crear Grupo de Toppings' : 'Editar Grupo de Toppings'}
+                          </h4>
+                        </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
-                            <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Nombre del Grupo</label>
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Categoría del Topping</label>
                             <input
                               type="text"
                               value={currentGroup.name}
                               onChange={(e) => setCurrentGroup(prev => ({ ...prev, name: e.target.value }))}
-                              placeholder="Ej: Salsas, Extras, Tamaño"
-                              className="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-red-500 outline-none text-sm"
+                              placeholder="Ej: Salsas, Quesos, Extras"
+                              className="w-full px-4 py-2.5 border border-gray-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 rounded-xl transition-all outline-none text-sm bg-white font-medium text-gray-900"
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Selección Mínima</label>
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Mínimo a Elegir</label>
                             <input
                               type="number"
                               min="0"
                               value={currentGroup.minSelect}
                               onChange={(e) => setCurrentGroup(prev => ({ ...prev, minSelect: Math.max(0, parseInt(e.target.value) || 0) }))}
-                              className="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-red-500 outline-none text-sm"
+                              className="w-full px-4 py-2.5 border border-gray-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 rounded-xl transition-all outline-none text-sm bg-white font-medium text-gray-900"
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Selección Máxima</label>
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Máximo a Elegir</label>
                             <input
                               type="number"
                               min="1"
                               value={currentGroup.maxSelect}
                               onChange={(e) => setCurrentGroup(prev => ({ ...prev, maxSelect: Math.max(1, parseInt(e.target.value) || 1) }))}
-                              className="w-full px-3 py-2 border rounded-lg focus:ring-1 focus:ring-red-500 outline-none text-sm"
+                              className="w-full px-4 py-2.5 border border-gray-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 rounded-xl transition-all outline-none text-sm bg-white font-medium text-gray-900"
                             />
                           </div>
                         </div>
 
-                        {/* Listado y formulario de opciones individuales */}
-                        <div className="space-y-2">
-                          <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Opciones / Modificadores</label>
+                        {/* Listado y formulario de toppings individuales */}
+                        <div className="space-y-3 bg-white p-5 rounded-2xl border border-gray-100">
+                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Toppings en este grupo</label>
                           
-                          {/* Lista de opciones actuales del grupo */}
+                          {/* Lista de toppings actuales (Horizontal Pills Layout) */}
                           {currentGroup.options.length > 0 ? (
-                            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                            <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto pr-1 py-1">
                               {currentGroup.options.map((opt, oIdx) => (
-                                <div key={oIdx} className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 text-sm">
-                                  <span className="font-medium text-gray-900">{opt.name}</span>
-                                  <div className="flex items-center gap-3">
-                                    <span className="text-gray-500 text-xs">
-                                      {opt.price > 0 ? `+$${opt.price.toFixed(2)}` : 'Gratis'}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveOptionFromGroup(oIdx)}
-                                      className="text-gray-400 hover:text-red-600 transition-colors"
-                                    >
-                                      <i className="bi bi-trash"></i>
-                                    </button>
-                                  </div>
+                                <div key={oIdx} className="flex items-center gap-1.5 bg-gray-50 hover:bg-gray-100/80 px-3 py-1.5 rounded-full border border-gray-200 text-xs font-semibold text-gray-800 shadow-sm transition-all">
+                                  <span>{opt.name}</span>
+                                  <span className="text-emerald-600 font-bold ml-0.5">
+                                    {opt.price > 0 ? `+$${opt.price.toFixed(2)}` : 'Gratis'}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveOptionFromGroup(oIdx)}
+                                    className="text-gray-400 hover:text-red-500 w-4 h-4 rounded-full hover:bg-red-50 flex items-center justify-center ml-1 transition-colors"
+                                  >
+                                    <i className="bi bi-x-lg text-[9px] font-bold"></i>
+                                  </button>
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <p className="text-xs text-gray-400 italic">No hay opciones agregadas a este grupo aún.</p>
+                            <p className="text-xs text-gray-400 italic font-medium ml-1">No hay toppings agregados aún en esta categoría.</p>
                           )}
 
-                          {/* Fila para agregar opción rápida */}
-                          <div className="flex gap-2 items-center pt-2">
+                          {/* Fila para agregar topping rápidamente */}
+                          <div className="flex flex-col sm:flex-row gap-2 items-center pt-2">
                             <input
                               type="text"
-                              placeholder="Nombre de la opción (ej: Salsa BBQ)"
+                              placeholder="Nombre del topping (ej: Queso Extra)"
                               value={newOptionName}
                               onChange={(e) => setNewOptionName(e.target.value)}
-                              className="flex-1 px-3 py-2 border rounded-lg text-sm outline-none"
+                              className="w-full sm:flex-1 px-4 py-2.5 border border-gray-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 rounded-xl text-sm outline-none font-medium"
                             />
-                            <div className="relative w-28">
-                              <span className="absolute left-2.5 top-2 text-gray-400 text-sm">$</span>
+                            <div className="relative w-full sm:w-32">
+                              <span className="absolute left-3.5 top-2.5 text-gray-400 text-sm font-medium">$</span>
                               <input
                                 type="number"
                                 step="0.01"
@@ -2742,32 +2823,33 @@ export default function ProductList({
                                 placeholder="Precio"
                                 value={newOptionPrice}
                                 onChange={(e) => setNewOptionPrice(e.target.value)}
-                                className="w-full pl-6 pr-2 py-2 border rounded-lg text-sm outline-none"
+                                className="w-full pl-7 pr-3 py-2.5 border border-gray-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 rounded-xl text-sm outline-none font-medium"
                               />
                             </div>
                             <button
                               type="button"
                               onClick={handleAddOptionToGroup}
-                              className="px-3 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 transition-colors"
+                              className="w-full sm:w-auto px-4 py-2.5 bg-gray-900 hover:bg-gray-800 text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1"
                             >
-                              Agregar
+                              <i className="bi bi-plus-lg"></i>
+                              Añadir Topping
                             </button>
                           </div>
                         </div>
 
                         {/* Botones de acción del grupo */}
-                        <div className="flex gap-2 pt-2 justify-end border-t border-gray-200">
+                        <div className="flex gap-2 pt-3 justify-end border-t border-slate-200/60">
                           <button
                             type="button"
                             onClick={() => setEditingGroupIndex(null)}
-                            className="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-100 transition-colors"
+                            className="px-4 py-2 border border-gray-300 text-gray-700 text-xs font-semibold rounded-xl hover:bg-gray-100 transition-colors"
                           >
                             Cancelar
                           </button>
                           <button
                             type="button"
                             onClick={handleSaveOptionGroup}
-                            className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors"
+                            className="px-4 py-2 bg-red-600 text-white text-xs font-semibold rounded-xl hover:bg-red-700 transition-colors shadow-sm shadow-red-100"
                           >
                             Guardar Grupo
                           </button>
@@ -2775,87 +2857,99 @@ export default function ProductList({
                       </div>
                     )}
 
-                    {/* Lista de grupos de opciones agregados */}
+                    {/* Lista de grupos de toppings agregados */}
                     <div className="space-y-4">
                       {optionGroups.length > 0 ? (
                         optionGroups.map((group, idx) => (
-                          <div key={group.id} className="bg-white p-4 rounded-xl border border-gray-200 flex items-start justify-between shadow-sm">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-bold text-gray-900">{group.name}</h4>
-                                <span className="bg-gray-100 text-gray-600 text-[10px] font-black uppercase px-2 py-0.5 rounded">
+                          <div key={group.id} className="bg-white p-5 rounded-2xl border border-slate-100 flex items-start justify-between shadow-sm hover:shadow-md transition-all duration-300">
+                            <div className="space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="font-bold text-gray-900 text-sm">{group.name}</h4>
+                                <span className="bg-slate-100 text-slate-600 text-[9px] font-black uppercase px-2 py-0.5 rounded-md border border-slate-200/40">
                                   {group.minSelect === 0 ? 'Opcional' : `Mínimo: ${group.minSelect}`} | Máximo: {group.maxSelect}
                                 </span>
                               </div>
-                              <p className="text-xs text-gray-500">
-                                Opciones: {group.options.map(o => `${o.name}${o.price > 0 ? ` (+$${o.price.toFixed(2)})` : ''}`).join(', ')}
-                              </p>
+                              
+                              <div className="flex flex-wrap gap-1.5">
+                                {group.options.map((o, oIdx) => (
+                                  <span key={oIdx} className="bg-slate-50 text-slate-700 text-[10px] font-semibold px-2 py-1 rounded-md border border-slate-100 flex items-center gap-1 shadow-sm">
+                                    <span>{o.name}</span>
+                                    <span className="text-emerald-600 font-bold">
+                                      {o.price > 0 ? `+$${o.price.toFixed(2)}` : 'Gratis'}
+                                    </span>
+                                  </span>
+                                ))}
+                              </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 ml-4">
                               <button
                                 type="button"
                                 onClick={() => handleEditOptionGroup(idx)}
-                                className="p-2 text-gray-500 hover:text-red-600 hover:bg-gray-50 rounded-lg transition-all"
+                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
                               >
-                                <i className="bi bi-pencil"></i>
+                                <i className="bi bi-pencil text-sm"></i>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleRemoveOptionGroup(idx)}
-                                className="p-2 text-gray-300 hover:text-red-600 hover:bg-gray-50 rounded-lg transition-all"
+                                className="p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
                               >
-                                <i className="bi bi-trash"></i>
+                                <i className="bi bi-trash text-sm"></i>
                               </button>
                             </div>
                           </div>
                         ))
                       ) : (
-                        <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                          <p className="text-sm text-gray-400">No hay grupos de opciones o modificadores creados para este producto.</p>
-                          <p className="text-xs text-gray-400 mt-1">Crea uno para que los clientes puedan personalizar su orden (ej: salsas, extras).</p>
+                        <div className="text-center py-10 bg-gray-50 rounded-2xl border border-dashed border-gray-200/80 p-6">
+                          <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <i className="bi bi-gear text-lg text-gray-400"></i>
+                          </div>
+                          <p className="text-sm font-semibold text-gray-600">No hay grupos de toppings configurados</p>
+                          <p className="text-xs text-gray-400 mt-1 max-w-xs mx-auto">Crea un grupo de toppings (ej: Salsas, Adicionales) para que tus clientes puedan personalizar su orden.</p>
                         </div>
                       )}
                     </div>
                   </div>
                 )}
 
-                {/* Error general */}
-                {errors.submit && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                    <p className="text-red-600 text-sm">{errors.submit}</p>
-                  </div>
-                )}
+              </div>
 
-                {/* Botones */}
-                <div className="flex gap-3 pt-4 border-t">
-                  <button
-                    type="button"
-                    onClick={handleCloseForm}
-                    disabled={uploading}
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors font-medium disabled:opacity-50"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={uploading}
-                    className="flex-1 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {uploading ? (
-                      <>
-                        <i className="bi bi-arrow-clockwise animate-spin"></i>
-                        {formData.image ? 'Subiendo imagen' : 'Guardando...'}
-                      </>
-                    ) : (
-                      <>
-                        <i className="bi bi-check-lg"></i>
-                        {editingProduct ? 'Guardar Cambios' : 'Crear Producto'}
-                      </>
-                    )}
-                  </button>
+              {/* Error general */}
+              {errors.submit && (
+                <div className="px-6 py-2 bg-red-50 border-t border-red-200 flex-shrink-0">
+                  <p className="text-red-600 text-xs font-semibold">{errors.submit}</p>
                 </div>
-              </form>
-            </div>
+              )}
+
+              {/* Botones */}
+              <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex gap-3 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={handleCloseForm}
+                  disabled={uploading}
+                  className="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-50 transition-colors font-semibold text-sm disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={uploading}
+                  className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {uploading ? (
+                    <>
+                      <i className="bi bi-arrow-clockwise animate-spin"></i>
+                      {formData.image ? 'Subiendo imagen' : 'Guardando...'}
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-check-lg"></i>
+                      {editingProduct ? 'Guardar Cambios' : 'Crear Producto'}
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )
@@ -2898,7 +2992,7 @@ export default function ProductList({
       {/* Modal del importador JSON de menú */}
       {showJsonImport && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-200 overflow-hidden">
+          <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-200 overflow-hidden">
             
             {/* Header del Modal */}
             <div className="p-6 md:p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">

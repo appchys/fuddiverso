@@ -168,14 +168,15 @@ export default function BusinessLogin() {
   return (
     <div className="min-h-screen bg-[#aa1918] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center px-4">
-        <h2 className="text-3xl font-extrabold text-white">Acceso a Negocios</h2>
-        <p className="mt-2 text-sm text-white/90">
-          Inicia sesion con Google o con tu correo/celular y contrasena.
+        <span className="text-5xl font-black tracking-tighter text-white font-sans block mb-2">Fuddi</span>
+        <h2 className="text-lg font-black uppercase tracking-widest text-white/80">Acceso a Negocios</h2>
+        <p className="mt-2 text-xs text-white/70">
+          Inicia sesión con Google o con tu correo/celular y contraseña.
         </p>
 
         {error && (
           <div
-            className="mt-4 bg-white/10 border border-white/20 text-white px-4 py-3 rounded backdrop-blur-sm"
+            className="mt-4 bg-white/10 border border-white/20 text-white px-4 py-3 rounded-2xl backdrop-blur-sm text-xs font-semibold"
             role="alert"
             aria-live="polite"
           >
@@ -185,7 +186,7 @@ export default function BusinessLogin() {
 
         <form onSubmit={handlePasswordSignIn} className="mt-8 w-full max-w-xs mx-auto space-y-4">
           <div className="text-left">
-            <label htmlFor="business-identifier" className="block text-xs font-semibold uppercase tracking-wide text-white/80 mb-2">
+            <label htmlFor="business-identifier" className="block text-[9px] font-black uppercase tracking-widest text-white/75 mb-2 ml-1">
               Correo o celular
             </label>
             <input
@@ -193,7 +194,7 @@ export default function BusinessLogin() {
               type="text"
               value={identifier}
               onChange={(event) => setIdentifier(event.target.value)}
-              className="w-full rounded-lg border border-white/20 bg-white/95 px-4 py-3 text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-white focus:outline-none focus:ring-2 focus:ring-white/40"
+              className="w-full rounded-2xl border border-white/10 bg-white/95 px-4 py-3 text-gray-900 placeholder:text-gray-300 shadow-sm focus:border-white focus:outline-none focus:ring-4 focus:ring-white/10 transition-all font-bold text-sm"
               placeholder="correo@negocio.com o 09XXXXXXXX"
               autoComplete="username"
               required
@@ -201,16 +202,16 @@ export default function BusinessLogin() {
           </div>
 
           <div className="text-left">
-            <label htmlFor="business-password" className="block text-xs font-semibold uppercase tracking-wide text-white/80 mb-2">
-              Contrasena
+            <label htmlFor="business-password" className="block text-[9px] font-black uppercase tracking-widest text-white/75 mb-2 ml-1">
+              Contraseña
             </label>
             <input
               id="business-password"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded-lg border border-white/20 bg-white/95 px-4 py-3 text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-white focus:outline-none focus:ring-2 focus:ring-white/40"
-              placeholder="Tu contrasena"
+              className="w-full rounded-2xl border border-white/10 bg-white/95 px-4 py-3 text-gray-900 placeholder:text-gray-300 shadow-sm focus:border-white focus:outline-none focus:ring-4 focus:ring-white/10 transition-all font-bold text-sm"
+              placeholder="Tu contraseña"
               autoComplete="current-password"
               required
             />
@@ -219,9 +220,13 @@ export default function BusinessLogin() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full inline-flex items-center justify-center px-6 py-3 rounded-lg shadow-sm bg-white text-base font-semibold text-[#aa1918] hover:bg-white/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full inline-flex items-center justify-center px-6 py-4 rounded-2xl shadow-xl bg-black hover:bg-neutral-900 text-xs font-black uppercase tracking-widest text-white active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 mt-2"
           >
-            {loading ? "Conectando..." : "Iniciar sesion"}
+            {loading ? (
+              <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+            ) : (
+              "Iniciar sesión"
+            )}
           </button>
         </form>
 
@@ -234,10 +239,10 @@ export default function BusinessLogin() {
         <button
           onClick={handleGoogleSignIn}
           disabled={loading}
-          className="w-full max-w-xs mx-auto inline-flex items-center justify-center px-6 py-3 border border-white/20 rounded-lg shadow-sm bg-white/10 text-base font-medium text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors backdrop-blur-sm"
+          className="w-full max-w-xs mx-auto inline-flex items-center justify-center px-5 py-4 border border-white/10 rounded-2xl shadow-sm bg-white/5 hover:bg-white/10 text-xs font-black uppercase tracking-widest text-white active:scale-95 transition-all duration-300 gap-3 disabled:opacity-50 disabled:cursor-not-allowed backdrop-blur-sm"
           aria-describedby={error ? "error-message" : undefined}
         >
-          <svg className="w-6 h-6 mr-3" viewBox="0 0 24 24" aria-hidden="true">
+          <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" aria-hidden="true">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
             <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />

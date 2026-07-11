@@ -1049,7 +1049,7 @@ function HomePageContent() {
       {/* LISTA DE RESTAURANTES */}
       <section className="py-4 bg-gray-50">
         <div className="max-w-6xl mx-auto px-6">
-          <div className="flex justify-between items-end mb-8">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-8">
             <div>
               <h2 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">
                 {detectedGroupName ? `Restaurantes en ${detectedGroupName}` : 'Restaurantes cerca de ti'}
@@ -1061,6 +1061,13 @@ function HomePageContent() {
                 </p>
               )}
             </div>
+            <Link
+              href="/business/register"
+              className="inline-flex items-center justify-center gap-2 bg-[#aa1918] hover:bg-black text-white text-xs font-black uppercase tracking-widest px-5 py-3.5 rounded-2xl transition-all duration-300 shadow-lg shadow-red-900/10 active:scale-95 w-full sm:w-auto text-center"
+            >
+              <i className="bi bi-plus-circle text-sm"></i>
+              Publica tu menú
+            </Link>
           </div>
 
           {loading || loadingProducts ? (
