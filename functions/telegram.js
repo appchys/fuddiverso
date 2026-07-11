@@ -1019,38 +1019,95 @@ async function updateAdminTelegramMessage(orderData, orderId, hasBeenUpdated = f
         const businessName = businessData.name || 'Tienda';
 
         // Formatear el mensaje
-        const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, 'admin_to_store');
-        
-        let syncText = telegramText;
-        if (hasBeenUpdated) {
-            syncText += `\n\n⚠️ <i>Datos del pedido actualizados</i>`;
-        }
+        let syncText = '';
+        let replyMarkup = null;
+        const isConfirmedOrLater = orderData.status !== 'pending' && orderData.status !== 'borrador';
 
-        const appUrl = await getAppUrl();
-        const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
-        const waUrls = await generateWhatsAppUrlsForOrder(businessData, orderData, orderId);
+        if (isConfirmedOrLater) {
+            const customerName = orderData.customer?.name || 'No especificado';
+            
+            const subtotalVal = orderData.subtotal || 0;
+            const commissionVal = orderData.items?.reduce((sum, item) => {
+                const itemCommission = item.commission || 0;
+                return sum + (itemCommission * (item.quantity || 1));
+            }, 0) || 0;
+            const deliveryCostVal = orderData.delivery?.deliveryCost !== undefined
+                ? orderData.delivery.deliveryCost
+                : Math.max(0, (orderData.total || 0) - subtotalVal);
 
-        const replyMarkup = {
-            inline_keyboard: [
-                [
-                    { text: "📱 Gestionar Pedido (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
+            const paymentMethod = orderData.payment?.method || 'No especificado';
+            let paymentMethodText = 'No especificado';
+            if (paymentMethod === 'cash') paymentMethodText = '💵 Efectivo';
+            else if (paymentMethod === 'transfer') paymentMethodText = '🏦 Transferencia';
+            else if (paymentMethod === 'mixed') paymentMethodText = '💳 Mixto';
+
+            const statusLabel = ({
+                pending: 'Pendiente',
+                confirmed: 'Confirmado',
+                preparing: 'Preparando',
+                ready: 'Listo',
+                on_way: 'En camino',
+                delivered: 'Entregado',
+                cancelled: 'Cancelado',
+                borrador: 'Borrador'
+            })[orderData.status] || (orderData.status || 'Confirmado');
+
+            syncText = `Tienda: ${businessName}\n` +
+                       `Cliente: ${customerName}\n\n` +
+                       `<b>Detalles del pago</b>\n` +
+                       `Pedido: $${subtotalVal.toFixed(2)}\n` +
+                       `Comisión: $${commissionVal.toFixed(2)}\n` +
+                       `Delivery: $${deliveryCostVal.toFixed(2)}\n\n` +
+                       `${paymentMethodText}\n\n` +
+                       `${statusLabel}`;
+
+            if (hasBeenUpdated) {
+                syncText += `\n\n⚠️ <i>Datos del pedido actualizados</i>`;
+            }
+
+            const appUrl = await getAppUrl();
+            const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
+
+            replyMarkup = {
+                inline_keyboard: [
+                    [
+                        { text: "📱 Gestionar Pedido (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
+                    ]
                 ]
-            ]
-        };
+            };
+        } else {
+            const { text: telegramText } = await formatTelegramMessage({ ...orderData, id: orderId }, businessName, 'admin_to_store');
+            syncText = telegramText;
+            if (hasBeenUpdated) {
+                syncText += `\n\n⚠️ <i>Datos del pedido actualizados</i>`;
+            }
 
-        const waRow = [];
-        if (waUrls.customer) {
-            waRow.push({ text: "💬 WhatsApp Cliente", url: waUrls.customer });
-        }
-        if (waUrls.store) {
-            waRow.push({ text: "🏪 WhatsApp Tienda", url: waUrls.store });
-        }
-        if (waUrls.delivery) {
-            waRow.push({ text: "🛵 WhatsApp Delivery", url: waUrls.delivery });
-        }
+            const appUrl = await getAppUrl();
+            const cleanAppUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
+            const waUrls = await generateWhatsAppUrlsForOrder(businessData, orderData, orderId);
 
-        if (waRow.length > 0) {
-            replyMarkup.inline_keyboard.push(waRow);
+            replyMarkup = {
+                inline_keyboard: [
+                    [
+                        { text: "📱 Gestionar Pedido (Mini App)", web_app: { url: `${cleanAppUrl}/tma?orderId=${orderId}` } }
+                    ]
+                ]
+            };
+
+            const waRow = [];
+            if (waUrls.customer) {
+                waRow.push({ text: "💬 WhatsApp Cliente", url: waUrls.customer });
+            }
+            if (waUrls.store) {
+                waRow.push({ text: "🏪 WhatsApp Tienda", url: waUrls.store });
+            }
+            if (waUrls.delivery) {
+                waRow.push({ text: "🛵 WhatsApp Delivery", url: waUrls.delivery });
+            }
+
+            if (waRow.length > 0) {
+                replyMarkup.inline_keyboard.push(waRow);
+            }
         }
 
         const editUrl = `https://api.telegram.org/bot${ADMIN_BOT_TOKEN}/editMessageText`;

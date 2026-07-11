@@ -39,6 +39,16 @@ async function onOrderStatusChangeLogic(beforeData, afterData, orderId) {
   // Notificar al cliente por Telegram
   await telegramServices.sendCustomerTelegramNotification(afterData, orderId);
 
+  // Actualizar mensaje del Administrador si existe la referencia
+  if (afterData.telegramAdminMessage) {
+    try {
+      await telegramServices.updateAdminTelegramMessage(afterData, orderId, false);
+      console.log(`✅ [Telegram] Mensaje de admin actualizado por cambio de estado a ${afterData.status} para orden ${orderId}`);
+    } catch (err) {
+      console.error(`❌ [Telegram] Error actualizando mensaje de admin por cambio de estado para orden ${orderId}:`, err);
+    }
+  }
+
   // Si pasa a cancelado, actualizar mensaje del delivery anterior/actual indicando cancelación
   if (afterData.status === 'cancelled') {
     const deliveryMsg = afterData.telegramDeliveryMessage || beforeData.telegramDeliveryMessage;
