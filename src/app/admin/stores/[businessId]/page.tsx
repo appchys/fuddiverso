@@ -2,13 +2,15 @@
 
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { Business, Product, Delivery } from '@/types'
+import { Business, Product, Delivery, BusinessAdministrator } from '@/types'
 import {
   getBusiness,
   updateBusiness,
   getProductsByBusiness,
   uploadImage,
   getAllDeliveries,
+  addBusinessAdministrator,
+  removeBusinessAdministrator
 } from '@/lib/database'
 import { isStoreOpen } from '@/lib/store-utils'
 import dynamic from 'next/dynamic'
@@ -27,7 +29,7 @@ const DAYS_ES: Record<string, string> = {
 }
 const DAY_ORDER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 
-type Tab = 'info' | 'schedule' | 'products' | 'delivery' | 'notifications' | 'danger'
+type Tab = 'info' | 'schedule' | 'products' | 'delivery' | 'notifications' | 'danger' | 'admins'
 
 export default function AdminStorePage({ params }: { params: Promise<{ businessId: string }> }) {
   const { businessId } = use(params)
@@ -47,6 +49,208 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
   const [loadingDeliveries, setLoadingDeliveries] = useState(false)
   const [savingDelivery, setSavingDelivery] = useState(false)
   const [deliverySaved, setDeliverySaved] = useState(false)
+
+  // Estados para administradores
+  const [showAddAdminModal, setShowAddAdminModal] = useState(false)
+  const [addingAdmin, setAddingAdmin] = useState(false)
+  const [newAdminData, setNewAdminData] = useState({
+    email: '',
+    password: '',
+    role: 'admin' as 'admin' | 'manager',
+    permissions: {
+      manageProducts: true,
+      manageOrders: true,
+      manageAdmins: false,
+      viewReports: true,
+      editBusiness: false
+    }
+  })
+  
+  // Editar contraseña de administrador
+  const [passwordAdminEmail, setPasswordAdminEmail] = useState<string | null>(null)
+  const [adminPassword, setAdminPassword] = useState('')
+  const [savingAdminPassword, setSavingAdminPassword] = useState(false)
+
+  // Magic links
+  const [loadingLink, setLoadingLink] = useState<{ [email: string]: boolean }>({})
+  const [copiedLink, setCopiedLink] = useState<{ [email: string]: boolean }>({})
+
+  const handleCopyMagicLink = async (email: string) => {
+    setLoadingLink(prev => ({ ...prev, [email]: true }))
+    try {
+      const response = await fetch(
+        `/api/business/magic-link?businessId=${encodeURIComponent(businessId)}&email=${encodeURIComponent(email)}`,
+        {
+          headers: {
+            'x-admin-password': 'admin123'
+          }
+        }
+      )
+
+      const data = await response.json()
+      if (!response.ok || !data.token) {
+        throw new Error(data.error || 'Error al obtener el enlace de acceso rápido.')
+      }
+
+      const magicLinkUrl = `${window.location.origin}/l/${data.token}`
+      await navigator.clipboard.writeText(magicLinkUrl)
+
+      setCopiedLink(prev => ({ ...prev, [email]: true }))
+      setTimeout(() => {
+        setCopiedLink(prev => ({ ...prev, [email]: false }))
+      }, 2000)
+    } catch (error: any) {
+      console.error('Error al copiar link:', error)
+      alert(error.message || 'No se pudo generar el enlace de acceso rápido.')
+    } finally {
+      setLoadingLink(prev => ({ ...prev, [email]: false }))
+    }
+  }
+
+  const handleRegenerateMagicLink = async (email: string) => {
+    if (!confirm('¿Estás seguro de que quieres regenerar el enlace de acceso directo? El enlace anterior se invalidará de inmediato.')) {
+      return
+    }
+
+    setLoadingLink(prev => ({ ...prev, [email]: true }))
+    try {
+      const response = await fetch('/api/business/magic-link', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-password': 'admin123'
+        },
+        body: JSON.stringify({
+          businessId,
+          email,
+          action: 'regenerate',
+        }),
+      })
+
+      const data = await response.json()
+      if (!response.ok || !data.token) {
+        throw new Error(data.error || 'Error al regenerar el enlace de acceso rápido.')
+      }
+
+      const magicLinkUrl = `${window.location.origin}/l/${data.token}`
+      await navigator.clipboard.writeText(magicLinkUrl)
+
+      alert('¡Se ha generado un nuevo enlace de acceso directo y se copió al portapapeles! El enlace anterior ya no es válido.')
+
+      setCopiedLink(prev => ({ ...prev, [email]: true }))
+      setTimeout(() => {
+        setCopiedLink(prev => ({ ...prev, [email]: false }))
+      }, 2000)
+    } catch (error: any) {
+      console.error('Error al regenerar link:', error)
+      alert(error.message || 'No se pudo regenerar el enlace.')
+    } finally {
+      setLoadingLink(prev => ({ ...prev, [email]: false }))
+    }
+  }
+
+  const handleAddAdmin = async () => {
+    if (!business || !newAdminData.email.trim()) return
+
+    setAddingAdmin(true)
+    try {
+      if (newAdminData.password.trim()) {
+        const response = await fetch('/api/business/admin-password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-password': 'admin123'
+          },
+          body: JSON.stringify({
+            businessId,
+            email: newAdminData.email.trim(),
+            password: newAdminData.password,
+            role: newAdminData.role,
+            permissions: newAdminData.permissions
+          })
+        })
+        const result = await response.json()
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Error al crear el acceso del administrador')
+        }
+      } else {
+        await addBusinessAdministrator(
+          businessId,
+          newAdminData.email.trim(),
+          newAdminData.role,
+          newAdminData.permissions,
+          'super-admin'
+        )
+      }
+
+      await loadBusiness()
+
+      setNewAdminData({
+        email: '',
+        password: '',
+        role: 'admin',
+        permissions: {
+          manageProducts: true,
+          manageOrders: true,
+          manageAdmins: false,
+          viewReports: true,
+          editBusiness: false
+        }
+      })
+      setShowAddAdminModal(false)
+      alert('Administrador agregado exitosamente')
+    } catch (error: any) {
+      alert(error.message || 'Error al agregar administrador')
+    } finally {
+      setAddingAdmin(false)
+    }
+  }
+
+  const handleSaveAdminPassword = async () => {
+    if (!business || !passwordAdminEmail || !adminPassword.trim()) return
+
+    setSavingAdminPassword(true)
+    try {
+      const response = await fetch('/api/business/admin-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-password': 'admin123'
+        },
+        body: JSON.stringify({
+          businessId,
+          email: passwordAdminEmail,
+          password: adminPassword
+        })
+      })
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Error al guardar la contraseña')
+      }
+
+      await loadBusiness()
+      setPasswordAdminEmail(null)
+      setAdminPassword('')
+      alert('Contraseña actualizada exitosamente')
+    } catch (error: any) {
+      alert(error.message || 'Error al guardar la contraseña')
+    } finally {
+      setSavingAdminPassword(false)
+    }
+  }
+
+  const handleRemoveAdmin = async (adminEmail: string) => {
+    if (!business || !confirm('¿Estás seguro de que quieres remover este administrador?')) return
+    try {
+      await removeBusinessAdministrator(businessId, adminEmail)
+      await loadBusiness()
+      alert('Administrador removido exitosamente')
+    } catch (error: any) {
+      alert(error.message || 'Error al remover administrador')
+    }
+  }
 
   useEffect(() => {
     loadBusiness()
@@ -211,6 +415,7 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
     { id: 'products', label: 'Productos', icon: 'bi-box-seam' },
     { id: 'delivery', label: 'Delivery', icon: 'bi-scooter' },
     { id: 'notifications', label: 'Notificaciones', icon: 'bi-bell' },
+    { id: 'admins', label: 'Administradores', icon: 'bi-people' },
     { id: 'danger', label: 'Configuración', icon: 'bi-gear' },
   ]
 
@@ -719,6 +924,308 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
               >
                 <i className="bi bi-shop" /> Ver Tienda Pública
               </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: ADMINS ── */}
+      {tab === 'admins' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+            <div>
+              <h2 className="text-xl font-black text-gray-900">Propietario y Administradores</h2>
+              <p className="text-xs text-gray-500 mt-1">Gestiona los accesos y enlaces de inicio de sesión directo para esta tienda.</p>
+            </div>
+            <button
+              onClick={() => setShowAddAdminModal(true)}
+              className="mt-3 sm:mt-0 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+            >
+              <i className="bi bi-person-plus-fill" /> Agregar Administrador
+            </button>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden divide-y divide-gray-150">
+            {/* Propietario */}
+            <div className="p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-50/40">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center flex-shrink-0 text-red-600">
+                  <i className="bi bi-crown-fill text-lg" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-gray-900">{business.email}</p>
+                  <p className="text-xs text-gray-400">Propietario de la tienda</p>
+                </div>
+              </div>
+              
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Magic Link Controls */}
+                <div className="flex items-center border border-gray-200 bg-white rounded-xl p-1 shadow-sm">
+                  <button
+                    onClick={() => handleCopyMagicLink(business.email)}
+                    disabled={loadingLink[business.email]}
+                    className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold text-gray-700 hover:text-gray-900 transition-colors disabled:opacity-50"
+                    title="Copiar enlace de acceso directo"
+                  >
+                    {loadingLink[business.email] ? (
+                      <span className="w-3.5 h-3.5 border-2 border-gray-400 border-t-gray-700 rounded-full animate-spin me-1.5"></span>
+                    ) : copiedLink[business.email] ? (
+                      <i className="bi bi-check-lg text-green-600 me-1.5"></i>
+                    ) : (
+                      <i className="bi bi-link-45deg text-sm me-1"></i>
+                    )}
+                    {copiedLink[business.email] ? '¡Copiado!' : 'Acceso Directo'}
+                  </button>
+                  <button
+                    onClick={() => handleRegenerateMagicLink(business.email)}
+                    disabled={loadingLink[business.email]}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                    title="Regenerar enlace de acceso directo (invalida el anterior)"
+                  >
+                    <i className="bi bi-arrow-clockwise text-xs"></i>
+                  </button>
+                </div>
+                <span className="inline-flex items-center px-2.5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-100 text-red-800">
+                  Acceso Total
+                </span>
+              </div>
+            </div>
+
+            {/* Administradores */}
+            {business.administrators && business.administrators.length > 0 ? (
+              business.administrators.map((admin, index) => (
+                <div key={index} className="p-6 space-y-4 border-t border-gray-150">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0 text-blue-600">
+                        <i className="bi bi-person-fill text-lg" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-gray-900">{admin.email}</p>
+                        <p className="text-xs text-gray-400 capitalize">{admin.role === 'admin' ? 'Administrador' : 'Gerente'}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Magic Link Controls */}
+                      <div className="flex items-center border border-gray-200 bg-white rounded-xl p-1 shadow-sm">
+                        <button
+                          onClick={() => handleCopyMagicLink(admin.email)}
+                          disabled={loadingLink[admin.email]}
+                          className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold text-gray-700 hover:text-gray-900 transition-colors disabled:opacity-50"
+                          title="Copiar enlace de acceso directo"
+                        >
+                          {loadingLink[admin.email] ? (
+                            <span className="w-3.5 h-3.5 border-2 border-gray-400 border-t-gray-700 rounded-full animate-spin me-1.5"></span>
+                          ) : copiedLink[admin.email] ? (
+                            <i className="bi bi-check-lg text-green-600 me-1.5"></i>
+                          ) : (
+                            <i className="bi bi-link-45deg text-sm me-1"></i>
+                          )}
+                          {copiedLink[admin.email] ? '¡Copiado!' : 'Acceso Directo'}
+                        </button>
+                        <button
+                          onClick={() => handleRegenerateMagicLink(admin.email)}
+                          disabled={loadingLink[admin.email]}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                          title="Regenerar enlace de acceso directo (invalida el anterior)"
+                        >
+                          <i className="bi bi-arrow-clockwise text-xs"></i>
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={() => { setPasswordAdminEmail(admin.email); setAdminPassword(''); }}
+                        className="px-3 py-2 bg-white border border-gray-200 text-gray-600 hover:text-gray-800 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+                      >
+                        <i className="bi bi-key" /> Editar Acceso
+                      </button>
+
+                      <button
+                        onClick={() => handleRemoveAdmin(admin.email)}
+                        className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                      >
+                        <i className="bi bi-trash" /> Remover
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Permisos */}
+                  <div className="pl-13">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 mb-1.5">Permisos asignados:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {admin.permissions.manageProducts && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold bg-green-50 text-green-700 border border-green-100">
+                          Productos
+                        </span>
+                      )}
+                      {admin.permissions.manageOrders && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold bg-green-50 text-green-700 border border-green-100">
+                          Pedidos
+                        </span>
+                      )}
+                      {admin.permissions.viewReports && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold bg-green-50 text-green-700 border border-green-100">
+                          Reportes
+                        </span>
+                      )}
+                      {admin.permissions.editBusiness && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold bg-green-50 text-green-700 border border-green-100">
+                          Editar Tienda
+                        </span>
+                      )}
+                      {admin.permissions.manageAdmins && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold bg-green-50 text-green-700 border border-green-100">
+                          Administradores
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="py-12 text-center text-gray-400">
+                <i className="bi bi-people text-4xl block mb-2 text-gray-300" />
+                <p className="text-sm">No hay administradores registrados para esta tienda.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: AGREGAR ADMINISTRADOR ── */}
+      {showAddAdminModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-gray-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-gray-150 flex justify-between items-center bg-gray-50/50">
+              <h3 className="font-bold text-gray-900">Agregar Administrador</h3>
+              <button onClick={() => setShowAddAdminModal(false)} className="text-gray-400 hover:text-gray-600"><i className="bi bi-x-lg" /></button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Email del Usuario</label>
+                <input
+                  type="email"
+                  value={newAdminData.email}
+                  onChange={e => setNewAdminData(prev => ({ ...prev, email: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="usuario@ejemplo.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Contraseña de acceso</label>
+                <input
+                  type="password"
+                  value={newAdminData.password}
+                  onChange={e => setNewAdminData(prev => ({ ...prev, password: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Mínimo 6 caracteres"
+                  autoComplete="new-password"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">Si la dejas vacía, solo se agregará el permiso y se podrá configurar la contraseña después.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Rol</label>
+                <select
+                  value={newAdminData.role}
+                  onChange={e => setNewAdminData(prev => ({ ...prev, role: e.target.value as any }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="admin">Administrador</option>
+                  <option value="manager">Gerente</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Permisos</label>
+                <div className="space-y-1.5 bg-gray-50 p-3 rounded-xl border border-gray-150">
+                  {[
+                    { key: 'manageProducts', label: 'Gestionar Productos' },
+                    { key: 'manageOrders', label: 'Gestionar Pedidos' },
+                    { key: 'viewReports', label: 'Ver Reportes' },
+                    { key: 'editBusiness', label: 'Editar Información de Tienda' },
+                    { key: 'manageAdmins', label: 'Gestionar Administradores' },
+                  ].map(({ key, label }) => (
+                    <label key={key} className="flex items-center text-sm font-semibold text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newAdminData.permissions[key as keyof typeof newAdminData.permissions]}
+                        onChange={e => setNewAdminData(prev => ({
+                          ...prev,
+                          permissions: { ...prev.permissions, [key]: e.target.checked }
+                        }))}
+                        className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 me-2"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-150 flex justify-end gap-2">
+              <button
+                onClick={() => setShowAddAdminModal(false)}
+                className="px-4 py-2 border border-gray-200 hover:bg-gray-100 rounded-xl text-xs font-bold text-gray-600 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleAddAdmin}
+                disabled={addingAdmin || !newAdminData.email.trim() || (!!newAdminData.password && newAdminData.password.length < 6)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+              >
+                {addingAdmin ? <><div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent" />Guardando...</> : 'Guardar Administrador'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: EDITAR CONTRASEÑA DE ADMINISTRADOR ── */}
+      {passwordAdminEmail && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-gray-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-gray-150 flex justify-between items-center bg-gray-50/50">
+              <h3 className="font-bold text-gray-900">Editar Contraseña de Acceso</h3>
+              <button onClick={() => setPasswordAdminEmail(null)} className="text-gray-400 hover:text-gray-600"><i className="bi bi-x-lg" /></button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-gray-500">
+                Estás configurando una nueva contraseña de acceso para: <strong className="text-gray-800">{passwordAdminEmail}</strong>
+              </p>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Nueva Contraseña</label>
+                <input
+                  type="password"
+                  value={adminPassword}
+                  onChange={e => setAdminPassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Mínimo 6 caracteres"
+                  autoComplete="new-password"
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-150 flex justify-end gap-2">
+              <button
+                onClick={() => setPasswordAdminEmail(null)}
+                className="px-4 py-2 border border-gray-200 hover:bg-gray-100 rounded-xl text-xs font-bold text-gray-600 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveAdminPassword}
+                disabled={savingAdminPassword || adminPassword.length < 6}
+                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+              >
+                {savingAdminPassword ? <><div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent" />Guardando...</> : 'Actualizar Contraseña'}
+              </button>
             </div>
           </div>
         </div>

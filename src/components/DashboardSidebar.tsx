@@ -146,8 +146,7 @@ export default function DashboardSidebar({
                                 {[
                                     { id: 'general', label: 'Generales', icon: 'info' },
                                     { id: 'fidelizacion', label: 'Fidelización', icon: 'loyalty' },
-                                    { id: 'notifications', label: 'Notificaciones', icon: 'notifications' },
-                                    { id: 'admins', label: 'Administradores', icon: 'group' }
+                                    { id: 'notifications', label: 'Notificaciones', icon: 'notifications' }
                                 ].map((sub) => (
                                     <button
                                         key={sub.id}

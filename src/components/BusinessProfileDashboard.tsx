@@ -8,6 +8,7 @@ import ProductList from './ProductList'
 import NotificationSettings from './NotificationSettings'
 import { GoogleMap, useCurrentLocation } from './GoogleMap'
 import QRCodesContent from '@/app/business/qr-codes/qr-codes-content'
+import { auth } from '@/lib/firebase'
 
 interface BusinessProfileDashboardProps {
   business: Business
@@ -101,6 +102,8 @@ export default function BusinessProfileDashboard({
   })
   const [savingCampaign, setSavingCampaign] = useState(false)
   const [campaignSaved, setCampaignSaved] = useState(false)
+
+
 
   useEffect(() => {
     if (business?.id && activeTab === 'fidelizacion') {
@@ -422,149 +425,7 @@ export default function BusinessProfileDashboard({
         </div>
       )}
 
-      {/* Contenido de la pestaña Administradores */}
-      {activeTab === 'admins' && (
-        <div>
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 sm:mb-0">
-              <i className="bi bi-people me-2"></i>Administradores
-            </h2>
-            {onAddAdmin && (
-              <button
-                onClick={onAddAdmin}
-                className="w-full sm:w-auto bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base"
-              >
-                <i className="bi bi-person-plus me-2"></i>
-                Agregar Administrador
-              </button>
-            )}
-          </div>
 
-          {/* Lista de administradores */}
-          <div className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">
-                Propietario y Administradores
-              </h3>
-              <p className="text-sm text-gray-500 mt-1">
-                Gestiona quién puede administrar tu tienda
-              </p>
-            </div>
-
-            <div className="divide-y divide-gray-200">
-              {/* Propietario */}
-              <div className="px-4 sm:px-6 py-4">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
-                  <div className="flex items-center mb-3 sm:mb-0">
-                    <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <i className="bi bi-crown text-red-600"></i>
-                    </div>
-                    <div className="ml-3">
-                      <p className="text-sm font-medium text-gray-900">{displayBusiness.email}</p>
-                      <p className="text-sm text-gray-500">Propietario</p>
-                    </div>
-                  </div>
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                    Todos los permisos
-                  </span>
-                </div>
-              </div>
-
-              {/* Administradores */}
-              {displayBusiness.administrators && displayBusiness.administrators.length > 0 ? (
-                displayBusiness.administrators.map((admin, index) => (
-                  <div key={index} className="px-4 sm:px-6 py-4">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
-                      <div className="flex items-center mb-3 sm:mb-0">
-                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                          <i className="bi bi-person text-blue-600"></i>
-                        </div>
-                        <div className="ml-3">
-                          <p className="text-sm font-medium text-gray-900">{admin.email}</p>
-                          <p className="text-sm text-gray-500 capitalize">{admin.role}</p>
-                        </div>
-                      </div>
-                      <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {admin.role === 'admin' ? 'Administrador' : 'Gerente'}
-                        </span>
-                        {onRemoveAdmin && (
-                          <button
-                            onClick={() => onRemoveAdmin(admin.email)}
-                            className="text-red-600 hover:text-red-700 text-sm"
-                          >
-                            <i className="bi bi-trash me-1"></i>
-                            Remover
-                          </button>
-                        )}
-                        {onEditAdminPassword && (
-                          <button
-                            onClick={() => onEditAdminPassword(admin.email)}
-                            className="text-blue-600 hover:text-blue-700 text-sm"
-                          >
-                            <i className="bi bi-key me-1"></i>
-                            Editar Acceso
-                          </button>
-                        )}
-                        {userRole === 'owner' && onTransferOwnership && (
-                          <button
-                            onClick={() => onTransferOwnership(admin)}
-                            className="text-orange-600 hover:text-orange-700 text-sm flex items-center"
-                            title="Convertir en dueño del negocio"
-                          >
-                            <i className="bi bi-crown me-1"></i>
-                            Transferir Propiedad
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Permisos */}
-                    <div className="mt-3 sm:ml-13">
-                      <p className="text-xs text-gray-500 mb-2">Permisos:</p>
-                      <div className="flex flex-wrap gap-1">
-                        {admin.permissions.manageProducts && (
-                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
-                            Productos
-                          </span>
-                        )}
-                        {admin.permissions.manageOrders && (
-                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
-                            Pedidos
-                          </span>
-                        )}
-                        {admin.permissions.viewReports && (
-                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
-                            Reportes
-                          </span>
-                        )}
-                        {admin.permissions.editBusiness && (
-                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
-                            Editar Tienda
-                          </span>
-                        )}
-                        {admin.permissions.manageAdmins && (
-                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
-                            Administradores
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="px-4 sm:px-6 py-8 text-center">
-                  <i className="bi bi-people text-gray-400 text-4xl mb-4"></i>
-                  <p className="text-gray-500">No hay administradores adicionales</p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    Agrega administradores para que te ayuden a gestionar tu tienda
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
       {/* Contenido de la pestaña Fidelización */}
       {activeTab === 'fidelizacion' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">

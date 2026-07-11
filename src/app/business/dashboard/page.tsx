@@ -321,6 +321,8 @@ export default function TodayOrdersPage() {
     const [loading, setLoading] = useState(true)
     const [availableDeliveries, setAvailableDeliveries] = useState<Delivery[]>([])
     const [business, setBusiness] = useState<Business | null>(null)
+    const [copiedLink, setCopiedLink] = useState(false)
+    const [origin, setOrigin] = useState('')
     const [products, setProducts] = useState<Product[]>([])
 
     const totalTodayExpenses = useMemo(() => {
