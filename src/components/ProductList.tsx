@@ -272,7 +272,7 @@ export default function ProductList({
     setVariantImageFiles({})
     setOptionGroups(product.optionGroups || [])
     setEditingGroupIndex(null)
-    setHasVariants(!!(product.variants && product.variants.length > 0))
+    setHasVariants(!!(product.variants && product.variants.length > 0) || !!product.isCombo)
     setShowProductForm(true)
   }
 
@@ -1499,34 +1499,39 @@ export default function ProductList({
       )}
 
       {showProductForm && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-t-2xl sm:rounded-2xl max-w-2xl w-full h-[95vh] sm:h-auto sm:max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 animate-in slide-in-from-bottom sm:zoom-in duration-300 overflow-hidden">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-50 rounded-t-[2rem] sm:rounded-[2rem] max-w-4xl w-full h-[95vh] sm:h-auto sm:max-h-[90vh] flex flex-col shadow-2xl border border-white animate-in slide-in-from-bottom sm:zoom-in duration-300 overflow-hidden">
             <form onSubmit={handleSaveProduct} className="flex flex-col flex-1 overflow-hidden">
               {/* Encabezado */}
-              <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 flex-shrink-0">
-                <h3 className="text-lg font-bold text-gray-900">
-                  {editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
-                </h3>
+              <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-white flex-shrink-0">
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 tracking-tight">
+                    {editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-medium mt-0.5">
+                    {editingProduct ? 'Modifica los detalles y configuraciones de tu producto' : 'Agrega un nuevo producto a tu menú'}
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={handleCloseForm}
-                  className="text-gray-400 hover:text-gray-600 w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-all"
+                  className="text-slate-400 hover:text-slate-600 hover:bg-slate-50 w-9 h-9 rounded-full flex items-center justify-center border border-slate-100 transition-all shadow-sm"
                 >
-                  <i className="bi bi-x-lg text-lg"></i>
+                  <i className="bi bi-x-lg text-sm"></i>
                 </button>
               </div>
 
               {/* Cuerpo del Modal - Con Scroll */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
-                {/* Pestañas */}
-                <div className="flex bg-gray-50 p-1 rounded-xl mb-6 max-w-md mx-auto text-xs font-semibold border border-gray-100">
+                {/* Pestañas de Navegación */}
+                <div className="flex bg-slate-200/50 p-1.5 rounded-2xl max-w-md mx-auto text-xs font-black border border-slate-100/80 mb-8">
                   <button
                     type="button"
                     onClick={() => setActiveTab('general')}
-                    className={`flex-1 py-2 px-3 rounded-lg text-center transition-all flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-center transition-all flex items-center justify-center gap-2 ${
                       activeTab === 'general'
-                        ? 'bg-white text-gray-900 shadow-sm border border-gray-100'
-                        : 'text-gray-500 hover:text-gray-900'
+                        ? 'bg-white text-[#aa1918] shadow-sm border border-slate-200/20'
+                        : 'text-slate-500 hover:text-slate-800'
                     }`}
                   >
                     <i className="bi bi-info-circle text-sm"></i>
@@ -1535,16 +1540,16 @@ export default function ProductList({
                   <button
                     type="button"
                     onClick={() => setActiveTab('ingredients')}
-                    className={`flex-1 py-2 px-3 rounded-lg text-center transition-all flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-center transition-all flex items-center justify-center gap-2 ${
                       activeTab === 'ingredients'
-                        ? 'bg-white text-gray-900 shadow-sm border border-gray-100'
-                        : 'text-gray-500 hover:text-gray-900'
+                        ? 'bg-white text-[#aa1918] shadow-sm border border-slate-200/20'
+                        : 'text-slate-500 hover:text-slate-800'
                     }`}
                   >
                     <i className="bi bi-basket text-sm"></i>
                     <span>Ingredientes</span>
                     {ingredients.length > 0 && (
-                      <span className="bg-red-500 text-white px-1.5 py-0.5 rounded-full text-[9px] font-black leading-none">
+                      <span className="bg-[#aa1918] text-white px-2 py-0.5 rounded-full text-[9px] font-black leading-none min-w-[16px] h-[16px] flex items-center justify-center">
                         {ingredients.length}
                       </span>
                     )}
@@ -1552,16 +1557,16 @@ export default function ProductList({
                   <button
                     type="button"
                     onClick={() => setActiveTab('options')}
-                    className={`flex-1 py-2 px-3 rounded-lg text-center transition-all flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-center transition-all flex items-center justify-center gap-2 ${
                       activeTab === 'options'
-                        ? 'bg-white text-gray-900 shadow-sm border border-gray-100'
-                        : 'text-gray-500 hover:text-gray-900'
+                        ? 'bg-white text-[#aa1918] shadow-sm border border-slate-200/20'
+                        : 'text-slate-500 hover:text-slate-800'
                     }`}
                   >
                     <i className="bi bi-gear text-sm"></i>
                     <span>Toppings</span>
                     {optionGroups.length > 0 && (
-                      <span className="bg-red-500 text-white px-1.5 py-0.5 rounded-full text-[9px] font-black leading-none">
+                      <span className="bg-[#aa1918] text-white px-2 py-0.5 rounded-full text-[9px] font-black leading-none min-w-[16px] h-[16px] flex items-center justify-center">
                         {optionGroups.length}
                       </span>
                     )}
@@ -1570,38 +1575,47 @@ export default function ProductList({
 
                 {/* PESTAÑA: INFORMACIÓN GENERAL */}
                 {activeTab === 'general' && (
-                  <div className="space-y-6">
-                    {/* Sección Superior: Información Básica (Imagen + Campos) */}
-                    <div className="flex flex-col sm:flex-row gap-6">
-                      {/* Lado Izquierdo: Imagen + Ajuste de encuadre */}
-                      <div className="flex flex-col items-center gap-3 mx-auto sm:mx-0">
-                        <div className="w-40 h-40 flex-shrink-0">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    
+                    {/* COLUMNA IZQUIERDA: IMAGEN, CATEGORIA Y HORARIOS */}
+                    <div className="contents lg:block lg:col-span-5 lg:space-y-6">
+                      
+                      {/* Tarjeta 1: Imagen de Portada */}
+                      <div className="order-1 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Imagen de Portada</h4>
+                        
+                        <div className="aspect-square w-full relative">
                           <label htmlFor="image-upload" className="block cursor-pointer h-full">
-                            <div className="relative h-full bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 hover:border-red-400 hover:bg-red-50 transition-all flex items-center justify-center overflow-hidden group shadow-inner">
+                            <div className="relative h-full bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 hover:border-[#aa1918] hover:bg-red-50/10 transition-all flex items-center justify-center overflow-hidden group shadow-inner">
                               {uploading && formData.image && (
-                                <div className="absolute inset-0 z-20 bg-black/50 backdrop-blur-[1px] flex flex-col items-center justify-center">
-                                  <i className="bi bi-arrow-clockwise animate-spin text-white text-xl mb-1"></i>
-                                  <p className="text-white text-[8px] font-black uppercase tracking-widest">Subiendo</p>
+                                <div className="absolute inset-0 z-20 bg-slate-900/60 backdrop-blur-[1px] flex flex-col items-center justify-center">
+                                  <i className="bi bi-arrow-clockwise animate-spin text-white text-2xl mb-2"></i>
+                                  <p className="text-white text-[9px] font-black uppercase tracking-widest">Subiendo Imagen</p>
                                 </div>
                               )}
                               {formData.image ? (
                                 <div className="absolute inset-0 w-full h-full">
                                   <img src={URL.createObjectURL(formData.image)} alt="Preview" className="w-full h-full object-cover" style={{ objectPosition: formData.imagePosition }} />
-                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                    <i className="bi bi-camera text-white text-xl"></i>
+                                  <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <i className="bi bi-camera text-white text-2xl"></i>
                                   </div>
                                 </div>
                               ) : editingProduct?.image ? (
                                 <div className="absolute inset-0 w-full h-full">
                                   <img src={editingProduct.image} alt="Current" className="w-full h-full object-cover" style={{ objectPosition: formData.imagePosition }} />
-                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                    <i className="bi bi-camera text-white text-xl"></i>
+                                  <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <i className="bi bi-camera text-white text-2xl"></i>
                                   </div>
                                 </div>
                               ) : (
-                                <div className="text-center p-4">
-                                  <i className="bi bi-camera text-3xl text-gray-300 mb-1 block"></i>
-                                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Foto</p>
+                                <div className="text-center p-6 space-y-2">
+                                  <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
+                                    <i className="bi bi-camera text-xl"></i>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-slate-600 font-bold">Subir Foto</p>
+                                    <p className="text-[10px] text-slate-400 font-medium mt-0.5">JPG o PNG, recomendado 1:1</p>
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -1610,10 +1624,10 @@ export default function ProductList({
 
                         {/* Control de encuadre (slider) */}
                         {(formData.image || editingProduct?.image) && (
-                          <div className="w-40 space-y-1">
-                            <div className="flex justify-between items-center text-[9px] font-black text-gray-400 uppercase tracking-widest">
-                              <span>Encuadre</span>
-                              <span className="text-red-500 font-bold">
+                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-2">
+                            <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider">
+                              <span className="text-slate-400 font-black">Ajuste de Encuadre</span>
+                              <span className="text-[#aa1918] font-black">
                                 {(() => {
                                   const pct = parseInt(formData.imagePosition.split(' ')[1] || '50', 10);
                                   if (pct === 50) return 'Centro';
@@ -1632,7 +1646,7 @@ export default function ProductList({
                                 const val = e.target.value;
                                 setFormData(prev => ({ ...prev, imagePosition: `center ${val}%` }));
                               }}
-                              className="w-full accent-red-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                              className="w-full accent-[#aa1918] h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                             />
                           </div>
                         )}
@@ -1645,158 +1659,13 @@ export default function ProductList({
                         />
                       </div>
 
-                      {/* Lado Derecho: Nombre, Precio y Descripción */}
-                      <div className="flex-1 space-y-5">
-                        {/* Nombre del Producto */}
-                        <div>
-                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1">Nombre del Producto</label>
-                          <div className="relative">
-                            <input
-                              type="text"
-                              name="name"
-                              value={formData.name}
-                              onChange={handleInputChange}
-                              placeholder="Ej: Hamburguesa VIP"
-                              className={`w-full text-lg font-bold text-gray-900 border-b-2 focus:outline-none transition-colors py-1.5 px-0 ${errors.name ? 'border-red-500 text-red-600' : 'border-gray-100 hover:border-gray-300 focus:border-red-500'
-                                }`}
-                            />
-                          </div>
-                          {errors.name && <p className="text-red-500 text-[10px] mt-1 font-bold italic">{errors.name}</p>}
-                        </div>
-
-                        {/* Precio */}
-                        <div>
-                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1">Precio</label>
-                          <div className="relative max-w-[200px]">
-                            <span className="absolute left-0 top-1 text-2xl font-bold text-gray-900">$</span>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              name="price"
-                              value={formData.price}
-                              onChange={handleInputChange}
-                              onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                              placeholder="0.00"
-                              className={`w-full pl-6 pr-0 py-1 text-xl font-bold border-b-2 focus:outline-none transition-colors bg-transparent ${errors.price ? 'border-red-500 text-red-600' : 'border-gray-100 hover:border-gray-300 focus:border-red-500 text-gray-900'
-                                }`}
-                            />
-                          </div>
-                          {errors.price && <p className="text-red-500 text-[10px] mt-1 font-bold italic">{errors.price}</p>}
-                          
-                          {/* Resumen de precio al público y toggle */}
-                          {formData.price && Number(formData.price) > 0 && (
-                            <div className="mt-2 flex items-center gap-3 animate-in fade-in slide-in-from-left-2 duration-300">
-                              <p className="text-[10px] font-bold text-slate-500">
-                                Precio al público: <span className="text-slate-900">${formData.commissionType === 'fuddi_assumed_by_customer' 
-                                   ? (Math.round(Number(formData.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
-                                   : Number(formData.price).toFixed(2)}</span>
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => setShowCommissionSettings(!showCommissionSettings)}
-                                className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-blue-700 flex items-center gap-1 transition-colors"
-                              >
-                                {showCommissionSettings ? 'Ver menos' : 'Ver más'}
-                                <i className={`bi ${showCommissionSettings ? 'bi-chevron-up' : 'bi-chevron-down'}`}></i>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Descripción */}
-                        <div>
-                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1">Descripción</label>
-                          <textarea
-                            name="description"
-                            value={formData.description}
-                            onChange={handleInputChange}
-                            rows={3}
-                            placeholder="Cuéntanos más sobre este delicioso producto..."
-                            className={`w-full px-4 py-2.5 bg-gray-50 border-2 rounded-xl focus:outline-none transition-all text-sm font-medium ${errors.description ? 'border-red-500 text-red-600' : 'border-gray-50 hover:border-gray-200 focus:border-red-500 focus:bg-white'
-                              }`}
-                          />
-                          {errors.description && <p className="text-red-500 text-[10px] mt-1 font-bold italic">{errors.description}</p>}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Estructura del Producto / Opciones de Personalización */}
-                    <div className="border-t border-gray-100 pt-6 space-y-4">
-                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Configuración y Estructura</label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {/* Tarjeta Con Variantes */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newHasVariants = !hasVariants;
-                            setHasVariants(newHasVariants);
-                            if (!newHasVariants) {
-                              setFormData(prev => ({ ...prev, isCombo: false }));
-                            }
-                          }}
-                          className={`p-4 rounded-xl border-2 text-left transition-all flex flex-col justify-between h-28 group ${
-                            hasVariants
-                              ? 'border-blue-500 bg-blue-50/20'
-                              : 'border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200'
-                          }`}
-                        >
-                          <div className="flex justify-between items-start w-full">
-                            <i className="bi bi-layers text-xl text-blue-600"></i>
-                            <input
-                              type="checkbox"
-                              checked={hasVariants}
-                              onChange={() => {}}
-                              className="w-4 h-4 rounded text-blue-600"
-                            />
-                          </div>
-                          <div>
-                            <span className="font-bold text-xs text-gray-900 block">Con Variantes</span>
-                            <span className="text-[10px] text-gray-500 leading-tight block mt-0.5">Diferentes precios, tamaños o sabores</span>
-                          </div>
-                        </button>
-
-                        {/* Tarjeta Es Combo */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newIsCombo = !formData.isCombo;
-                            setFormData(prev => ({ ...prev, isCombo: newIsCombo }));
-                            if (newIsCombo) {
-                              setHasVariants(true);
-                            }
-                          }}
-                          className={`p-4 rounded-xl border-2 text-left transition-all flex flex-col justify-between h-28 group ${
-                            formData.isCombo
-                              ? 'border-orange-500 bg-orange-50/20'
-                              : 'border-gray-100 bg-gray-50/50 hover:bg-white hover:border-gray-200'
-                          }`}
-                        >
-                          <div className="flex justify-between items-start w-full">
-                            <i className="bi bi-box-seam text-xl text-orange-600"></i>
-                            <input
-                              type="checkbox"
-                              checked={formData.isCombo}
-                              onChange={() => {}}
-                              className="w-4 h-4 rounded text-orange-600"
-                            />
-                          </div>
-                          <div>
-                            <span className="font-bold text-xs text-gray-900 block">Es un Combo</span>
-                            <span className="text-[10px] text-gray-500 leading-tight block mt-0.5">Armar paquetes seleccionando elementos</span>
-                          </div>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Divider and Additional Settings */}
-                    <div className="border-t border-gray-100 pt-6 space-y-6">
-                      
-                      {/* Categoría y Disponibilidad en una fila */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-end">
+                      {/* Tarjeta 2: Categoría y Disponibilidad */}
+                      <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoría y Estado</h4>
+                        
                         {/* Categoría */}
-                        <div>
-                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Categoría</label>
+                        <div className="space-y-1.5">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Categoría</label>
                           <div className="relative">
                             <input
                               type="text"
@@ -1805,7 +1674,7 @@ export default function ProductList({
                               value={formData.category}
                               onChange={handleInputChange}
                               placeholder="Escribe o selecciona una categoría..."
-                              className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-50 hover:border-gray-200 focus:border-red-500 focus:bg-white rounded-xl focus:outline-none transition-all text-base font-medium"
+                              className="w-full px-4 py-3 bg-slate-50 border border-slate-100 hover:border-slate-200 focus:border-[#aa1918] focus:bg-white rounded-xl focus:outline-none transition-all text-sm font-bold text-slate-800"
                             />
                             <datalist id="categories-list">
                               {categories.map((cat) => (
@@ -1816,667 +1685,803 @@ export default function ProductList({
                         </div>
 
                         {/* Disponibilidad */}
-                        <label className="flex items-center gap-3 p-3.5 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors border border-gray-100">
-                          <input
-                            type="checkbox"
-                            checked={formData.isAvailable}
-                            onChange={(e) => setFormData(prev => ({ ...prev, isAvailable: e.target.checked }))}
-                            className="w-5 h-5 rounded text-red-600 cursor-pointer"
-                          />
-                          <span className="font-semibold text-gray-700 text-sm">Producto disponible</span>
+                        <label className="flex items-center justify-between p-3.5 bg-slate-50 hover:bg-slate-100/80 rounded-xl cursor-pointer transition-all border border-slate-100 group">
+                          <span className="font-bold text-slate-700 text-xs">Disponible para la Venta</span>
+                          <div className="relative inline-flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={formData.isAvailable}
+                              onChange={(e) => setFormData(prev => ({ ...prev, isAvailable: e.target.checked }))}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                          </div>
                         </label>
                       </div>
 
-                      {/* Gestión de Comisión - Colapsable */}
-                      {showCommissionSettings && (
-                        <div className="bg-slate-50 p-6 rounded-xl border border-slate-100 space-y-6 animate-in fade-in zoom-in duration-300">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center shadow-sm">
-                              <i className="bi bi-percent text-xl"></i>
-                            </div>
-                            <div>
-                              <h4 className="font-black text-slate-800 uppercase text-[11px] tracking-[0.2em] leading-none">Gestión de Comisión ({commissionSettings.commissionRate}%)</h4>
-                              <p className="text-[10px] text-slate-500 font-medium mt-1">Fuddi cobra una comisión fija del {commissionSettings.commissionRate}% por servicio</p>
+                      {/* Tarjeta 3: Horarios de Disponibilidad */}
+                      <div className="order-6 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                        <label className="flex items-center justify-between cursor-pointer group">
+                          <div>
+                            <span className="font-bold text-xs text-slate-800 block">Restricción por Horarios</span>
+                            <span className="text-[10px] text-slate-400 font-medium leading-none block mt-0.5">Define días y horas de venta</span>
+                          </div>
+                          <div className="relative inline-flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={scheduleEnabled}
+                              onChange={(e) => setScheduleEnabled(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                          </div>
+                        </label>
+
+                        {scheduleEnabled && (
+                          <div className="space-y-4 pt-3 border-t border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                            
+                            {/* Lista de horarios configurados */}
+                            {schedules.length > 0 && (
+                              <div className="space-y-2">
+                                <h5 className="font-bold text-[10px] text-slate-400 uppercase tracking-widest">Horarios Configurados</h5>
+                                <div className="space-y-2">
+                                  {schedules.map(schedule => (
+                                    <div key={schedule.id} className="flex items-center justify-between bg-slate-50/50 p-3 rounded-xl border border-slate-100">
+                                      <div className="flex-1 min-w-0 pr-2">
+                                        <p className="font-bold text-slate-700 text-xs truncate">
+                                          {schedule.days.map(day => dayLabels[day] || day).join(', ')}
+                                        </p>
+                                        <p className="text-[10px] text-slate-500 font-bold mt-0.5">
+                                          {schedule.startTime} - {schedule.endTime}
+                                        </p>
+                                      </div>
+                                      <div className="flex gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => editSchedule(schedule)}
+                                          className="w-7 h-7 flex items-center justify-center text-blue-600 hover:bg-blue-50 rounded-lg border border-transparent hover:border-blue-100 transition-colors"
+                                          title="Editar horario"
+                                        >
+                                          <i className="bi bi-pencil text-xs"></i>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => removeSchedule(schedule.id)}
+                                          className="w-7 h-7 flex items-center justify-center text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100 transition-colors"
+                                          title="Eliminar horario"
+                                        >
+                                          <i className="bi bi-trash text-xs"></i>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Formulario para agregar/editar horario inline */}
+                            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200/60 space-y-3">
+                              <div>
+                                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-0.5">Días de la Semana</label>
+                                <div className="grid grid-cols-4 gap-1.5">
+                                  {daysOfWeek.map(day => (
+                                    <button
+                                      key={day}
+                                      type="button"
+                                      onClick={() => toggleDaySelection(day)}
+                                      className={`py-1.5 px-1 rounded-lg font-bold text-[10px] border transition-all ${
+                                        currentSchedule.days.includes(day)
+                                          ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                                      }`}
+                                    >
+                                      {dayLabels[day]}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest ml-0.5">Hora Inicio</label>
+                                  <input
+                                    type="time"
+                                    value={currentSchedule.startTime}
+                                    onChange={(e) => setCurrentSchedule(prev => ({ ...prev, startTime: e.target.value }))}
+                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 text-xs font-bold text-slate-800"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest ml-0.5">Hora Fin</label>
+                                  <input
+                                    type="time"
+                                    value={currentSchedule.endTime}
+                                    onChange={(e) => setCurrentSchedule(prev => ({ ...prev, endTime: e.target.value }))}
+                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 text-xs font-bold text-slate-800"
+                                  />
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={addSchedule}
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 mt-2 shadow-sm shadow-blue-100"
+                              >
+                                <i className={`bi ${editingScheduleId ? 'bi-check-lg' : 'bi-plus-lg'} text-xs`}></i>
+                                {editingScheduleId ? 'Actualizar Horario' : 'Agregar Horario'}
+                              </button>
                             </div>
                           </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <button
-                              type="button"
-                              onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_customer' }))}
-                              className={`p-5 rounded-xl border-2 text-left transition-all duration-300 group ${
-                                formData.commissionType === 'fuddi_assumed_by_customer'
-                                  ? 'border-red-500 bg-white shadow-xl shadow-red-100 scale-[1.02]'
-                                  : 'border-slate-100 bg-white/50 hover:border-slate-200'
-                              }`}
-                            >
-                              <div className="flex items-center gap-3 mb-3">
-                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                                  formData.commissionType === 'fuddi_assumed_by_customer' ? 'border-red-500 bg-red-500' : 'border-slate-200'
-                                }`}>
-                                  {formData.commissionType === 'fuddi_assumed_by_customer' && <div className="w-2 h-2 bg-white rounded-full"></div>}
-                                </div>
-                                <span className={`font-bold text-sm transition-colors ${formData.commissionType === 'fuddi_assumed_by_customer' ? 'text-red-600' : 'text-slate-600'}`}>Cliente paga comisión</span>
-                              </div>
-                              <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
-                                El sistema suma el {commissionSettings.commissionRate}% al precio base. <span className="text-slate-800 font-bold">Tú recibes el 100%</span> de tu precio ingresado.
-                              </p>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_store' }))}
-                              className={`p-5 rounded-xl border-2 text-left transition-all duration-300 group ${
-                                formData.commissionType === 'fuddi_assumed_by_store'
-                                  ? 'border-red-500 bg-white shadow-xl shadow-red-100 scale-[1.02]'
-                                  : 'border-slate-100 bg-white/50 hover:border-slate-200'
-                              }`}
-                            >
-                              <div className="flex items-center gap-3 mb-3">
-                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                                  formData.commissionType === 'fuddi_assumed_by_store' ? 'border-red-500 bg-red-500' : 'border-slate-200'
-                                }`}>
-                                  {formData.commissionType === 'fuddi_assumed_by_store' && <div className="w-2 h-2 bg-white rounded-full"></div>}
-                                </div>
-                                <span className={`font-bold text-sm transition-colors ${formData.commissionType === 'fuddi_assumed_by_store' ? 'text-red-600' : 'text-slate-600'}`}>Negocio asume comisión</span>
-                              </div>
-                              <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
-                                El precio ingresado es el final para el cliente. <span className="text-slate-800 font-bold">Fuddi descuenta el {commissionSettings.commissionRate}%</span> de tu ganancia.
-                              </p>
-                            </button>
-                          </div>
-
-                          {formData.price && Number(formData.price) > 0 && (
-                            <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-6">
-                              <div className="flex-1 text-center sm:text-left">
-                                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Precio al público</p>
-                                  <p className="text-2xl font-black text-slate-900 tracking-tight">
-                                    ${formData.commissionType === 'fuddi_assumed_by_customer' 
-                                      ? (Math.round(Number(formData.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
-                                      : Number(formData.price).toFixed(2)}
-                                  </p>
-                              </div>
-                              <div className="hidden sm:block h-10 w-px bg-slate-100"></div>
-                              <div className="flex-1 text-center sm:text-right">
-                                  <p className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.2em] mb-1">Recibes en tu cuenta</p>
-                                  <p className="text-2xl font-black text-emerald-600 tracking-tight">
-                                    ${formData.commissionType === 'fuddi_assumed_by_store' 
-                                      ? (Number(formData.price) * (1 - commissionSettings.commissionRate / 100)).toFixed(2) 
-                                      : Number(formData.price).toFixed(2)}
-                                  </p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
 
-                    {/* Configuración de Combo */}
-                    {formData.isCombo && (
-                      <div className="border-t pt-6 space-y-4">
-                        <div>
-                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
-                            Cantidad de opciones a elegir en el combo
-                          </label>
+                    {/* COLUMNA DERECHA: NOMBRE, PRECIO, VARIANTES */}
+                    <div className="contents lg:block lg:col-span-7 lg:space-y-6">
+                      
+                      {/* Tarjeta A: Detalles Básicos */}
+                      <div className="order-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Información Básica</h4>
+                        
+                        {/* Nombre del Producto */}
+                        <div className="space-y-1.5">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nombre del Producto</label>
                           <input
-                            type="number"
-                            min="1"
-                            value={formData.minComboItems}
-                            onChange={(e) => setFormData(prev => ({ ...prev, minComboItems: Number(e.target.value) }))}
-                            className="w-full sm:w-1/2 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium bg-white"
+                            type="text"
+                            name="name"
+                            value={formData.name}
+                            onChange={handleInputChange}
+                            placeholder="Ej: Hamburguesa VIP, Tacos de Asada..."
+                            className={`w-full px-4 py-3 bg-slate-50 border rounded-xl text-sm font-bold text-slate-800 focus:bg-white transition-all outline-none ${
+                              errors.name ? 'border-red-500 focus:border-red-500' : 'border-slate-100 focus:border-[#aa1918]'
+                            }`}
                           />
-                          <p className="text-xs text-gray-500 mt-2 font-medium">
-                            El cliente deberá seleccionar exactamente esta cantidad de variantes para poder agregar el combo al carrito.
-                          </p>
+                          {errors.name && <p className="text-red-500 text-[10px] mt-1 font-bold italic ml-1">{errors.name}</p>}
+                        </div>
+
+                        {/* Descripción */}
+                        <div className="space-y-1.5">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Descripción del Producto</label>
+                          <textarea
+                            name="description"
+                            value={formData.description}
+                            onChange={handleInputChange}
+                            rows={3}
+                            placeholder="Describe el producto (ingredientes, porciones, etc.)..."
+                            className={`w-full px-4 py-3 bg-slate-50 border rounded-xl text-xs font-semibold text-slate-700 focus:bg-white transition-all outline-none resize-none ${
+                              errors.description ? 'border-red-500 focus:border-red-500' : 'border-slate-100 focus:border-[#aa1918]'
+                            }`}
+                          />
+                          {errors.description && <p className="text-red-500 text-[10px] mt-1 font-bold italic ml-1">{errors.description}</p>}
                         </div>
                       </div>
-                    )}
 
-                    {/* Disponibilidad por Horarios */}
-                    <div className="border-t pt-6">
-                      <label className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors mb-4 border-2 border-blue-100">
-                        <input
-                          type="checkbox"
-                          checked={scheduleEnabled}
-                          onChange={(e) => setScheduleEnabled(e.target.checked)}
-                          className="w-5 h-5 rounded text-blue-600 cursor-pointer"
-                        />
-                        <div>
-                          <span className="font-bold text-gray-900">Disponibilidad por Horarios</span>
-                          <p className="text-xs text-gray-600 mt-0.5">
-                            Configura días y horas específicas cuando ese producto está disponible
-                          </p>
-                        </div>
-                      </label>
+                      {/* Tarjeta B: Precio y Gestión de Comisión */}
+                      <div className="order-3 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Precios y Comisiones</h4>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+                          {/* Precio Base */}
+                          <div className="space-y-1.5">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Precio Base</label>
+                            <div className="relative">
+                              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">$</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                name="price"
+                                value={formData.price}
+                                onChange={handleInputChange}
+                                onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                placeholder="0.00"
+                                className={`w-full pl-8 pr-4 py-3 bg-slate-50 border rounded-xl text-sm font-bold text-slate-800 focus:bg-white transition-all outline-none ${
+                                  errors.price ? 'border-red-500 focus:border-red-500' : 'border-slate-100 focus:border-[#aa1918]'
+                                }`}
+                              />
+                            </div>
+                            {errors.price && <p className="text-red-500 text-[10px] mt-1 font-bold italic ml-1">{errors.price}</p>}
+                          </div>
 
-                      {scheduleEnabled && (
-                        <div className="space-y-4 bg-gray-50 p-6 rounded-2xl border border-blue-100">
-                          {/* Lista de horarios configurados */}
-                          {schedules.length > 0 && (
-                            <div className="space-y-2 mb-4">
-                              <h5 className="font-semibold text-gray-900 text-sm">Horarios configurados:</h5>
-                              {schedules.map(schedule => (
-                                <div key={schedule.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-gray-200">
-                                  <div className="flex-1">
-                                    <p className="font-medium text-gray-900">
-                                      {schedule.days.map(day => dayLabels[day] || day).join(', ')}
-                                    </p>
-                                    <p className="text-sm text-gray-600 mt-1">
-                                      {schedule.startTime} - {schedule.endTime}
-                                    </p>
-                                  </div>
-                                  <div className="flex gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => editSchedule(schedule)}
-                                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                      title="Editar horario"
-                                    >
-                                      <i className="bi bi-pencil"></i>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => removeSchedule(schedule.id)}
-                                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                      title="Eliminar horario"
-                                    >
-                                      <i className="bi bi-trash"></i>
-                                    </button>
-                                  </div>
+                          {/* Precio Público Toggle */}
+                          {formData.price && Number(formData.price) > 0 && (
+                            <div className="pt-7">
+                              <div className="flex items-center gap-3">
+                                <div className="bg-slate-50 px-3.5 py-3 rounded-xl border border-slate-100 flex-1 flex items-center justify-between">
+                                  <p className="text-[10px] font-bold text-slate-500">
+                                    Precio Público: <span className="text-slate-900 font-black">${formData.commissionType === 'fuddi_assumed_by_customer' 
+                                       ? (Math.round(Number(formData.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
+                                       : Number(formData.price).toFixed(2)}</span>
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowCommissionSettings(!showCommissionSettings)}
+                                    className="text-[10px] font-black text-blue-600 uppercase tracking-wider hover:text-blue-700 flex items-center gap-1 transition-colors ml-2"
+                                  >
+                                    {showCommissionSettings ? 'Ocultar' : 'Detalles'}
+                                    <i className={`bi ${showCommissionSettings ? 'bi-chevron-up' : 'bi-chevron-down'}`}></i>
+                                  </button>
                                 </div>
-                              ))}
+                              </div>
                             </div>
                           )}
-
-                          {/* Formulario para agregar horario */}
-                          <div className="space-y-4 p-4 bg-white rounded-lg border-2 border-dashed border-blue-200">
-                            <div>
-                              <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">
-                                Selecciona los días
-                              </label>
-                              <div className="grid grid-cols-4 gap-2">
-                                {daysOfWeek.map(day => (
-                                  <button
-                                    key={day}
-                                    type="button"
-                                    onClick={() => toggleDaySelection(day)}
-                                    className={`py-2.5 px-2 rounded-lg font-bold text-xs transition-all ${
-                                      currentSchedule.days.includes(day)
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                    }`}
-                                  >
-                                    {dayLabels[day]}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
-                                  Hora inicio
-                                </label>
-                                <input
-                                  type="time"
-                                  value={currentSchedule.startTime}
-                                  onChange={(e) => setCurrentSchedule(prev => ({ ...prev, startTime: e.target.value }))}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
-                                  Hora fin
-                                </label>
-                                <input
-                                  type="time"
-                                  value={currentSchedule.endTime}
-                                  onChange={(e) => setCurrentSchedule(prev => ({ ...prev, endTime: e.target.value }))}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-                                />
-                              </div>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={addSchedule}
-                              className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors font-bold flex items-center justify-center gap-2"
-                            >
-                              <i className={`bi ${editingScheduleId ? 'bi-pencil' : 'bi-plus-lg'}`}></i>
-                              {editingScheduleId ? 'Actualizar Horario' : 'Agregar Horario'}
-                            </button>
-                          </div>
                         </div>
-                      )}
-                    </div>
 
-                    {/* Variantes */}
-                    {(hasVariants || formData.isCombo) && (
-                      <div className="border-t pt-6">
-                        <h4 className="font-semibold text-gray-900 mb-4">Variantes</h4>
+                        {/* Configuración de Comisión Colapsable */}
+                        {showCommissionSettings && formData.price && Number(formData.price) > 0 && (
+                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+                            <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-200/50">
+                              <div className="w-7 h-7 bg-amber-50 border border-amber-100 text-amber-600 rounded-lg flex items-center justify-center shadow-sm">
+                                <i className="bi bi-percent text-sm"></i>
+                              </div>
+                              <div>
+                                <h5 className="font-black text-slate-700 text-[10px] uppercase tracking-wider">Gestión de Comisión Fuddi ({commissionSettings.commissionRate}%)</h5>
+                                <p className="text-[9px] text-slate-400 font-medium">Define quién cubre el costo administrativo por venta.</p>
+                              </div>
+                            </div>
 
-                      {variants.length > 0 && (
-                        <div className="space-y-3 mb-6">
-                          {variants.map((variant, index) => (
-                            <div
-                              key={variant.id}
-                              className={`group flex items-center bg-white p-3 rounded-2xl border transition-all duration-300 ${variantVisibility[variant.id] !== false
-                                ? 'border-gray-100 shadow-sm hover:shadow-md'
-                                : 'border-gray-200 bg-gray-50/50'
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <button
+                                type="button"
+                                onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_customer' }))}
+                                className={`p-4 rounded-xl border-2 text-left transition-all duration-300 ${
+                                  formData.commissionType === 'fuddi_assumed_by_customer'
+                                    ? 'border-[#aa1918] bg-white shadow-md shadow-red-100/50'
+                                    : 'border-slate-200/60 bg-white/60 hover:border-slate-300'
                                 }`}
-                            >
-                              {/* Imagen de variante */}
-                              <div className={`w-12 h-12 flex-shrink-0 rounded-lg overflow-hidden bg-gray-50 border border-gray-100 mr-3 ${variantVisibility[variant.id] === false ? 'grayscale' : ''}`}>
-                                {(variantImageFiles[variant.id] || variant.image) ? (
-                                  <img 
-                                    src={variantImageFiles[variant.id] ? URL.createObjectURL(variantImageFiles[variant.id]) : variant.image} 
-                                    className="w-full h-full object-cover" 
-                                    alt={variant.name} 
-                                  />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-gray-300">
-                                    <i className="bi bi-image text-lg"></i>
+                              >
+                                <div className="flex items-center gap-2 mb-2">
+                                  <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-colors ${
+                                    formData.commissionType === 'fuddi_assumed_by_customer' ? 'border-[#aa1918] bg-[#aa1918]' : 'border-slate-300'
+                                  }`}>
+                                    {formData.commissionType === 'fuddi_assumed_by_customer' && <div className="w-1.5 h-1.5 bg-white rounded-full"></div>}
                                   </div>
-                                )}
-                              </div>
-
-                              <div className={`flex-1 min-w-0 ${variantVisibility[variant.id] === false ? 'opacity-60 grayscale-[0.5]' : ''}`}>
-                                <div className="flex items-center gap-2">
-                                  <p className="font-bold text-gray-900 text-sm leading-tight break-words">
-                                    {variant.name}
-                                  </p>
-                                  {variantVisibility[variant.id] === false && (
-                                    <span className="text-[8px] font-black bg-gray-200 text-gray-500 px-1 py-0.5 rounded uppercase tracking-widest">
-                                      Oculto
-                                    </span>
-                                  )}
+                                  <span className={`font-bold text-xs ${formData.commissionType === 'fuddi_assumed_by_customer' ? 'text-[#aa1918]' : 'text-slate-600'}`}>Cliente paga</span>
                                 </div>
-                                {variant.description && (
-                                  <p className="text-[10px] text-gray-500 line-clamp-1 mt-0.5 leading-tight">{variant.description}</p>
-                                )}
-                                <div className="flex flex-col mt-0.5">
-                                  <p className="text-sm font-black text-emerald-600 tracking-tight">
-                                    ${variant.price.toFixed(2)}
-                                  </p>
-                                  {/* Nota: En el estado local 'variants' durante la edición, 'price' es el precio base */}
-                                  <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">
-                                    Público: ${(Math.round(variant.price * (1 + (commissionSettings.commissionRate / 100)) * 20) / 20).toFixed(2)}
-                                  </p>
+                                <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
+                                  Se añade el {commissionSettings.commissionRate}% al precio base. <span className="text-slate-700 font-bold">Tú recibes el 100%</span> de tu precio ingresado.
+                                </p>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setFormData(prev => ({ ...prev, commissionType: 'fuddi_assumed_by_store' }))}
+                                className={`p-4 rounded-xl border-2 text-left transition-all duration-300 ${
+                                  formData.commissionType === 'fuddi_assumed_by_store'
+                                    ? 'border-[#aa1918] bg-white shadow-md shadow-red-100/50'
+                                    : 'border-slate-200/60 bg-white/60 hover:border-slate-300'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 mb-2">
+                                  <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-colors ${
+                                    formData.commissionType === 'fuddi_assumed_by_store' ? 'border-[#aa1918] bg-[#aa1918]' : 'border-slate-300'
+                                  }`}>
+                                    {formData.commissionType === 'fuddi_assumed_by_store' && <div className="w-1.5 h-1.5 bg-white rounded-full"></div>}
+                                  </div>
+                                  <span className={`font-bold text-xs ${formData.commissionType === 'fuddi_assumed_by_store' ? 'text-[#aa1918]' : 'text-slate-600'}`}>Negocio asume</span>
                                 </div>
+                                <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
+                                  El precio ingresado es el precio final al cliente. Fuddi descuenta el {commissionSettings.commissionRate}% de tu ganancia.
+                                </p>
+                              </button>
+                            </div>
+
+                            {/* Desglose de ingresos */}
+                            <div className="bg-white p-4 rounded-xl border border-slate-100 flex items-center justify-between gap-4 text-center sm:text-left shadow-sm">
+                              <div>
+                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Precio al Público</p>
+                                <p className="text-lg font-black text-slate-800 mt-0.5">
+                                  ${formData.commissionType === 'fuddi_assumed_by_customer' 
+                                    ? (Math.round(Number(formData.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
+                                    : Number(formData.price).toFixed(2)}
+                                </p>
                               </div>
+                              <div className="h-8 w-px bg-slate-100"></div>
+                              <div className="text-right">
+                                <p className="text-[8px] font-black text-emerald-500 uppercase tracking-widest">Recibes en tu Cuenta</p>
+                                <p className="text-lg font-black text-emerald-600 mt-0.5">
+                                  ${formData.commissionType === 'fuddi_assumed_by_store' 
+                                    ? (Number(formData.price) * (1 - commissionSettings.commissionRate / 100)).toFixed(2) 
+                                    : Number(formData.price).toFixed(2)}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
 
-                              <div className="flex items-center gap-1">
-                                {/* Botón de 3 puntos */}
-                                <div className="relative variant-action-menu">
-                                  <button
-                                    type="button"
-                                    onClick={() => setActiveVariantMenu(activeVariantMenu === variant.id ? null : variant.id)}
-                                    className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 rounded-full hover:bg-gray-100 transition-all"
-                                  >
-                                    <i className="bi bi-three-dots-vertical"></i>
-                                  </button>
+                      {/* Tarjeta C: Configuración de Variantes */}
+                      <div className="order-5 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                        <label className="flex items-center justify-between cursor-pointer group">
+                          <div>
+                            <span className="font-bold text-xs text-slate-800 block">Configurar Variantes</span>
+                            <span className="text-[10px] text-slate-400 font-medium leading-none block mt-0.5">Diferentes precios, tamaños o sabores</span>
+                          </div>
+                          <div className="relative inline-flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={hasVariants}
+                              onChange={() => {
+                                const newHasVariants = !hasVariants;
+                                setHasVariants(newHasVariants);
+                                if (!newHasVariants) {
+                                  setFormData(prev => ({ ...prev, isCombo: false }));
+                                }
+                              }}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                          </div>
+                        </label>
 
-                                  {activeVariantMenu === variant.id && (
-                                    <div className="absolute right-0 mt-2 w-44 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setVariantVisibility(prev => ({ ...prev, [variant.id]: !prev[variant.id] }))
-                                          setActiveVariantMenu(null)
-                                        }}
-                                        className="w-full px-4 py-2 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                                      >
-                                        <i className={`bi ${variantVisibility[variant.id] !== false ? 'bi-eye-slash text-orange-600' : 'bi-eye text-emerald-600'}`}></i>
-                                        {variantVisibility[variant.id] !== false ? 'Ocultar' : 'Mostrar'}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          handleEditVariant(variant)
-                                          setActiveVariantMenu(null)
-                                        }}
-                                        className="w-full px-4 py-2 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
-                                      >
-                                        <i className="bi bi-pencil text-blue-600"></i>
-                                        Editar
-                                      </button>
-                                      <div className="border-t border-gray-50 my-1"></div>
+                        {hasVariants && (
+                          <div className="space-y-5 pt-4 border-t border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                            
+                            {/* Toggle Es un Combo */}
+                            <label className="flex items-center justify-between p-3.5 bg-orange-50/30 hover:bg-orange-50/50 rounded-xl cursor-pointer transition-all border border-orange-100/50 group">
+                              <div>
+                                <span className="font-bold text-slate-800 text-xs block">Es un Combo</span>
+                                <span className="text-[9px] text-slate-500 font-medium block mt-0.5">Permite armar un paquete seleccionando múltiples variantes</span>
+                              </div>
+                              <div className="relative inline-flex items-center">
+                                <input
+                                  type="checkbox"
+                                  checked={formData.isCombo}
+                                  onChange={() => {
+                                    setFormData(prev => ({ ...prev, isCombo: !prev.isCombo }));
+                                  }}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-9 h-5 bg-slate-200 peer-checked:bg-orange-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                              </div>
+                            </label>
 
-                                      <div className="px-4 py-2 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                        Mover
-                                        <div className="flex gap-1">
-                                          <button
-                                            type="button"
-                                            onClick={() => moveVariant(index, 'up')}
-                                            disabled={index === 0}
-                                            className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30 transition-colors"
-                                          >
-                                            <i className="bi bi-chevron-up"></i>
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => moveVariant(index, 'down')}
-                                            disabled={index === variants.length - 1}
-                                            className="w-6 h-6 flex items-center justify-center bg-gray-50 rounded hover:bg-gray-100 disabled:opacity-30 transition-colors"
-                                          >
-                                            <i className="bi bi-chevron-down"></i>
-                                          </button>
+                            {/* Combo cantidad de opciones */}
+                            {formData.isCombo && (
+                              <div className="p-4 bg-orange-50/10 rounded-xl border border-orange-100/80 space-y-2 animate-in fade-in zoom-in-95 duration-200">
+                                <label className="block text-[9px] font-black text-orange-700 uppercase tracking-widest ml-0.5">Cantidad de Opciones a Elegir</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={formData.minComboItems}
+                                  onChange={(e) => setFormData(prev => ({ ...prev, minComboItems: Number(e.target.value) }))}
+                                  className="w-full sm:w-1/2 px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-orange-500 font-bold text-xs bg-white text-slate-800"
+                                />
+                                <p className="text-[9px] text-slate-500 font-medium leading-relaxed">
+                                  El cliente deberá seleccionar exactamente esta cantidad de variantes para poder ordenar el combo.
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Listado de variantes - Estilo Premium similar a la lista de productos */}
+                            <div className="space-y-3">
+                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Lista de Variantes</label>
+                              
+                              {variants.length > 0 && (
+                                <div className="space-y-3">
+                                  {variants.map((variant, index) => (
+                                    <div
+                                      key={variant.id}
+                                      className={`flex items-center bg-white p-3.5 rounded-2xl border transition-all duration-300 shadow-sm ${
+                                        variantVisibility[variant.id] !== false
+                                          ? 'border-slate-100 hover:shadow-md'
+                                          : 'border-slate-200 bg-slate-50/50'
+                                      }`}
+                                    >
+                                      {/* Imagen de la variante */}
+                                      <div className={`w-14 h-14 flex-shrink-0 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 mr-3.5 relative shadow-inner ${
+                                        variantVisibility[variant.id] === false ? 'grayscale opacity-75' : ''
+                                      }`}>
+                                        {(variantImageFiles[variant.id] || variant.image) ? (
+                                          <img 
+                                            src={variantImageFiles[variant.id] ? URL.createObjectURL(variantImageFiles[variant.id]) : variant.image} 
+                                            className="w-full h-full object-cover" 
+                                            alt={variant.name} 
+                                          />
+                                        ) : (
+                                          <div className="w-full h-full flex items-center justify-center text-slate-300">
+                                            <i className="bi bi-image text-lg"></i>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* Datos de la variante */}
+                                      <div className={`flex-1 min-w-0 pr-2 ${variantVisibility[variant.id] === false ? 'opacity-60' : ''}`}>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <p className="font-bold text-slate-800 text-xs leading-tight break-words">
+                                            {variant.name}
+                                          </p>
+                                          {variantVisibility[variant.id] === false && (
+                                            <span className="text-[8px] font-black bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                              Oculto
+                                            </span>
+                                          )}
+                                        </div>
+                                        {variant.description && (
+                                          <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5 leading-tight font-medium">{variant.description}</p>
+                                        )}
+                                        
+                                        <div className="flex items-baseline gap-2 mt-1">
+                                          <span className="text-xs font-black text-emerald-600">
+                                            ${variant.price.toFixed(2)}
+                                          </span>
+                                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                                            Público: ${(Math.round(variant.price * (1 + (commissionSettings.commissionRate / 100)) * 20) / 20).toFixed(2)}
+                                          </span>
                                         </div>
                                       </div>
 
-                                      <div className="border-t border-gray-50 my-1"></div>
+                                      {/* Acciones de la variante */}
+                                      <div className="relative variant-action-menu">
+                                        <button
+                                          type="button"
+                                          onClick={() => setActiveVariantMenu(activeVariantMenu === variant.id ? null : variant.id)}
+                                          className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100 border border-transparent hover:border-slate-200/60 transition-all"
+                                        >
+                                          <i className="bi bi-three-dots-vertical text-sm"></i>
+                                        </button>
+
+                                        {activeVariantMenu === variant.id && (
+                                          <div className="absolute right-0 mt-1 w-44 bg-white rounded-xl shadow-xl border border-slate-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setVariantVisibility(prev => ({ ...prev, [variant.id]: !prev[variant.id] }))
+                                                setActiveVariantMenu(null)
+                                              }}
+                                              className="w-full px-4 py-2.5 text-left text-xs font-bold hover:bg-slate-50 flex items-center gap-2.5 transition-colors text-slate-700"
+                                            >
+                                              <i className={`bi ${variantVisibility[variant.id] !== false ? 'bi-eye-slash-fill text-amber-500' : 'bi-eye-fill text-emerald-500'} text-sm`}></i>
+                                              {variantVisibility[variant.id] !== false ? 'Ocultar Variante' : 'Mostrar Variante'}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                handleEditVariant(variant)
+                                                setActiveVariantMenu(null)
+                                              }}
+                                              className="w-full px-4 py-2.5 text-left text-xs font-bold hover:bg-slate-50 flex items-center gap-2.5 transition-colors text-slate-700"
+                                            >
+                                              <i className="bi bi-pencil-fill text-blue-500 text-sm"></i>
+                                              Editar Datos
+                                            </button>
+                                            
+                                            <div className="border-t border-slate-100 my-1.5"></div>
+
+                                            <div className="px-4 py-2 flex items-center justify-between text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                                              Mover
+                                              <div className="flex gap-1">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => moveVariant(index, 'up')}
+                                                  disabled={index === 0}
+                                                  className="w-6 h-6 flex items-center justify-center bg-slate-50 rounded hover:bg-slate-100 disabled:opacity-30 border border-slate-100 transition-colors"
+                                                >
+                                                  <i className="bi bi-chevron-up text-[10px]"></i>
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => moveVariant(index, 'down')}
+                                                  disabled={index === variants.length - 1}
+                                                  className="w-6 h-6 flex items-center justify-center bg-slate-50 rounded hover:bg-slate-100 disabled:opacity-30 border border-slate-100 transition-colors"
+                                                >
+                                                  <i className="bi bi-chevron-down text-[10px]"></i>
+                                                </button>
+                                              </div>
+                                            </div>
+
+                                            <div className="border-t border-slate-100 my-1.5"></div>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                removeVariant(variant.id)
+                                                setActiveVariantMenu(null)
+                                              }}
+                                              className="w-full px-4 py-2.5 text-left text-xs font-bold hover:bg-red-50 flex items-center gap-2.5 transition-colors text-red-650"
+                                            >
+                                              <i className="bi bi-trash-fill text-sm"></i>
+                                              Eliminar
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Formulario Inline para Añadir / Editar Variante */}
+                              {!(showVariantForm || editingVariantId) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowVariantForm(true)}
+                                  className="w-full py-3.5 border-2 border-dashed border-slate-200 hover:border-[#aa1918] hover:bg-red-50/10 rounded-2xl text-slate-500 hover:text-[#aa1918] transition-all font-bold text-xs flex items-center justify-center gap-2 group"
+                                >
+                                  <i className="bi bi-plus-circle text-base group-hover:scale-110 transition-transform"></i>
+                                  Agregar Variante
+                                </button>
+                              ) : (
+                                <div className="space-y-4 bg-slate-50 p-4 rounded-2xl border border-slate-200 animate-in fade-in slide-in-from-top-2 duration-300">
+                                  <div className="flex items-center gap-2 pb-2 border-b border-slate-200/60">
+                                    <div className="w-6 h-6 bg-blue-50 border border-blue-100 text-blue-600 rounded-lg flex items-center justify-center shadow-sm">
+                                      <i className={`bi ${editingVariantId ? 'bi-pencil-fill' : 'bi-plus-lg'} text-xs`}></i>
+                                    </div>
+                                    <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                                      {editingVariantId ? 'Editar Variante' : 'Nueva Variante'}
+                                    </h5>
+                                  </div>
+
+                                  <div className="flex flex-col sm:flex-row gap-4">
+                                    {/* Imagen de la variante */}
+                                    <div className="w-20 h-20 flex-shrink-0 mx-auto sm:mx-0">
+                                      <label htmlFor="variant-image-upload" className="block cursor-pointer h-full">
+                                        <div className="relative h-full bg-white rounded-xl border-2 border-dashed border-slate-200 hover:border-[#aa1918] hover:bg-red-50/10 transition-all flex items-center justify-center overflow-hidden group shadow-sm">
+                                          {currentVariant.imageFile ? (
+                                            <img src={URL.createObjectURL(currentVariant.imageFile)} alt="Preview" className="w-full h-full object-cover" />
+                                          ) : currentVariant.imageUrl ? (
+                                            <img src={currentVariant.imageUrl} alt="Current" className="w-full h-full object-cover" />
+                                          ) : (
+                                            <div className="text-center p-2 space-y-1">
+                                              <i className="bi bi-camera text-lg text-slate-300 group-hover:scale-115 transition-transform block"></i>
+                                              <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider leading-none">Foto</p>
+                                            </div>
+                                          )}
+                                          <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                            <i className="bi bi-camera text-white text-sm"></i>
+                                          </div>
+                                        </div>
+                                      </label>
+                                      <input
+                                        id="variant-image-upload"
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0]
+                                          if (file) {
+                                            setCurrentVariant(prev => ({ ...prev, imageFile: file }))
+                                          }
+                                        }}
+                                        className="hidden"
+                                      />
+                                    </div>
+
+                                    {/* Campos de texto de la variante */}
+                                    <div className="flex-1 space-y-3">
+                                      <input
+                                        type="text"
+                                        value={currentVariant.name}
+                                        onChange={(e) => setCurrentVariant(prev => ({ ...prev, name: e.target.value }))}
+                                        placeholder="Nombre: Tamaño Grande, Extra Queso..."
+                                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-[#aa1918] shadow-sm transition-all"
+                                        autoFocus
+                                      />
+                                      
+                                      <textarea
+                                        value={currentVariant.description}
+                                        onChange={(e) => setCurrentVariant(prev => ({ ...prev, description: e.target.value }))}
+                                        placeholder="Descripción corta de la variante (opcional)"
+                                        rows={2}
+                                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-[11px] font-semibold text-slate-600 focus:outline-none focus:border-[#aa1918] shadow-sm transition-all resize-none"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* Precio y botones de la variante */}
+                                  <div className="space-y-2 pt-2 border-t border-slate-200/50">
+                                    <div className="flex gap-2">
+                                      <div className="relative flex-1">
+                                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={currentVariant.price}
+                                          onChange={(e) => setCurrentVariant(prev => ({ ...prev, price: e.target.value }))}
+                                          onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                          placeholder="Precio base variante"
+                                          className="w-full pl-7 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-[#aa1918] shadow-sm transition-all"
+                                        />
+                                      </div>
+                                      
+                                      <button
+                                        type="button"
+                                        onClick={addVariant}
+                                        className={`px-5 py-2.5 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md active:scale-95 ${
+                                          editingVariantId 
+                                            ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-100' 
+                                            : 'bg-[#aa1918] hover:bg-[#8f1514] shadow-red-100'
+                                        }`}
+                                      >
+                                        {editingVariantId ? 'Guardar' : 'Añadir'}
+                                      </button>
+                                      
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          removeVariant(variant.id)
-                                          setActiveVariantMenu(null)
+                                          setShowVariantForm(false)
+                                          setEditingVariantId(null)
+                                          setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
                                         }}
-                                        className="w-full px-4 py-2 text-left text-sm font-medium hover:bg-red-50 flex items-center gap-3 transition-colors text-red-600"
+                                        className="px-4 py-2.5 bg-slate-200 hover:bg-slate-350 text-slate-650 rounded-xl text-xs font-bold transition-all"
                                       >
-                                        <i className="bi bi-trash"></i>
-                                        Eliminar
+                                        Cancelar
                                       </button>
                                     </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
 
-                      {!(showVariantForm || editingVariantId) ? (
-                        <button
-                          type="button"
-                          onClick={() => setShowVariantForm(true)}
-                          className="w-full p-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-red-400 hover:bg-red-50 transition-all font-bold text-sm flex items-center justify-center gap-2 group"
-                        >
-                          <i className="bi bi-plus-circle text-lg group-hover:scale-110 transition-transform"></i>
-                          Agregar variante
-                        </button>
-                      ) : (
-                        <div className="space-y-4 bg-gray-50/50 p-4 rounded-2xl border border-dashed border-gray-200 animate-in fade-in slide-in-from-top-2 duration-300">
-                          <div className="flex items-center gap-2 mb-1">
-                            <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded flex items-center justify-center text-xs">
-                              <i className={`bi ${editingVariantId ? 'bi-pencil' : 'bi-plus-lg'}`}></i>
-                            </div>
-                            <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                              {editingVariantId ? 'Editar Variante' : 'Nueva Variante'}
-                            </h5>
-                          </div>
-
-                          <div className="flex flex-col sm:flex-row gap-4">
-                            {/* Imagen de la variante */}
-                            <div className="w-20 h-20 flex-shrink-0 mx-auto sm:mx-0">
-                              <label htmlFor="variant-image-upload" className="block cursor-pointer h-full">
-                                <div className="relative h-full bg-white rounded-xl border-2 border-dashed border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-all flex items-center justify-center overflow-hidden group shadow-sm">
-                                  {currentVariant.imageFile ? (
-                                    <img src={URL.createObjectURL(currentVariant.imageFile)} alt="Preview" className="w-full h-full object-cover" />
-                                  ) : currentVariant.imageUrl ? (
-                                    <img src={currentVariant.imageUrl} alt="Current" className="w-full h-full object-cover" />
-                                  ) : (
-                                    <div className="text-center p-2">
-                                      <i className="bi bi-camera text-xl text-gray-300 mb-1 block"></i>
-                                      <p className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">Foto</p>
-                                    </div>
-                                  )}
-                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                                    <i className="bi bi-camera text-white text-lg"></i>
+                                    {/* Precio público de la variante */}
+                                    {currentVariant.price && Number(currentVariant.price) > 0 && (
+                                      <p className="text-[10px] font-bold text-slate-500 ml-1.5 animate-in fade-in slide-in-from-left-1 duration-300">
+                                        Precio al Público: <span className="text-slate-900 font-black">${formData.commissionType === 'fuddi_assumed_by_customer' 
+                                         ? (Math.round(Number(currentVariant.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
+                                         : Number(currentVariant.price).toFixed(2)}</span>
+                                      </p>
+                                    )}
                                   </div>
                                 </div>
-                              </label>
-                              <input
-                                id="variant-image-upload"
-                                type="file"
-                                accept="image/*"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0]
-                                  if (file) {
-                                    setCurrentVariant(prev => ({ ...prev, imageFile: file }))
-                                  }
-                                }}
-                                className="hidden"
-                              />
-                            </div>
-
-                            <div className="flex-1 space-y-3">
-                              <input
-                                type="text"
-                                value={currentVariant.name}
-                                onChange={(e) => setCurrentVariant(prev => ({ ...prev, name: e.target.value }))}
-                                placeholder="Ej: Tamaño grande, Con queso extra"
-                                className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-red-500 shadow-sm transition-all"
-                                autoFocus
-                              />
-                              
-                              <textarea
-                                value={currentVariant.description}
-                                onChange={(e) => setCurrentVariant(prev => ({ ...prev, description: e.target.value }))}
-                                placeholder="Descripción corta (opcional)"
-                                rows={2}
-                                className="w-full px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-red-500 shadow-sm transition-all resize-none"
-                              />
+                              )}
                             </div>
                           </div>
-
-                          <div className="space-y-2">
-                            <div className="flex gap-2">
-                              <div className="relative flex-1">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  value={currentVariant.price}
-                                  onChange={(e) => setCurrentVariant(prev => ({ ...prev, price: e.target.value }))}
-                                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                                  placeholder="Precio"
-                                  className="w-full pl-7 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-red-500 shadow-sm transition-all"
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                onClick={addVariant}
-                                className={`px-6 py-2.5 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg active:scale-95 ${editingVariantId ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-100' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'}`}
-                              >
-                                {editingVariantId ? 'LISTO' : 'AÑADIR'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowVariantForm(false)
-                                  setEditingVariantId(null)
-                                  setCurrentVariant({ name: '', price: '', description: '', imageFile: null, imageUrl: '' })
-                                }}
-                                className="px-4 py-2.5 bg-gray-100 text-gray-500 rounded-xl text-sm font-bold hover:bg-gray-200 transition-all"
-                              >
-                                <i className="bi bi-x-lg"></i>
-                              </button>
-                            </div>
-
-                            {/* Resumen de precio al público para el formulario de variante */}
-                            {currentVariant.price && Number(currentVariant.price) > 0 && (
-                              <p className="text-[10px] font-bold text-slate-500 ml-1 animate-in fade-in slide-in-from-left-1 duration-300">
-                                Precio al público: <span className="text-slate-900 font-black">${formData.commissionType === 'fuddi_assumed_by_customer' 
-                                 ? (Math.round(Number(currentVariant.price) * (1 + commissionSettings.commissionRate / 100) * 20) / 20).toFixed(2) 
-                                 : Number(currentVariant.price).toFixed(2)}</span>
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      )}
+                        )}
                       </div>
-                    )}
+                    </div>
                   </div>
                 )}
 
                 {/* PESTAÑA: INGREDIENTES Y COSTOS */}
                 {activeTab === 'ingredients' && (
-                  <div className="space-y-6">
+                  <div className="space-y-6 max-w-3xl mx-auto">
                     {/* Sección de ingredientes principales - Solo visible cuando no hay variantes */}
                     {variants.length === 0 && (
-                      <div className="bg-white p-4 rounded-lg border border-gray-200">
-                        <div className="flex items-center justify-between mb-4">
-                          <div>
-                            <h3 className="text-lg font-medium text-gray-900">Ingredientes del Producto</h3>
-                            <p className="text-sm text-gray-500 mt-1">Ingredientes base que aplican a todas las variantes</p>
-                          </div>
-                          {ingredients.length > 0 && (
-                            <div className="text-right">
-                              <p className="text-sm text-gray-500">Costo Total:</p>
-                              <p className="text-xl font-bold text-emerald-600">
-                                ${calculateTotalIngredientCost().toFixed(2)}
-                              </p>
-                              {formData.price && (
-                                <p className="text-xs text-gray-500 mt-1">
-                                  Margen: ${(Number(formData.price) - calculateTotalIngredientCost()).toFixed(2)}
-                                  {' '}({((Number(formData.price) - calculateTotalIngredientCost()) / Number(formData.price) * 100).toFixed(1)}%)
-                                </p>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Lista de ingredientes */}
+                      <div className="space-y-6 animate-in fade-in duration-300">
+                        {/* Tarjeta 1: Resumen de Costos (KPI Card) */}
                         {ingredients.length > 0 && (
-                          <div className="mb-4">
-                            <h4 className="font-medium text-gray-900 mb-3">Ingredientes agregados:</h4>
-                            <div className="space-y-2">
-                              {ingredients.map((ingredient) => (
-                                <div key={ingredient.id} className="flex justify-between items-center bg-white border border-gray-200 rounded-lg p-3">
-                                  <div className="flex-1">
-                                    <div className="flex items-center gap-4">
-                                      <span className="font-medium text-gray-900">{ingredient.name}</span>
-                                      <span className="text-gray-600 text-sm">
-                                        {ingredient.quantity} x ${ingredient.unitCost.toFixed(2)}
+                          <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <div>
+                              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Resumen de Costos y Receta</h4>
+                              <p className="text-xs text-slate-500 mt-0.5">Desglose financiero del producto según insumos</p>
+                            </div>
+                            <div className="flex items-center gap-6 text-center sm:text-right">
+                              <div>
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Costo Insumos</p>
+                                <p className="text-xl font-black text-slate-800 mt-0.5">${calculateTotalIngredientCost().toFixed(2)}</p>
+                              </div>
+                              {formData.price && Number(formData.price) > 0 && (
+                                <>
+                                  <div className="w-px h-8 bg-slate-100"></div>
+                                  <div>
+                                    <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Margen de Ganancia</p>
+                                    <p className="text-xl font-black text-emerald-600 mt-0.5">
+                                      ${(Number(formData.price) - calculateTotalIngredientCost()).toFixed(2)}
+                                      <span className="text-xs font-bold text-slate-400 ml-1">
+                                        ({((Number(formData.price) - calculateTotalIngredientCost()) / Number(formData.price) * 105).toFixed(1)}%)
                                       </span>
-                                      <span className="text-emerald-600 font-medium">
-                                        = ${(ingredient.quantity * ingredient.unitCost).toFixed(2)}
-                                      </span>
-                                    </div>
+                                    </p>
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => removeIngredient(ingredient.id)}
-                                    className="text-red-600 hover:text-red-700 p-1"
-                                  >
-                                    <i className="bi bi-trash"></i>
-                                  </button>
-                                </div>
-                              ))}
+                                </>
+                              )}
                             </div>
                           </div>
                         )}
 
-                        {/* Formulario para agregar ingrediente - Optimizado */}
-                        <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 shadow-sm transition-all hover:shadow-md">
-                          <div className="flex items-center gap-2 mb-6">
-                            <div className="w-8 h-8 bg-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center">
-                              <i className="bi bi-magic"></i>
+                        {/* Tarjeta 2: Ingredientes Agregados */}
+                        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ingredientes del Producto</h4>
+                          
+                          {ingredients.length > 0 ? (
+                            <div className="divide-y divide-slate-100">
+                              {ingredients.map((ingredient) => (
+                                <div key={ingredient.id} className="py-3 flex justify-between items-center first:pt-0 last:pb-0 group">
+                                  <div className="flex-1 pr-4">
+                                    <p className="font-bold text-slate-800 text-xs">{ingredient.name}</p>
+                                    <p className="text-[10px] text-slate-500 font-bold mt-0.5">
+                                      {ingredient.quantity} unidad(es) × ${ingredient.unitCost.toFixed(2)} = 
+                                      <span className="text-emerald-600 ml-1">${(ingredient.quantity * ingredient.unitCost).toFixed(2)}</span>
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeIngredient(ingredient.id)}
+                                    className="w-7 h-7 flex items-center justify-center text-red-500 hover:text-red-700 bg-slate-50 group-hover:bg-red-50 rounded-lg border border-slate-100 hover:border-red-100 transition-colors"
+                                    title="Remover insumo"
+                                  >
+                                    <i className="bi bi-trash text-xs"></i>
+                                  </button>
+                                </div>
+                              ))}
                             </div>
-                            <h4 className="font-black text-slate-800 uppercase text-[10px] tracking-[0.2em]">Configurar Insumos</h4>
+                          ) : (
+                            <div className="text-center py-6 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                              <i className="bi bi-basket text-lg text-slate-300"></i>
+                              <p className="text-xs font-semibold text-slate-500 mt-1">Sin ingredientes configurados</p>
+                              <p className="text-[10px] text-slate-400 max-w-xs mx-auto mt-0.5">Configura la receta de este producto para controlar tus costos e inventario.</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Tarjeta 3: Configurar Insumos (Buscador y Formulario) */}
+                        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                          <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100">
+                            <div className="w-7 h-7 bg-emerald-50 border border-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center shadow-sm">
+                              <i className="bi bi-magic text-sm"></i>
+                            </div>
+                            <h5 className="font-black text-slate-700 text-[10px] uppercase tracking-wider">Añadir Insumos a la Receta</h5>
                           </div>
 
-                          <div className="space-y-5">
+                          <div className="space-y-4">
                             <div className="relative ingredient-input-container">
-                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2">
-                                Buscar o Crear Insumo
-                              </label>
-                              <div className="relative group">
-                                <i className="bi bi-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-emerald-500 transition-colors"></i>
+                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1.5">Buscar o Crear Insumo</label>
+                              <div className="relative">
+                                <i className="bi bi-search absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"></i>
                                 <input
                                   type="text"
                                   name="name"
                                   value={currentIngredient.name}
                                   onChange={handleIngredientChange}
                                   onFocus={() => setShowIngredientSuggestions(true)}
-                                  className="w-full pl-12 pr-4 py-4 bg-white border-2 border-slate-100 rounded-2xl focus:outline-none focus:border-emerald-500 font-bold text-slate-900 transition-all placeholder:text-slate-300 placeholder:font-medium"
-                                  placeholder="¿Qué insumo necesitas?"
+                                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-100 hover:border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-xs font-bold text-slate-800 outline-none transition-all"
+                                  placeholder="¿Qué insumo necesitas? Ej: Pan de Hamburguesa, Tocino..."
                                   autoComplete="off"
                                 />
                               </div>
 
-                              {/* Sugerencias de ingredientes - Diseño Mejorado */}
+                              {/* Sugerencias flotantes */}
                               {showIngredientSuggestions && (
-                                <div className="absolute z-[60] w-full mt-2 bg-white border border-slate-100 rounded-[2rem] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
-                                  <div className="max-h-64 overflow-y-auto custom-scrollbar">
-                                    {getFilteredIngredients().length > 0 ? (
-                                      <>
-                                        <div className="px-5 py-3 bg-slate-50/50 border-b border-slate-50">
-                                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Insumos en Biblioteca</p>
-                                        </div>
-                                        {getFilteredIngredients().map((ingredient) => (
-                                          <button
-                                            key={ingredient.id}
-                                            type="button"
-                                            onClick={() => selectIngredientFromLibrary(ingredient)}
-                                            className="w-full text-left px-5 py-4 hover:bg-emerald-50 border-b border-slate-50 last:border-b-0 transition-all group/item"
-                                          >
-                                            <div className="flex items-center justify-between">
-                                              <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center font-black text-[10px] text-slate-400 group-hover/item:bg-emerald-100 group-hover/item:text-emerald-600 transition-colors">
-                                                  {ingredient.name.substring(0, 2).toUpperCase()}
-                                                </div>
-                                                <span className="text-sm font-bold text-slate-900">{ingredient.name}</span>
-                                              </div>
-                                              <div className="text-right">
-                                                <span className="text-sm font-black text-emerald-600">${ingredient.unitCost.toFixed(2)}</span>
-                                              </div>
-                                            </div>
-                                          </button>
-                                        ))}
-                                      </>
-                                    ) : currentIngredient.name.trim() !== '' && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setShowIngredientSuggestions(false)}
-                                        className="w-full text-left px-5 py-6 bg-emerald-50 hover:bg-emerald-100 transition-all group/new"
-                                      >
-                                        <div className="flex items-center gap-4">
-                                          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-emerald-600 shadow-sm group-hover/new:scale-110 transition-transform">
-                                            <i className="bi bi-plus-lg text-xl"></i>
-                                          </div>
-                                          <div>
-                                            <p className="text-sm font-black text-emerald-700 uppercase tracking-tight">Crear "{currentIngredient.name}"</p>
-                                            <p className="text-[10px] text-emerald-600 font-medium">Este insumo se guardará en tu biblioteca</p>
-                                          </div>
-                                        </div>
-                                      </button>
-                                    )}
+                                <div className="absolute z-[60] w-full mt-1.5 bg-white border border-slate-100 rounded-2xl shadow-xl overflow-hidden max-h-56 overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-top-1 duration-200">
+                                  {getFilteredIngredients().length > 0 ? (
+                                    <>
+                                      <div className="px-4 py-2 bg-slate-50/50 border-b border-slate-50">
+                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Insumos en Biblioteca</p>
+                                      </div>
+                                      {getFilteredIngredients().map((ingredient) => (
+                                        <button
+                                          key={ingredient.id}
+                                          type="button"
+                                          onClick={() => selectIngredientFromLibrary(ingredient)}
+                                          className="w-full text-left px-4 py-3 hover:bg-emerald-50 border-b border-slate-50 last:border-b-0 transition-all flex items-center justify-between text-xs font-bold text-slate-800"
+                                        >
+                                          <span>{ingredient.name}</span>
+                                          <span className="text-emerald-600">${ingredient.unitCost.toFixed(2)}</span>
+                                        </button>
+                                      ))}
+                                    </>
+                                  ) : currentIngredient.name.trim() !== '' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowIngredientSuggestions(false)}
+                                      className="w-full text-left px-4 py-3.5 bg-emerald-50/50 hover:bg-emerald-100/50 text-xs font-bold text-emerald-700 transition-all flex items-center gap-2"
+                                    >
+                                      <i className="bi bi-plus-lg bg-white p-1 rounded shadow-sm"></i>
+                                      Crear insumo "{currentIngredient.name}"
+                                    </button>
+                                  )}
 
-                                    {/* Mostrar sugerencias generales si no hay búsqueda */}
-                                    {currentIngredient.name.trim() === '' && ingredientLibrary.length > 0 && (
-                                      <>
-                                        <div className="px-5 py-3 bg-slate-50/50 border-b border-slate-50">
-                                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Usados frecuentemente</p>
-                                        </div>
-                                        {ingredientLibrary.slice(0, 5).map((ingredient) => (
-                                          <button
-                                            key={ingredient.id}
-                                            type="button"
-                                            onClick={() => selectIngredientFromLibrary(ingredient)}
-                                            className="w-full text-left px-5 py-4 hover:bg-emerald-50 border-b border-slate-50 last:border-b-0 transition-all"
-                                          >
-                                            <div className="flex items-center justify-between">
-                                              <span className="text-sm font-bold text-slate-900">{ingredient.name}</span>
-                                              <span className="text-sm font-black text-emerald-600">${ingredient.unitCost.toFixed(2)}</span>
-                                            </div>
-                                          </button>
-                                        ))}
-                                      </>
-                                    )}
-                                  </div>
+                                  {currentIngredient.name.trim() === '' && ingredientLibrary.length > 0 && (
+                                    <>
+                                      <div className="px-4 py-2 bg-slate-50/50 border-b border-slate-50">
+                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Usados Frecuentemente</p>
+                                      </div>
+                                      {ingredientLibrary.slice(0, 5).map((ingredient) => (
+                                        <button
+                                          key={ingredient.id}
+                                          type="button"
+                                          onClick={() => selectIngredientFromLibrary(ingredient)}
+                                          className="w-full text-left px-4 py-3 hover:bg-emerald-50 border-b border-slate-50 last:border-b-0 transition-all flex items-center justify-between text-xs font-bold text-slate-800"
+                                        >
+                                          <span>{ingredient.name}</span>
+                                          <span className="text-emerald-600">${ingredient.unitCost.toFixed(2)}</span>
+                                        </button>
+                                      ))}
+                                    </>
+                                  )}
                                 </div>
                               )}
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              <div className="space-y-2">
-                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                                  Costo (Unidad)
-                                </label>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-1.5">
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Costo Unitario</label>
                                 <div className="relative">
-                                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
                                   <input
                                     type="number"
                                     step="0.01"
@@ -2485,38 +2490,34 @@ export default function ProductList({
                                     value={currentIngredient.unitCost}
                                     onChange={handleIngredientChange}
                                     onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                                    className="w-full pl-8 pr-4 py-4 bg-white border-2 border-slate-100 rounded-2xl focus:outline-none focus:border-emerald-500 font-bold text-slate-900 transition-all"
+                                    className="w-full pl-7 pr-4 py-2.5 bg-slate-50 border border-slate-100 focus:bg-white rounded-xl text-xs font-bold text-slate-850 focus:border-emerald-500 outline-none transition-all"
                                     placeholder="0.00"
                                   />
                                 </div>
                               </div>
 
-                              <div className="space-y-2">
-                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                                  Cantidad
-                                </label>
-                                <div className="relative">
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    min="0.01"
-                                    name="quantity"
-                                    value={currentIngredient.quantity}
-                                    onChange={handleIngredientChange}
-                                    onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                                    className="w-full px-4 py-4 bg-white border-2 border-slate-100 rounded-2xl focus:outline-none focus:border-emerald-500 font-bold text-slate-900 transition-all"
-                                    placeholder="1.0"
-                                  />
-                                </div>
+                              <div className="space-y-1.5">
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Cantidad</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0.01"
+                                  name="quantity"
+                                  value={currentIngredient.quantity}
+                                  onChange={handleIngredientChange}
+                                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 focus:bg-white rounded-xl text-xs font-bold text-slate-850 focus:border-emerald-500 outline-none transition-all"
+                                  placeholder="1"
+                                />
                               </div>
                             </div>
 
                             <button
                               type="button"
                               onClick={addIngredient}
-                              className="w-full bg-slate-900 text-white px-8 py-5 rounded-2xl font-black uppercase text-xs hover:bg-black transition-all shadow-xl shadow-slate-200 active:scale-[0.98] flex items-center justify-center gap-3 mt-4"
+                              className="w-full bg-slate-900 hover:bg-black text-white py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 mt-2 shadow-md shadow-slate-100"
                             >
-                              <i className="bi bi-plus-circle-fill text-lg"></i>
+                              <i className="bi bi-plus-circle-fill text-sm"></i>
                               Agregar a Receta
                             </button>
                           </div>
@@ -2524,13 +2525,15 @@ export default function ProductList({
                       </div>
                     )}
 
-                    {/* Sección de variantes */}
+                    {/* Sección de variantes (Si existen variantes) */}
                     {variants.length > 0 && (
-                      <div className="mt-8 bg-white p-4 rounded-lg border border-gray-200">
-                        <h3 className="text-lg font-medium text-gray-900 mb-4">Ingredientes por Variante</h3>
-                        <p className="text-sm text-gray-500 mb-4">
-                          Gestiona los ingredientes específicos para cada variante. Haz clic en una variante para expandir/contraer
-                        </p>
+                      <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4 animate-in fade-in duration-300">
+                        <div>
+                          <h3 className="font-bold text-slate-800 text-sm">Ingredientes por Variante</h3>
+                          <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                            Gestiona insumos de forma aislada. Haz clic en una variante para expandir.
+                          </p>
+                        </div>
 
                         <div className="space-y-3">
                           {variants.map((variant) => {
@@ -2542,141 +2545,130 @@ export default function ProductList({
                             const profit = variant.price ? Number(variant.price) - totalCost : 0
 
                             return (
-                              <div key={variant.id} className="border border-gray-200 rounded-lg overflow-hidden hover:border-gray-300 transition-colors">
+                              <div key={variant.id} className="border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm">
                                 {/* Header expandible */}
                                 <button
                                   type="button"
                                   onClick={() => toggleVariantExpanded(variant.id)}
-                                  className="w-full bg-gray-50 hover:bg-gray-100 px-4 py-3 border-b border-gray-200 flex items-center justify-between transition-colors"
+                                  className="w-full bg-slate-50 hover:bg-slate-100/70 px-4 py-3.5 border-b border-slate-200/60 flex items-center justify-between transition-colors"
                                 >
-                                  <div className="flex items-center gap-3 flex-1 text-left">
-                                    <i className={`bi bi-chevron-${isExpanded ? 'down' : 'right'} text-gray-500 transition-transform`}></i>
-                                    <div>
-                                      <h4 className="font-medium text-gray-900">
+                                  <div className="flex items-center gap-3 flex-1 text-left min-w-0">
+                                    <i className={`bi bi-chevron-${isExpanded ? 'down' : 'right'} text-slate-400 text-xs`}></i>
+                                    <div className="min-w-0">
+                                      <h4 className="font-bold text-slate-800 text-xs truncate">
                                         {variant.name}
                                         {variant.price && (
-                                          <span className="ml-2 text-sm font-normal text-gray-500">
+                                          <span className="ml-1.5 text-[11px] font-semibold text-slate-500">
                                             (${Number(variant.price).toFixed(2)})
                                           </span>
                                         )}
                                       </h4>
-                                      <div className="mt-1 flex items-center gap-3 text-xs">
-                                        <span className="text-emerald-600 font-medium">
+                                      <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] font-bold">
+                                        <span className="text-emerald-600">
                                           Costo: ${totalCost.toFixed(2)}
                                         </span>
                                         {variant.price && (
-                                          <span className={`font-medium ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                            Ganancia: ${profit.toFixed(2)}
+                                          <span className={profit >= 0 ? 'text-emerald-700' : 'text-red-650'}>
+                                            Margen: ${profit.toFixed(2)}
                                           </span>
                                         )}
-                                        <span className={`px-2 py-0.5 rounded text-xs transition-colors ${variantIngredients[variant.id]?.length > 0
-                                          ? 'bg-blue-100 text-blue-600 font-bold'
-                                          : 'text-gray-400 bg-gray-200'}`}>
-                                          {variantIngredients[variant.id]?.length || 0} ingredientes
+                                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                                          variantIngredients[variant.id]?.length > 0
+                                            ? 'bg-blue-50 text-blue-600 border border-blue-100/40'
+                                            : 'bg-slate-200 text-slate-500'
+                                        }`}>
+                                          {variantIngredients[variant.id]?.length || 0} insumos
                                         </span>
                                       </div>
                                     </div>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        setVariantVisibility(prev => ({ ...prev, [variant.id]: !prev[variant.id] }))
-                                      }}
-                                      className={`p-2 rounded-lg transition-colors ${variantVisibility[variant.id] !== false
-                                        ? 'text-orange-600 hover:bg-orange-50'
-                                        : 'text-green-600 hover:bg-green-50'
-                                        }`}
-                                      title={variantVisibility[variant.id] !== false ? 'Ocultar variante' : 'Mostrar variante'}
-                                    >
-                                      <i className={`bi ${variantVisibility[variant.id] !== false ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-                                    </button>
                                   </div>
                                 </button>
 
                                 {/* Contenido expandible */}
                                 {isExpanded && (
-                                  <div className="px-4 py-4 bg-white">
+                                  <div className="p-4 bg-white space-y-4 animate-in fade-in duration-200">
                                     {/* Lista de ingredientes */}
-                                    {variantIngredients[variant.id]?.length > 0 && (
-                                      <div className="space-y-2 mb-4">
+                                    {variantIngredients[variant.id]?.length > 0 ? (
+                                      <div className="divide-y divide-slate-100 pb-2">
                                         {variantIngredients[variant.id].map((ingredient) => (
-                                          <div key={ingredient.id} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-md hover:bg-gray-100 transition-colors">
-                                            <div className={`flex-1 ${variantVisibility[variant.id] === false ? 'opacity-50 grayscale' : ''}`}>
-                                              <p className="font-medium text-gray-900 text-sm">{ingredient.name}</p>
-                                              <p className="text-xs text-gray-500 mt-0.5">
-                                                {ingredient.quantity} × ${ingredient.unitCost.toFixed(2)} = <span className="font-medium text-emerald-600">${(ingredient.quantity * ingredient.unitCost).toFixed(2)}</span>
+                                          <div key={ingredient.id} className="py-2.5 flex justify-between items-center">
+                                            <div className="min-w-0 pr-3">
+                                              <p className="font-bold text-slate-700 text-xs truncate">{ingredient.name}</p>
+                                              <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                                                {ingredient.quantity} × ${ingredient.unitCost.toFixed(2)} = 
+                                                <span className="text-emerald-600 ml-1">${(ingredient.quantity * ingredient.unitCost).toFixed(2)}</span>
                                               </p>
                                             </div>
                                             <button
                                               type="button"
                                               onClick={() => removeIngredientFromVariant(variant.id, ingredient.id)}
-                                              className="ml-3 text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded transition-colors flex-shrink-0"
-                                              title="Eliminar ingrediente"
+                                              className="w-7 h-7 flex items-center justify-center text-red-500 hover:text-red-700 bg-slate-50 hover:bg-red-50 rounded-lg border border-slate-100 hover:border-red-100 transition-colors"
+                                              title="Eliminar insumo"
                                             >
-                                              <i className="bi bi-trash text-sm"></i>
+                                              <i className="bi bi-trash text-xs"></i>
                                             </button>
                                           </div>
                                         ))}
                                       </div>
+                                    ) : (
+                                      <p className="text-xs text-slate-400 italic text-center py-2 font-medium">No hay insumos específicos agregados a esta variante.</p>
                                     )}
 
-                                    {/* Formulario para agregar ingrediente por variante - Optimizado */}
-                                    <div className="border-t border-slate-100 pt-5 mt-2 bg-slate-50/50 p-6 rounded-[2rem] border border-dashed border-slate-200">
-                                      <h5 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                    {/* Formulario de insumos específicos inline */}
+                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/60 space-y-3">
+                                      <h5 className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                                         <i className="bi bi-plus-circle text-emerald-500"></i>
-                                        Agregar Insumo Específico
+                                        Añadir Insumo Específico
                                       </h5>
-                                      <div className="space-y-4">
+                                      
+                                      <div className="space-y-3">
                                         <div className="relative ingredient-input-container">
                                           <div className="relative">
-                                            <i className="bi bi-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 text-xs text-xs"></i>
+                                            <i className="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
                                             <input
                                               type="text"
                                               name="name"
                                               value={currentIngredient.name}
                                               onChange={handleIngredientChange}
                                               onFocus={() => setShowIngredientSuggestions(true)}
-                                              className="w-full pl-10 pr-4 py-3 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 font-bold transition-all shadow-sm"
+                                              className="w-full pl-8 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-500 text-xs font-bold text-slate-800"
                                               placeholder="Buscar o crear insumo..."
                                               autoComplete="off"
                                             />
                                           </div>
 
-                                          {/* Sugerencias de ingredientes */}
+                                          {/* Sugerencias en variante */}
                                           {showIngredientSuggestions && (
-                                            <div className="absolute z-[60] w-full mt-1 bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden shadow-emerald-900/5">
-                                              <div className="max-h-40 overflow-y-auto custom-scrollbar">
-                                                {getFilteredIngredients().length > 0 ? (
-                                                  getFilteredIngredients().map((ingredient) => (
-                                                    <button
-                                                      key={ingredient.id}
-                                                      type="button"
-                                                      onClick={() => selectIngredientFromLibrary(ingredient)}
-                                                      className="w-full text-left px-4 py-2.5 hover:bg-emerald-50 border-b border-slate-50 last:border-b-0 text-[11px] transition-all flex items-center justify-between"
-                                                    >
-                                                      <span className="font-bold text-slate-700">{ingredient.name}</span>
-                                                      <span className="text-emerald-600 font-black">${ingredient.unitCost.toFixed(2)}</span>
-                                                    </button>
-                                                  ))
-                                                ) : currentIngredient.name.trim() !== '' && (
+                                            <div className="absolute z-[60] w-full mt-1 bg-white border border-slate-100 rounded-xl shadow-lg overflow-hidden max-h-40 overflow-y-auto custom-scrollbar animate-in fade-in duration-200">
+                                              {getFilteredIngredients().length > 0 ? (
+                                                getFilteredIngredients().map((ingredient) => (
                                                   <button
+                                                    key={ingredient.id}
                                                     type="button"
-                                                    onClick={() => setShowIngredientSuggestions(false)}
-                                                    className="w-full text-left px-4 py-3 bg-emerald-50 hover:bg-emerald-100 text-[11px] font-black text-emerald-700 transition-all flex items-center gap-2"
+                                                    onClick={() => selectIngredientFromLibrary(ingredient)}
+                                                    className="w-full text-left px-3 py-2 hover:bg-emerald-50 border-b border-slate-50 last:border-b-0 text-[11px] font-bold text-slate-700 flex items-center justify-between"
                                                   >
-                                                    <i className="bi bi-plus-lg bg-white p-1.5 rounded-lg shadow-sm"></i>
-                                                    Crear "{currentIngredient.name}"
+                                                    <span>{ingredient.name}</span>
+                                                    <span className="text-emerald-600">${ingredient.unitCost.toFixed(2)}</span>
                                                   </button>
-                                                )}
-                                              </div>
+                                                ))
+                                              ) : currentIngredient.name.trim() !== '' && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setShowIngredientSuggestions(false)}
+                                                  className="w-full text-left px-3 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-[11px] font-bold text-emerald-700 transition-all flex items-center gap-1.5"
+                                                >
+                                                  <i className="bi bi-plus-lg bg-white p-0.5 rounded shadow-sm text-[10px]"></i>
+                                                  Crear "{currentIngredient.name}"
+                                                </button>
+                                              )}
                                             </div>
                                           )}
                                         </div>
+
                                         <div className="grid grid-cols-2 gap-3">
                                           <div className="relative">
-                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 text-[10px]">$</span>
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold">$</span>
                                             <input
                                               type="number"
                                               step="0.01"
@@ -2684,7 +2676,7 @@ export default function ProductList({
                                               name="unitCost"
                                               value={currentIngredient.unitCost}
                                               onChange={handleIngredientChange}
-                                              className="w-full pl-6 pr-3 py-2.5 text-[11px] bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 font-black transition-all"
+                                              className="w-full pl-6 pr-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-500 text-xs font-bold text-slate-800"
                                               placeholder="Costo"
                                             />
                                           </div>
@@ -2695,14 +2687,15 @@ export default function ProductList({
                                             name="quantity"
                                             value={currentIngredient.quantity}
                                             onChange={handleIngredientChange}
-                                            className="w-full px-3 py-2.5 text-[11px] bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 font-black transition-all"
+                                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-500 text-xs font-bold text-slate-800"
                                             placeholder="Cantidad"
                                           />
                                         </div>
+
                                         <button
                                           type="button"
                                           onClick={() => addIngredientToVariant(variant.id)}
-                                          className="w-full bg-emerald-600 text-white px-4 py-3 text-[10px] rounded-xl hover:bg-emerald-700 transition-all font-black uppercase tracking-wider"
+                                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-3 text-[10px] rounded-lg transition-all font-black uppercase tracking-wider shadow-sm"
                                         >
                                           Agregar a Variante
                                         </button>
@@ -2719,82 +2712,84 @@ export default function ProductList({
                   </div>
                 )}
 
+                {/* PESTAÑA: TOPPINGS */}
                 {activeTab === 'options' && (
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
+                  <div className="space-y-6 max-w-3xl mx-auto animate-in fade-in duration-300">
+                    <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
                       <div>
-                        <h3 className="text-lg font-bold text-gray-900">Configuración de Toppings</h3>
-                        <p className="text-xs text-gray-500 mt-1">Configura las salsas, ingredientes adicionales o aderezos que el cliente puede sumar al producto.</p>
+                        <h3 className="font-bold text-slate-800 text-sm">Grupos de Toppings</h3>
+                        <p className="text-[10px] text-slate-400 font-medium mt-0.5">Crea salsas, aderezos o adicionales opcionales o requeridos.</p>
                       </div>
                       <button
                         type="button"
                         onClick={handleAddOptionGroup}
-                        className="px-4 py-2.5 bg-red-600 text-white text-xs font-semibold rounded-xl hover:bg-red-700 transition-colors flex items-center gap-2 shadow-sm shadow-red-100"
+                        className="px-4 py-2.5 bg-[#aa1918] hover:bg-[#8f1514] text-white text-xs font-black uppercase tracking-wider rounded-xl transition-colors flex items-center gap-1.5 shadow-md shadow-red-100"
                       >
-                        <i className="bi bi-plus-lg"></i>
-                        Nuevo Grupo de Toppings
+                        <i className="bi bi-plus-lg text-xs"></i>
+                        Nuevo Grupo
                       </button>
                     </div>
 
-                    {/* Formulario de edición/creación de un grupo */}
+                    {/* Formulario de creación/edición de grupo de toppings */}
                     {editingGroupIndex !== null && (
-                      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200/60 space-y-5 shadow-inner">
-                        <div className="flex items-center gap-2">
-                          <div className="w-1.5 h-4 bg-red-500 rounded-full"></div>
-                          <h4 className="font-black text-slate-800 text-xs uppercase tracking-wider">
+                      <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200/80 space-y-4 shadow-inner">
+                        <div className="flex items-center gap-2 pb-2 border-b border-slate-200/50">
+                          <div className="w-1.5 h-3.5 bg-[#aa1918] rounded-full"></div>
+                          <h4 className="font-black text-slate-700 text-[10px] uppercase tracking-wider">
                             {editingGroupIndex === -1 ? 'Crear Grupo de Toppings' : 'Editar Grupo de Toppings'}
                           </h4>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Categoría del Topping</label>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nombre Categoría</label>
                             <input
                               type="text"
                               value={currentGroup.name}
                               onChange={(e) => setCurrentGroup(prev => ({ ...prev, name: e.target.value }))}
-                              placeholder="Ej: Salsas, Quesos, Extras"
-                              className="w-full px-4 py-2.5 border border-gray-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 rounded-xl transition-all outline-none text-sm bg-white font-medium text-gray-900"
+                              placeholder="Ej: Salsas, Quesos, Adicionales..."
+                              className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-[#aa1918] text-xs font-bold text-slate-800 transition-all shadow-sm"
                             />
                           </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Mínimo a Elegir</label>
+                          <div className="space-y-1.5">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Mínimo a Elegir</label>
                             <input
                               type="number"
                               min="0"
                               value={currentGroup.minSelect}
                               onChange={(e) => setCurrentGroup(prev => ({ ...prev, minSelect: Math.max(0, parseInt(e.target.value) || 0) }))}
-                              className="w-full px-4 py-2.5 border border-gray-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 rounded-xl transition-all outline-none text-sm bg-white font-medium text-gray-900"
+                              className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-[#aa1918] text-xs font-bold text-slate-800 transition-all shadow-sm"
                             />
                           </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Máximo a Elegir</label>
+                          <div className="space-y-1.5">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Máximo a Elegir</label>
                             <input
                               type="number"
                               min="1"
                               value={currentGroup.maxSelect}
                               onChange={(e) => setCurrentGroup(prev => ({ ...prev, maxSelect: Math.max(1, parseInt(e.target.value) || 1) }))}
-                              className="w-full px-4 py-2.5 border border-gray-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 rounded-xl transition-all outline-none text-sm bg-white font-medium text-gray-900"
+                              className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-[#aa1918] text-xs font-bold text-slate-800 transition-all shadow-sm"
                             />
                           </div>
                         </div>
 
                         {/* Listado y formulario de toppings individuales */}
-                        <div className="space-y-3 bg-white p-5 rounded-2xl border border-gray-100">
-                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Toppings en este grupo</label>
+                        <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200/50">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Toppings en este grupo</label>
                           
-                          {/* Lista de toppings actuales (Horizontal Pills Layout) */}
+                          {/* Lista horizontal de pastillas */}
                           {currentGroup.options.length > 0 ? (
-                            <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto pr-1 py-1">
+                            <div className="flex flex-wrap gap-2 pr-1 max-h-36 overflow-y-auto custom-scrollbar">
                               {currentGroup.options.map((opt, oIdx) => (
-                                <div key={oIdx} className="flex items-center gap-1.5 bg-gray-50 hover:bg-gray-100/80 px-3 py-1.5 rounded-full border border-gray-200 text-xs font-semibold text-gray-800 shadow-sm transition-all">
+                                <div key={oIdx} className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200/70 text-[11px] font-bold text-slate-700 shadow-sm transition-all">
                                   <span>{opt.name}</span>
-                                  <span className="text-emerald-600 font-bold ml-0.5">
+                                  <span className="text-emerald-600 ml-0.5">
                                     {opt.price > 0 ? `+$${opt.price.toFixed(2)}` : 'Gratis'}
                                   </span>
                                   <button
                                     type="button"
                                     onClick={() => handleRemoveOptionFromGroup(oIdx)}
-                                    className="text-gray-400 hover:text-red-500 w-4 h-4 rounded-full hover:bg-red-50 flex items-center justify-center ml-1 transition-colors"
+                                    className="text-slate-400 hover:text-red-500 w-4 h-4 rounded-full hover:bg-red-50 flex items-center justify-center ml-0.5 transition-colors"
                                   >
                                     <i className="bi bi-x-lg text-[9px] font-bold"></i>
                                   </button>
@@ -2802,20 +2797,21 @@ export default function ProductList({
                               ))}
                             </div>
                           ) : (
-                            <p className="text-xs text-gray-400 italic font-medium ml-1">No hay toppings agregados aún en esta categoría.</p>
+                            <p className="text-xs text-slate-400 italic font-medium ml-1">Aún no hay toppings en este grupo.</p>
                           )}
 
                           {/* Fila para agregar topping rápidamente */}
                           <div className="flex flex-col sm:flex-row gap-2 items-center pt-2">
                             <input
                               type="text"
-                              placeholder="Nombre del topping (ej: Queso Extra)"
+                              placeholder="Nombre: Queso Cheddar, Salsa BBQ..."
                               value={newOptionName}
                               onChange={(e) => setNewOptionName(e.target.value)}
-                              className="w-full sm:flex-1 px-4 py-2.5 border border-gray-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 rounded-xl text-sm outline-none font-medium"
+                              className="w-full sm:flex-1 px-4 py-2.5 border border-slate-200 focus:border-[#aa1918] rounded-xl text-xs font-semibold outline-none transition-all"
                             />
-                            <div className="relative w-full sm:w-32">
-                              <span className="absolute left-3.5 top-2.5 text-gray-400 text-sm font-medium">$</span>
+                            
+                            <div className="relative w-full sm:w-28">
+                              <span className="absolute left-3 top-2.5 text-slate-400 text-xs font-bold">$</span>
                               <input
                                 type="number"
                                 step="0.01"
@@ -2823,33 +2819,34 @@ export default function ProductList({
                                 placeholder="Precio"
                                 value={newOptionPrice}
                                 onChange={(e) => setNewOptionPrice(e.target.value)}
-                                className="w-full pl-7 pr-3 py-2.5 border border-gray-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 rounded-xl text-sm outline-none font-medium"
+                                className="w-full pl-6 pr-3 py-2.5 border border-slate-200 focus:border-[#aa1918] rounded-xl text-xs font-semibold outline-none transition-all"
                               />
                             </div>
+                            
                             <button
                               type="button"
                               onClick={handleAddOptionToGroup}
-                              className="w-full sm:w-auto px-4 py-2.5 bg-gray-900 hover:bg-gray-800 text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1"
+                              className="w-full sm:w-auto px-4 py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1 shadow-sm"
                             >
                               <i className="bi bi-plus-lg"></i>
-                              Añadir Topping
+                              Añadir
                             </button>
                           </div>
                         </div>
 
                         {/* Botones de acción del grupo */}
-                        <div className="flex gap-2 pt-3 justify-end border-t border-slate-200/60">
+                        <div className="flex gap-2 pt-2 justify-end border-t border-slate-200/50">
                           <button
                             type="button"
                             onClick={() => setEditingGroupIndex(null)}
-                            className="px-4 py-2 border border-gray-300 text-gray-700 text-xs font-semibold rounded-xl hover:bg-gray-100 transition-colors"
+                            className="px-4 py-2 border border-slate-300 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-100 transition-colors"
                           >
                             Cancelar
                           </button>
                           <button
                             type="button"
                             onClick={handleSaveOptionGroup}
-                            className="px-4 py-2 bg-red-600 text-white text-xs font-semibold rounded-xl hover:bg-red-700 transition-colors shadow-sm shadow-red-100"
+                            className="px-4 py-2 bg-[#aa1918] hover:bg-[#8f1514] text-white text-xs font-black uppercase tracking-wider rounded-xl transition-colors shadow-sm shadow-red-100"
                           >
                             Guardar Grupo
                           </button>
@@ -2858,54 +2855,55 @@ export default function ProductList({
                     )}
 
                     {/* Lista de grupos de toppings agregados */}
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       {optionGroups.length > 0 ? (
                         optionGroups.map((group, idx) => (
                           <div key={group.id} className="bg-white p-5 rounded-2xl border border-slate-100 flex items-start justify-between shadow-sm hover:shadow-md transition-all duration-300">
-                            <div className="space-y-2">
+                            <div className="space-y-2.5 min-w-0 pr-4">
                               <div className="flex flex-wrap items-center gap-2">
-                                <h4 className="font-bold text-gray-900 text-sm">{group.name}</h4>
-                                <span className="bg-slate-100 text-slate-600 text-[9px] font-black uppercase px-2 py-0.5 rounded-md border border-slate-200/40">
+                                <h4 className="font-bold text-slate-800 text-xs">{group.name}</h4>
+                                <span className="bg-slate-100 text-slate-500 text-[9px] font-black uppercase px-2 py-0.5 rounded-md border border-slate-200/40">
                                   {group.minSelect === 0 ? 'Opcional' : `Mínimo: ${group.minSelect}`} | Máximo: {group.maxSelect}
                                 </span>
                               </div>
                               
                               <div className="flex flex-wrap gap-1.5">
                                 {group.options.map((o, oIdx) => (
-                                  <span key={oIdx} className="bg-slate-50 text-slate-700 text-[10px] font-semibold px-2 py-1 rounded-md border border-slate-100 flex items-center gap-1 shadow-sm">
+                                  <span key={oIdx} className="bg-slate-50 text-slate-600 text-[10px] font-bold px-2 py-1 rounded-lg border border-slate-100/60 flex items-center gap-1 shadow-sm">
                                     <span>{o.name}</span>
-                                    <span className="text-emerald-600 font-bold">
+                                    <span className="text-emerald-600">
                                       {o.price > 0 ? `+$${o.price.toFixed(2)}` : 'Gratis'}
                                     </span>
                                   </span>
                                 ))}
                               </div>
                             </div>
-                            <div className="flex items-center gap-1.5 ml-4">
+                            
+                            <div className="flex items-center gap-1 flex-shrink-0">
                               <button
                                 type="button"
                                 onClick={() => handleEditOptionGroup(idx)}
-                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                                className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg border border-transparent hover:border-blue-100 transition-all"
                               >
-                                <i className="bi bi-pencil text-sm"></i>
+                                <i className="bi bi-pencil text-xs"></i>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleRemoveOptionGroup(idx)}
-                                className="p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                                className="w-8 h-8 flex items-center justify-center text-slate-350 hover:text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100 transition-all"
                               >
-                                <i className="bi bi-trash text-sm"></i>
+                                <i className="bi bi-trash text-xs"></i>
                               </button>
                             </div>
                           </div>
                         ))
                       ) : (
-                        <div className="text-center py-10 bg-gray-50 rounded-2xl border border-dashed border-gray-200/80 p-6">
-                          <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                            <i className="bi bi-gear text-lg text-gray-400"></i>
+                        <div className="text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-250 p-6">
+                          <div className="w-12 h-12 bg-white border border-slate-100 rounded-full flex items-center justify-center mx-auto mb-3 shadow-sm text-slate-400">
+                            <i className="bi bi-gear text-lg"></i>
                           </div>
-                          <p className="text-sm font-semibold text-gray-600">No hay grupos de toppings configurados</p>
-                          <p className="text-xs text-gray-400 mt-1 max-w-xs mx-auto">Crea un grupo de toppings (ej: Salsas, Adicionales) para que tus clientes puedan personalizar su orden.</p>
+                          <p className="text-xs font-bold text-slate-600">No hay toppings configurados</p>
+                          <p className="text-[10px] text-slate-400 mt-1 max-w-xs mx-auto leading-normal">Crea grupos de toppings (ej: Salsas, Adicionales) para que tus clientes puedan personalizar sus pedidos.</p>
                         </div>
                       )}
                     </div>
@@ -2916,34 +2914,38 @@ export default function ProductList({
 
               {/* Error general */}
               {errors.submit && (
-                <div className="px-6 py-2 bg-red-50 border-t border-red-200 flex-shrink-0">
-                  <p className="text-red-600 text-xs font-semibold">{errors.submit}</p>
+                <div className="px-6 py-2.5 bg-red-50 border-t border-red-100 flex-shrink-0 animate-in fade-in duration-200">
+                  <p className="text-red-600 text-xs font-bold flex items-center gap-1.5">
+                    <i className="bi bi-exclamation-triangle-fill"></i>
+                    {errors.submit}
+                  </p>
                 </div>
               )}
 
-              {/* Botones */}
-              <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex gap-3 flex-shrink-0">
+              {/* Pie de Página (Botones) */}
+              <div className="px-6 py-4.5 border-t border-slate-100 bg-white flex gap-3 flex-shrink-0">
                 <button
                   type="button"
                   onClick={handleCloseForm}
                   disabled={uploading}
-                  className="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-50 transition-colors font-semibold text-sm disabled:opacity-50"
+                  className="flex-1 px-4 py-3 border border-slate-300 rounded-xl text-slate-600 hover:text-slate-800 hover:bg-slate-50 transition-colors font-bold text-xs disabled:opacity-50"
                 >
                   Cancelar
                 </button>
+                
                 <button
                   type="submit"
                   disabled={uploading}
-                  className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="flex-1 px-4 py-3 bg-[#aa1918] text-white rounded-xl hover:bg-[#8f1514] transition-colors font-bold text-xs disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-red-150"
                 >
                   {uploading ? (
                     <>
-                      <i className="bi bi-arrow-clockwise animate-spin"></i>
-                      {formData.image ? 'Subiendo imagen' : 'Guardando...'}
+                      <i className="bi bi-arrow-clockwise animate-spin text-sm"></i>
+                      {formData.image ? 'Subiendo imagen...' : 'Guardando...'}
                     </>
                   ) : (
                     <>
-                      <i className="bi bi-check-lg"></i>
+                      <i className="bi bi-check-lg text-sm"></i>
                       {editingProduct ? 'Guardar Cambios' : 'Crear Producto'}
                     </>
                   )}
@@ -2954,7 +2956,6 @@ export default function ProductList({
         </div>
       )
       }
-
       <style jsx>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 4px;
