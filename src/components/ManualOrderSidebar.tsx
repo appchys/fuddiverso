@@ -275,6 +275,7 @@ export default function ManualOrderSidebar({
   const canChangeDelivery = business?.email === 'munchys.ec@gmail.com';
 
   const sidebarRef = useRef<HTMLDivElement>(null)
+  const clientCreationPromiseRef = useRef<Promise<any> | null>(null)
 
   // Bloquear zoom de pellizco (multi-touch) en el sidebar
   useEffect(() => {
@@ -1028,48 +1029,75 @@ export default function ManualOrderSidebar({
       return
     }
 
-    // Verificar si el cliente ya existe
-    try {
-      const existingClient = await searchClientByPhone(celular)
-      if (existingClient) {
-        alert('Este cliente ya está registrado')
-        // Si el cliente ya existe, seleccionarlo automáticamente
-        await handleSelectClient(existingClient)
-        return
-      }
-    } catch (error) {
-      console.error('Error verificando cliente existente:', error)
-    }
+    const customerName = manualOrderData.customerName.trim()
+    const tempClientId = `temp_client_${Date.now()}`
 
-    setCreatingClient(true)
-    try {
-      const clientData = {
-        celular: celular, // Usar el teléfono normalizado
-        nombres: manualOrderData.customerName.trim(),
-        fecha_de_registro: new Date().toISOString()
-      }
+    // Actualizar de forma optimista la UI de inmediato
+    setClientFound(true)
+    setShowCreateClient(false)
+    setManualOrderData(prev => ({ 
+      ...prev, 
+      customerId: tempClientId,
+      customerName: customerName,
+      customerPhone: celular,
+      customerLocations: []
+    }))
+    
+    displayToast('Guardando cliente...')
 
-      await createClient(clientData)
-      setClientFound(true)
-      setShowCreateClient(false)
+    // Guardar promesa en la referencia para poder esperarla si se crea una ubicación antes de que termine
+    const clientPromise = (async () => {
+      try {
+        // Verificar si el cliente ya existe
+        const existingClient = await searchClientByPhone(celular)
+        if (existingClient) {
+          // Si el cliente ya existe, seleccionarlo automáticamente y cargar sus ubicaciones
+          const locations = await getClientLocations(existingClient.id)
+          setManualOrderData(prev => {
+            if (prev.customerId === tempClientId) {
+              return {
+                ...prev,
+                customerId: existingClient.id,
+                customerName: existingClient.nombres,
+                customerPhone: normalizePhone(existingClient.celular),
+                customerLocations: locations
+              }
+            }
+            return prev;
+          });
+          displayToast('Cliente ya registrado. Seleccionado automáticamente.')
+          return existingClient
+        }
 
-      // Recargar el cliente después de crearlo para obtener el ID
-      const client = await searchClientByPhone(celular)
-      if (client) {
-        const locations = await getClientLocations(client.id)
-        setManualOrderData(prev => ({ 
-          ...prev, 
-          customerId: client.id,
-          customerLocations: locations,
-          customerPhone: celular // Actualizar el teléfono con el formato normalizado
-        }))
+        const clientData = {
+          celular: celular,
+          nombres: customerName,
+          fecha_de_registro: new Date().toISOString()
+        }
+
+        const createdClient = await createClient(clientData)
+        
+        // Recargar el cliente/actualizar estado con el ID real
+        setManualOrderData(prev => {
+          if (prev.customerId === tempClientId) {
+            return { 
+              ...prev, 
+              customerId: createdClient.id,
+              customerPhone: celular
+            }
+          }
+          return prev;
+        })
+        displayToast('Cliente guardado')
+        return createdClient
+      } catch (error) {
+        console.error('Error creating client in background:', error)
+        displayToast('Error al guardar el cliente')
+        throw error
       }
-    } catch (error) {
-      console.error('Error creating client:', error)
-      alert('Error al crear el cliente: ' + (error instanceof Error ? error.message : 'Error desconocido'))
-    } finally {
-      setCreatingClient(false)
-    }
+    })()
+
+    clientCreationPromiseRef.current = clientPromise
   }
 
   // Función para extraer coordenadas de Google Maps
@@ -1434,130 +1462,184 @@ export default function ManualOrderSidebar({
 
   // Función para crear nueva ubicación
   const handleCreateLocation = async () => {
-    if (creatingLocation) return;
-
     if (!newLocationData.referencia.trim()) {
       alert('Por favor ingresa una referencia para la ubicación');
       return;
     }
 
-    setCreatingLocation(true);
-    try {
-      // LatLong ahora es opcional. Si se proporciona, debe ser válido.
-      if (newLocationData.latlong.trim()) {
-        if (!isValidLocation(newLocationData.latlong)) {
-          alert('Por favor ingresa coordenadas válidas (formato: lat,lng o un Plus Code como 42W9+246)');
-          setCreatingLocation(false);
-          return;
-        }
-        // Solo normalizar si no es un Plus Code
-        if (!newLocationData.latlong.startsWith('pluscode:')) {
-          const normalized = normalizeLatLong(newLocationData.latlong);
-          setNewLocationData(prev => ({ ...prev, latlong: normalized }));
-        }
-      }
-
-      // Buscar el cliente para obtener su ID
-      if (!manualOrderData.customerId) {
-        alert('Por favor identifica al cliente primero (buscando por teléfono)');
-        setCreatingLocation(false);
+    // LatLong ahora es opcional. Si se proporciona, debe ser válido.
+    const latlongValue = newLocationData.latlong.trim();
+    if (latlongValue) {
+      if (!isValidLocation(latlongValue)) {
+        alert('Por favor ingresa coordenadas válidas (formato: lat,lng o un Plus Code como 42W9+246)');
         return;
       }
-
-      const clientId = manualOrderData.customerId;
-      if (!clientId) {
-        alert('No se encontró el registro del cliente. Por favor asegúrate de haberlo creado o seleccionado correctamente.');
-        setCreatingLocation(false);
-        return;
-      }
-
-      
-
-      // Subir imagen si existe
-      let photoUrl = '';
-      if (locationImageFile) {
-        const timestamp = Date.now();
-        const optimizedBlob = await optimizeImage(locationImageFile, 1000, 0.8, 'image/jpeg');
-        const optimizedFile = new File(
-          [optimizedBlob],
-          `${timestamp}_${locationImageFile.name.split('.')[0]}.jpg`,
-          { type: optimizedBlob.type || 'image/jpeg' }
-        );
-
-        const fileName = `locations/${clientId}_${optimizedFile.name}`;
-        const storageRef = ref(storage, fileName);
-        await uploadBytes(storageRef, optimizedFile);
-        photoUrl = await getDownloadURL(storageRef);
-      }
-
-      const newLocationResponse = await createClientLocation({
-        id_cliente: clientId,
-        latlong: newLocationData.latlong.trim(),
-        referencia: newLocationData.referencia.trim(),
-        tarifa: newLocationData.tarifa,
-        sector: newLocationData.sector || 'Sin especificar',
-        createdBy: 'admin',
-        ...(photoUrl && { photo: photoUrl })
-      });
-
-      // Recargar ubicaciones del cliente
-      const locations = await getClientLocations(clientId);
-      setManualOrderData(prev => ({ ...prev, customerLocations: locations }));
-
-      // Seleccionar automáticamente la nueva ubicación creada
-      const newLocation = locations.find(loc =>
-        loc.latlong === newLocationData.latlong.trim() &&
-        loc.referencia === newLocationData.referencia.trim()
-      );
-      if (newLocation) {
-        // Calcular tarifa automáticamente para la nueva ubicación
-        if (newLocation.latlong) {
-          try {
-            const [lat, lng] = newLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
-            if (!isNaN(lat) && !isNaN(lng)) {
-              const { fee, zoneName } = await calculateDeliveryFee({ lat, lng })
-              const normalizedFee = fee === 0 ? 1.5 : fee
-              const updatedLocation = { ...newLocation, tarifa: normalizedFee.toString(), sector: zoneName }
-              setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }));
-              calculateTotal(manualOrderData.selectedProducts);
-              findDeliveryForLocation(updatedLocation);
-            } else {
-              setManualOrderData(prev => ({ ...prev, selectedLocation: newLocation }));
-              calculateTotal(manualOrderData.selectedProducts);
-              findDeliveryForLocation(newLocation);
-            }
-          } catch (error) {
-            console.error('Error calculating delivery fee for new location:', error)
-            setManualOrderData(prev => ({ ...prev, selectedLocation: newLocation }));
-            calculateTotal(manualOrderData.selectedProducts);
-            findDeliveryForLocation(newLocation);
-          }
-        } else {
-          setManualOrderData(prev => ({ ...prev, selectedLocation: newLocation }));
-          calculateTotal(manualOrderData.selectedProducts);
-          findDeliveryForLocation(newLocation);
-        }
-      }
-
-      // Limpiar formulario y cerrar modal
-      setNewLocationData({
-        referencia: '',
-        tarifa: '1',
-        latlong: '',
-        photo: '',
-        sector: ''
-      });
-      setLocationImageFile(null);
-      setLocationImagePreview('');
-      setShowNewLocationForm(false);
-      setShowLocationModal(false);
-      setShowMapSelection(false);
-    } catch (error) {
-      console.error('Error creando ubicación:', error);
-      alert('Error al crear la ubicación. Por favor intenta de nuevo.');
-    } finally {
-      setCreatingLocation(false);
     }
+
+    // Buscar el cliente para obtener su ID
+    const clientId = manualOrderData.customerId;
+    if (!clientId) {
+      alert('Por favor identifica al cliente primero (buscando por teléfono)');
+      return;
+    }
+
+    const tempLocId = `temp_loc_${Date.now()}`;
+    const referral = newLocationData.referencia.trim();
+    const tariff = newLocationData.tarifa;
+    const sector = newLocationData.sector || 'Sin especificar';
+    const tempPhoto = locationImagePreview || '';
+    
+    // Capturar el archivo de imagen localmente para el guardado en segundo plano
+    const imageFileToUpload = locationImageFile;
+
+    const optimisticLocation: ClientLocation = {
+      id: tempLocId,
+      id_cliente: clientId,
+      latlong: latlongValue,
+      referencia: referral,
+      tarifa: tariff,
+      sector: sector,
+      photo: tempPhoto
+    };
+
+    // Actualizar la interfaz inmediatamente con la ubicación optimista
+    setManualOrderData(prev => ({
+      ...prev,
+      customerLocations: [...prev.customerLocations, optimisticLocation],
+      selectedLocation: optimisticLocation
+    }));
+
+    // Calcular tarifa de forma optimista si hay coordenadas
+    if (latlongValue) {
+      const [lat, lng] = latlongValue.split(',').map(coord => parseFloat(coord.trim()));
+      if (!isNaN(lat) && !isNaN(lng)) {
+        calculateDeliveryFee({ lat, lng }).then(({ fee, zoneName }) => {
+          const normalizedFee = fee === 0 ? 1.5 : fee;
+          setManualOrderData(prev => {
+            const updatedLocs = prev.customerLocations.map(loc => 
+              loc.id === tempLocId ? { ...loc, tarifa: normalizedFee.toString(), sector: zoneName } : loc
+            );
+            const isSelected = prev.selectedLocation?.id === tempLocId;
+            return {
+              ...prev,
+              customerLocations: updatedLocs,
+              ...(isSelected && {
+                selectedLocation: {
+                  ...prev.selectedLocation!,
+                  tarifa: normalizedFee.toString(),
+                  sector: zoneName
+                }
+              })
+            };
+          });
+        }).catch(err => console.error('Error calculating delivery fee in background:', err));
+      }
+    }
+
+    // Limpiar formulario y cerrar modal de inmediato
+    setNewLocationData({
+      referencia: '',
+      tarifa: '1',
+      latlong: '',
+      photo: '',
+      sector: ''
+    });
+    setLocationImageFile(null);
+    setLocationImagePreview('');
+    setShowNewLocationForm(false);
+    setShowLocationModal(false);
+    setShowMapSelection(false);
+
+    displayToast('Guardando ubicación...');
+
+    // Ejecutar el guardado en segundo plano
+    (async () => {
+      try {
+        let realClientId = clientId;
+        // Si el cliente se estaba creando en segundo plano, esperar a que termine
+        if (clientId.startsWith('temp_client_') && clientCreationPromiseRef.current) {
+          const createdClient = await clientCreationPromiseRef.current;
+          realClientId = createdClient.id;
+        }
+
+        // Subir imagen en segundo plano si existe
+        let photoUrl = '';
+        if (imageFileToUpload) {
+          const timestamp = Date.now();
+          const optimizedBlob = await optimizeImage(imageFileToUpload, 1000, 0.8, 'image/jpeg');
+          const optimizedFile = new File(
+            [optimizedBlob],
+            `${timestamp}_${imageFileToUpload.name.split('.')[0]}.jpg`,
+            { type: optimizedBlob.type || 'image/jpeg' }
+          );
+
+          const fileName = `locations/${realClientId}_${optimizedFile.name}`;
+          const storageRef = ref(storage, fileName);
+          await uploadBytes(storageRef, optimizedFile);
+          photoUrl = await getDownloadURL(storageRef);
+        }
+
+        const newLocationId = await createClientLocation({
+          id_cliente: realClientId,
+          latlong: latlongValue,
+          referencia: referral,
+          tarifa: tariff,
+          sector: sector,
+          createdBy: 'admin',
+          ...(photoUrl && { photo: photoUrl })
+        });
+
+        // Actualizar el ID temporal de la ubicación por el ID real
+        setManualOrderData(prev => {
+          const updatedLocs = prev.customerLocations.map(loc => {
+            if (loc.id === tempLocId) {
+              return { 
+                ...loc, 
+                id: newLocationId, 
+                id_cliente: realClientId, 
+                ...(photoUrl && { photo: photoUrl }) 
+              };
+            }
+            // En caso de que se haya resuelto el ID del cliente, actualizarlo en las demás ubicaciones del cliente
+            if (loc.id_cliente === clientId) {
+              return { ...loc, id_cliente: realClientId };
+            }
+            return loc;
+          });
+
+          const isSelected = prev.selectedLocation?.id === tempLocId;
+          return {
+            ...prev,
+            customerLocations: updatedLocs,
+            ...(isSelected && {
+              selectedLocation: {
+                ...prev.selectedLocation!,
+                id: newLocationId,
+                id_cliente: realClientId,
+                ...(photoUrl && { photo: photoUrl })
+              }
+            })
+          };
+        });
+
+        // Buscar el repartidor para la nueva ubicación real
+        const finalLoc = {
+          id: newLocationId,
+          id_cliente: realClientId,
+          latlong: latlongValue,
+          referencia: referral,
+          tarifa: tariff,
+          sector: sector,
+          photo: photoUrl || tempPhoto
+        };
+        findDeliveryForLocation(finalLoc as any);
+
+        displayToast('Ubicación guardada');
+      } catch (error) {
+        console.error('Error creando ubicación en segundo plano:', error);
+        displayToast('Error al guardar ubicación');
+      }
+    })();
   };
 
   // Editar ubicación - abrir formulario con datos
@@ -1579,128 +1661,161 @@ export default function ManualOrderSidebar({
 
   // Guardar cambios de edición
   const handleSaveEditedLocation = async () => {
-    if (!editingLocationId || creatingLocation) return
+    if (!editingLocationId) return
     
     if (!newLocationData.referencia.trim()) {
       alert('Por favor ingresa una referencia para la ubicación');
       return;
     }
 
-    setCreatingLocation(true)
-    try {
-      if (newLocationData.latlong.trim()) {
-        if (!isValidLocation(newLocationData.latlong)) {
-          alert('Por favor ingresa coordenadas válidas (formato: lat,lng o un Plus Code como 42W9+246)');
-          setCreatingLocation(false);
-          return;
-        }
-        // Solo normalizar si no es un Plus Code
-        if (!newLocationData.latlong.startsWith('pluscode:')) {
-          const normalized = normalizeLatLong(newLocationData.latlong);
-          setNewLocationData(prev => ({ ...prev, latlong: normalized }));
-        }
-      }
-
-      // Buscar el cliente para obtener su ID (necesario para subir imagen)
-      if (!manualOrderData.customerId) {
-        alert('No se pudo identificar al cliente asociado');
-        setCreatingLocation(false);
+    if (newLocationData.latlong.trim()) {
+      if (!isValidLocation(newLocationData.latlong)) {
+        alert('Por favor ingresa coordenadas válidas (formato: lat,lng o un Plus Code como 42W9+246)');
         return;
       }
+    }
 
-      const clientId = manualOrderData.customerId;
-      if (!clientId) {
-        alert('No se encontró el registro del cliente');
-        setCreatingLocation(false);
-        return;
-      }
+    // Buscar el cliente para obtener su ID
+    const clientId = manualOrderData.customerId;
+    if (!clientId) {
+      alert('No se pudo identificar al cliente asociado');
+      return;
+    }
 
-      // Subir imagen si existe un nuevo archivo
-      let photoUrl = newLocationData.photo; // Mantener la URL existente por defecto
-      if (locationImageFile) {
-        const timestamp = Date.now();
-        const optimizedBlob = await optimizeImage(locationImageFile, 1000, 0.8, 'image/jpeg');
-        const optimizedFile = new File(
-          [optimizedBlob],
-          `${timestamp}_${locationImageFile.name.split('.')[0]}.jpg`,
-          { type: optimizedBlob.type || 'image/jpeg' }
-        );
+    const locIdToUpdate = editingLocationId;
+    const referral = newLocationData.referencia.trim();
+    const tariff = newLocationData.tarifa;
+    const sector = newLocationData.sector || 'Sin especificar';
+    const latlongValue = newLocationData.latlong.trim();
+    const tempPhoto = locationImagePreview || '';
 
-        const fileName = `locations/${clientId}_${optimizedFile.name}`;
-        const storageRef = ref(storage, fileName);
-        await uploadBytes(storageRef, optimizedFile);
-        photoUrl = await getDownloadURL(storageRef);
-      }
+    // Capturar el archivo de imagen localmente para el guardado en segundo plano
+    const imageFileToUpload = locationImageFile;
 
-      const updatePayload: any = {
-        referencia: newLocationData.referencia.trim(),
-        tarifa: newLocationData.tarifa,
-        updatedAt: new Date()
-      }
+    const optimisticLocation: ClientLocation = {
+      id: locIdToUpdate,
+      id_cliente: clientId,
+      latlong: latlongValue ? normalizeLatLong(latlongValue) : '',
+      referencia: referral,
+      tarifa: tariff,
+      sector: sector,
+      photo: tempPhoto
+    };
 
-      // Incluir latlong sólo si viene
-      if (newLocationData.latlong.trim()) {
-        updatePayload.latlong = normalizeLatLong(newLocationData.latlong.trim())
-      } else {
-        // Si se deja en blanco, mantener como cadena vacía
-        updatePayload.latlong = ''
-      }
+    // Actualizar la interfaz inmediatamente con los datos optimistas
+    setManualOrderData(prev => {
+      const updatedLocs = prev.customerLocations.map(loc => 
+        loc.id === locIdToUpdate ? optimisticLocation : loc
+      );
+      const isSelected = prev.selectedLocation?.id === locIdToUpdate;
+      return {
+        ...prev,
+        customerLocations: updatedLocs,
+        ...(isSelected && { selectedLocation: optimisticLocation })
+      };
+    });
 
-      // Incluir photo si existe
-      if (photoUrl) {
-        updatePayload.photo = photoUrl;
-      }
+    // Limpiar formulario y cerrar de inmediato
+    setEditingLocationId(null)
+    setShowNewLocationForm(false)
+    setNewLocationData({ referencia: '', tarifa: '1', latlong: '', photo: '', sector: '' })
+    setLocationImageFile(null)
+    setLocationImagePreview('')
+    setShowMapSelection(false)
 
-      await updateLocation(editingLocationId, updatePayload)
+    displayToast('Actualizando ubicación...');
 
-      // Recargar ubicaciones
-      if (clientId) {
-        const locations = await getClientLocations(clientId)
-        setManualOrderData(prev => ({ ...prev, customerLocations: locations }))
-        
-        // Si la ubicación editada es la que está seleccionada actualmente, actualizarla
-        if (manualOrderData.selectedLocation?.id === editingLocationId) {
-          const updatedLocation = locations.find(loc => loc.id === editingLocationId)
-          if (updatedLocation) {
-            // Calcular tarifa automáticamente para la ubicación actualizada
-            if (updatedLocation.latlong) {
-              try {
-                const [lat, lng] = updatedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
-                if (!isNaN(lat) && !isNaN(lng)) {
-                  const { fee } = await calculateDeliveryFee({ lat, lng })
-                  const normalizedFee = fee === 0 ? 1.5 : fee
-                  const locationWithFee = { ...updatedLocation, tarifa: normalizedFee.toString() }
-                  setManualOrderData(prev => ({ ...prev, selectedLocation: locationWithFee }))
-                  calculateTotal(manualOrderData.selectedProducts)
-                } else {
-                  setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }))
-                  calculateTotal(manualOrderData.selectedProducts)
+    // Ejecutar la actualización en segundo plano
+    (async () => {
+      try {
+        let realClientId = clientId;
+        if (clientId.startsWith('temp_client_') && clientCreationPromiseRef.current) {
+          const createdClient = await clientCreationPromiseRef.current;
+          realClientId = createdClient.id;
+        }
+
+        // Subir imagen si existe un nuevo archivo
+        let photoUrl = newLocationData.photo; // Mantener la URL existente por defecto
+        if (imageFileToUpload) {
+          const timestamp = Date.now();
+          const optimizedBlob = await optimizeImage(imageFileToUpload, 1000, 0.8, 'image/jpeg');
+          const optimizedFile = new File(
+            [optimizedBlob],
+            `${timestamp}_${imageFileToUpload.name.split('.')[0]}.jpg`,
+            { type: optimizedBlob.type || 'image/jpeg' }
+          );
+
+          const fileName = `locations/${realClientId}_${optimizedFile.name}`;
+          const storageRef = ref(storage, fileName);
+          await uploadBytes(storageRef, optimizedFile);
+          photoUrl = await getDownloadURL(storageRef);
+        }
+
+        const updatePayload: any = {
+          referencia: referral,
+          tarifa: tariff,
+          updatedAt: new Date()
+        }
+
+        if (latlongValue) {
+          updatePayload.latlong = normalizeLatLong(latlongValue)
+        } else {
+          updatePayload.latlong = ''
+        }
+
+        if (photoUrl) {
+          updatePayload.photo = photoUrl;
+        }
+
+        await updateLocation(locIdToUpdate, updatePayload)
+
+        // Recargar ubicaciones reales desde la base de datos
+        const locations = await getClientLocations(realClientId)
+        setManualOrderData(prev => {
+          const updatedLocs = locations.map(loc => {
+            if (loc.id === locIdToUpdate) {
+              return { ...loc, id_cliente: realClientId };
+            }
+            return loc;
+          });
+          const isSelected = prev.selectedLocation?.id === locIdToUpdate;
+          const updatedSelected = isSelected
+            ? updatedLocs.find(loc => loc.id === locIdToUpdate) || prev.selectedLocation
+            : prev.selectedLocation;
+          
+          return {
+            ...prev,
+            customerLocations: updatedLocs,
+            ...(isSelected && { selectedLocation: updatedSelected })
+          };
+        });
+
+        // Buscar el repartidor y recalcular tarifas para la ubicación actualizada
+        const updatedLocation = locations.find(loc => loc.id === locIdToUpdate)
+        if (updatedLocation && manualOrderData.selectedLocation?.id === locIdToUpdate) {
+          if (updatedLocation.latlong) {
+            const [lat, lng] = updatedLocation.latlong.split(',').map(coord => parseFloat(coord.trim()))
+            if (!isNaN(lat) && !isNaN(lng)) {
+              const { fee } = await calculateDeliveryFee({ lat, lng })
+              const normalizedFee = fee === 0 ? 1.5 : fee
+              const locationWithFee = { ...updatedLocation, tarifa: normalizedFee.toString() }
+              setManualOrderData(prev => {
+                if (prev.selectedLocation?.id === locIdToUpdate) {
+                  return { ...prev, selectedLocation: locationWithFee };
                 }
-              } catch (error) {
-                console.error('Error calculating delivery fee for updated location:', error)
-                setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }))
-                calculateTotal(manualOrderData.selectedProducts)
-              }
-            } else {
-              setManualOrderData(prev => ({ ...prev, selectedLocation: updatedLocation }))
-              calculateTotal(manualOrderData.selectedProducts)
+                return prev;
+              });
             }
           }
+          findDeliveryForLocation(updatedLocation);
         }
-      }
 
-      setEditingLocationId(null)
-      setShowNewLocationForm(false)
-      setNewLocationData({ referencia: '', tarifa: '1', latlong: '', photo: '', sector: '' })
-      setLocationImageFile(null)
-      setLocationImagePreview('')
-      setShowMapSelection(false)
-    } catch (error) {
-      console.error('Error actualizando ubicación:', error)
-      alert('Error al actualizar la ubicación. Por favor intenta de nuevo.');
-    } finally {
-      setCreatingLocation(false)
-    }
+        displayToast('Ubicación actualizada');
+      } catch (error) {
+        console.error('Error actualizando ubicación en segundo plano:', error);
+        displayToast('Error al actualizar ubicación');
+      }
+    })();
   }
 
   // Eliminar ubicación
