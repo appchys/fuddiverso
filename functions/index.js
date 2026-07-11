@@ -74,6 +74,10 @@ async function onOrderStatusChangeLogic(beforeData, afterData, orderId) {
  * Cloud Function: Crear notificación en el panel cuando llega una nueva orden
  */
 async function createOrderNotificationLogic(order, orderId) {
+  // Omitir notificaciones de nuevos pedidos en la base de datos por solicitud del negocio
+  console.log(`ℹ️ Omitiendo creación de notificación en panel para orden ${orderId} por solicitud (ya no se desean notificaciones de nuevos pedidos en el dashboard).`);
+  return;
+
   // Ignorar órdenes creadas por administradores
   if (order.createdByAdmin) {
     console.log(`ℹ️ Orden ${orderId} creada por admin, omitiendo notificación.`);

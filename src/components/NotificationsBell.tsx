@@ -165,6 +165,11 @@ export default function NotificationsBell({ businessId, onNewOrder }: Notificati
               createdAt: data.createdAt
             } as Notification
 
+            // Omitir notificaciones de nuevos pedidos en la campana
+            if (notif.type === 'new_order') {
+              return
+            }
+
             notifs.push(notif)
 
             // Detectar si es una notificación nueva (no hemos visto este ID antes)

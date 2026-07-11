@@ -78,6 +78,14 @@ export async function POST(request: NextRequest) {
 
     // Guardar en Firestore usando Firebase Admin SDK
     if (adminDb) {
+      if (type === 'new_order' || !type) {
+        console.log('[POST /api/notifications] Omitiendo notificación de nuevo pedido por solicitud del negocio')
+        return NextResponse.json(
+          { success: true, message: 'Notification skipped (new_order notifications are disabled)' },
+          { status: 200 }
+        )
+      }
+
       const notification: any = {
         orderId: orderId || null,
         type: type || 'new_order',

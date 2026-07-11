@@ -19,6 +19,16 @@ const toSafeDate = (val: any): Date => {
   return new Date()
 }
 
+// Check if date is today in user's local timezone
+const isToday = (dateVal: any): boolean => {
+  if (!dateVal) return false
+  const date = toSafeDate(dateVal)
+  const today = new Date()
+  return date.getDate() === today.getDate() &&
+         date.getMonth() === today.getMonth() &&
+         date.getFullYear() === today.getFullYear()
+}
+
 // Format date to local ECU time
 const formatTimeOnly = (dateVal: any): string => {
   const d = toSafeDate(dateVal)
@@ -72,9 +82,10 @@ function TMADeliveryContent() {
   const [loading, setLoading] = useState(true)
 
   // UI state
+  const [activeTab, setActiveTab] = useState<'today' | 'history'>('today')
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set())
   const [activeStoreMenuId, setActiveStoreMenuId] = useState<string | null>(null)
-  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set(['Entregados']))
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set(['EntregadosHoy', 'Historial']))
   const [receiptZoom, setReceiptZoom] = useState<string | null>(null)
   const [showClaimModal, setShowClaimModal] = useState(false)
   const [claimOrderId, setClaimOrderId] = useState('')
@@ -199,18 +210,7 @@ function TMADeliveryContent() {
     setIsAuthenticated(false)
   }
 
-  // Toggle delivery online status in DB
-  const toggleRiderStatus = async () => {
-    if (!rider) return
-    const newStatus = rider.estado === 'activo' ? 'inactivo' as const : 'activo' as const
-    try {
-      const riderRef = doc(db, 'deliveries', rider.id)
-      await updateDoc(riderRef, { manualStatus: newStatus === 'activo' ? 'active' : 'inactive' })
-      setRider(prev => prev ? { ...prev, estado: newStatus } : null)
-    } catch (err) {
-      console.error('Error toggling status:', err)
-    }
-  }
+
 
   // Load Businesses
   useEffect(() => {
@@ -389,14 +389,20 @@ function TMADeliveryContent() {
     const list = {
       Disponibles: [] as Order[],
       Activos: [] as Order[],
-      Entregados: [] as Order[]
+      EntregadosHoy: [] as Order[],
+      Historial: [] as Order[]
     }
 
     if (!rider) return list
 
     orders.forEach(o => {
       if (o.status === 'delivered' && o.delivery?.assignedDelivery === rider.id) {
-        list.Entregados.push(o)
+        const orderDate = o.deliveredAt || o.statusHistory?.deliveredAt || o.createdAt
+        if (isToday(orderDate)) {
+          list.EntregadosHoy.push(o)
+        } else {
+          list.Historial.push(o)
+        }
       } else if (o.delivery?.assignedDelivery === rider.id) {
         list.Activos.push(o)
       } else if (!o.delivery?.assignedDelivery) {
@@ -408,13 +414,16 @@ function TMADeliveryContent() {
   }, [orders, rider])
 
   const stats = useMemo(() => {
-    const totalEarnings = grouped.Entregados.reduce((sum, o) => sum + (o.delivery?.deliveryCost || 0), 0)
+    const ganadoHoy = grouped.EntregadosHoy.reduce((sum, o) => sum + (o.delivery?.deliveryCost || 0), 0)
+    const ganadoTotal = [...grouped.EntregadosHoy, ...grouped.Historial].reduce((sum, o) => sum + (o.delivery?.deliveryCost || 0), 0)
     const activeCost = grouped.Activos.reduce((sum, o) => sum + (o.delivery?.deliveryCost || 0), 0)
     
     return {
       activos: grouped.Activos.length,
-      entregados: grouped.Entregados.length,
-      ganado: totalEarnings,
+      entregadosHoy: grouped.EntregadosHoy.length,
+      entregadosTotal: grouped.EntregadosHoy.length + grouped.Historial.length,
+      ganadoHoy,
+      ganadoTotal,
       activeCost
     }
   }, [grouped])
@@ -496,22 +505,10 @@ function TMADeliveryContent() {
           <button className="w-8 h-8 flex items-center justify-center text-gray-500 rounded-lg hover:bg-gray-50">
             <i className="bi bi-list text-xl"></i>
           </button>
-          <span className="text-2xl font-black tracking-tighter text-red-600 font-sans">Fuddi</span>
+          <span className="text-xl sm:text-2xl font-poetsen text-[#ab1919]">Fuddi</span>
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={toggleRiderStatus}
-            className={`w-10 h-10 rounded-xl border flex items-center justify-center transition-all ${
-              rider?.estado === 'activo'
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
-                : 'bg-rose-50 border-rose-200 text-rose-600'
-            }`}
-            title={rider?.estado === 'activo' ? 'En línea' : 'Desconectado'}
-          >
-            <i className={`bi ${rider?.estado === 'activo' ? 'bi-shield-fill-check' : 'bi-shield-slash-fill'} text-lg`}></i>
-          </button>
-
           <div className="px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl text-xs font-bold text-gray-600">
             30m
           </div>
@@ -550,42 +547,82 @@ function TMADeliveryContent() {
             </div>
 
             <div className="flex flex-col items-center">
-              <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Entregas</span>
+              <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                {activeTab === 'today' ? 'Entregas Hoy' : 'Total Entregas'}
+              </span>
               <div className="flex items-center gap-1.5 mt-1">
                 <i className="bi bi-check-circle-fill text-gray-400 text-sm"></i>
-                <span className="text-xl font-black text-gray-800 leading-none">{stats.entregados}</span>
+                <span className="text-xl font-black text-gray-800 leading-none">
+                  {activeTab === 'today' ? stats.entregadosHoy : stats.entregadosTotal}
+                </span>
               </div>
             </div>
 
             <div className="flex flex-col items-center">
-              <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Ganado</span>
-              <span className="text-xl font-black text-emerald-600 mt-1 leading-none">${stats.ganado.toFixed(2)}</span>
-              <span className="text-[8px] font-bold text-gray-400 uppercase tracking-tighter mt-1">Activo: ${stats.activeCost.toFixed(2)}</span>
+              <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                {activeTab === 'today' ? 'Ganado Hoy' : 'Ganado Total'}
+              </span>
+              <span className="text-xl font-black text-emerald-600 mt-1 leading-none">
+                ${(activeTab === 'today' ? stats.ganadoHoy : stats.ganadoTotal).toFixed(2)}
+              </span>
+              {activeTab === 'today' && (
+                <span className="text-[8px] font-bold text-gray-400 uppercase tracking-tighter mt-1">Activo: ${stats.activeCost.toFixed(2)}</span>
+              )}
             </div>
 
           </div>
         </div>
 
-        {(['Disponibles', 'Activos', 'Entregados'] as const).map(catName => {
-          const catOrders = grouped[catName]
-          const isCollapsed = collapsedCategories.has(catName)
-          const dotColors = {
-            Disponibles: 'bg-emerald-500',
-            Activos: 'bg-cyan-500',
-            Entregados: 'bg-gray-400'
-          }
+        {/* Tabs UI */}
+        <div className="flex bg-gray-100 p-1 rounded-2xl border border-gray-200/65 shadow-sm">
+          <button
+            onClick={() => setActiveTab('today')}
+            className={`flex-1 py-2 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-200 flex items-center justify-center gap-2 ${
+              activeTab === 'today'
+                ? 'bg-white text-red-600 shadow-sm border border-gray-100'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <i className="bi bi-calendar-event"></i>
+            Pedidos de Hoy
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`flex-1 py-2 text-xs font-black uppercase tracking-wider rounded-xl transition-all duration-200 flex items-center justify-center gap-2 ${
+              activeTab === 'history'
+                ? 'bg-white text-red-600 shadow-sm border border-gray-100'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <i className="bi bi-clock-history"></i>
+            Historial ({grouped.Historial.length})
+          </button>
+        </div>
+
+        {(activeTab === 'today'
+          ? ([
+              { id: 'Disponibles', label: 'Disponibles', orders: grouped.Disponibles, color: 'bg-emerald-500' },
+              { id: 'Activos', label: 'Activos', orders: grouped.Activos, color: 'bg-cyan-500' },
+              { id: 'EntregadosHoy', label: 'Entregados Hoy', orders: grouped.EntregadosHoy, color: 'bg-gray-400' }
+            ] as const)
+          : ([
+              { id: 'Historial', label: 'Historial de Entregas', orders: grouped.Historial, color: 'bg-gray-400' }
+            ] as const)
+        ).map(cat => {
+          const catOrders = cat.orders
+          const isCollapsed = collapsedCategories.has(cat.id)
 
           return (
-            <div key={catName} className="space-y-3">
+            <div key={cat.id} className="space-y-3">
               
               <button
-                onClick={() => toggleCategoryCollapse(catName)}
+                onClick={() => toggleCategoryCollapse(cat.id)}
                 className="w-full flex items-center justify-between py-2.5 px-1 border-b border-gray-200"
               >
                 <div className="flex items-center gap-2">
-                  <span className={`w-3 h-3 rounded-full ${dotColors[catName]}`}></span>
+                  <span className={`w-3 h-3 rounded-full ${cat.color}`}></span>
                   <h3 className="font-black text-gray-800 uppercase tracking-wider text-xs">
-                    {catName}
+                    {cat.label}
                   </h3>
                   <span className="bg-gray-200 text-gray-700 text-[10px] font-black px-2 py-0.5 rounded-full">
                     {catOrders.length}
@@ -611,7 +648,9 @@ function TMADeliveryContent() {
                         <div
                           id={`order-${order.id}`}
                           key={order.id}
-                          className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 relative"
+                          className={`bg-white rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300 relative ${
+                            activeStoreMenuId === order.id ? 'z-30' : 'z-10'
+                          }`}
                         >
                           
                           <div
@@ -760,7 +799,7 @@ function TMADeliveryContent() {
                           )}
 
                           {isExpanded && (
-                            <div className="px-4 pb-5 border-t border-gray-50 pt-4 bg-gray-50/50 space-y-4">
+                            <div className="px-4 pb-5 border-t border-gray-50 pt-4 bg-gray-50/50 space-y-4 rounded-b-3xl">
                               
                               <div className="text-xs text-gray-600">
                                 <span className="font-bold text-gray-400 block mb-1">Dirección / Referencias:</span>

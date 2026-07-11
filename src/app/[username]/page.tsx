@@ -14,7 +14,6 @@ import { isStoreOpen, getNextOpeningMessage } from '@/lib/store-utils'
 import { BusinessAuthProvider, useBusinessAuth } from '@/contexts/BusinessAuthContext'
 import { useAuth } from '@/contexts/AuthContext'
 import StarRating from '@/components/StarRating'
-import Header from '@/components/Header'
 import dynamic from 'next/dynamic'
 
 const CartSidebar = dynamic(() => import('@/components/CartSidebar'), { ssr: false })
@@ -1002,10 +1001,7 @@ function RestaurantContent() {
   })
 
   return (
-    <div className="min-h-screen bg-gray-50 pt-16">
-
-      {/* Header Component */}
-      <Header />
+    <div className="min-h-screen bg-gray-50">
 
       {/* Structured Data for SEO */}
       <BusinessStructuredData business={business} />
