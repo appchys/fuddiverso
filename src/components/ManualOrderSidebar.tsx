@@ -1838,6 +1838,42 @@ export default function ManualOrderSidebar({
     }
   }
 
+  // Repetir un pedido anterior
+  const handleRepeatOrder = (ord: any) => {
+    if (!ord.items || ord.items.length === 0) {
+      alert('Este pedido no tiene productos registrados');
+      return;
+    }
+
+    if (manualOrderData.selectedProducts.length > 0) {
+      if (!window.confirm('¿Desea reemplazar los productos de la orden actual con los de este pedido anterior?')) {
+        return;
+      }
+    }
+
+    const copiedProducts = ord.items.map((it: any) => ({
+      name: it.name || '',
+      price: it.price || 0,
+      productId: it.productId || '',
+      quantity: it.quantity || 1,
+      variant: it.variant || '',
+      variantName: it.variant || '',
+      basePrice: it.basePrice,
+      commission: it.commission,
+      commissionType: it.commissionType,
+      storeReceives: it.storeReceives
+    }));
+
+    setManualOrderData(prev => ({
+      ...prev,
+      selectedProducts: copiedProducts
+    }));
+
+    calculateTotal(copiedProducts);
+    setShowClientDetailSidebar(false);
+    displayToast('Productos cargados al pedido actual');
+  }
+
   // Controlar la selección del producto (abrir modal si requiere personalización)
   const handleSelectProduct = (product: Product) => {
     const hasVariants = product.variants && product.variants.length > 0
@@ -3104,6 +3140,92 @@ export default function ManualOrderSidebar({
             </div>
           )}
 
+          {/* Timing - siempre visible */}
+          <div className="mb-6">
+            <h3 className="text-sm font-medium text-black mb-3">Programación</h3>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setManualOrderData(prev => ({ ...prev, timingType: 'immediate' }))}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.timingType === 'immediate'
+                  ? 'border-orange-500 bg-orange-50 text-orange-700'
+                  : 'border-gray-300 hover:border-gray-400'
+                  }`}
+              >
+                <i className="bi bi-lightning-fill text-lg"></i>
+                <span className="text-xs font-medium">Inmediato</span>
+                <span className="text-[10px] opacity-70">Aprox {business?.deliveryTime || 30} min</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const { date, time } = getInitialScheduledDateTime()
+                  setManualOrderData(prev => ({
+                    ...prev,
+                    timingType: 'scheduled',
+                    scheduledDate: date,
+                    scheduledTime: time
+                  }))
+                }}
+                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.timingType === 'scheduled'
+                  ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                  : 'border-gray-300 hover:border-gray-400'
+                  }`}
+              >
+                <i className="bi bi-calendar-event text-lg"></i>
+                <span className="text-xs font-medium">Programado</span>
+              </button>
+            </div>
+
+            {manualOrderData.timingType === 'scheduled' && (
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Fecha
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={manualOrderData.scheduledDate}
+                      onChange={(e) => setManualOrderData(prev => ({ ...prev, scheduledDate: e.target.value }))}
+                      className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const tomorrow = new Date()
+                        tomorrow.setDate(tomorrow.getDate() + 1)
+                        const yyyy = tomorrow.getFullYear()
+                        const mm = String(tomorrow.getMonth() + 1).padStart(2, '0')
+                        const dd = String(tomorrow.getDate()).padStart(2, '0')
+                        setManualOrderData(prev => ({ ...prev, scheduledDate: `${yyyy}-${mm}-${dd}` }))
+                      }}
+                      className={`px-3 py-1 text-xs font-semibold rounded border transition-all duration-200 cursor-pointer ${
+                        isTomorrowSelected
+                          ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+                      }`}
+                    >
+                      Mañana
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Hora
+                  </label>
+                  <input
+                    type="time"
+                    value={manualOrderData.scheduledTime}
+                    onChange={(e) => setManualOrderData(prev => ({ ...prev, scheduledTime: e.target.value }))}
+                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Método de pago - siempre visible */}
           <div className="mb-6">
             <h3 className="text-sm font-medium text-black mb-3">Método de pago</h3>
@@ -3302,92 +3424,6 @@ export default function ManualOrderSidebar({
                       ${((manualOrderData.cashAmount || 0) + (manualOrderData.transferAmount || 0)).toFixed(2)}
                     </span>
                   </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Timing - siempre visible */}
-          <div className="mb-6">
-            <h3 className="text-sm font-medium text-black mb-3">Programación</h3>
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <button
-                type="button"
-                onClick={() => setManualOrderData(prev => ({ ...prev, timingType: 'immediate' }))}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.timingType === 'immediate'
-                  ? 'border-orange-500 bg-orange-50 text-orange-700'
-                  : 'border-gray-300 hover:border-gray-400'
-                  }`}
-              >
-                <i className="bi bi-lightning-fill text-lg"></i>
-                <span className="text-xs font-medium">Inmediato</span>
-                <span className="text-[10px] opacity-70">Aprox {business?.deliveryTime || 30} min</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const { date, time } = getInitialScheduledDateTime()
-                  setManualOrderData(prev => ({
-                    ...prev,
-                    timingType: 'scheduled',
-                    scheduledDate: date,
-                    scheduledTime: time
-                  }))
-                }}
-                className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-1 ${manualOrderData.timingType === 'scheduled'
-                  ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                  : 'border-gray-300 hover:border-gray-400'
-                  }`}
-              >
-                <i className="bi bi-calendar-event text-lg"></i>
-                <span className="text-xs font-medium">Programado</span>
-              </button>
-            </div>
-
-            {manualOrderData.timingType === 'scheduled' && (
-              <div className="space-y-2">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Fecha
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="date"
-                      value={manualOrderData.scheduledDate}
-                      onChange={(e) => setManualOrderData(prev => ({ ...prev, scheduledDate: e.target.value }))}
-                      className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const tomorrow = new Date()
-                        tomorrow.setDate(tomorrow.getDate() + 1)
-                        const yyyy = tomorrow.getFullYear()
-                        const mm = String(tomorrow.getMonth() + 1).padStart(2, '0')
-                        const dd = String(tomorrow.getDate()).padStart(2, '0')
-                        setManualOrderData(prev => ({ ...prev, scheduledDate: `${yyyy}-${mm}-${dd}` }))
-                      }}
-                      className={`px-3 py-1 text-xs font-semibold rounded border transition-all duration-200 cursor-pointer ${
-                        isTomorrowSelected
-                          ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
-                          : 'bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200 hover:text-gray-900'
-                      }`}
-                    >
-                      Mañana
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Hora
-                  </label>
-                  <input
-                    type="time"
-                    value={manualOrderData.scheduledTime}
-                    onChange={(e) => setManualOrderData(prev => ({ ...prev, scheduledTime: e.target.value }))}
-                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
-                  />
                 </div>
               </div>
             )}
@@ -4764,6 +4800,9 @@ export default function ManualOrderSidebar({
                             Lugar de entrega
                           </th>
                           <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                            Detalle
+                          </th>
+                          <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                             Pago
                           </th>
                           <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -4771,6 +4810,9 @@ export default function ManualOrderSidebar({
                           </th>
                           <th scope="col" className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
                             Total
+                          </th>
+                          <th scope="col" className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                            Acción
                           </th>
                         </tr>
                       </thead>
@@ -4790,6 +4832,17 @@ export default function ManualOrderSidebar({
                                   {ord.delivery?.sector && ` (${ord.delivery.sector})`}
                                 </span>
                               )}
+                            </td>
+                            <td className="px-3 py-2.5 text-xs text-gray-700 max-w-[200px] break-words">
+                              <div className="space-y-0.5">
+                                {ord.items?.map((it: any, idx: number) => (
+                                  <div key={idx} className="text-gray-900 leading-tight">
+                                    <span className="font-semibold text-blue-600 mr-1">{it.quantity}x</span>
+                                    <span>{it.name}</span>
+                                    {it.variant && <span className="text-gray-500 text-[10px] ml-1">({it.variant})</span>}
+                                  </div>
+                                )) || <span className="text-gray-400 italic">Sin detalle</span>}
+                              </div>
                             </td>
                             <td className="px-3 py-2.5 text-xs text-gray-700">
                               <span className="capitalize font-medium text-gray-900 block">
@@ -4822,6 +4875,17 @@ export default function ManualOrderSidebar({
                             </td>
                             <td className="px-3 py-2.5 whitespace-nowrap text-right text-xs font-bold text-blue-600">
                               ${ord.total ? Number(ord.total).toFixed(2) : '0.00'}
+                            </td>
+                            <td className="px-3 py-2.5 whitespace-nowrap text-center text-xs">
+                              <button
+                                type="button"
+                                onClick={() => handleRepeatOrder(ord)}
+                                className="inline-flex items-center gap-1 bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-1 rounded font-medium border border-blue-100 transition-colors"
+                                title="Repetir este pedido"
+                              >
+                                <i className="bi bi-arrow-repeat text-sm"></i>
+                                <span>Repetir</span>
+                              </button>
                             </td>
                           </tr>
                         ))}
