@@ -168,10 +168,10 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
       <div className="flex-1 min-w-0 ml-4 pr-4">
         <div className="flex flex-col h-full justify-between">
           <div>
-            <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight truncate flex items-center gap-2">
+            <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight line-clamp-2">
               {product.name}
               {isCombo && (
-                <span className="px-1.5 py-0.5 bg-orange-100 text-orange-600 text-[8px] font-black uppercase tracking-widest rounded-md">
+                <span className="inline-flex items-center ml-2 px-1.5 py-0.5 bg-orange-100 text-orange-600 text-[8px] font-black uppercase tracking-widest rounded-md align-middle">
                   Combo
                 </span>
               )}
