@@ -283,6 +283,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
 
         const itemToAdd = {
             id: cartItemId,
+            productId: product.id, // ID original del producto para verificar disponibilidad en el carrito
             name: product.name,
             variantName: finalVariantName || null,
             productName: product.name,
@@ -496,7 +497,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                         )}
                                                     </div>
                                                     <div className="space-y-2">
-                                                        {group.options.map((opt) => {
+                                                        {group.options.filter(opt => opt.isAvailable !== false).map((opt) => {
                                                             const isSelected = selections.some(s => s.name === opt.name)
                                                             const disabled = !isSelected && isGroupAtMax
 

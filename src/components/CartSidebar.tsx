@@ -790,7 +790,10 @@ export default function CartSidebar({
                                                     : (item.variantName ? item.variantName : (item.productName || item.name));
 
                                                 // Verificar disponibilidad en tiempo real contra la base de datos
-                                                const dbProduct = allProducts.find((p) => p.id === item.id);
+                                                // item.productId contiene el ID original cuando el item tiene toppings (item.id = productId + hash)
+                                                // Fallback para items sin productId: busca por prefijo del id (ej: "abc123-SalsasHoney" → busca "abc123")
+                                                const dbProduct = allProducts.find((p) => p.id === (item.productId || item.id))
+                                                    ?? allProducts.find((p) => item.id.startsWith(p.id + '-'));
                                                 const isAvailable = (() => {
                                                     if (item.esPremio || item.qrCodeId) return true;
                                                     if (allProducts.length === 0) return true; // Asumir disponible si no ha cargado
@@ -983,7 +986,8 @@ export default function CartSidebar({
                                         type="button"
                                         disabled={cart.some((item: any) => {
                                             if (item.esPremio || item.qrCodeId) return false;
-                                            const dbProduct = allProducts.find((p) => p.id === item.id);
+                                            const dbProduct = allProducts.find((p) => p.id === (item.productId || item.id))
+                                                ?? allProducts.find((p) => item.id.startsWith(p.id + '-'));
                                             if (!dbProduct) return true;
                                             if (!dbProduct.isAvailable) return true;
                                             if (item.variantName && !item.variantName.startsWith("Combo:")) {
@@ -995,7 +999,8 @@ export default function CartSidebar({
                                         className={`block w-full py-4 rounded-2xl text-center font-bold text-lg transition-all duration-200 transform ${
                                             cart.some((item: any) => {
                                                 if (item.esPremio || item.qrCodeId) return false;
-                                                const dbProduct = allProducts.find((p) => p.id === item.id);
+                                                const dbProduct = allProducts.find((p) => p.id === (item.productId || item.id))
+                                                    ?? allProducts.find((p) => item.id.startsWith(p.id + '-'));
                                                 if (!dbProduct) return true;
                                                 if (!dbProduct.isAvailable) return true;
                                                 if (item.variantName && !item.variantName.startsWith("Combo:")) {

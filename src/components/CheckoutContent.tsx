@@ -2563,7 +2563,9 @@ export function CheckoutContent({
                         {[...cartItems]
                           .sort((a, b) => (a.esPremio ? 1 : b.esPremio ? -1 : 0))
                           .map((item: any, index: number) => {
-                            const dbProduct = allProducts.find((p) => p.id === item.id);
+                            // item.productId = ID original; fallback: busca por prefijo para items sin productId
+                            const dbProduct = allProducts.find((p) => p.id === (item.productId || item.id))
+                              ?? allProducts.find((p) => item.id.startsWith(p.id + '-'));
                             const isAvailable = (() => {
                               if (item.esPremio || item.qrCodeId) return true;
                               if (allProducts.length === 0) return true;

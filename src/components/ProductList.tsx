@@ -99,6 +99,9 @@ export default function ProductList({
   })
   const [newOptionName, setNewOptionName] = useState('')
   const [newOptionPrice, setNewOptionPrice] = useState('')
+  const [editingOptionIndex, setEditingOptionIndex] = useState<number | null>(null)
+  const [editingOptionName, setEditingOptionName] = useState('')
+  const [editingOptionPrice, setEditingOptionPrice] = useState('')
 
   // Estados para disponibilidad por horarios
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
@@ -312,6 +315,9 @@ export default function ProductList({
     setCurrentGroup({ name: '', minSelect: 0, maxSelect: 1, options: [] })
     setNewOptionName('')
     setNewOptionPrice('')
+    setEditingOptionIndex(null)
+    setEditingOptionName('')
+    setEditingOptionPrice('')
   }
 
   const handleAddOptionGroup = () => {
@@ -324,6 +330,9 @@ export default function ProductList({
     })
     setNewOptionName('')
     setNewOptionPrice('')
+    setEditingOptionIndex(null)
+    setEditingOptionName('')
+    setEditingOptionPrice('')
   }
 
   const handleEditOptionGroup = (index: number) => {
@@ -337,6 +346,9 @@ export default function ProductList({
     })
     setNewOptionName('')
     setNewOptionPrice('')
+    setEditingOptionIndex(null)
+    setEditingOptionName('')
+    setEditingOptionPrice('')
   }
 
   const handleRemoveOptionGroup = (index: number) => {
@@ -355,7 +367,7 @@ export default function ProductList({
     }
     setCurrentGroup(prev => ({
       ...prev,
-      options: [...prev.options, { name: newOptionName.trim(), price }]
+      options: [...prev.options, { name: newOptionName.trim(), price, isAvailable: true }]
     }))
     setNewOptionName('')
     setNewOptionPrice('')
@@ -366,6 +378,58 @@ export default function ProductList({
       ...prev,
       options: prev.options.filter((_, i) => i !== oIdx)
     }))
+    if (editingOptionIndex === oIdx) {
+      setEditingOptionIndex(null)
+    } else if (editingOptionIndex !== null && editingOptionIndex > oIdx) {
+      setEditingOptionIndex(editingOptionIndex - 1)
+    }
+  }
+
+  const handleStartEditOption = (oIdx: number, opt: ProductOption) => {
+    setEditingOptionIndex(oIdx)
+    setEditingOptionName(opt.name)
+    setEditingOptionPrice(opt.price.toString())
+  }
+
+  const handleSaveEditingOption = (oIdx: number) => {
+    if (!editingOptionName.trim()) {
+      alert('El nombre del modificador/opción es requerido')
+      return
+    }
+    const price = Number(editingOptionPrice) || 0
+    if (price < 0) {
+      alert('El precio no puede ser negativo')
+      return
+    }
+    setCurrentGroup(prev => {
+      const updatedOptions = [...prev.options]
+      updatedOptions[oIdx] = {
+        ...updatedOptions[oIdx],
+        name: editingOptionName.trim(),
+        price
+      }
+      return {
+        ...prev,
+        options: updatedOptions
+      }
+    })
+    setEditingOptionIndex(null)
+  }
+
+  const handleToggleOptionAvailability = (oIdx: number) => {
+    setCurrentGroup(prev => {
+      const updatedOptions = [...prev.options]
+      const currentOpt = updatedOptions[oIdx]
+      // Si isAvailable es undefined o true → se pone en false; si es false → se pone en true
+      updatedOptions[oIdx] = {
+        ...currentOpt,
+        isAvailable: currentOpt.isAvailable === false ? true : false
+      }
+      return {
+        ...prev,
+        options: updatedOptions
+      }
+    })
   }
 
   const handleSaveOptionGroup = () => {
@@ -2780,24 +2844,119 @@ export default function ProductList({
                         <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200/50">
                           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Toppings en este grupo</label>
                           
-                          {/* Lista horizontal de pastillas */}
+                          {/* Lista vertical de toppings */}
                           {currentGroup.options.length > 0 ? (
-                            <div className="flex flex-wrap gap-2 pr-1 max-h-36 overflow-y-auto custom-scrollbar">
-                              {currentGroup.options.map((opt, oIdx) => (
-                                <div key={oIdx} className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200/70 text-[11px] font-bold text-slate-700 shadow-sm transition-all">
-                                  <span>{opt.name}</span>
-                                  <span className="text-emerald-600 ml-0.5">
-                                    {opt.price > 0 ? `+$${opt.price.toFixed(2)}` : 'Gratis'}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveOptionFromGroup(oIdx)}
-                                    className="text-slate-400 hover:text-red-500 w-4 h-4 rounded-full hover:bg-red-50 flex items-center justify-center ml-0.5 transition-colors"
+                            <div className="space-y-2 pr-1 max-h-64 overflow-y-auto custom-scrollbar">
+                              {currentGroup.options.map((opt, oIdx) => {
+                                const isEditing = editingOptionIndex === oIdx
+                                const isAvailable = opt.isAvailable !== false
+
+                                return (
+                                  <div
+                                    key={oIdx}
+                                    className={`flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl border transition-all gap-2 ${
+                                      isEditing
+                                        ? 'border-blue-200 bg-blue-50/20'
+                                        : isAvailable
+                                          ? 'border-slate-100 bg-slate-50 hover:bg-slate-100/70'
+                                          : 'border-slate-100 bg-slate-50/50 opacity-70'
+                                    }`}
                                   >
-                                    <i className="bi bi-x-lg text-[9px] font-bold"></i>
-                                  </button>
-                                </div>
-                              ))}
+                                    {isEditing ? (
+                                      <div className="flex flex-1 flex-col sm:flex-row gap-2 items-center w-full">
+                                        <input
+                                          type="text"
+                                          value={editingOptionName}
+                                          onChange={(e) => setEditingOptionName(e.target.value)}
+                                          className="w-full sm:flex-1 px-3 py-1.5 border border-slate-200 focus:border-[#aa1918] rounded-lg text-xs font-bold outline-none bg-white"
+                                          placeholder="Nombre del topping"
+                                        />
+                                        <div className="relative w-full sm:w-24">
+                                          <span className="absolute left-2.5 top-1.5 text-slate-400 text-xs font-bold">$</span>
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={editingOptionPrice}
+                                            onChange={(e) => setEditingOptionPrice(e.target.value)}
+                                            className="w-full pl-5 pr-2 py-1.5 border border-slate-200 focus:border-[#aa1918] rounded-lg text-xs font-bold outline-none bg-white"
+                                            placeholder="Precio"
+                                          />
+                                        </div>
+                                        <div className="flex gap-1 w-full sm:w-auto justify-end">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSaveEditingOption(oIdx)}
+                                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase rounded-lg transition-colors"
+                                          >
+                                            Guardar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setEditingOptionIndex(null)}
+                                            className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-650 text-[10px] font-black uppercase rounded-lg transition-colors"
+                                          >
+                                            Cancelar
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isAvailable ? 'bg-emerald-500' : 'bg-slate-300'}`}></span>
+                                          <div className="font-bold text-xs text-slate-700 truncate">
+                                            {opt.name}
+                                          </div>
+                                          {!isAvailable && (
+                                            <span className="bg-slate-200 text-slate-500 text-[8px] font-black uppercase px-1.5 py-0.5 rounded border border-slate-300/40">
+                                              Oculto
+                                            </span>
+                                          )}
+                                          <span className="text-emerald-600 text-xs font-black">
+                                            {opt.price > 0 ? `+$${opt.price.toFixed(2)}` : 'Gratis'}
+                                          </span>
+                                        </div>
+
+                                        <div className="flex items-center gap-1 flex-shrink-0 self-end sm:self-auto">
+                                          {/* Ocultar / Mostrar */}
+                                          <button
+                                            type="button"
+                                            onClick={() => handleToggleOptionAvailability(oIdx)}
+                                            className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all ${
+                                              isAvailable
+                                                ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 border-transparent'
+                                                : 'text-amber-500 bg-amber-50 border-amber-100 hover:bg-amber-100 hover:text-amber-600'
+                                            }`}
+                                            title={isAvailable ? 'Ocultar topping' : 'Mostrar topping'}
+                                          >
+                                            <i className={`bi ${isAvailable ? 'bi-eye' : 'bi-eye-slash'} text-xs`}></i>
+                                          </button>
+
+                                          {/* Editar */}
+                                          <button
+                                            type="button"
+                                            onClick={() => handleStartEditOption(oIdx, opt)}
+                                            className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg border border-transparent hover:border-blue-100 transition-all"
+                                            title="Editar topping"
+                                          >
+                                            <i className="bi bi-pencil text-xs"></i>
+                                          </button>
+
+                                          {/* Eliminar */}
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemoveOptionFromGroup(oIdx)}
+                                            className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-red-650 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100 transition-all"
+                                            title="Eliminar topping"
+                                          >
+                                            <i className="bi bi-trash text-xs"></i>
+                                          </button>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                )
+                              })}
                             </div>
                           ) : (
                             <p className="text-xs text-slate-400 italic font-medium ml-1">Aún no hay toppings en este grupo.</p>
@@ -2871,14 +3030,26 @@ export default function ProductList({
                               </div>
                               
                               <div className="flex flex-wrap gap-1.5">
-                                {group.options.map((o, oIdx) => (
-                                  <span key={oIdx} className="bg-slate-50 text-slate-600 text-[10px] font-bold px-2 py-1 rounded-lg border border-slate-100/60 flex items-center gap-1 shadow-sm">
-                                    <span>{o.name}</span>
-                                    <span className="text-emerald-600">
-                                      {o.price > 0 ? `+$${o.price.toFixed(2)}` : 'Gratis'}
+                                {group.options.map((o, oIdx) => {
+                                  const isAvailable = o.isAvailable !== false
+                                  return (
+                                    <span
+                                      key={oIdx}
+                                      className={`text-[10px] font-bold px-2 py-1 rounded-lg border flex items-center gap-1 shadow-sm transition-all ${
+                                        isAvailable
+                                          ? 'bg-slate-50 text-slate-600 border-slate-100/60'
+                                          : 'bg-slate-100 text-slate-400 border-slate-200/40 line-through opacity-70'
+                                      }`}
+                                      title={isAvailable ? 'Disponible' : 'Oculto'}
+                                    >
+                                      <span>{o.name}</span>
+                                      <span className={isAvailable ? 'text-emerald-600' : 'text-slate-400'}>
+                                        {o.price > 0 ? `+$${o.price.toFixed(2)}` : 'Gratis'}
+                                      </span>
+                                      {!isAvailable && <i className="bi bi-eye-slash text-[9px] ml-0.5"></i>}
                                     </span>
-                                  </span>
-                                ))}
+                                  )
+                                })}
                               </div>
                             </div>
                             

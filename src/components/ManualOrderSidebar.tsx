@@ -3744,7 +3744,7 @@ export default function ManualOrderSidebar({
                           )}
                         </div>
                         <div className="space-y-2">
-                          {group.options.map((opt) => {
+                          {group.options.filter(opt => opt.isAvailable !== false).map((opt) => {
                             const isSelected = selections.some(s => s.name === opt.name);
                             const disabled = !isSelected && isGroupAtMax;
                             return (
