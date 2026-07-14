@@ -836,17 +836,18 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                         router.push(`/${business.username || `restaurant/${business.id}`}`)
                                     }
                                 }}
-                                className="bg-gray-900 text-white rounded-2xl shadow-lg hover:bg-black transition-all duration-300 transform active:scale-95 group overflow-hidden"
+                                className="flex-1 bg-gray-900 text-white rounded-2xl shadow-lg hover:bg-black transition-all duration-300 transform active:scale-95 overflow-hidden"
                             >
-                                <div className="flex items-center px-4 py-3 space-x-3">
+                                <div className="flex items-center justify-center gap-3 px-5 py-4">
                                     <div className="relative">
                                         <i className="bi bi-cart3 text-xl"></i>
                                         <span className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-[9px] font-black flex items-center justify-center border-2 border-gray-900 shadow-lg">
                                             {cartItemsCount}
                                         </span>
                                     </div>
-                                    <div className="text-left hidden sm:block">
-                                        <div className="text-xs font-black leading-none">{formatPrice(cartTotal)}</div>
+                                    <div className="text-left">
+                                        <div className="text-[10px] font-black uppercase tracking-widest opacity-70 leading-none mb-0.5">Ver carrito</div>
+                                        <div className="text-base font-black leading-none">{formatPrice(cartTotal)}</div>
                                     </div>
                                 </div>
                             </button>
@@ -926,9 +927,13 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                     ) : (
                                         <button
                                             onClick={onClose}
-                                            className="flex-1 py-4 bg-gray-100 text-gray-900 font-bold rounded-2xl hover:bg-gray-200 transition-all active:scale-[0.98]"
+                                            className={`flex-shrink-0 flex items-center justify-center bg-gray-100 text-gray-500 font-bold rounded-2xl hover:bg-gray-200 transition-all active:scale-[0.98] ${cartItemsCount > 0 ? 'w-12 h-14' : 'flex-1 py-4'}`}
+                                            title="Cerrar"
                                         >
-                                            Cerrar
+                                            {cartItemsCount > 0
+                                                ? <i className="bi bi-x-lg text-base"></i>
+                                                : 'Cerrar'
+                                            }
                                         </button>
                                     )}
                                     {cartButton}
