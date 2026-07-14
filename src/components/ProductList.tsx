@@ -190,7 +190,7 @@ export default function ProductList({
     const list = [...master, ...extras];
     
     // Si hay productos sin ninguna categoría, añadimos un placeholder si no existe
-    if (products.some(p => !p.category) && !list.includes('Sin categoría')) {
+    if (products.some(p => !p.category || p.category === 'Sin categoría') && !list.includes('Sin categoría')) {
       list.push('Sin categoría');
     }
     return list;
@@ -216,7 +216,7 @@ export default function ProductList({
       name: product.name,
       description: product.description,
       price: (product.basePrice || product.price).toString(),
-      category: product.category,
+      category: product.category || 'Sin categoría',
       isAvailable: product.isAvailable,
       image: null,
       commissionType: (product.commissionType || business?.defaultCommissionType || 'fuddi_assumed_by_customer') as CommissionType,
@@ -811,6 +811,9 @@ export default function ProductList({
         }
       })
 
+      const cleanCategory = (formData.category || '').trim();
+      const finalCategory = (cleanCategory === '' || cleanCategory.toLowerCase() === 'sin categoría' || cleanCategory.toLowerCase() === 'sin categoria') ? '' : cleanCategory;
+
       const productData = {
         name: formData.name,
         description: formData.description,
@@ -818,7 +821,7 @@ export default function ProductList({
         basePrice: productPricing.storePrice,
         commission: productPricing.commission,
         commissionType: productPricing.commissionType,
-        category: formData.category,
+        category: finalCategory,
         image: imageUrl,
         variants: hasVariants ? (variants.length > 0 ? variantsWithCommission : undefined) : undefined,
         ingredients: ingredients.length > 0 ? ingredients : undefined,
@@ -836,8 +839,8 @@ export default function ProductList({
       }
 
       // 0. Sincronizar categoría con la lista maestra del negocio si es nueva
-      if (formData.category && formData.category !== 'Sin categoría' && !categories.includes(formData.category)) {
-        const updatedCategories = [...categories, formData.category];
+      if (finalCategory && !categories.includes(finalCategory)) {
+        const updatedCategories = [...categories, finalCategory];
         onCategoriesChange(updatedCategories);
         if (onDirectUpdate) {
           await onDirectUpdate('categories', updatedCategories);
@@ -1255,7 +1258,7 @@ export default function ProductList({
             const isMaster = categories.includes(category);
             const categoryProducts = products
               .filter(p => {
-                if (category === 'Sin categoría') return !p.category;
+                if (category === 'Sin categoría') return !p.category || p.category === 'Sin categoría';
                 return p.category === category;
               })
               .sort((a, b) => (a.order || 0) - (b.order || 0))

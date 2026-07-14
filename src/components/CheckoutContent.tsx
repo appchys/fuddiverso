@@ -27,9 +27,10 @@ import {
   isPointInPolygon,
   getUserCredits,
   useUserCredits,
-  getOrdersByClient
+  getOrdersByClient,
+  getProductsByBusiness
 } from '@/lib/database'
-import { Business } from '@/types'
+import { Business, Product } from '@/types'
 import LocationMap from '@/components/LocationMap'
 import LocationSelectionModal from '@/components/LocationSelectionModal'
 import { useAuth } from '@/contexts/AuthContext'
@@ -259,7 +260,8 @@ export function CheckoutContent({
   onEmbeddedBack,
   onClearCart,
   onOrderCreated,
-  onAddItem
+  onAddItem,
+  products
 }: {
   embeddedBusinessId?: string
   embeddedBusiness?: Business | null
@@ -268,6 +270,7 @@ export function CheckoutContent({
   onClearCart?: () => void
   onOrderCreated?: (orderId: string) => void
   onAddItem?: (item: any) => void
+  products?: Product[]
 } = {}) {
   // Tipos locales para estados
   type PaymentData = {
@@ -467,6 +470,22 @@ export function CheckoutContent({
     if (typeof window === 'undefined') return []
     return getCartItems()
   })
+
+  const [allProducts, setAllProducts] = useState<Product[]>([])
+
+  useEffect(() => {
+    if (products && products.length > 0) {
+      setAllProducts(products)
+      return
+    }
+
+    const businessId = embeddedBusinessId || searchParams?.get('businessId')
+    if (businessId) {
+      getProductsByBusiness(businessId)
+        .then((fetched) => setAllProducts(fetched))
+        .catch((e) => console.error('Error fetching products in CheckoutContent:', e))
+    }
+  }, [products, embeddedBusinessId, searchParams])
 
   // Sincronizar si cambian los props embebidos o localStorage
   useEffect(() => {
@@ -1456,6 +1475,22 @@ export function CheckoutContent({
 
   // Computed readiness for final confirmation (pure check — no side effects)
   const readyToConfirm = (() => {
+    // Validar disponibilidad de productos frescos desde la base de datos
+    if (allProducts.length > 0) {
+      const hasUnavailable = cartItems.some((item: any) => {
+        if (item.esPremio || item.qrCodeId) return false
+        const dbProduct = allProducts.find((p) => p.id === item.id)
+        if (!dbProduct) return true
+        if (!dbProduct.isAvailable) return true
+        if (item.variantName && !item.variantName.startsWith("Combo:")) {
+          const variant = dbProduct.variants?.find((v) => v.name === item.variantName)
+          if (variant && variant.isAvailable === false) return true
+        }
+        return false
+      })
+      if (hasUnavailable) return false
+    }
+
     // Paso 1: cliente
     const phone = customerData.phone?.trim();
     if (!phone) return false;
@@ -1562,6 +1597,26 @@ export function CheckoutContent({
   
   const handleSubmit = async () => {
     if (!validateStep(currentStep)) return
+
+    // Validar disponibilidad fresca antes de procesar
+    if (allProducts.length > 0) {
+      const unavailableDbItems = cartItems.filter((item: any) => {
+        if (item.esPremio || item.qrCodeId) return false
+        const dbProduct = allProducts.find((p) => p.id === item.id)
+        if (!dbProduct) return true
+        if (!dbProduct.isAvailable) return true
+        if (item.variantName && !item.variantName.startsWith("Combo:")) {
+          const variant = dbProduct.variants?.find((v) => v.name === item.variantName)
+          if (variant && variant.isAvailable === false) return true
+        }
+        return false
+      })
+
+      if (unavailableDbItems.length > 0) {
+        alert('Tu carrito contiene productos que ya no están disponibles. Por favor regresa al carrito y elimínalos para continuar.')
+        return
+      }
+    }
 
     setLoading(true)
     setIsProcessingOrder(true) // Activar estado de procesamiento
@@ -2507,16 +2562,36 @@ export function CheckoutContent({
                       <div className="animate-fadeIn pl-4 space-y-2">
                         {[...cartItems]
                           .sort((a, b) => (a.esPremio ? 1 : b.esPremio ? -1 : 0))
-                          .map((item: any, index: number) => (
-                            <div key={index} className="flex justify-between items-center text-sm">
-                              <span className="text-gray-600 truncate flex-1 mr-4">
-                                <span className="font-bold text-gray-900">{item.quantity}x</span> {item.variantName || item.productName || item.name}
-                              </span>
-                              <span className="font-bold text-gray-900">
-                                {item.price > 0 ? formatPrice(item.price * item.quantity) : '¡Gratis!'}
-                              </span>
-                            </div>
-                          ))}
+                          .map((item: any, index: number) => {
+                            const dbProduct = allProducts.find((p) => p.id === item.id);
+                            const isAvailable = (() => {
+                              if (item.esPremio || item.qrCodeId) return true;
+                              if (allProducts.length === 0) return true;
+                              if (!dbProduct) return false;
+                              if (!dbProduct.isAvailable) return false;
+                              if (item.variantName && !item.variantName.startsWith("Combo:")) {
+                                const variant = dbProduct.variants?.find((v) => v.name === item.variantName);
+                                if (variant && variant.isAvailable === false) return false;
+                              }
+                              return true;
+                            })();
+
+                            return (
+                              <div key={index} className={`flex justify-between items-center text-sm ${!isAvailable ? 'opacity-60 grayscale text-gray-400' : ''}`}>
+                                <span className="text-gray-600 truncate flex-1 mr-4">
+                                  <span className="font-bold text-gray-900">{item.quantity}x</span> {item.variantName || item.productName || item.name}
+                                  {!isAvailable && (
+                                    <span className="block text-[10px] font-semibold text-rose-600 flex items-center gap-1 mt-0.5 animate-pulse">
+                                      <i className="bi bi-exclamation-triangle-fill"></i> No disponible (quítalo para continuar)
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="font-bold text-gray-900">
+                                  {item.price > 0 ? formatPrice(item.price * item.quantity) : '¡Gratis!'}
+                                </span>
+                              </div>
+                            );
+                          })}
                       </div>
                     )}
                   </div>

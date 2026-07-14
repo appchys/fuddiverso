@@ -334,6 +334,9 @@ export default function TiendasPage() {
         commissionSettings.commissionRate
       )
 
+      const cleanCategory = (productForm.category || '').trim();
+      const finalCategory = (cleanCategory === '' || cleanCategory.toLowerCase() === 'sin categoría' || cleanCategory.toLowerCase() === 'sin categoria') ? '' : cleanCategory;
+
       const productData = {
         name: productForm.name.trim(),
         description: productForm.description.trim(),
@@ -341,7 +344,7 @@ export default function TiendasPage() {
         basePrice: pricing.storePrice,
         commission: pricing.commission,
         commissionType: pricing.commissionType,
-        category: productForm.category.trim() || 'General',
+        category: finalCategory,
         image: editingProduct?.image || '',
         isAvailable: productForm.isAvailable,
         businessId: selectedBusiness.id,
@@ -1492,7 +1495,7 @@ export default function TiendasPage() {
                                     name: prod.name,
                                     description: prod.description || '',
                                     price: (prod.basePrice || prod.price).toString(),
-                                    category: prod.category || 'General',
+                                    category: prod.category || 'Sin categoría',
                                     isAvailable: prod.isAvailable
                                   })
                                   setShowProductFormModal(true)

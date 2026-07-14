@@ -971,7 +971,7 @@ function RestaurantContent() {
     const extras = fromProducts.filter(c => !master.includes(c));
     const list = [...master, ...extras];
     
-    if (availableProducts.some(p => !p.category) && !list.includes('Sin categoría')) {
+    if (availableProducts.some(p => !p.category || p.category === 'Sin categoría') && !list.includes('Sin categoría')) {
       list.push('Sin categoría');
     }
     return list;
@@ -981,7 +981,7 @@ function RestaurantContent() {
   categoryOrder.forEach(category => {
     const categoryProducts = availableProducts
       .filter(p => {
-        if (category === 'Sin categoría') return !p.category;
+        if (category === 'Sin categoría') return !p.category || p.category === 'Sin categoría';
         return p.category === category;
       })
       .sort((a, b) => {

@@ -112,6 +112,21 @@ export default function CartSidebar({
         )
     }, [allProducts, cart])
 
+    const hasUnavailableItems = useMemo(() => {
+        if (allProducts.length === 0 || !cart || cart.length === 0) return false;
+        return cart.some((item: any) => {
+            if (item.esPremio || item.qrCodeId) return false;
+            const dbProduct = allProducts.find((p) => p.id === item.id);
+            if (!dbProduct) return true;
+            if (!dbProduct.isAvailable) return true;
+            if (item.variantName && !item.variantName.startsWith("Combo:")) {
+                const variant = dbProduct.variants?.find((v) => v.name === item.variantName);
+                if (variant && variant.isAvailable === false) return true;
+            }
+            return false;
+        });
+    }, [cart, allProducts]);
+
     const handleProductClick = (productToAdd: Product) => {
         if (productToAdd.variants && productToAdd.variants.length > 0) {
             if (onShowProductDetails) {
@@ -741,6 +756,7 @@ export default function CartSidebar({
                                         setOrderSidebarOpen(true)
                                     }}
                                     onAddItem={addItemToCart}
+                                    products={allProducts}
                                 />
                             ) : cart.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -773,10 +789,24 @@ export default function CartSidebar({
                                                     ? item.name
                                                     : (item.variantName ? item.variantName : (item.productName || item.name));
 
+                                                // Verificar disponibilidad en tiempo real contra la base de datos
+                                                const dbProduct = allProducts.find((p) => p.id === item.id);
+                                                const isAvailable = (() => {
+                                                    if (item.esPremio || item.qrCodeId) return true;
+                                                    if (allProducts.length === 0) return true; // Asumir disponible si no ha cargado
+                                                    if (!dbProduct) return false; // Borrado
+                                                    if (!dbProduct.isAvailable) return false; // Ocultado
+                                                    if (item.variantName && !item.variantName.startsWith("Combo:")) {
+                                                        const variant = dbProduct.variants?.find((v) => v.name === item.variantName);
+                                                        if (variant && variant.isAvailable === false) return false;
+                                                    }
+                                                    return true;
+                                                })();
+
                                                 return (
                                                     <div
                                                         key={`${item.id}-${item.variantName || index}`}
-                                                        className={`p-4 flex items-center gap-3 transition-all ${isTarjeta ? 'bg-blue-50/30' : isRegalo ? 'bg-amber-50/30' : ''}`}
+                                                        className={`p-4 flex items-center gap-3 transition-all ${!isAvailable ? 'opacity-60 grayscale bg-gray-100/55 text-gray-400' : isTarjeta ? 'bg-blue-50/30' : isRegalo ? 'bg-amber-50/30' : ''}`}
                                                     >
                                                         {/* Imagen del producto */}
                                                         <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-50 flex-shrink-0 border border-gray-100">
@@ -795,7 +825,7 @@ export default function CartSidebar({
                                                         {/* Información del item */}
                                                         <div className="flex-1 min-w-0">
                                                             <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
-                                                                <p className={`font-bold text-sm leading-tight ${isTarjeta ? 'text-blue-900' : isRegalo ? 'text-amber-900' : 'text-gray-900'}`}>
+                                                                <p className={`font-bold text-sm leading-tight ${!isAvailable ? 'text-gray-400' : isTarjeta ? 'text-blue-900' : isRegalo ? 'text-amber-900' : 'text-gray-900'}`}>
                                                                     {displayName}
                                                                 </p>
                                                                 {isTarjeta ? (
@@ -808,6 +838,11 @@ export default function CartSidebar({
                                                                     </span>
                                                                 ) : null}
                                                             </div>
+                                                            {!isAvailable && (
+                                                                <p className="text-[11px] font-semibold text-rose-600 flex items-center gap-1 mt-0.5 animate-pulse">
+                                                                    <i className="bi bi-exclamation-triangle-fill"></i> No disponible (quítalo para continuar)
+                                                                </p>
+                                                            )}
                                                             <div className="flex items-center justify-between mt-1">
                                                                 <span className="font-medium text-gray-600 text-sm">
                                                                     {item.price === 0 ? 'Gratis' : formatPrice(item.price * item.quantity)}
@@ -946,7 +981,32 @@ export default function CartSidebar({
                                 {cartTotal > 0 ? (
                                     <button
                                         type="button"
-                                        className="block w-full bg-gray-900 text-white py-4 rounded-2xl hover:bg-gray-800 transition-all duration-200 text-center font-bold text-lg shadow-xl shadow-gray-200 transform active:scale-[0.98]"
+                                        disabled={cart.some((item: any) => {
+                                            if (item.esPremio || item.qrCodeId) return false;
+                                            const dbProduct = allProducts.find((p) => p.id === item.id);
+                                            if (!dbProduct) return true;
+                                            if (!dbProduct.isAvailable) return true;
+                                            if (item.variantName && !item.variantName.startsWith("Combo:")) {
+                                                const variant = dbProduct.variants?.find((v) => v.name === item.variantName);
+                                                if (variant && variant.isAvailable === false) return true;
+                                            }
+                                            return false;
+                                        })}
+                                        className={`block w-full py-4 rounded-2xl text-center font-bold text-lg transition-all duration-200 transform ${
+                                            cart.some((item: any) => {
+                                                if (item.esPremio || item.qrCodeId) return false;
+                                                const dbProduct = allProducts.find((p) => p.id === item.id);
+                                                if (!dbProduct) return true;
+                                                if (!dbProduct.isAvailable) return true;
+                                                if (item.variantName && !item.variantName.startsWith("Combo:")) {
+                                                    const variant = dbProduct.variants?.find((v) => v.name === item.variantName);
+                                                    if (variant && variant.isAvailable === false) return true;
+                                                }
+                                                return false;
+                                            })
+                                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none active:scale-100'
+                                                : 'bg-gray-900 text-white hover:bg-gray-800 shadow-xl shadow-gray-200 active:scale-[0.98]'
+                                        }`}
                                         onClick={() => setView('checkout')}
                                     >
                                         Continuar con el pedido
