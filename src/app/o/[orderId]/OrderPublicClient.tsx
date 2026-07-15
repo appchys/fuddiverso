@@ -905,7 +905,7 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
                   href={`https://t.me/pedidosfuddi_bot?start=order_${orderId}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 w-full py-2.5 bg-[#229ED9] hover:bg-[#1e8ub] text-white rounded-xl text-sm font-bold transition-all shadow-sm active:scale-95"
+                  className="flex items-center justify-center gap-2 w-full py-2.5 bg-[#229ED9] hover:bg-[#1d8fc4] text-white rounded-xl text-sm font-bold transition-all shadow-sm active:scale-95"
                 >
                   <i className="bi bi-telegram text-lg"></i>
                   Avísame por Telegram

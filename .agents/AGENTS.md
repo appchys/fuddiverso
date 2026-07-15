@@ -22,3 +22,5 @@ Este archivo define las reglas de comportamiento, diseño y estructura del proye
 - **Bases de Datos y Firebase**:
   - Las suscripciones en tiempo real deben limpiarse correctamente en los hooks de efecto (`useEffect`) retornando la función de desuscripción.
   - Asegurar la compatibilidad con el entorno offline usando colas y validaciones locales.
+
+No uses el navegador dom, es muy tardado

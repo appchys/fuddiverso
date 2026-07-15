@@ -3924,6 +3924,14 @@ export async function calculateCostReport(
 // ==================== RATING FUNCTIONS ====================
 
 // Types for ratings
+export interface ProductRating {
+  productId: string;
+  productName: string;
+  productImage?: string;
+  rating: number;
+  comment?: string;
+}
+
 export interface BusinessRating {
   id?: string;
   businessId: string;
@@ -3934,6 +3942,8 @@ export interface BusinessRating {
   clientPhone?: string;
   clientEmail?: string;
   clientPhotoURL?: string;
+  productRatings?: ProductRating[];
+  storeRated?: boolean;
   likes?: string[]; // Array de IDs de clientes que dieron corazón
   replies?: {
     id: string;
@@ -4305,7 +4315,8 @@ export async function saveBusinessRating(
   orderId: string,
   rating: number,
   comment: string = '',
-  clientInfo: { name?: string; phone?: string; email?: string } = {}
+  clientInfo: { name?: string; phone?: string; email?: string } = {},
+  productRatings?: ProductRating[]
 ): Promise<string> {
   try {
     const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
@@ -4323,6 +4334,10 @@ export async function saveBusinessRating(
       updatedAt: serverTimestamp(),
     };
 
+    if (productRatings) {
+      ratingData.productRatings = productRatings;
+    }
+
     const docRef = await addDoc(ratingsRef, ratingData);
 
     // Update business rating stats
@@ -4332,6 +4347,28 @@ export async function saveBusinessRating(
   } catch (error) {
     console.error('Error saving rating:', error);
     throw error;
+  }
+}
+
+/**
+ * Get the rating of a specific order
+ */
+export async function getOrderRating(
+  businessId: string,
+  orderId: string
+): Promise<BusinessRating | null> {
+  try {
+    const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
+    const q = query(ratingsRef, where('orderId', '==', orderId), limit(1));
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      const ratingDoc = snapshot.docs[0];
+      return { id: ratingDoc.id, ...ratingDoc.data() } as BusinessRating;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting order rating:', error);
+    return null;
   }
 }
 
@@ -5121,6 +5158,39 @@ export async function createRatingNotification(
   } catch (error) {
     console.error('[createRatingNotification] Error saving rating notification:', error)
     // No fallar si la notificación no se guarda
+  }
+}
+
+/**
+ * Crear notificación para calificación de producto
+ */
+export async function createProductRatingNotification(
+  businessId: string,
+  orderId: string,
+  productName: string,
+  rating: number,
+  comment: string,
+  clientName: string,
+  clientPhone?: string
+): Promise<void> {
+  try {
+    const notificationData = {
+      type: 'rating' as const,
+      orderId,
+      rating,
+      review: comment,
+      clientName,
+      clientPhone: clientPhone || '',
+      title: `Opinión de Producto: ⭐ ${rating}/5`,
+      message: `${clientName} calificó "${productName}" con ${rating}/5${comment ? `: "${comment}"` : ''}`,
+      read: false,
+      createdAt: serverTimestamp()
+    }
+
+    const notificationsRef = collection(db, 'businesses', businessId, 'notifications')
+    await addDoc(notificationsRef, notificationData)
+  } catch (error) {
+    console.error('[createProductRatingNotification] Error:', error)
   }
 }
 
@@ -6912,3 +6982,29 @@ export async function getWhatsAppTemplates(): Promise<Record<string, string>> {
     return {}
   }
 }
+
+/**
+ * Obtener órdenes recientes globales para cálculo de productos más vendidos
+ */
+export async function getRecentOrders(limitCount: number = 100): Promise<any[]> {
+  try {
+    const q = query(
+      collection(db, 'orders'),
+      orderBy('createdAt', 'desc'),
+      limit(limitCount)
+    )
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => {
+      const data = doc.data()
+      return {
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt ? (typeof data.createdAt.toDate === 'function' ? data.createdAt.toDate() : new Date(data.createdAt)) : new Date()
+      }
+    })
+  } catch (error) {
+    console.error('Error getting recent orders:', error)
+    return []
+  }
+}
+

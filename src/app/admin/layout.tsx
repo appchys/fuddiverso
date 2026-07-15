@@ -20,6 +20,78 @@ export default function AdminLayout({
   )
 }
 
+function AdminLoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const router = useRouter()
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (password === 'admin123') {
+      localStorage.setItem('adminAuth', 'authenticated')
+      onLoginSuccess()
+    } else {
+      setError('Contraseña incorrecta')
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-[#111] flex items-center justify-center px-4">
+      <div className="max-w-md w-full bg-[#1A1A1A] rounded-3xl border border-white/5 p-8 shadow-2xl text-white">
+        <div className="flex flex-col items-center mb-8">
+          <div className="w-14 h-14 bg-gradient-to-tr from-blue-600 to-cyan-500 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-900/40 mb-4">
+            <i className="bi bi-rocket-takeoff-fill text-2xl text-white animate-pulse"></i>
+          </div>
+          <h1 className="text-2xl font-black tracking-tight text-center">Fuddi Admin</h1>
+          <p className="text-xs text-gray-500 mt-1 uppercase tracking-widest font-bold">Ingreso Autorizado</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
+              Contraseña de Administrador
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                setError('')
+              }}
+              placeholder="••••••••"
+              className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 text-sm focus:outline-none focus:border-blue-500 focus:bg-white/10 transition-all placeholder-gray-600 text-white"
+              required
+            />
+          </div>
+
+          {error && (
+            <p className="text-xs font-bold text-red-400 flex items-center gap-1.5 animate-bounce">
+              <i className="bi bi-exclamation-triangle-fill"></i>
+              {error}
+            </p>
+          )}
+
+          <div className="pt-2 flex gap-3">
+            <button
+              type="button"
+              onClick={() => router.push('/')}
+              className="flex-1 bg-white/5 hover:bg-white/10 text-gray-300 py-3.5 rounded-2xl text-xs font-bold uppercase tracking-wider transition-all border border-white/5 active:scale-95"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white py-3.5 rounded-2xl text-xs font-bold uppercase tracking-wider shadow-lg shadow-blue-950/50 transition-all active:scale-95"
+            >
+              Ingresar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function AdminLayoutContent({
   children,
 }: {
@@ -35,7 +107,6 @@ function AdminLayoutContent({
   const navLinks = [
     { href: '/admin/dashboard', label: 'Dashboard', icon: 'bi-grid-1x2-fill' },
     { href: '/admin/dashboard?tab=transfers', label: 'Revisar Transferencias', icon: 'bi-bank' },
-    { href: '/admin/orders', label: 'Gestión de Pedidos', icon: 'bi-cart-fill' },
     { href: '/admin/settlements', label: 'Liquidaciones', icon: 'bi-cash-coin' },
     { href: '/admin/deliveries', label: 'Deliveries', icon: 'bi-scooter' },
     { href: '/admin/coverage-groups', label: 'Grupos de Cobertura', icon: 'bi-tags-fill' },
@@ -47,30 +118,21 @@ function AdminLayoutContent({
   }, [])
 
   useEffect(() => {
-    // Verificar autenticación del administrador principal
+    // Verificar si el administrador principal ya está autenticado en localStorage
     const checkAdminAuth = () => {
       const adminAuth = localStorage.getItem('adminAuth')
       if (adminAuth === 'authenticated') {
         setIsAuthenticated(true)
-      } else {
-        // Solicitar contraseña de administrador
-        const password = prompt('Contraseña de administrador:')
-        if (password === 'admin123') { // Cambia esta contraseña
-          localStorage.setItem('adminAuth', 'authenticated')
-          setIsAuthenticated(true)
-        } else {
-          router.push('/')
-          return
-        }
       }
       setLoading(false)
     }
 
     checkAdminAuth()
-  }, [router])
+  }, [])
 
   const handleLogout = () => {
     localStorage.removeItem('adminAuth')
+    setIsAuthenticated(false)
     router.push('/')
   }
 
@@ -83,7 +145,9 @@ function AdminLayoutContent({
   }
 
   if (!isAuthenticated) {
-    return null
+    return (
+      <AdminLoginForm onLoginSuccess={() => setIsAuthenticated(true)} />
+    )
   }
 
   return (

@@ -1190,9 +1190,9 @@ function TMAContent() {
 
       {/* Floating Action Button (FAB) for quick adding new orders - matching reference style */}
       <button 
-        onClick={() => router.push('/admin/orders')}
+        onClick={() => router.push('/admin/dashboard')}
         className="fixed bottom-6 right-6 w-14 h-14 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-xl shadow-red-600/35 transition-all active:scale-95 hover:rotate-90 z-40"
-        title="Crear Nuevo Pedido"
+        title="Panel de Administración"
       >
         <i className="bi bi-plus-lg text-2xl"></i>
       </button>

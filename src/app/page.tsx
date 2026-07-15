@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct, getProductsReferralCounts, getProductsByBusinessesBatch, getUserReferrals } from '@/lib/database'
+import { getAllBusinesses, searchBusinesses, getProductsByBusiness, getGlobalProducts, getRecentOrders, getCoverageZoneForLocation, getCoverageGroups, saveRestaurantRequest, generateReferralLink, userHasReferralForProduct, getProductsReferralCounts, getProductsByBusinessesBatch, getUserReferrals } from '@/lib/database'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product, CoverageGroup } from '@/types'
 import { getProductPublicPrice, formatPrice } from '@/lib/price-utils'
@@ -127,7 +127,8 @@ function HomePageContent() {
   const [followedBusinesses, setFollowedBusinesses] = useState<Set<string>>(new Set())
   const [categories, setCategories] = useState<string[]>(['all'])
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
-  const [randomProducts, setRandomProducts] = useState<Product[]>([])
+  const [newestProducts, setNewestProducts] = useState<Product[]>([])
+  const [bestSellersProducts, setBestSellersProducts] = useState<Product[]>([])
   const [productsByBusiness, setProductsByBusiness] = useState<Record<string, Product[]>>({})
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedProductBusiness, setSelectedProductBusiness] = useState<Business | null>(null)
@@ -654,18 +655,55 @@ function HomePageContent() {
     loadBusinessesWithParams(urlSearch, urlCategory)
   }, [searchParams, groupId, showAllRestaurants])
 
-  // Cargar productos aleatorios de forma EFICIENTE (una sola query)
-  const loadRandomProducts = async (category: string = 'all') => {
+  // Cargar productos de la página de inicio (más nuevos y más vendidos) de forma eficiente
+  const loadHomeProducts = async (category: string = 'all') => {
     try {
-      const selected = await getGlobalProducts(category, 24, showAllRestaurants ? 'ALL' : (groupId || undefined))
-      setRandomProducts(selected)
+      setLoadingProducts(true)
+      // Cargar una muestra más amplia para ordenar en memoria
+      const selected = await getGlobalProducts(category, 120, showAllRestaurants ? 'ALL' : (groupId || undefined))
+      
+      // 1. Lo más nuevo (ordenar por createdAt desc)
+      const sortedByNew = [...selected].sort((a, b) => {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0
+        return dateB - dateA
+      })
+      setNewestProducts(sortedByNew)
+
+      // 2. Los más vendidos (obtener órdenes y calcular en memoria)
+      const recentOrders = await getRecentOrders(150)
+      const salesMap = new Map<string, number>()
+      
+      recentOrders.forEach(order => {
+        if (order.status === 'cancelled') return
+        order.items?.forEach((item: any) => {
+          const productId = item.productId || item.product?.id
+          if (productId) {
+            const qty = item.quantity || 1
+            salesMap.set(productId, (salesMap.get(productId) || 0) + qty)
+          }
+        })
+      })
+
+      const sortedBySales = [...selected].sort((a, b) => {
+        const salesA = salesMap.get(a.id) || 0
+        const salesB = salesMap.get(b.id) || 0
+        if (salesB !== salesA) {
+          return salesB - salesA
+        }
+        // En caso de empate en ventas, ordenar por ID de forma determinista para diferenciarlo de lo más nuevo
+        return a.id.localeCompare(b.id)
+      })
+      setBestSellersProducts(sortedBySales)
     } catch (error) {
-      console.error('Error loading random products:', error)
+      console.error('Error loading home products:', error)
+    } finally {
+      setLoadingProducts(false)
     }
   }
 
   useEffect(() => {
-    loadRandomProducts(selectedCategory)
+    loadHomeProducts(selectedCategory)
   }, [selectedCategory, groupId, showAllRestaurants])
 
   const loadBusinessesWithParams = async (search: string, category: string) => {
@@ -830,10 +868,20 @@ function HomePageContent() {
     }
   }
 
-  const filteredRandomProducts = React.useMemo(() => {
-    const filtered = randomProducts.filter(product => {
+  const filteredNewestProducts = React.useMemo(() => {
+    const seenNewestBusinesses = new Set<string>()
+    const filtered = newestProducts.filter(product => {
       const business = businesses.find(b => b.id === product.businessId)
-      return business?.businessType !== 'distributor' && !!product.image
+      const isEligible = business?.businessType !== 'distributor' && !!product.image
+      
+      if (!isEligible) return false
+      
+      // Limitar a máximo 1 producto por tienda (conservando el más nuevo)
+      if (seenNewestBusinesses.has(product.businessId)) {
+        return false
+      }
+      seenNewestBusinesses.add(product.businessId)
+      return true
     })
     
     // Separar productos de tiendas abiertas y cerradas
@@ -847,12 +895,28 @@ function HomePageContent() {
       return business && !isStoreOpen(business)
     })
     
-    // Ordenar productos de tiendas abiertas aleatoriamente
-    const shuffledOpen = [...openProducts].sort(() => Math.random() - 0.5)
+    return [...openProducts, ...closedProducts]
+  }, [newestProducts, businesses])
+
+  const filteredBestSellers = React.useMemo(() => {
+    const seenBestBusinesses = new Set<string>()
+    const filtered = bestSellersProducts.filter(product => {
+      const business = businesses.find(b => b.id === product.businessId)
+      const isEligible = business?.businessType !== 'distributor' && !!product.image
+      
+      if (!isEligible) return false
+      
+      // Limitar a máximo 1 producto por tienda (conservando el más vendido)
+      if (seenBestBusinesses.has(product.businessId)) {
+        return false
+      }
+      seenBestBusinesses.add(product.businessId)
+      return true
+    })
     
-    // Combinar: productos de tiendas abiertas (aleatorio) + productos de tiendas cerrados (orden original)
-    return [...shuffledOpen, ...closedProducts]
-  }, [randomProducts, businesses])
+    // Retornar directamente la lista filtrada (que ya conserva el orden estricto de ventas globales de mayor a menor)
+    return filtered
+  }, [bestSellersProducts, businesses])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -975,108 +1039,233 @@ function HomePageContent() {
         </div>
       </section>
 
-      {/* PRODUCTOS ALEATORIOS */}
-      <section className="py-2 pb-1">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="relative">
-            <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 random-products-carousel">
-              {filteredRandomProducts.map((product) => {
-                const business = businesses.find(b => b.id === product.businessId)
-                const businessLink = business?.username ? `/${business.username}` : `/restaurant/${product.businessId}`
-                const productLink = `${businessLink}/${product.slug || product.id}`
-
-                return (
-                  <div
-                    key={product.id}
-                    onClick={() => handleProductClick(product, business)}
-                    className="flex-shrink-0 w-64 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100 cursor-pointer"
-                  >
-                    <div className="relative h-40 bg-gray-100 flex items-center justify-center overflow-hidden">
-                      {product.image ? (
-                        <ProgressiveImage
-                          src={product.image}
-                          alt={product.name}
-                          fill
-                          sizes="256px"
-                          className="object-cover"
-                          style={{ objectPosition: getDampenedImagePosition(product.imagePosition) }}
-                        />
-                      ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
-                          <i className="bi bi-bag text-4xl text-gray-400"></i>
-                        </div>
-                      )}
-                      {product.price > 0 && (
-                        <div className="absolute top-3 right-3 bg-[#aa1918] text-white px-2 py-1 rounded-full text-xs font-bold">
-                          {formatPrice(getProductPublicPrice(product))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="p-4">
-                      <div className="flex gap-3 mb-2">
-                        <div className="relative w-8 h-8 rounded-full overflow-hidden border border-gray-100 flex-shrink-0 bg-white">
-                          {business?.image ? (
-                            <ProgressiveImage
-                              src={business.image}
-                              alt={business.name}
-                              fill
-                              sizes="32px"
-                              className="object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-gray-50">
-                              <i className="bi bi-shop text-gray-400"></i>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-sm font-bold text-gray-900 line-clamp-1">
-                            {product.name}
-                          </h3>
-                          {business && (
-                            <p className="text-xs text-gray-500 line-clamp-1">
-                              {business.name}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      {product.description && (
-                        <p className="text-xs text-gray-600 line-clamp-2">
-                          {product.description}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+      {/* LO MÁS NUEVO */}
+      {filteredNewestProducts.length > 0 && (
+        <section className="py-6 bg-white border-b border-gray-100">
+          <div className="max-w-6xl mx-auto px-6">
+            <div className="mb-4">
+              <h2 className="text-2xl font-black text-gray-900 tracking-tight flex items-center gap-2">
+                <i className="bi bi-stars text-[#aa1918]"></i>
+                Lo más nuevo
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Los platos y productos agregados recientemente por nuestras tiendas.
+              </p>
             </div>
 
-            {/* Flechas de navegación */}
-            <button
-              onClick={() => {
-                const container = document.querySelector('.random-products-carousel')
-                if (container) {
-                  container.scrollLeft -= 300
-                }
-              }}
-              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 hover:bg-gray-50 transition-all z-10"
-            >
-              <i className="bi bi-chevron-left"></i>
-            </button>
-            <button
-              onClick={() => {
-                const container = document.querySelector('.random-products-carousel')
-                if (container) {
-                  container.scrollLeft += 300
-                }
-              }}
-              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 hover:bg-gray-50 transition-all z-10"
-            >
-              <i className="bi bi-chevron-right"></i>
-            </button>
+            <div className="relative">
+              <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 newest-products-carousel">
+                {filteredNewestProducts.map((product) => {
+                  const business = businesses.find(b => b.id === product.businessId)
+                  const businessLink = business?.username ? `/${business.username}` : `/restaurant/${product.businessId}`
+
+                  return (
+                    <div
+                      key={product.id}
+                      onClick={() => handleProductClick(product, business)}
+                      className="flex-shrink-0 w-64 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100 cursor-pointer"
+                    >
+                      <div className="relative h-40 bg-gray-100 flex items-center justify-center overflow-hidden">
+                        {product.image ? (
+                          <ProgressiveImage
+                            src={product.image}
+                            alt={product.name}
+                            fill
+                            sizes="256px"
+                            className="object-cover"
+                            style={{ objectPosition: getDampenedImagePosition(product.imagePosition) }}
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                            <i className="bi bi-bag text-4xl text-gray-400"></i>
+                          </div>
+                        )}
+                        {product.price > 0 && (
+                          <div className="absolute top-3 right-3 bg-[#aa1918] text-white px-2 py-1 rounded-full text-xs font-bold">
+                            {formatPrice(getProductPublicPrice(product))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="p-4">
+                        <div className="flex gap-3 mb-2">
+                          <div className="relative w-8 h-8 rounded-full overflow-hidden border border-gray-100 flex-shrink-0 bg-white">
+                            {business?.image ? (
+                              <ProgressiveImage
+                                src={business.image}
+                                alt={business.name}
+                                fill
+                                sizes="32px"
+                                className="object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                                <i className="bi bi-shop text-gray-400"></i>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-sm font-bold text-gray-900 line-clamp-1">
+                              {product.name}
+                            </h3>
+                            {business && (
+                              <p className="text-xs text-gray-500 line-clamp-1">
+                                {business.name}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        {product.description && (
+                          <p className="text-xs text-gray-600 line-clamp-2">
+                            {product.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Flechas de navegación */}
+              <button
+                onClick={() => {
+                  const container = document.querySelector('.newest-products-carousel')
+                  if (container) {
+                    container.scrollLeft -= 300
+                  }
+                }}
+                className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 hover:bg-gray-50 transition-all z-10"
+              >
+                <i className="bi bi-chevron-left"></i>
+              </button>
+              <button
+                onClick={() => {
+                  const container = document.querySelector('.newest-products-carousel')
+                  if (container) {
+                    container.scrollLeft += 300
+                  }
+                }}
+                className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 hover:bg-gray-50 transition-all z-10"
+              >
+                <i className="bi bi-chevron-right"></i>
+              </button>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
+
+      {/* LOS MÁS VENDIDOS */}
+      {filteredBestSellers.length > 0 && (
+        <section className="py-6 bg-gray-50 border-b border-gray-100">
+          <div className="max-w-6xl mx-auto px-6">
+            <div className="mb-4">
+              <h2 className="text-2xl font-black text-gray-900 tracking-tight flex items-center gap-2">
+                <i className="bi bi-fire text-[#aa1918]"></i>
+                Los más vendidos
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Los platos preferidos y más populares de nuestra comunidad.
+              </p>
+            </div>
+
+            <div className="relative">
+              <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4 best-sellers-carousel">
+                {filteredBestSellers.map((product) => {
+                  const business = businesses.find(b => b.id === product.businessId)
+                  const businessLink = business?.username ? `/${business.username}` : `/restaurant/${product.businessId}`
+
+                  return (
+                    <div
+                      key={product.id}
+                      onClick={() => handleProductClick(product, business)}
+                      className="flex-shrink-0 w-64 bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-gray-100 cursor-pointer"
+                    >
+                      <div className="relative h-40 bg-gray-100 flex items-center justify-center overflow-hidden">
+                        {product.image ? (
+                          <ProgressiveImage
+                            src={product.image}
+                            alt={product.name}
+                            fill
+                            sizes="256px"
+                            className="object-cover"
+                            style={{ objectPosition: getDampenedImagePosition(product.imagePosition) }}
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                            <i className="bi bi-bag text-4xl text-gray-400"></i>
+                          </div>
+                        )}
+                        {product.price > 0 && (
+                          <div className="absolute top-3 right-3 bg-[#aa1918] text-white px-2 py-1 rounded-full text-xs font-bold">
+                            {formatPrice(getProductPublicPrice(product))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="p-4">
+                        <div className="flex gap-3 mb-2">
+                          <div className="relative w-8 h-8 rounded-full overflow-hidden border border-gray-100 flex-shrink-0 bg-white">
+                            {business?.image ? (
+                              <ProgressiveImage
+                                src={business.image}
+                                alt={business.name}
+                                fill
+                                sizes="32px"
+                                className="object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                                <i className="bi bi-shop text-gray-400"></i>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-sm font-bold text-gray-900 line-clamp-1">
+                              {product.name}
+                            </h3>
+                            {business && (
+                              <p className="text-xs text-gray-500 line-clamp-1">
+                                {business.name}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        {product.description && (
+                          <p className="text-xs text-gray-600 line-clamp-2">
+                            {product.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Flechas de navegación */}
+              <button
+                onClick={() => {
+                  const container = document.querySelector('.best-sellers-carousel')
+                  if (container) {
+                    container.scrollLeft -= 300
+                  }
+                }}
+                className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 hover:bg-gray-50 transition-all z-10"
+              >
+                <i className="bi bi-chevron-left"></i>
+              </button>
+              <button
+                onClick={() => {
+                  const container = document.querySelector('.best-sellers-carousel')
+                  if (container) {
+                    container.scrollLeft += 300
+                  }
+                }}
+                className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-700 hover:bg-gray-50 transition-all z-10"
+              >
+                <i className="bi bi-chevron-right"></i>
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
 
 
       {/* LISTA DE RESTAURANTES */}
