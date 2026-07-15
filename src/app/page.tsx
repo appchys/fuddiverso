@@ -490,10 +490,43 @@ function HomePageContent() {
           }
         })
 
+        // Crear un mapa de negocios por ID para acceso rápido
+        const businessMap = new Map(targetBusinesses.map(b => [b.id, b]))
+
         // Filtrar, ordenar y recortar a máximo 10 productos
         targetBusinessIds.forEach(id => {
-          productsMap[id] = productsMap[id]
+          const biz = businessMap.get(id)
+          const master = biz?.categories || []
+          const businessProducts = productsMap[id] || []
+
+          // Determinar el orden de las categorías (idéntico al perfil de tienda)
+          const fromProducts = Array.from(new Set(businessProducts.map(p => p.category).filter(Boolean))) as string[]
+          const extras = fromProducts.filter(c => !master.includes(c))
+          const categoryOrder = [...master, ...extras]
+          if (businessProducts.some(p => !p.category || p.category === 'Sin categoría') && !categoryOrder.includes('Sin categoría')) {
+            categoryOrder.push('Sin categoría')
+          }
+
+          // Función auxiliar para obtener el índice de la categoría
+          const getCategoryIndex = (pCat: string | undefined) => {
+            const cat = pCat || 'Sin categoría'
+            const idx = categoryOrder.indexOf(cat)
+            return idx !== -1 ? idx : 9999
+          }
+
+          productsMap[id] = businessProducts
             .sort((a, b) => {
+              // 1. Criterio principal: Orden de la Categoría
+              const catIndexA = getCategoryIndex(a.category)
+              const catIndexB = getCategoryIndex(b.category)
+              if (catIndexA !== catIndexB) return catIndexA - catIndexB
+
+              // 2. Criterio secundario: Orden del Producto dentro de la categoría
+              const orderA = a.order ?? 0
+              const orderB = b.order ?? 0
+              if (orderA !== orderB) return orderA - orderB
+
+              // 3. Criterio terciario: Fecha de actualización (más reciente primero)
               const dateA = a.updatedAt?.getTime() || 0
               const dateB = b.updatedAt?.getTime() || 0
               return dateB - dateA

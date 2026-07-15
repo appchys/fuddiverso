@@ -1265,12 +1265,18 @@ export async function getOrdersByBusinessPaginated(
   lastOrderDoc?: any
 ): Promise<{ orders: Order[], lastDoc: any }> {
   try {
-    let q = query(
-      collection(db, 'orders'),
-      where('businessId', '==', businessId),
-      orderBy('createdAt', 'desc'),
-      limit(limitCount)
-    )
+    let q = businessId === 'all'
+      ? query(
+          collection(db, 'orders'),
+          orderBy('createdAt', 'desc'),
+          limit(limitCount)
+        )
+      : query(
+          collection(db, 'orders'),
+          where('businessId', '==', businessId),
+          orderBy('createdAt', 'desc'),
+          limit(limitCount)
+        )
 
     if (lastOrderDoc) {
       q = query(q, startAfter(lastOrderDoc))
@@ -1517,20 +1523,22 @@ export async function updateOrder(orderId: string, orderData: Partial<Omit<Order
   }
 }
 
-export async function deleteOrder(orderId: string) {
+export async function deleteOrder(orderId: string, skipStock: boolean = false) {
   try {
-    // Buscar y eliminar movimientos de stock asociados a esta orden (Recuperación)
-    try {
-      const movementsRef = collection(db, 'ingredientStockMovements')
-      const q = query(movementsRef, where('orderId', '==', orderId))
-      const snapshot = await getDocs(q)
+    if (!skipStock) {
+      // Buscar y eliminar movimientos de stock asociados a esta orden (Recuperación)
+      try {
+        const movementsRef = collection(db, 'ingredientStockMovements')
+        const q = query(movementsRef, where('orderId', '==', orderId))
+        const snapshot = await getDocs(q)
 
-      if (!snapshot.empty) {
-        const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref))
-        await Promise.all(deletePromises)
+        if (!snapshot.empty) {
+          const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref))
+          await Promise.all(deletePromises)
+        }
+      } catch (revertError) {
+        console.error('Error al recuperar stock:', revertError)
       }
-    } catch (revertError) {
-      console.error('Error al recuperar stock:', revertError)
     }
 
     const docRef = doc(db, 'orders', orderId)

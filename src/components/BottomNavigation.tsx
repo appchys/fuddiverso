@@ -12,14 +12,14 @@ export default function BottomNavigation() {
   const pathname = usePathname() ?? ''
   const { user } = useAuth()
   
-  // No mostrar en páginas en las que no resulta útil un nav universal
   const isBusinessRoute = pathname.startsWith('/business')
   const isDeliveryRoute = pathname.startsWith('/delivery')
   const isCheckoutRoute = pathname === '/checkout'
   const isAdminRoute = pathname.startsWith('/admin')
   const isOrderRoute = pathname.startsWith('/o/')
+  const isPedidosRoute = pathname === '/pedidos'
 
-  const showNav = !isBusinessRoute && !isDeliveryRoute && !isCheckoutRoute && !isAdminRoute && !isOrderRoute
+  const showNav = !isBusinessRoute && !isDeliveryRoute && !isCheckoutRoute && !isAdminRoute && !isOrderRoute && !isPedidosRoute
 
   const [activeUrl, setActiveUrl] = useState('')
   const [showOrdersSheet, setShowOrdersSheet] = useState(false)
