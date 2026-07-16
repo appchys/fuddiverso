@@ -748,6 +748,7 @@ function RestaurantContent() {
 
     setCart(newCart)
     updateCartInStorage(business.id, newCart)
+    setIsCartOpen(true)
   }
 
   const addVariantToCart = (product: any) => {
@@ -779,6 +780,7 @@ function RestaurantContent() {
 
     setCart(newCart)
     updateCartInStorage(business.id, newCart)
+    setIsCartOpen(true)
   }
 
   const removeFromCart = (productId: string, variantName?: string | null) => {

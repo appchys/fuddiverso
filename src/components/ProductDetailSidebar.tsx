@@ -318,6 +318,7 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
         setSelectedOptions({});
         setQuantity(1);
         onClose();
+        onOpenCart?.();
     };
 
     const handleCopyProductLink = async () => {
@@ -917,6 +918,8 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                 updateCartInStorage(business.id, currentCart);
                                                 showNotification(`${product.name} (Combo) agregado`);
                                                 setComboSelection({});
+                                                onClose();
+                                                onOpenCart?.();
                                             }}
                                             disabled={!isComboComplete}
                                             className="flex-1 py-4 bg-gray-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-black transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
