@@ -253,6 +253,16 @@ function TransferReceiptUploader({
   )
 }
 
+const getProductId = (item: any) => {
+  if (item.isCombo && item.id.includes('-combo-')) {
+    return item.id.split('-combo-')[0];
+  }
+  if (item.id.startsWith('qr-')) {
+    return item.id.split('-')[0];
+  }
+  return item.id;
+};
+
 export function CheckoutContent({
   embeddedBusinessId,
   embeddedBusiness,
@@ -1479,7 +1489,7 @@ export function CheckoutContent({
     if (allProducts.length > 0) {
       const hasUnavailable = cartItems.some((item: any) => {
         if (item.esPremio || item.qrCodeId) return false
-        const dbProduct = allProducts.find((p) => p.id === item.id)
+        const dbProduct = allProducts.find((p) => p.id === getProductId(item))
         if (!dbProduct) return true
         if (!dbProduct.isAvailable) return true
         if (item.variantName && !item.variantName.startsWith("Combo:")) {
@@ -1602,7 +1612,7 @@ export function CheckoutContent({
     if (allProducts.length > 0) {
       const unavailableDbItems = cartItems.filter((item: any) => {
         if (item.esPremio || item.qrCodeId) return false
-        const dbProduct = allProducts.find((p) => p.id === item.id)
+        const dbProduct = allProducts.find((p) => p.id === getProductId(item))
         if (!dbProduct) return true
         if (!dbProduct.isAvailable) return true
         if (item.variantName && !item.variantName.startsWith("Combo:")) {
@@ -1732,7 +1742,7 @@ export function CheckoutContent({
         businessId: businessId,
         referralCode: pendingReferral || undefined,
         items: normalizedItems.map((item: any) => ({
-          productId: item.id.split('-')[0],
+          productId: getProductId(item),
           name: item.productName || item.name,
           price: item.price,
           quantity: item.quantity,
@@ -1822,7 +1832,7 @@ export function CheckoutContent({
         await registerOrderConsumption(
           businessId,
           cartItems.map((item: any) => ({
-            productId: item.id.split('-')[0],
+            productId: getProductId(item),
             variant: item.variantName || '',
             name: item.productName || item.name,
             quantity: item.quantity
