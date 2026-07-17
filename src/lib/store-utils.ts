@@ -450,3 +450,89 @@ export function getDeliveryStatusDescription(delivery: Delivery | null): string 
     }
     return 'Disponible (Auto)'
 }
+
+/**
+ * Calcula la fecha y hora de la próxima apertura de la tienda.
+ */
+export function getNextOpeningDate(business: Business | null): Date | null {
+    if (!business) return null
+    if (isStoreOpen(business)) return null
+
+    const now = new Date()
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+    // Si está cerrado manualmente, empezamos a buscar desde mañana
+    let startDayOffset = 0
+    if (business.manualStoreStatus === 'closed') {
+        startDayOffset = 1
+    }
+
+    for (let i = startDayOffset; i < 7; i++) {
+        const date = new Date(now)
+        date.setDate(date.getDate() + i)
+        const dayName = days[date.getDay()]
+        const schedule = business.schedule?.[dayName]
+
+        if (schedule && schedule.isOpen) {
+            const [openH, openM] = normalizeTime(schedule.open).split(':').map(Number)
+            const openTime = new Date(date)
+            openTime.setHours(openH, openM, 0, 0)
+
+            if (i > 0 || openTime > now) {
+                return openTime
+            }
+        }
+    }
+
+    return null
+}
+
+/**
+ * Obtiene la etiqueta descriptiva de la próxima apertura de la tienda
+ */
+export function getStoreOpeningLabel(business: Business | null): string {
+    if (!business) return 'Tienda cerrada'
+    
+    const openingDate = getNextOpeningDate(business)
+    if (!openingDate) return 'Tienda cerrada'
+
+    const now = new Date()
+    const diffMs = openingDate.getTime() - now.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+
+    const isToday = openingDate.getDate() === now.getDate() && 
+                    openingDate.getMonth() === now.getMonth() && 
+                    openingDate.getFullYear() === now.getFullYear()
+
+    const tomorrow = new Date(now)
+    tomorrow.setDate(now.getDate() + 1)
+    const isTomorrow = openingDate.getDate() === tomorrow.getDate() && 
+                       openingDate.getMonth() === tomorrow.getMonth() && 
+                       openingDate.getFullYear() === tomorrow.getFullYear()
+
+    // Formatear la hora de apertura (HH:MM)
+    const hoursStr = String(openingDate.getHours()).padStart(2, '0')
+    const minsStr = String(openingDate.getMinutes()).padStart(2, '0')
+    const timeStr = `${hoursStr}:${minsStr}`
+
+    if (isToday) {
+        if (diffMins < 60) {
+            return `Tienda abre en ${diffMins} ${diffMins === 1 ? 'minuto' : 'minutos'}`
+        } else {
+            const hours = Math.floor(diffMins / 60)
+            const mins = diffMins % 60
+            
+            const hoursPart = `${hours} ${hours === 1 ? 'hora' : 'horas'}`
+            const minsPart = mins > 0 ? ` y ${mins} ${mins === 1 ? 'minuto' : 'minutos'}` : ''
+            
+            return `Tienda abre en ${hoursPart}${minsPart}`
+        }
+    } else if (isTomorrow) {
+        return `Tienda abre mañana a las ${timeStr}`
+    } else {
+        const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+        const dayName = days[openingDate.getDay()]
+        return `Tienda abre el ${dayName} a las ${timeStr}`
+    }
+}
+

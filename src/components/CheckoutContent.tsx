@@ -39,7 +39,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
 import { Timestamp } from 'firebase/firestore'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
-import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate, getNextAvailableSlot, isAnyDeliveryAvailable } from '@/lib/store-utils'
+import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate, getNextAvailableSlot, isAnyDeliveryAvailable, getNextOpeningDate, getStoreOpeningLabel } from '@/lib/store-utils'
 import { isProductAvailableBySchedule, checkCartAvailability, getNextAvailableSlotForCart } from '@/lib/product-availability-utils'
 
 // Componente para subir comprobante de transferencia
@@ -399,11 +399,12 @@ export function CheckoutContent({
 
   // Limpiar selección de delivery si deja de estar disponible (solo para pedidos inmediatos)
   useEffect(() => {
-    if (!isDeliveryAvailableNow && deliveryData.type === 'delivery' && business?.deliveryServiceType === 'fuddi' && timingData.type !== 'scheduled') {
+    const isAsapOrImmediateClosedScheduled = timingData.type === 'scheduled' || (timingData.type === 'immediate' && !isStoreOpen(business))
+    if (!isDeliveryAvailableNow && deliveryData.type === 'delivery' && business?.deliveryServiceType === 'fuddi' && !isAsapOrImmediateClosedScheduled) {
       setDeliveryData(prev => ({ ...prev, type: '', address: '', references: '', tarifa: '0' }))
       setSelectedLocation(null)
     }
-  }, [isDeliveryAvailableNow, timingData.type])
+  }, [isDeliveryAvailableNow, timingData.type, business])
 
   // Consultar si el cliente ya tiene órdenes con retiro en tienda previas
   useEffect(() => {
@@ -568,11 +569,21 @@ export function CheckoutContent({
     }
   }, [cartItems, timingData.type, timingData.scheduledDate, timingData.scheduledTime])
 
-  // Verificar si es posible pedir "Lo antes posible" (para deshabilitar el botón)
   const canOrderNow = useMemo(() => {
-    if (!isStoreOpen(business)) return false
-    const availability = checkCartAvailability(cartItems as any[], new Date())
-    return availability.available
+    if (isStoreOpen(business)) {
+      const availability = checkCartAvailability(cartItems as any[], new Date())
+      return availability.available
+    } else {
+      const openingDate = getNextOpeningDate(business)
+      if (!openingDate) return false
+      
+      const hoursStr = String(openingDate.getHours()).padStart(2, '0')
+      const minsStr = String(openingDate.getMinutes()).padStart(2, '0')
+      const checkTime = `${hoursStr}:${minsStr}`
+      
+      const availability = checkCartAvailability(cartItems as any[], openingDate, checkTime)
+      return availability.available
+    }
   }, [cartItems, business])
 
   const handleRemoveItem = (index: number) => {
@@ -1728,17 +1739,37 @@ export function CheckoutContent({
       let scheduledTime, scheduledDate;
 
       if (timingData.type === 'immediate') {
-        // Para inmediato: fecha y hora actuales + tiempo de entrega definido por la tienda (o 30 min por defecto)
-        const baseDeliveryTime = business?.deliveryTime || 30;
-        const now = new Date();
-        const deliveryTime = new Date(now.getTime() + (baseDeliveryTime + 1) * 60 * 1000); // Se añade 1 min extra de margen como estaba originalmente (30+1)
+        if (!isStoreOpen(business)) {
+          // Si la tienda está cerrada, se programa para la hora de apertura
+          const openingDate = getNextOpeningDate(business)
+          if (openingDate) {
+            scheduledDate = Timestamp.fromDate(openingDate)
+            const hours = String(openingDate.getHours()).padStart(2, '0')
+            const minutes = String(openingDate.getMinutes()).padStart(2, '0')
+            scheduledTime = `${hours}:${minutes}`
+          } else {
+            // Fallback por si acaso no encuentra fecha
+            const baseDeliveryTime = business?.deliveryTime || 30
+            const now = new Date()
+            const deliveryTime = new Date(now.getTime() + (baseDeliveryTime + 1) * 60 * 1000)
+            const hours = String(deliveryTime.getHours()).padStart(2, '0')
+            const minutes = String(deliveryTime.getMinutes()).padStart(2, '0')
+            scheduledDate = Timestamp.fromDate(deliveryTime)
+            scheduledTime = `${hours}:${minutes}`
+          }
+        } else {
+          // Para inmediato: fecha y hora actuales + tiempo de entrega definido por la tienda (o 30 min por defecto)
+          const baseDeliveryTime = business?.deliveryTime || 30;
+          const now = new Date();
+          const deliveryTime = new Date(now.getTime() + (baseDeliveryTime + 1) * 60 * 1000); // Se añade 1 min extra de margen como estaba originalmente (30+1)
 
-        // Asegurarse de que la hora esté en formato de 24h con ceros a la izquierda
-        const hours = String(deliveryTime.getHours()).padStart(2, '0');
-        const minutes = String(deliveryTime.getMinutes()).padStart(2, '0');
+          // Asegurarse de que la hora esté en formato de 24h con ceros a la izquierda
+          const hours = String(deliveryTime.getHours()).padStart(2, '0');
+          const minutes = String(deliveryTime.getMinutes()).padStart(2, '0');
 
-        scheduledDate = Timestamp.fromDate(deliveryTime);
-        scheduledTime = `${hours}:${minutes}`; // Formato HH:MM
+          scheduledDate = Timestamp.fromDate(deliveryTime);
+          scheduledTime = `${hours}:${minutes}`; // Formato HH:MM
+        }
       } else {
         // Para programado: combinar fecha y hora en la zona horaria local
         const [year, month, day] = timingData.scheduledDate.split('-').map(Number);
@@ -1803,7 +1834,7 @@ export function CheckoutContent({
           })
         },
         timing: {
-          type: (timingData.type || 'immediate') as 'immediate' | 'scheduled',
+          type: (timingData.type === 'immediate' && !isStoreOpen(business) ? 'scheduled' : (timingData.type || 'immediate')) as 'immediate' | 'scheduled',
           scheduledDate,
           scheduledTime
         },
@@ -2239,12 +2270,12 @@ export function CheckoutContent({
                     <span className="font-bold text-center leading-tight">Lo antes posible</span>
                     <span className={`text-xs mt-1 text-center ${timingData.type === 'immediate' ? 'text-white/80' : 'text-gray-500'}`}>
                       {!isStoreOpen(business)
-                        ? 'Tienda cerrada'
+                        ? getStoreOpeningLabel(business)
                         : !canOrderNow
                           ? 'Productos no disponibles hoy'
                           : `Aprox ${business?.deliveryTime || 30} minutos`}
                     </span>
-                    {timingData.type === 'immediate' && isStoreOpen(business) && (
+                    {timingData.type === 'immediate' && (
                       <div className="absolute top-2 right-2 text-white text-xs">
                         <i className="bi bi-check-circle-fill"></i>
                       </div>
@@ -2383,7 +2414,8 @@ export function CheckoutContent({
                 <div className="grid grid-cols-2 gap-4">
                   {(() => {
                     const isFuddiDelivery = business?.deliveryServiceType === 'fuddi'
-                    const deliveryDisabledBySchedule = isFuddiDelivery && !isDeliveryAvailableNow && timingData.type !== 'scheduled'
+                    const isAsapOrImmediateClosedScheduled = timingData.type === 'scheduled' || (timingData.type === 'immediate' && !isStoreOpen(business))
+                    const deliveryDisabledBySchedule = isFuddiDelivery && !isDeliveryAvailableNow && !isAsapOrImmediateClosedScheduled
                     const deliveryDisabled = !user || deliveryDisabledBySchedule
                     
                     let deliveryStatusLabel = user ? 'Envío a tu casa' : 'Inicia sesión'
