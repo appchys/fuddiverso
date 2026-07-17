@@ -6,6 +6,202 @@ import logoUrl from '@/assets/logo.png'
 const PRINTER_SERVICE_UUID = '000018f0-0000-1000-8000-00805f9b34fb'
 const PRINTER_CHARACTERISTIC_UUID = '00002af1-0000-1000-8000-00805f9b34fb'
 
+// ─── Persistent Bluetooth Connection Manager (Singleton) ────────────────────
+// Mantiene la conexión BLE abierta entre impresiones para evitar el diálogo
+// de sincronización en cada impresión.
+
+interface PrinterConnection {
+    device: BluetoothDevice;
+    server: BluetoothRemoteGATTServer;
+    characteristic: BluetoothRemoteGATTCharacteristic;
+}
+
+let _connection: PrinterConnection | null = null;
+let _reconnecting = false;
+
+/**
+ * Intenta reconectar a un dispositivo previamente emparejado sin mostrar el diálogo.
+ * Usa navigator.bluetooth.getDevices() que recuerda los dispositivos ya autorizados.
+ */
+async function _tryAutoReconnect(): Promise<PrinterConnection | null> {
+    if (_reconnecting) return null;
+    _reconnecting = true;
+
+    try {
+        // getDevices() devuelve dispositivos que el usuario ya autorizó previamente
+        if (!navigator.bluetooth?.getDevices) {
+            console.warn('[BT Manager] getDevices() no soportado en este navegador');
+            return null;
+        }
+
+        const devices = await navigator.bluetooth.getDevices();
+        
+        for (const device of devices) {
+            try {
+                // Verificar si el dispositivo tiene GATT disponible
+                if (!device.gatt) continue;
+
+                console.log(`[BT Manager] Intentando reconectar a: ${device.name || device.id}`);
+                
+                // Crear un AbortController con timeout para evitar esperas infinitas
+                const abortController = new AbortController();
+                const timeoutId = setTimeout(() => abortController.abort(), 8000);
+
+                // Escuchar el evento advertisment para detectar que el dispositivo está disponible
+                // y luego conectar
+                try {
+                    await device.watchAdvertisements({ signal: abortController.signal });
+                    
+                    // Esperar un momento para detectar el advertisement
+                    await new Promise<void>((resolve, reject) => {
+                        const onAdEvent = () => {
+                            device.removeEventListener('advertisementreceived', onAdEvent);
+                            resolve();
+                        };
+                        device.addEventListener('advertisementreceived', onAdEvent);
+                        
+                        // También intentar conectar directamente después de un breve delay
+                        setTimeout(() => {
+                            device.removeEventListener('advertisementreceived', onAdEvent);
+                            resolve();
+                        }, 2000);
+
+                        abortController.signal.addEventListener('abort', () => {
+                            device.removeEventListener('advertisementreceived', onAdEvent);
+                            reject(new Error('Timeout'));
+                        });
+                    });
+                } catch {
+                    // watchAdvertisements puede no estar soportado, intentar conexión directa
+                }
+
+                clearTimeout(timeoutId);
+
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(PRINTER_SERVICE_UUID);
+                const characteristic = await service.getCharacteristic(PRINTER_CHARACTERISTIC_UUID);
+
+                const conn: PrinterConnection = { device, server, characteristic };
+                _connection = conn;
+                _setupDisconnectListener(device);
+
+                console.log(`[BT Manager] Reconexión exitosa a: ${device.name || device.id}`);
+                return conn;
+            } catch (err) {
+                console.warn(`[BT Manager] No se pudo reconectar a ${device.name || device.id}:`, err);
+                continue;
+            }
+        }
+
+        return null;
+    } catch (err) {
+        console.warn('[BT Manager] Error en auto-reconexión:', err);
+        return null;
+    } finally {
+        _reconnecting = false;
+    }
+}
+
+/**
+ * Escucha desconexiones del dispositivo para limpiar la referencia.
+ */
+function _setupDisconnectListener(device: BluetoothDevice) {
+    const onDisconnect = () => {
+        console.log(`[BT Manager] Dispositivo desconectado: ${device.name || device.id}`);
+        // Limpiamos la conexión pero conservamos la referencia del device
+        // para poder reconectar automáticamente después.
+        if (_connection?.device === device) {
+            _connection = null;
+        }
+        device.removeEventListener('gattserverdisconnected', onDisconnect);
+    };
+    device.addEventListener('gattserverdisconnected', onDisconnect);
+}
+
+/**
+ * Obtiene una conexión activa a la impresora Bluetooth.
+ * Prioridad: conexión existente > auto-reconexión > diálogo del navegador.
+ */
+async function _getConnection(): Promise<PrinterConnection> {
+    // 1. Reutilizar la conexión existente si sigue activa
+    if (_connection && _connection.server.connected) {
+        try {
+            // Verificar que la characterística sigue válida
+            // intentando acceder a sus propiedades
+            if (_connection.characteristic.service) {
+                console.log('[BT Manager] Reutilizando conexión existente');
+                return _connection;
+            }
+        } catch {
+            // La conexión está corrupta, limpiar
+            _connection = null;
+        }
+    }
+
+    // 2. Intentar reconectar automáticamente (sin diálogo)
+    const autoConn = await _tryAutoReconnect();
+    if (autoConn) {
+        return autoConn;
+    }
+
+    // 3. Último recurso: mostrar el diálogo de sincronización
+    console.log('[BT Manager] Solicitando dispositivo al usuario (diálogo)...');
+    const device = await navigator.bluetooth.requestDevice({
+        filters: [
+            { services: [PRINTER_SERVICE_UUID] },
+            { namePrefix: 'MPT' },
+            { namePrefix: 'Bluetooth' }
+        ],
+        optionalServices: [PRINTER_SERVICE_UUID]
+    });
+
+    const server = await device.gatt?.connect();
+    if (!server) throw new Error('No se pudo conectar al servidor GATT');
+
+    const service = await server.getPrimaryService(PRINTER_SERVICE_UUID);
+    const characteristic = await service.getCharacteristic(PRINTER_CHARACTERISTIC_UUID);
+
+    const conn: PrinterConnection = { device, server, characteristic };
+    _connection = conn;
+    _setupDisconnectListener(device);
+
+    console.log(`[BT Manager] Conexión nueva establecida con: ${device.name || device.id}`);
+    return conn;
+}
+
+/**
+ * Desconecta manualmente la impresora Bluetooth.
+ * Útil para liberar el recurso o cambiar de impresora.
+ */
+export function disconnectBluetoothPrinter() {
+    if (_connection) {
+        const deviceName = _connection.device.name || _connection.device.id;
+        if (_connection.server.connected) {
+            _connection.server.disconnect();
+        }
+        _connection = null;
+        console.log(`[BT Manager] Desconectado manualmente de: ${deviceName}`);
+    }
+}
+
+/**
+ * Retorna el estado actual de la conexión Bluetooth.
+ */
+export function getBluetoothPrinterStatus(): {
+    connected: boolean;
+    deviceName: string | null;
+} {
+    if (_connection && _connection.server.connected) {
+        return {
+            connected: true,
+            deviceName: _connection.device.name || _connection.device.id
+        };
+    }
+    return { connected: false, deviceName: null };
+}
+
+// ─── Fin del Manager ────────────────────────────────────────────────────────
+
 function getPrintableImageUrl(url: string): string {
     if (!url || !/^https?:\/\//i.test(url)) return url;
 
@@ -212,23 +408,9 @@ async function getCircularImageCommands(url: string, size: number = 120): Promis
 }
 
 export async function printOrderBluetooth({ order, businessName, businessLogo, groupItemsByProduct = true }: BluetoothPrintOptions) {
-    let device: BluetoothDevice | null = null;
     try {
-        // 1. Request Device
-        device = await navigator.bluetooth.requestDevice({
-            filters: [
-                { services: [PRINTER_SERVICE_UUID] },
-                { namePrefix: 'MPT' },
-                { namePrefix: 'Bluetooth' }
-            ],
-            optionalServices: [PRINTER_SERVICE_UUID]
-        });
-
-        const server = await device.gatt?.connect();
-        if (!server) throw new Error('No se pudo conectar al servidor GATT');
-
-        const service = await server.getPrimaryService(PRINTER_SERVICE_UUID);
-        const characteristic = await service.getCharacteristic(PRINTER_CHARACTERISTIC_UUID);
+        // 1. Obtener conexión persistente (sin diálogo si ya está conectado)
+        const { characteristic } = await _getConnection();
 
         // 2. Prepare Data
         const commands: number[] = [];
@@ -590,14 +772,15 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
             await characteristic.writeValue(chunk);
         }
 
-        console.log('Impression Bluetooth completada');
+        console.log('[BT Manager] Impresión Bluetooth completada');
         return true;
     } catch (error) {
-        console.error('Error en printOrderBluetooth:', error);
+        console.error('[BT Manager] Error en printOrderBluetooth:', error);
+        // Si falló durante la impresión, invalidar la conexión cacheada
+        // para que el siguiente intento reconecte o muestre el diálogo
+        _connection = null;
         throw error;
-    } finally {
-        if (device && device.gatt?.connected) {
-            device.gatt.disconnect();
-        }
     }
+    // NOTA: Ya NO desconectamos en el finally.
+    // La conexión queda abierta para la siguiente impresión.
 }
