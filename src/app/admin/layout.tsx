@@ -109,6 +109,7 @@ function AdminLayoutContent({
     { href: '/admin/dashboard?tab=transfers', label: 'Revisar Transferencias', icon: 'bi-bank' },
     { href: '/admin/settlements', label: 'Liquidaciones', icon: 'bi-cash-coin' },
     { href: '/admin/deliveries', label: 'Deliveries', icon: 'bi-scooter' },
+    { href: '/admin/stores', label: 'Configuración Tiendas', icon: 'bi-shop' },
     { href: '/admin/coverage-groups', label: 'Grupos de Cobertura', icon: 'bi-tags-fill' },
     { href: '/admin/coverage-zones', label: 'Zonas de Cobertura', icon: 'bi-geo-alt-fill' },
   ]
