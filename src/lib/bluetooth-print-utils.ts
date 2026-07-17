@@ -417,25 +417,43 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
         
         // Helper to add text
         const addText = (text: string) => {
-            // Eliminar emojis y símbolos Unicode que la impresora térmica no soporta
-            const stripped = text
-                .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}\u{231A}-\u{231B}\u{23E9}-\u{23F3}\u{23F8}-\u{23FA}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}\u{2B05}-\u{2B07}\u{2B1B}-\u{2B1C}\u{2B50}\u{2B55}\u{3030}\u{303D}\u{3297}\u{3299}]/gu, '')
-                .replace(/\s{2,}/g, ' ')  // Colapsar espacios múltiples resultantes
-                .trim();
-
             // Mapping for Spanish characters to CP437 (common in thermal printers)
             const map: { [key: string]: number } = {
                 'á': 0xA0, 'é': 0x82, 'í': 0xA1, 'ó': 0xA2, 'ú': 0xA3,
                 'ñ': 0xA4, 'Ñ': 0xA5, '¿': 0xA8, '¡': 0xAD,
-                'Á': 0x41, 'É': 0x45, 'Í': 0x49, 'Ó': 0x4F, 'Ú': 0x55 // Fallback to non-accented for uppercase
+                'Á': 0x41, 'É': 0x45, 'Í': 0x49, 'Ó': 0x4F, 'Ú': 0x55
             };
-            
-            const bytes = new Uint8Array(stripped.length);
-            for (let i = 0; i < stripped.length; i++) {
-                const char = stripped[i];
-                bytes[i] = map[char] || char.charCodeAt(0);
+
+            // Filtrar caracteres: solo mantener ASCII imprimible (0x20-0x7E)
+            // y caracteres con mapeo CP437 explícito.
+            // Esto elimina emojis, símbolos Unicode y cualquier carácter no soportado.
+            const filtered: number[] = [];
+            for (const char of text) {
+                if (map[char] !== undefined) {
+                    filtered.push(map[char]);
+                } else {
+                    const code = char.charCodeAt(0);
+                    if (code >= 0x20 && code <= 0x7E) {
+                        filtered.push(code);
+                    }
+                    // Cualquier otro carácter (emojis, símbolos, surrogates) se omite
+                }
             }
-            commands.push(...Array.from(bytes));
+
+            // Colapsar espacios múltiples resultantes de emojis eliminados
+            const cleaned: number[] = [];
+            for (let i = 0; i < filtered.length; i++) {
+                if (filtered[i] === 0x20 && cleaned.length > 0 && cleaned[cleaned.length - 1] === 0x20) {
+                    continue; // Omitir espacio duplicado
+                }
+                cleaned.push(filtered[i]);
+            }
+
+            // Quitar espacios al inicio y final
+            while (cleaned.length > 0 && cleaned[0] === 0x20) cleaned.shift();
+            while (cleaned.length > 0 && cleaned[cleaned.length - 1] === 0x20) cleaned.pop();
+
+            commands.push(...cleaned);
         };
 
         const addLine = (text: string = '') => {
