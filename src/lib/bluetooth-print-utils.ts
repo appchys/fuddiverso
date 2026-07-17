@@ -417,6 +417,12 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
         
         // Helper to add text
         const addText = (text: string) => {
+            // Eliminar emojis y símbolos Unicode que la impresora térmica no soporta
+            const stripped = text
+                .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}\u{231A}-\u{231B}\u{23E9}-\u{23F3}\u{23F8}-\u{23FA}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}\u{2B05}-\u{2B07}\u{2B1B}-\u{2B1C}\u{2B50}\u{2B55}\u{3030}\u{303D}\u{3297}\u{3299}]/gu, '')
+                .replace(/\s{2,}/g, ' ')  // Colapsar espacios múltiples resultantes
+                .trim();
+
             // Mapping for Spanish characters to CP437 (common in thermal printers)
             const map: { [key: string]: number } = {
                 'á': 0xA0, 'é': 0x82, 'í': 0xA1, 'ó': 0xA2, 'ú': 0xA3,
@@ -424,9 +430,9 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
                 'Á': 0x41, 'É': 0x45, 'Í': 0x49, 'Ó': 0x4F, 'Ú': 0x55 // Fallback to non-accented for uppercase
             };
             
-            const bytes = new Uint8Array(text.length);
-            for (let i = 0; i < text.length; i++) {
-                const char = text[i];
+            const bytes = new Uint8Array(stripped.length);
+            for (let i = 0; i < stripped.length; i++) {
+                const char = stripped[i];
                 bytes[i] = map[char] || char.charCodeAt(0);
             }
             commands.push(...Array.from(bytes));
@@ -760,7 +766,6 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
         addLine(); // Extra space for tearing
 
         // Espacio extra para evitar corte en impresora
-        addLine();
         addLine();
         addLine();
 
