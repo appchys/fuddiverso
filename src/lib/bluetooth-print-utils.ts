@@ -426,7 +426,8 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
 
             // Filtrar caracteres: solo mantener ASCII imprimible (0x20-0x7E)
             // y caracteres con mapeo CP437 explícito.
-            // Esto elimina emojis, símbolos Unicode y cualquier carácter no soportado.
+            // Esto elimina emojis, símbolos Unicode y cualquier carácter no soportado,
+            // pero preserva los espacios de formato (padding, alineación).
             const filtered: number[] = [];
             for (const char of text) {
                 if (map[char] !== undefined) {
@@ -440,20 +441,7 @@ export async function printOrderBluetooth({ order, businessName, businessLogo, g
                 }
             }
 
-            // Colapsar espacios múltiples resultantes de emojis eliminados
-            const cleaned: number[] = [];
-            for (let i = 0; i < filtered.length; i++) {
-                if (filtered[i] === 0x20 && cleaned.length > 0 && cleaned[cleaned.length - 1] === 0x20) {
-                    continue; // Omitir espacio duplicado
-                }
-                cleaned.push(filtered[i]);
-            }
-
-            // Quitar espacios al inicio y final
-            while (cleaned.length > 0 && cleaned[0] === 0x20) cleaned.shift();
-            while (cleaned.length > 0 && cleaned[cleaned.length - 1] === 0x20) cleaned.pop();
-
-            commands.push(...cleaned);
+            commands.push(...filtered);
         };
 
         const addLine = (text: string = '') => {
