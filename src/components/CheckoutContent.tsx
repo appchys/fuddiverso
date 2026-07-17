@@ -39,7 +39,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { optimizeImage } from '@/lib/image-utils'
 import { Timestamp } from 'firebase/firestore'
 import { ensureCartItemMetadata } from '@/lib/price-utils'
-import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate, getNextAvailableSlot } from '@/lib/store-utils'
+import { isStoreOpen, isSpecificTimeOpen, getStoreScheduleForDate, getNextAvailableSlot, isAnyDeliveryAvailable } from '@/lib/store-utils'
 import { isProductAvailableBySchedule, checkCartAvailability, getNextAvailableSlotForCart } from '@/lib/product-availability-utils'
 
 // Componente para subir comprobante de transferencia
@@ -371,6 +371,39 @@ export function CheckoutContent({
   const [showStoreImageModal, setShowStoreImageModal] = useState(false)
   const [userCredits, setUserCredits] = useState<{ available: number; referral: number; manual: number }>({ available: 0, referral: 0, manual: 0 })
   const [hasPreviousPickup, setHasPreviousPickup] = useState<boolean | null>(null)
+  const [isDeliveryAvailableNow, setIsDeliveryAvailableNow] = useState<boolean>(true)
+
+  // Verificar si hay deliveries disponibles ahora (solo para tiendas con delivery Fuddi)
+  useEffect(() => {
+    if (business?.deliveryServiceType !== 'fuddi') {
+      setIsDeliveryAvailableNow(true)
+      return
+    }
+
+    const checkDeliveryAvailability = async () => {
+      try {
+        const activeDeliveries = await getDeliveriesByStatus('activo')
+        setIsDeliveryAvailableNow(isAnyDeliveryAvailable(activeDeliveries))
+      } catch (error) {
+        console.error('Error checking delivery availability:', error)
+        setIsDeliveryAvailableNow(true) // En caso de error, no bloquear
+      }
+    }
+
+    checkDeliveryAvailability()
+
+    // Re-verificar cada minuto para reflejar cambios de horario en tiempo real
+    const interval = setInterval(checkDeliveryAvailability, 60_000)
+    return () => clearInterval(interval)
+  }, [business?.deliveryServiceType])
+
+  // Limpiar selección de delivery si deja de estar disponible (solo para pedidos inmediatos)
+  useEffect(() => {
+    if (!isDeliveryAvailableNow && deliveryData.type === 'delivery' && business?.deliveryServiceType === 'fuddi' && timingData.type !== 'scheduled') {
+      setDeliveryData(prev => ({ ...prev, type: '', address: '', references: '', tarifa: '0' }))
+      setSelectedLocation(null)
+    }
+  }, [isDeliveryAvailableNow, timingData.type])
 
   // Consultar si el cliente ya tiene órdenes con retiro en tienda previas
   useEffect(() => {
@@ -2348,25 +2381,39 @@ export function CheckoutContent({
                 <div className="px-4 sm:px-5 pb-4 sm:pb-5">
                   <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
+                  {(() => {
+                    const isFuddiDelivery = business?.deliveryServiceType === 'fuddi'
+                    const deliveryDisabledBySchedule = isFuddiDelivery && !isDeliveryAvailableNow && timingData.type !== 'scheduled'
+                    const deliveryDisabled = !user || deliveryDisabledBySchedule
+                    
+                    let deliveryStatusLabel = user ? 'Envío a tu casa' : 'Inicia sesión'
+                    if (deliveryDisabledBySchedule) {
+                      deliveryStatusLabel = 'No disponible ahora'
+                    }
+                    
+                    return (
                   <button
                     type="button"
                     onClick={() => {
-                      if (!user) {
-                        alert('Por favor, completa tus datos en el Paso 1 para continuar con el pedido a domicilio.');
+                      if (deliveryDisabled) {
+                        if (!user) {
+                          alert('Por favor, completa tus datos en el Paso 1 para continuar con el pedido a domicilio.');
+                        }
                         return;
                       }
                       setDeliveryData(prev => ({ ...prev, type: 'delivery', tarifa: '0' }));
 
                       openLocationModal();
                     }}
-                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${!user
+                    disabled={deliveryDisabled}
+                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden ${deliveryDisabled
                       ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
                       : deliveryData.type === 'delivery'
                         ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
                         : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
                       }`}
                   >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${!user
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-colors ${deliveryDisabled
                       ? 'bg-gray-200 text-gray-400'
                       : deliveryData.type === 'delivery' ? 'bg-white/20 text-white' : 'bg-white text-gray-400'
                       }`}>
@@ -2374,7 +2421,7 @@ export function CheckoutContent({
                     </div>
                     <span className="font-bold">Domicilio</span>
                     <span className={`text-xs mt-1 ${deliveryData.type === 'delivery' ? 'text-white/80' : 'text-gray-500'}`}>
-                      {user ? 'Envío a tu casa' : 'Inicia sesión'}
+                      {deliveryStatusLabel}
                     </span>
                     {deliveryData.type === 'delivery' && user && (
                       <div className="absolute top-2 right-2 text-white text-xs">
@@ -2382,6 +2429,8 @@ export function CheckoutContent({
                       </div>
                     )}
                   </button>
+                    );
+                  })()}
 
                   {(() => {
                     const isRestricted = !!business?.pickupSettings?.restrictToPrevious;

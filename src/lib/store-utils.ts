@@ -423,6 +423,18 @@ export function isDeliveryAvailable(delivery: Delivery | null): boolean {
  * Obtiene una descripción del estado actual del repartidor.
  * Ej: "Disponible (Manual)", "No disponible (Horario)", "Disponible (Auto)"
  */
+/**
+ * Verifica si al menos un delivery de la lista está disponible ahora.
+ * Útil para determinar si la opción de "Domicilio" debe estar habilitada
+ * en el checkout cuando la tienda usa delivery Fuddi.
+ * 
+ * @param deliveries - Array de deliveries activos
+ * @returns true si al menos uno está disponible ahora
+ */
+export function isAnyDeliveryAvailable(deliveries: Delivery[]): boolean {
+    return deliveries.some(d => isDeliveryAvailable(d))
+}
+
 export function getDeliveryStatusDescription(delivery: Delivery | null): string {
     if (!delivery) return 'Desconocido'
 
