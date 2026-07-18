@@ -18,7 +18,8 @@ import {
     getTodayVisitsDocRef,
     getOrdersByBusinessPaginated,
     getOrdersByBusinessComplete,
-    getAllBusinesses
+    getAllBusinesses,
+    getProductsByIds
 } from '@/lib/database'
 import {
     sendWhatsAppToDelivery,
@@ -407,7 +408,33 @@ export default function AdminPedidosPage() {
         }
         const fetchProducts = async () => {
             try {
-                const productsData = await getProductsByBusiness(selectedBusinessId)
+                let productsData = await getProductsByBusiness(selectedBusinessId)
+                
+                // Cargar también productos compartidos
+                try {
+                    const biz = await getBusiness(selectedBusinessId)
+                    if (biz?.sharedProductIds && biz.sharedProductIds.length > 0) {
+                        const sharedProducts = await getProductsByIds(biz.sharedProductIds)
+                        const allBizs = await getAllBusinesses()
+                        const availableShared = sharedProducts
+                            .filter(p => p.isAvailable)
+                            .map(p => {
+                                const ownerBiz = allBizs.find(b => b.id === p.businessId)
+                                return {
+                                    ...p,
+                                    category: 'Compartidos', // Forzar categoría Compartidos
+                                    isShared: true,
+                                    originalBusinessId: p.businessId,
+                                    originalBusinessName: ownerBiz?.name || 'Otra tienda',
+                                    originalBusinessImage: ownerBiz?.image || null
+                                }
+                            })
+                        productsData = [...productsData, ...availableShared]
+                    }
+                } catch (e) {
+                    console.error("Error loading shared products in pedidos dashboard:", e)
+                }
+
                 setProducts(productsData)
             } catch (error) {
                 console.error("Error fetching products", error)

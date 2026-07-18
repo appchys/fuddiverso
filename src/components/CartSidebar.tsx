@@ -841,6 +841,20 @@ export default function CartSidebar({
                                                                     </span>
                                                                 ) : null}
                                                             </div>
+                                                            {item.originalBusinessName && (
+                                                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-600 bg-amber-50 rounded-full px-2 py-1 w-max mt-1 border border-amber-100 shadow-sm leading-none">
+                                                                    {item.originalBusinessImage ? (
+                                                                        <img
+                                                                            src={item.originalBusinessImage}
+                                                                            alt={item.originalBusinessName}
+                                                                            className="w-3.5 h-3.5 rounded-full object-cover border border-amber-200/60 shadow-inner flex-shrink-0"
+                                                                        />
+                                                                    ) : (
+                                                                        <i className="bi bi-share-fill text-[8px] animate-pulse"></i>
+                                                                    )}
+                                                                    <span>DE: {item.originalBusinessName.toUpperCase()}</span>
+                                                                </div>
+                                                            )}
                                                             {!isAvailable && (
                                                                 <p className="text-[11px] font-semibold text-rose-600 flex items-center gap-1 mt-0.5 animate-pulse">
                                                                     <i className="bi bi-exclamation-triangle-fill"></i> No disponible (quítalo para continuar)

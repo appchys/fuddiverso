@@ -6,7 +6,7 @@ import Link from 'next/link'
 import Head from 'next/head'
 import { getProductPublicPrice, formatPrice, getPriceMetadata, ensureCartItemMetadata } from '@/lib/price-utils'
 import { Business, Product, QRCode, UserQRProgress } from '@/types'
-import { getBusinessByUsername, getProductsByBusiness, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
+import { getBusinessByUsername, getProductsByBusiness, getProductsByIds, incrementVisitFirestore, getQRCodesByBusiness, getUserQRProgress, redeemQRCodePrize, unredeemQRCodePrize, getAllBusinesses, generateReferralLink, trackReferralClick, userHasReferralForProduct, getProductsReferralCounts } from '@/lib/database'
 import { collection, query, where, onSnapshot, doc, limit } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { Flame } from 'lucide-react'
@@ -168,6 +168,20 @@ function ProductVariantSelector({ product, onAddToCart, onShowDetails, getCartIt
       <div className="flex-1 min-w-0 ml-4 pr-4">
         <div className="flex flex-col h-full justify-between">
           <div>
+            {product.isShared && product.originalBusinessName && (
+              <div className="flex items-center gap-1.5 text-[10px] font-black text-amber-600 bg-amber-50 rounded-full px-2.5 py-1 w-max mb-1.5 border border-amber-100 shadow-sm leading-none">
+                {product.originalBusinessImage ? (
+                  <img
+                    src={product.originalBusinessImage}
+                    alt={product.originalBusinessName}
+                    className="w-3.5 h-3.5 rounded-full object-cover border border-amber-200/60 shadow-inner flex-shrink-0"
+                  />
+                ) : (
+                  <i className="bi bi-share-fill text-[8px] animate-pulse"></i>
+                )}
+                <span>DE: {product.originalBusinessName.toUpperCase()}</span>
+              </div>
+            )}
             <h4 className="font-bold text-base sm:text-lg text-gray-900 group-hover:text-red-600 transition-colors leading-tight line-clamp-2">
               {product.name}
               {isCombo && (
@@ -346,7 +360,32 @@ function RestaurantContent() {
 
         // Load products
         const productsData = await getProductsByBusiness(businessData.id)
-        const availableProducts = productsData.filter(product => product.isAvailable)
+        let availableProducts = productsData.filter(product => product.isAvailable)
+
+        // Cargar productos compartidos por referencia
+        if (businessData.sharedProductIds && businessData.sharedProductIds.length > 0) {
+          try {
+            const sharedProducts = await getProductsByIds(businessData.sharedProductIds)
+            const allBizs = await getAllBusinesses()
+            const availableShared = sharedProducts
+              .filter(p => p.isAvailable)
+              .map(p => {
+                const ownerBiz = allBizs.find(b => b.id === p.businessId)
+                return {
+                  ...p,
+                  category: 'Compartidos', // Forzar categoría Compartidos
+                  isShared: true,
+                  originalBusinessId: p.businessId,
+                  originalBusinessName: ownerBiz?.name || 'Otra tienda',
+                  originalBusinessImage: ownerBiz?.image || null
+                }
+              })
+            availableProducts = [...availableProducts, ...availableShared]
+          } catch (e) {
+            console.error('Error loading shared products:', e)
+          }
+        }
+
         setProducts(availableProducts)
 
         // Hide loading screen immediately after products are loaded
@@ -725,7 +764,12 @@ function RestaurantContent() {
       scheduleAvailability: product.scheduleAvailability, // Incluir horarios
       businessId: business.id,
       businessName: business.name,
-      businessImage: business.image
+      businessImage: business.image,
+      ...(product.isShared && {
+        originalBusinessId: product.originalBusinessId,
+        originalBusinessName: product.originalBusinessName,
+        originalBusinessImage: product.originalBusinessImage
+      })
     }
 
     const existingItem = cart.find(item => item.id === cartItem.id && item.variantName === cartItem.variantName)
@@ -773,7 +817,12 @@ function RestaurantContent() {
         scheduleAvailability: product.scheduleAvailability || null,
         businessId: business.id,
         businessName: business.name,
-        businessImage: business.image
+        businessImage: business.image,
+        ...(product.isShared && {
+          originalBusinessId: product.originalBusinessId,
+          originalBusinessName: product.originalBusinessName,
+          originalBusinessImage: product.originalBusinessImage
+        })
       }]
       showNotification(`${product.name} agregado al carrito`)
     }

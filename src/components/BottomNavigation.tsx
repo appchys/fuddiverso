@@ -88,16 +88,16 @@ export default function BottomNavigation() {
 
   return (
     <>
-      <div className="md:hidden pb-16" /> 
+      <div className="pb-16" /> 
 
       {/* MODAL BOTTOM SHEET DE PEDIDOS */}
       {showOrdersSheet && (
-        <div className="md:hidden fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm flex flex-col justify-end">
+        <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm flex flex-col justify-end">
           <div 
             className="flex-1" 
             onClick={() => setShowOrdersSheet(false)} 
           />
-          <div className="bg-gray-50 rounded-t-3xl p-5 pb-24 shadow-2xl animate-in slide-in-from-bottom-full duration-300">
+          <div className="bg-gray-50 rounded-t-3xl p-5 pb-24 shadow-2xl animate-in slide-in-from-bottom-full duration-300 md:max-w-md md:mx-auto md:rounded-b-3xl md:mb-4">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold tracking-tight text-gray-900">Mis Pedidos</h2>
               <button 
@@ -176,7 +176,7 @@ export default function BottomNavigation() {
 
       {/* Bottom Navigation */}
       <div 
-        className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 z-[65] shadow-[0_-5px_10px_rgb(0,0,0,0.02)]"
+        className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 z-[65] shadow-[0_-5px_10px_rgb(0,0,0,0.02)] md:max-w-md md:mx-auto md:rounded-t-2xl md:border-x md:border-gray-100"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="flex justify-around items-center h-16 px-2">

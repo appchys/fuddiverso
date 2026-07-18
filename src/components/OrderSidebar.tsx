@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { db } from '@/lib/firebase'
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore'
+import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, addDoc } from 'firebase/firestore'
 import {
   getBusiness,
   getDelivery,
@@ -11,7 +11,8 @@ import {
   createRatingNotification,
   createProductRatingNotification,
   ProductRating,
-  BusinessRating
+  BusinessRating,
+  updateBusinessRatingStats
 } from '@/lib/database'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatPrice } from '@/lib/price-utils'
@@ -515,57 +516,82 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
         comment: itemRating.comment
       }
 
-      if (existingRating?.id) {
-        // Si ya existe la reseña general, obtenemos el array actual y lo actualizamos
-        const docRef = doc(db, 'businesses', business.id, 'ratings', existingRating.id)
-        const currentProductRatings = existingRating.productRatings || []
-        const updatedProductRatings = [
-          ...currentProductRatings.filter(pr => pr.productId !== productId),
-          newProductRating
-        ]
+      const targetBusinessId = item.originalBusinessId || business.id
+      let targetRatingId = null
+      let targetProductRatings: ProductRating[] = []
 
+      if (targetBusinessId === business.id) {
+        targetRatingId = existingRating?.id || null
+        targetProductRatings = existingRating?.productRatings || []
+      } else {
+        const ratingsRef = collection(db, 'businesses', targetBusinessId, 'ratings')
+        const q = query(ratingsRef, where('orderId', '==', orderId!))
+        const querySnapshot = await getDocs(q)
+        if (!querySnapshot.empty) {
+          const docDoc = querySnapshot.docs[0]
+          targetRatingId = docDoc.id
+          targetProductRatings = docDoc.data().productRatings || []
+        }
+      }
+
+      const updatedProductRatings = [
+        ...targetProductRatings.filter(pr => pr.productId !== productId),
+        newProductRating
+      ]
+
+      if (targetRatingId) {
+        const docRef = doc(db, 'businesses', targetBusinessId, 'ratings', targetRatingId)
         await updateDoc(docRef, {
           productRatings: updatedProductRatings,
           updatedAt: new Date()
         })
-
-        setExistingRating(prev => {
-          if (!prev) return null
-          return {
-            ...prev,
-            productRatings: updatedProductRatings,
-            updatedAt: new Date()
-          }
-        })
       } else {
-        // Si no existe, creamos el documento inicial con calificación general por defecto en 5 (y storeRated: false)
-        const ratingsRef = await saveBusinessRating(
-          business.id,
-          orderId!,
-          5,
-          '',
-          clientInfo,
-          [newProductRating]
-        )
-
-        setExistingRating({
-          id: ratingsRef,
-          businessId: business.id,
+        const ratingsRef = collection(db, 'businesses', targetBusinessId, 'ratings')
+        const newDoc = await addDoc(ratingsRef, {
+          businessId: targetBusinessId,
           orderId: orderId!,
           rating: 5,
           comment: '',
           storeRated: false,
           clientName: clientInfo.name,
           clientPhone: clientInfo.phone,
-          productRatings: [newProductRating],
+          clientEmail: clientInfo.email,
+          productRatings: updatedProductRatings,
           createdAt: new Date(),
           updatedAt: new Date()
         })
+        targetRatingId = newDoc.id
       }
 
-      // Crear notificación de calificación de producto para el negocio
+      if (targetBusinessId === business.id) {
+        setExistingRating(prev => {
+          if (!prev) return {
+            id: targetRatingId!,
+            businessId: business.id,
+            orderId: orderId!,
+            rating: 5,
+            comment: '',
+            storeRated: false,
+            clientName: clientInfo.name,
+            clientPhone: clientInfo.phone,
+            productRatings: updatedProductRatings,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+          return {
+            ...prev,
+            productRatings: updatedProductRatings,
+            updatedAt: new Date()
+          }
+        })
+      }
+
+      // Actualizar estadísticas de calificación del negocio destino
+      await updateBusinessRatingStats(targetBusinessId)
+
+      // Crear notificación de calificación de producto para el negocio correspondiente
       await createProductRatingNotification(
-        business.id,
+        targetBusinessId,
         orderId!,
         item.variant || item.name || 'Producto',
         itemRating.rating,

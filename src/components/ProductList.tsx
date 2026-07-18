@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { Business, Product, ProductVariant, Ingredient, CommissionType, ProductOption, ProductOptionGroup } from '@/types'
-import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem } from '@/lib/database'
+import { createProduct, updateProduct, deleteProduct, uploadImage, getIngredientLibrary, addOrUpdateIngredientInLibrary, IngredientLibraryItem, updateBusiness, getAllBusinesses, getProductsByBusiness, getProductsByIds } from '@/lib/database'
 import { optimizeImage } from '@/lib/image-utils'
 import { calculateCommissionPricing, getBusinessCommissionSettings } from '@/lib/price-utils'
 
@@ -137,6 +137,103 @@ export default function ProductList({
       setSelectedAddonIds([])
     }
   }, [quickAddonProduct])
+
+  // Estados para Productos Compartidos
+  const [activeSection, setActiveSection] = useState<'mis-productos' | 'compartidos'>('mis-productos')
+  const [allBusinesses, setAllBusinesses] = useState<Business[]>([])
+  const [selectedSearchBusinessId, setSelectedSearchBusinessId] = useState<string>('')
+  const [searchBusinessProducts, setSearchBusinessProducts] = useState<Product[]>([])
+  const [sharedProducts, setSharedProducts] = useState<Product[]>([])
+  const [loadingShared, setLoadingShared] = useState(false)
+  const [loadingSearchProducts, setLoadingSearchProducts] = useState(false)
+
+  // Cargar lista de negocios y productos compartidos actuales
+  useEffect(() => {
+    if (!business?.id) return;
+    
+    // Cargar todos los negocios una vez
+    getAllBusinesses().then(bizs => {
+      // Filtrar el negocio actual
+      setAllBusinesses(bizs.filter(b => b.id !== business.id && b.isActive !== false))
+    }).catch(err => console.error('Error loading businesses in ProductList:', err))
+  }, [business?.id])
+
+  // Cargar los productos compartidos actuales cuando cambie sharedProductIds
+  useEffect(() => {
+    if (!business?.id) return;
+    
+    const loadSharedProducts = async () => {
+      if (business.sharedProductIds && business.sharedProductIds.length > 0) {
+        setLoadingShared(true)
+        try {
+          const prods = await getProductsByIds(business.sharedProductIds)
+          setSharedProducts(prods)
+        } catch (e) {
+          console.error('Error loading shared products:', e)
+        } finally {
+          setLoadingShared(false)
+        }
+      } else {
+        setSharedProducts([])
+      }
+    }
+
+    void loadSharedProducts()
+  }, [business?.id, business?.sharedProductIds])
+
+  // Cargar productos del negocio seleccionado para buscar
+  useEffect(() => {
+    if (!selectedSearchBusinessId) {
+      setSearchBusinessProducts([])
+      return
+    }
+
+    const loadSearchBusinessProducts = async () => {
+      setLoadingSearchProducts(true)
+      try {
+        const prods = await getProductsByBusiness(selectedSearchBusinessId)
+        // Filtrar solo los disponibles
+        setSearchBusinessProducts(prods.filter(p => p.isAvailable))
+      } catch (e) {
+        console.error('Error loading search business products:', e)
+      } finally {
+        setLoadingSearchProducts(false)
+      }
+    }
+
+    void loadSearchBusinessProducts()
+  }, [selectedSearchBusinessId])
+
+  const handleToggleShareProduct = async (productId: string, isSharedCurrently: boolean) => {
+    if (!business?.id) return;
+    
+    const currentSharedIds = business.sharedProductIds || []
+    let newSharedIds: string[]
+    
+    if (isSharedCurrently) {
+      newSharedIds = currentSharedIds.filter(id => id !== productId)
+    } else {
+      if (currentSharedIds.includes(productId)) return
+      newSharedIds = [...currentSharedIds, productId]
+    }
+
+    try {
+      await updateBusiness(business.id, { sharedProductIds: newSharedIds })
+      
+      // Intentar actualizar a través de la callback onDirectUpdate si está disponible
+      if (onDirectUpdate) {
+        await onDirectUpdate('sharedProductIds', newSharedIds)
+      } else {
+        // Fallback
+        business.sharedProductIds = newSharedIds
+      }
+      
+      alert(isSharedCurrently ? 'Producto quitado de compartidos.' : 'Producto compartido con éxito en tu tienda.')
+    } catch (e) {
+      console.error('Error sharing product:', e)
+      alert('Error al actualizar la lista de productos compartidos.')
+    }
+  }
 
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
   const dayLabels: Record<string, string> = {
@@ -1273,44 +1370,86 @@ export default function ProductList({
 
   return (
     <div className="space-y-6">
-      {/* Botón para agregar producto */}
-      <div className="flex justify-between items-center bg-gray-50 p-4 rounded-2xl border border-gray-100 shadow-sm">
-        <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-          <i className="bi bi-box-seam text-blue-600" />
-          Productos
-        </h2>
+      {/* Selector de Pestaña Principal (Estilo Premium) */}
+      <div className="flex flex-col sm:flex-row gap-4 justify-between sm:items-center bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+        <div>
+          <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
+            <i className="bi bi-box-seam text-[#aa1918]" />
+            {activeSection === 'mis-productos' ? 'Mis Productos' : 'Productos Compartidos'}
+          </h2>
+          <p className="text-xs text-gray-500 mt-1">
+            {activeSection === 'mis-productos' 
+              ? 'Administra el menú y productos de tu restaurante' 
+              : 'Busca productos de otras tiendas y publícalos en tu perfil'}
+          </p>
+        </div>
         
-        <div className="relative header-action-menu">
-          <button
-            onClick={() => setShowHeaderMenu(!showHeaderMenu)}
-            className="w-9 h-9 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-full hover:bg-gray-100 transition-all active:scale-95 border border-gray-200 bg-white shadow-sm"
-            title="Más opciones"
-          >
-            <i className="bi bi-three-dots-vertical text-lg"></i>
-          </button>
+        <div className="flex items-center gap-3">
+          {/* Tab Selector */}
+          <div className="flex bg-gray-100 p-1.5 rounded-2xl text-xs font-black border border-gray-200/50 shadow-inner">
+            <button
+              type="button"
+              onClick={() => setActiveSection('mis-productos')}
+              className={`py-2 px-4 rounded-xl transition-all flex items-center gap-2 ${
+                activeSection === 'mis-productos'
+                  ? 'bg-white text-[#aa1918] shadow-sm'
+                  : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              <i className="bi bi-grid-fill"></i>
+              Mis Productos
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection('compartidos')}
+              className={`py-2 px-4 rounded-xl transition-all flex items-center gap-2 ${
+                activeSection === 'compartidos'
+                  ? 'bg-white text-[#aa1918] shadow-sm'
+                  : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              <i className="bi bi-share-fill"></i>
+              Compartidos
+            </button>
+          </div>
 
-          {showHeaderMenu && (
-            <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
+          {/* Botón de opciones en mis-productos */}
+          {activeSection === 'mis-productos' && (
+            <div className="relative header-action-menu">
               <button
-                onClick={() => {
-                  setJsonText('')
-                  setJsonError(null)
-                  setParsedProducts([])
-                  setShowJsonImport(true)
-                  setShowHeaderMenu(false)
-                }}
-                className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                type="button"
+                onClick={() => setShowHeaderMenu(!showHeaderMenu)}
+                className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-gray-900 rounded-2xl hover:bg-gray-50 border border-gray-100 transition-all active:scale-95 bg-white shadow-sm"
+                title="Más opciones"
               >
-                <i className="bi bi-filetype-json text-blue-600 text-base" />
-                Subir Menú (JSON)
+                <i className="bi bi-three-dots text-lg"></i>
               </button>
+              
+              {showHeaderMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in duration-200">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJsonText('')
+                      setJsonError(null)
+                      setParsedProducts([])
+                      setShowJsonImport(true)
+                      setShowHeaderMenu(false)
+                    }}
+                    className="w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-gray-50 flex items-center gap-3 transition-colors text-gray-700"
+                  >
+                    <i className="bi bi-filetype-json text-blue-600 text-base" />
+                    Subir Menú (JSON)
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Lista de productos agrupada por categoría */}
-      {products.length === 0 ? (
+      {activeSection === 'mis-productos' && (
+        products.length === 0 ? (
         <div className="bg-gray-50 rounded-lg border border-gray-200 p-8 text-center">
           <i className="bi bi-box-seam text-4xl text-gray-300 mb-3 block"></i>
           <p className="text-gray-600 font-medium">No hay productos</p>
@@ -1562,6 +1701,166 @@ export default function ProductList({
               </div>
             )
           })}
+        </div>
+      )
+    )}
+
+      {activeSection === 'compartidos' && (
+        /* VISTA: PRODUCTOS COMPARTIDOS */
+        <div className="space-y-6 animate-in fade-in duration-300">
+          {/* Tarjeta de Búsqueda y Selección de Tienda */}
+          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm space-y-4">
+            <div className="flex items-center gap-2 text-gray-800">
+              <i className="bi bi-search text-red-600 text-base" />
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Buscar en otras tiendas</h3>
+            </div>
+            
+            <div className="flex flex-col sm:flex-row gap-3">
+              <select
+                value={selectedSearchBusinessId}
+                onChange={(e) => setSelectedSearchBusinessId(e.target.value)}
+                className="flex-1 px-4 py-3 border border-gray-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent bg-gray-50 transition-all font-medium text-gray-800"
+              >
+                <option value="">Selecciona una tienda para explorar sus productos...</option>
+                {allBusinesses.map((biz) => (
+                  <option key={biz.id} value={biz.id}>
+                    {biz.name} (@{biz.username})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Resultados de Productos de la tienda seleccionada */}
+          {selectedSearchBusinessId && (
+            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm space-y-4">
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
+                Productos disponibles en la tienda seleccionada
+              </h3>
+              
+              {loadingSearchProducts ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto"></div>
+                  <p className="text-xs text-gray-400 mt-2">Cargando catálogo...</p>
+                </div>
+              ) : searchBusinessProducts.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-6">Esta tienda no tiene productos disponibles para compartir.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {searchBusinessProducts.map((prod) => {
+                    const isShared = (business?.sharedProductIds || []).includes(prod.id)
+                    return (
+                      <div key={prod.id} className="flex items-center justify-between p-4 border border-gray-100 rounded-2xl hover:shadow-sm transition-all">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-12 h-12 rounded-xl bg-gray-50 overflow-hidden flex-shrink-0 border border-gray-50">
+                            {prod.image ? (
+                              <img src={prod.image} alt={prod.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-gray-300">
+                                <i className="bi bi-box-seam"></i>
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-sm text-gray-900 truncate leading-snug">{prod.name}</p>
+                            <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{prod.description}</p>
+                            <p className="text-xs font-black text-emerald-600 mt-1">${prod.price.toFixed(2)}</p>
+                          </div>
+                        </div>
+                        
+                        <button
+                          type="button"
+                          onClick={() => handleToggleShareProduct(prod.id, isShared)}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5 flex-shrink-0 ${
+                            isShared
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-100 hover:bg-emerald-100'
+                              : 'bg-red-600 text-white hover:bg-red-700 shadow-sm shadow-red-100'
+                          }`}
+                        >
+                          {isShared ? (
+                            <>
+                              <i className="bi bi-check-lg text-sm"></i>
+                              Compartido
+                            </>
+                          ) : (
+                            <>
+                              <i className="bi bi-share text-xs"></i>
+                              Compartir
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Listado de Productos actualmente compartidos por la tienda */}
+          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2">
+                <i className="bi bi-share-fill text-red-600 text-sm" />
+                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Productos Compartidos en tu Perfil</h3>
+              </div>
+              <span className="px-2.5 py-0.5 bg-red-50 text-red-700 border border-red-100 rounded-full text-[10px] font-black uppercase tracking-wider">
+                {sharedProducts.length} ítems
+              </span>
+            </div>
+
+            {loadingShared ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto"></div>
+                <p className="text-xs text-gray-400 mt-2">Cargando compartidos...</p>
+              </div>
+            ) : sharedProducts.length === 0 ? (
+              <div className="text-center py-10 text-gray-500 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200">
+                <i className="bi bi-share text-3xl text-gray-300 mb-2 block"></i>
+                <p className="text-xs font-bold text-gray-600">No estás compartiendo productos de otras tiendas todavía</p>
+                <p className="text-[10px] text-gray-400 mt-1 max-w-xs mx-auto">
+                  Selecciona una tienda en el buscador superior y haz clic en "Compartir" para agregarlo a tu perfil.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {sharedProducts.map((prod) => {
+                  const ownerBizName = allBusinesses.find(b => b.id === prod.businessId)?.name || 'Otra tienda'
+                  return (
+                    <div key={prod.id} className="flex items-center justify-between p-4 border border-gray-100 rounded-2xl hover:shadow-sm transition-all bg-gray-50/20">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-12 h-12 rounded-xl bg-gray-50 overflow-hidden flex-shrink-0 border border-gray-50">
+                          {prod.image ? (
+                            <img src={prod.image} alt={prod.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-gray-300">
+                              <i className="bi bi-box-seam"></i>
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-sm text-gray-900 truncate leading-snug">{prod.name}</p>
+                          <span className="inline-block text-[9px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-black mt-1 mb-1 border border-amber-100/50 leading-none">
+                            TIENDA: {ownerBizName.toUpperCase()}
+                          </span>
+                          <p className="text-xs font-black text-emerald-600">${prod.price.toFixed(2)}</p>
+                        </div>
+                      </div>
+                      
+                      <button
+                        type="button"
+                        onClick={() => handleToggleShareProduct(prod.id, true)}
+                        className="px-3 py-2 text-xs font-bold text-red-600 hover:text-red-700 hover:bg-red-50 rounded-xl transition-all flex items-center gap-1.5 flex-shrink-0 active:scale-95"
+                      >
+                        <i className="bi bi-trash3-fill text-sm"></i>
+                        Quitar
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -3487,13 +3786,15 @@ export default function ProductList({
       )}
 
       {/* Botón flotante para nuevo producto */}
-      <button
-        onClick={handleOpenNewProduct}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-red-600 text-white rounded-full shadow-2xl hover:bg-red-700 transition-all active:scale-90 flex items-center justify-center z-[100] group"
-        title="Nuevo Producto"
-      >
-        <i className="bi bi-plus-lg text-2xl group-hover:rotate-90 transition-transform duration-300"></i>
-      </button>
+      {activeSection === 'mis-productos' && (
+        <button
+          onClick={handleOpenNewProduct}
+          className="fixed bottom-6 right-6 w-14 h-14 bg-red-600 text-white rounded-full shadow-2xl hover:bg-red-700 transition-all active:scale-90 flex items-center justify-center z-[100] group"
+          title="Nuevo Producto"
+        >
+          <i className="bi bi-plus-lg text-2xl group-hover:rotate-90 transition-transform duration-300"></i>
+        </button>
+      )}
     </div >
   )
 }

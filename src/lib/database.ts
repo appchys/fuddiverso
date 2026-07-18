@@ -831,6 +831,38 @@ export async function getProductsByBusiness(businessId: string): Promise<Product
   }
 }
 
+export async function getProductsByIds(productIds: string[]): Promise<Product[]> {
+  if (!productIds || productIds.length === 0) return []
+  try {
+    const products: Product[] = []
+    const chunks: string[][] = []
+    for (let i = 0; i < productIds.length; i += 30) {
+      chunks.push(productIds.slice(i, i + 30))
+    }
+    
+    for (const chunk of chunks) {
+      const q = query(
+        collection(db, 'products'),
+        where('__name__', 'in', chunk)
+      )
+      const querySnapshot = await getDocs(q)
+      querySnapshot.forEach(doc => {
+        const data = doc.data()
+        products.push({
+          id: doc.id,
+          ...data,
+          createdAt: toSafeDate(data.createdAt),
+          updatedAt: toSafeDate(data.updatedAt)
+        } as Product)
+      })
+    }
+    return products
+  } catch (error) {
+    console.error('Error getting products by ids:', error)
+    return []
+  }
+}
+
 /**
  * Obtener productos disponibles de forma aleatoria/reciente a través de todos los negocios
  * Optimizado para evitar bucles N+1 en la home
@@ -1484,6 +1516,23 @@ export async function updateOrderStatus(orderId: string, status: Order['status']
     }
 
     await updateDoc(docRef, updatePayload)
+
+    // Notificar al cliente del cambio de estado (en segundo plano, sin bloquear)
+    try {
+      const orderSnap = await getDoc(docRef)
+      if (orderSnap.exists()) {
+        const orderData = orderSnap.data()
+        const customerPhone = orderData.customer?.phone || orderData.customerPhone
+        const businessId = orderData.businessId
+        if (customerPhone) {
+          // Fire and forget - no bloquear la respuesta
+          upsertOrderTrackingNotification(orderId, status, customerPhone, businessId)
+            .catch(err => console.error('[updateOrderStatus] tracking notification error:', err))
+        }
+      }
+    } catch (notifError) {
+      console.error('[updateOrderStatus] Error sending tracking notification:', notifError)
+    }
   } catch (error) {
     console.error('Error updating order status:', error)
     throw error
@@ -3965,7 +4014,7 @@ export interface BusinessRating {
 export interface ClientNotification {
   id?: string;
   userId: string;
-  type: 'referral_credit' | 'rating_like' | 'rating_comment';
+  type: 'referral_credit' | 'rating_like' | 'rating_comment' | 'order_tracking';
   title: string;
   message: string;
   read: boolean;
@@ -4027,6 +4076,84 @@ export async function createClientNotification(
     });
   } catch (error) {
     console.error('[createClientNotification] Error saving client notification:', error);
+  }
+}
+
+const ORDER_STATUS_LABELS: Record<string, { emoji: string; label: string; message: string }> = {
+  pending: { emoji: '🕐', label: 'Pedido recibido', message: 'Tu pedido ha sido recibido y está pendiente de confirmación.' },
+  confirmed: { emoji: '✅', label: 'Pedido confirmado', message: '¡Tu pedido ha sido confirmado! Pronto empezarán a prepararlo.' },
+  preparing: { emoji: '🔥', label: 'Preparando tu pedido', message: 'Tu pedido se está preparando. ¡Ya casi!' },
+  ready: { emoji: '📦', label: 'Pedido listo', message: 'Tu pedido está listo para ser recogido o entregado.' },
+  on_way: { emoji: '🛵', label: 'En camino', message: '¡Tu pedido va en camino! Pronto estará contigo.' },
+  delivered: { emoji: '🎉', label: 'Entregado', message: '¡Tu pedido ha sido entregado! Esperamos que lo disfrutes.' },
+  cancelled: { emoji: '❌', label: 'Cancelado', message: 'Tu pedido fue cancelado.' },
+}
+
+export async function upsertOrderTrackingNotification(
+  orderId: string,
+  status: string,
+  customerPhone?: string,
+  businessId?: string
+): Promise<void> {
+  try {
+    if (!customerPhone) return;
+
+    const statusInfo = ORDER_STATUS_LABELS[status]
+    if (!statusInfo) return;
+
+    // Buscar el userId del cliente por teléfono
+    const normalizedPhone = normalizeEcuadorianPhone(customerPhone)
+    const clientQuery = query(
+      collection(db, 'clients'),
+      where('celular', '==', normalizedPhone),
+      limit(1)
+    )
+    const clientSnap = await getDocs(clientQuery)
+    const userId = clientSnap.empty ? normalizedPhone : clientSnap.docs[0].id
+
+    // Buscar si ya existe una notificación de tracking para esta orden
+    const notifQuery = query(
+      collection(db, 'clientNotifications'),
+      where('orderId', '==', orderId),
+      where('type', '==', 'order_tracking')
+    )
+    const notifSnap = await getDocs(notifQuery)
+
+    let businessName = ''
+    if (businessId) {
+      businessName = await getBusinessNameForNotification(businessId)
+    }
+
+    const title = `${statusInfo.emoji} ${statusInfo.label}`
+    const message = businessName
+      ? `${businessName}: ${statusInfo.message}`
+      : statusInfo.message
+
+    if (!notifSnap.empty) {
+      // Actualizar la notificación existente y marcarla como no leída
+      const existingDoc = notifSnap.docs[0]
+      await updateDoc(doc(db, 'clientNotifications', existingDoc.id), {
+        title,
+        message,
+        read: false,
+        updatedAt: serverTimestamp()
+      })
+    } else {
+      // Crear nueva notificación
+      await addDoc(collection(db, 'clientNotifications'), {
+        userId,
+        type: 'order_tracking' as const,
+        title,
+        message,
+        orderId,
+        businessId: businessId || '',
+        businessName,
+        read: false,
+        createdAt: serverTimestamp()
+      })
+    }
+  } catch (error) {
+    console.error('[upsertOrderTrackingNotification] Error:', error)
   }
 }
 
@@ -4415,7 +4542,7 @@ export async function updateStoreRatingById(
 /**
  * Update business rating statistics
  */
-async function updateBusinessRatingStats(businessId: string): Promise<void> {
+export async function updateBusinessRatingStats(businessId: string): Promise<void> {
   try {
     const ratingsRef = collection(db, 'businesses', businessId, 'ratings');
     const q = query(ratingsRef);
@@ -5735,21 +5862,23 @@ export async function registerOrderConsumption(
 ): Promise<void> {
   try {
     const dateForMovement = orderDate || new Date().toISOString().split('T')[0]
+    const productIds = items.map(item => item.productId).filter(Boolean)
+    if (productIds.length === 0) return
 
-    // 1. Obtener los productos involucrados para conocer sus ingredientes
-    const productsSnapshot = await getDocs(
-      query(collection(db, 'products'), where('businessId', '==', businessId))
-    )
-
+    // 1. Obtener los productos involucrados por ID
+    const productsList = await getProductsByIds(productIds)
     const productsMap = new Map<string, any>()
-    productsSnapshot.forEach(doc => {
-      productsMap.set(doc.id, { id: doc.id, ...doc.data() })
+    productsList.forEach(p => {
+      productsMap.set(p.id, p)
     })
 
     // 2. Procesar cada item vendido
     for (const item of items) {
       const product = productsMap.get(item.productId)
       if (!product) continue
+
+      // Usar el businessId del producto original (podría ser diferente si es compartido)
+      const targetBusinessId = product.businessId || businessId
 
       // Determinar ingredientes (Prioridad: Variante > Producto Base)
       let ingredientsToUse: any[] = []
@@ -5762,7 +5891,7 @@ export async function registerOrderConsumption(
         ingredientsToUse = product.ingredients
       }
 
-      // 3. Registrar salida de stock para cada ingrediente (Punto 4 del pedido)
+      // 3. Registrar salida de stock para cada ingrediente en su respectivo negocio (Punto 4 del pedido)
       for (const ingredient of ingredientsToUse) {
         try {
           // Generar un ID único normalizado: ing_nombre_del_ingrediente
@@ -5776,7 +5905,7 @@ export async function registerOrderConsumption(
             quantity: ingredient.quantity * item.quantity, // Cantidad por ingrediente * cantidad de productos
             date: dateForMovement,
             notes: `Venta automática - Orden: ${orderId || 'Manual'}`,
-            businessId: businessId,
+            businessId: targetBusinessId,
             orderId: orderId
           })
         } catch (error) {

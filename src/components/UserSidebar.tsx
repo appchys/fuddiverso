@@ -155,107 +155,7 @@ function CartMenuOption({ onClose }: { onClose: () => void }) {
     )
 }
 
-function ClientNotificationsSidebar({
-    isOpen,
-    onClose,
-    notifications,
-    loading,
-    unreadCount,
-    onNotificationClick,
-    formatDate
-}: {
-    isOpen: boolean
-    onClose: () => void
-    notifications: any[]
-    loading: boolean
-    unreadCount: number
-    onNotificationClick: (notification: any) => void
-    formatDate: (value: any) => string
-}) {
-    return (
-        <div className={`fixed inset-0 z-[130] overflow-hidden ${isOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
-            <div
-                className={`absolute inset-0 bg-black/40 backdrop-blur-[2px] transition-opacity duration-500 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
-                onClick={onClose}
-            />
 
-            <div
-                className={`${USER_SIDEBAR_PANEL_BASE_CLASS} ${getUserSidebarPanelStateClass(isOpen)}`}
-            >
-                <div className="h-full flex flex-col overflow-y-auto scrollbar-hide bg-white">
-                    <div className="sticky top-0 bg-white z-50 border-b border-gray-100">
-                        <div className="px-6 pt-6 pb-4">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-4 min-w-0">
-                                    <button
-                                        onClick={onClose}
-                                        className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-xl transition-all"
-                                        title="Volver"
-                                    >
-                                        <ArrowLeft size={20} />
-                                    </button>
-                                    <div className="min-w-0">
-                                        <h2 className="text-xl font-semibold text-gray-900 leading-tight">Notificaciones</h2>
-                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
-                                            {unreadCount > 0 ? `${unreadCount} nuevas` : 'Todo al dia'}
-                                        </p>
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={onClose}
-                                    className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-gray-900 transition-colors"
-                                    title="Cerrar"
-                                >
-                                    <X size={20} />
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="flex-1 px-6 py-6 space-y-4 overflow-y-auto">
-                        {loading ? (
-                            <div className="bg-white rounded-xl border border-gray-200 p-4 text-xs font-bold text-gray-400">
-                                Cargando...
-                            </div>
-                        ) : notifications.length === 0 ? (
-                            <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-200">
-                                <div className="w-12 h-12 rounded-xl bg-gray-50 text-gray-300 flex items-center justify-center mx-auto mb-4">
-                                    <Bell size={20} />
-                                </div>
-                                <p className="text-xs font-black uppercase tracking-widest text-gray-400">Aun no tienes notificaciones</p>
-                            </div>
-                        ) : (
-                            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                                {notifications.map((notification) => (
-                                    <button
-                                        key={notification.id}
-                                        onClick={() => onNotificationClick(notification)}
-                                        className={`w-full p-4 text-left border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-all ${notification.read ? 'bg-white' : 'bg-red-50/60'}`}
-                                    >
-                                        <div className="flex items-start gap-3">
-                                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${notification.type === 'referral_credit' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
-                                                {notification.type === 'referral_credit' ? <CircleDollarSign size={16} /> : <Bell size={16} />}
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <p className="text-sm font-black text-gray-900 leading-tight">{notification.title}</p>
-                                                    <span className="text-[9px] font-bold text-gray-300 uppercase whitespace-nowrap">
-                                                        {formatDate(notification.createdAt)}
-                                                    </span>
-                                                </div>
-                                                <p className="text-xs text-gray-500 leading-snug mt-1">{notification.message}</p>
-                                            </div>
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </div>
-    )
-}
 
 function ClientReviewsSidebar({
     isOpen,
@@ -2070,7 +1970,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                         ) : (
                             <>
                                 {/* Icon Navigation Grid */}
-                                <div className="grid grid-cols-4 gap-3">
+                                <div className="grid grid-cols-3 gap-3">
                                     <button
                                         onClick={() => {
                                             setPersonalInfoMessage(null)
@@ -2099,21 +1999,6 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                             <Headphones size={16} />
                                         </div>
                                         <span className="text-xs font-medium text-gray-900 text-center">Ayuda</span>
-                                    </button>
-
-                                    <button
-                                        onClick={() => setShowNotifications(!showNotifications)}
-                                        className="relative flex flex-col items-center justify-center p-3 bg-white rounded-2xl border border-gray-200 hover:border-gray-900 transition-all group"
-                                    >
-                                        {unreadNotifications > 0 && (
-                                            <span className="absolute top-2 right-3 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center">
-                                                {unreadNotifications}
-                                            </span>
-                                        )}
-                                        <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-600 group-hover:bg-gray-900 group-hover:text-white transition-all mb-2">
-                                            <Bell size={16} />
-                                        </div>
-                                        <span className="text-xs font-medium text-gray-900 text-center">Notificaciones</span>
                                     </button>
                                 </div>
 
@@ -2288,15 +2173,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                 orderId={selectedOrderId}
             />
 
-            <ClientNotificationsSidebar
-                isOpen={showNotifications}
-                onClose={() => setShowNotifications(false)}
-                notifications={clientNotifications}
-                loading={loadingNotifications}
-                unreadCount={unreadNotifications}
-                onNotificationClick={handleNotificationClick}
-                formatDate={formatNotificationDate}
-            />
+
 
             <ClientReviewsSidebar
                 isOpen={showReviews}

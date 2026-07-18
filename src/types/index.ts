@@ -94,6 +94,7 @@ export interface Business {
   favoriteIngredients?: string[] // IDs de ingredientes favoritos
   defaultCommissionType?: CommissionType // Trato por defecto para nuevos productos
   commissionRate?: number // Porcentaje de comisión por tienda
+  sharedProductIds?: string[] // IDs de productos de otras tiendas compartidos
 }
 
 export interface FreeDeliveryCampaign {
@@ -239,6 +240,10 @@ export interface Product {
   createdAt: Date
   updatedAt: Date
   quickAddons?: string[]
+  isShared?: boolean
+  originalBusinessId?: string
+  originalBusinessName?: string
+  originalBusinessImage?: string | null
 }
 
 export interface SelectedOptionGroup {
@@ -261,6 +266,9 @@ export interface CartItem {
   commissionType?: CommissionType
   basePrice?: number
   selectedOptions?: SelectedOptionGroup[]
+  originalBusinessId?: string
+  originalBusinessName?: string
+  originalBusinessImage?: string | null
 }
 
 export interface Customer {

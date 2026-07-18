@@ -1811,6 +1811,10 @@ export function CheckoutContent({
           price: item.price,
           quantity: item.quantity,
           variant: item.variantName || '',
+          image: item.image || '',
+          originalBusinessId: item.originalBusinessId || null,
+          originalBusinessName: item.originalBusinessName || null,
+          originalBusinessImage: item.originalBusinessImage || null,
           // Persistir metadatos de precios (ya asegurados arriba)
           basePrice: item.basePrice,
           commission: item.commission,
@@ -2673,6 +2677,20 @@ export function CheckoutContent({
                               <div key={index} className={`flex justify-between items-center text-sm ${!isAvailable ? 'opacity-60 grayscale text-gray-400' : ''}`}>
                                 <span className="text-gray-600 truncate flex-1 mr-4">
                                   <span className="font-bold text-gray-900">{item.quantity}x</span> {item.variantName || item.productName || item.name}
+                                  {item.originalBusinessName && (
+                                    <span className="flex items-center gap-1 text-[9px] font-bold text-amber-600 bg-amber-50 rounded px-1.5 py-0.5 w-max mt-0.5 border border-amber-100/50 shadow-sm">
+                                      {item.originalBusinessImage ? (
+                                        <img
+                                          src={item.originalBusinessImage}
+                                          alt={item.originalBusinessName}
+                                          className="w-3 h-3 rounded-full object-cover border border-amber-200/40 shadow-inner flex-shrink-0"
+                                        />
+                                      ) : (
+                                        <i className="bi bi-share-fill text-[7px] animate-pulse"></i>
+                                      )}
+                                      <span>DE: {item.originalBusinessName.toUpperCase()}</span>
+                                    </span>
+                                  )}
                                   {!isAvailable && (
                                     <span className="block text-[10px] font-semibold text-rose-600 flex items-center gap-1 mt-0.5 animate-pulse">
                                       <i className="bi bi-exclamation-triangle-fill"></i> No disponible (quítalo para continuar)

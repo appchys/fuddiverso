@@ -31,7 +31,7 @@ export default function LayoutWrapper({
   const isPedidosRoute = pathname.startsWith('/pedidos')
   const isTmaRoute = pathname.startsWith('/tma')
 
-  const showHeader = !isBusinessRoute && !isDeliveryRoute && !isCheckoutRoute && !isStoreHomePage && !isAdminRoute && !isPedidosRoute && !isTmaRoute
+  const showHeader = !isBusinessRoute && !isDeliveryRoute && !isCheckoutRoute && !isAdminRoute && !isPedidosRoute && !isTmaRoute
 
   useEffect(() => {
     // Prevent pinch-to-zoom gestures on mobile devices

@@ -298,7 +298,12 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
             businessName: business.name,
             businessImage: business.image,
             category: product.category,
-            imagePosition: product.imagePosition || 'center 50%'
+            imagePosition: product.imagePosition || 'center 50%',
+            ...(product.isShared && {
+                originalBusinessId: product.originalBusinessId,
+                originalBusinessName: product.originalBusinessName,
+                originalBusinessImage: product.originalBusinessImage
+            })
         };
 
         const currentCart = [...cart];
@@ -672,7 +677,12 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                                             businessId: business.id,
                                                                             businessName: business.name,
                                                                             businessImage: business.image,
-                                                                            category: product.category
+                                                                            category: product.category,
+                                                                            ...(product.isShared && {
+                                                                                originalBusinessId: product.originalBusinessId,
+                                                                                originalBusinessName: product.originalBusinessName,
+                                                                                originalBusinessImage: product.originalBusinessImage
+                                                                            })
                                                                         };
 
                                                                         const enriched = ensureCartItemMetadata(itemToAdd)
@@ -909,7 +919,12 @@ export default function ProductDetailSidebar({ isOpen, onClose, product, busines
                                                     businessImage: business.image,
                                                     category: product.category,
                                                     isCombo: true,
-                                                    comboSelection: comboSelection
+                                                    comboSelection: comboSelection,
+                                                    ...(product.isShared && {
+                                                        originalBusinessId: product.originalBusinessId,
+                                                        originalBusinessName: product.originalBusinessName,
+                                                        originalBusinessImage: product.originalBusinessImage
+                                                    })
                                                 };
 
                                                 const currentCart = [...cart];

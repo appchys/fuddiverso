@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getOrder, getBusiness, getDelivery, saveBusinessRating, hasOrderBeenRated, updateOrderStatus, createRatingNotification, generateReferralLink, trackReferralClick, generateProductSlug, getAllBusinesses } from '@/lib/database'
+import { getOrder, getBusiness, getDelivery, saveBusinessRating, hasOrderBeenRated, updateOrderStatus, createRatingNotification, generateReferralLink, trackReferralClick, generateProductSlug, getAllBusinesses, getOrderRating, createProductRatingNotification, updateBusinessRatingStats } from '@/lib/database'
 import { GOOGLE_MAPS_API_KEY } from '@/components/GoogleMap'
 import { sendOrderToStoreFromClient } from '@/components/WhatsAppUtils'
 import { useAuth } from '@/contexts/AuthContext'
@@ -31,6 +31,9 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [reviewSubmitted, setReviewSubmitted] = useState(false)
   const [orderRated, setOrderRated] = useState(false)
+  const [existingRating, setExistingRating] = useState<any>(null)
+  const [productRatings, setProductRatings] = useState<Record<string, { rating: number; hover: number; comment: string }>>({})
+  const [submittingProducts, setSubmittingProducts] = useState<Record<string, boolean>>({})
 
   // Estados para tracking del delivery
   const [deliveryLocation, setDeliveryLocation] = useState<{ lat: number; lng: number } | null>(null)
@@ -48,17 +51,23 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
   useEffect(() => {
     const checkOrderRating = async () => {
       try {
+        if (!order?.businessId) return
         const rated = await hasOrderBeenRated(orderId);
         setOrderRated(rated);
+
+        const ratingData = await getOrderRating(order.businessId, orderId);
+        if (ratingData) {
+          setExistingRating(ratingData);
+        }
       } catch (error) {
         console.error('Error verificando si la orden fue calificada:', error);
       }
     };
 
-    if (orderId) {
+    if (orderId && order?.businessId) {
       checkOrderRating();
     }
-  }, [orderId]);
+  }, [orderId, order?.businessId]);
 
   // Manejar el envío de la calificación
   const handleRatingSubmit = async (e: React.FormEvent) => {
@@ -72,7 +81,7 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
       // Usar el teléfono del cliente de la orden (customer.phone)
       const clientPhone = order.customer?.phone || '';
 
-      await saveBusinessRating(
+      const ratingsRef = await saveBusinessRating(
         order.businessId,
         orderId,
         rating,
@@ -82,6 +91,20 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
           phone: clientPhone
         }
       );
+
+      setExistingRating({
+        id: ratingsRef,
+        businessId: order.businessId,
+        orderId: orderId,
+        rating,
+        comment: review,
+        storeRated: true,
+        clientName: clientNameToUse,
+        clientPhone: clientPhone,
+        productRatings: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
 
       // Crear notificación para el negocio
       await createRatingNotification(
@@ -102,6 +125,153 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
       setIsSubmitting(false);
     }
   };
+
+  const handleProductRatingChange = (productId: string, val: number) => {
+    setProductRatings(prev => ({
+      ...prev,
+      [productId]: {
+        ...(prev[productId] || { hover: 0, comment: '' }),
+        rating: val
+      }
+    }))
+  }
+
+  const handleProductRatingHover = (productId: string, val: number) => {
+    setProductRatings(prev => ({
+      ...prev,
+      [productId]: {
+        ...(prev[productId] || { rating: 0, comment: '' }),
+        hover: val
+      }
+    }))
+  }
+
+  const handleProductCommentChange = (productId: string, comment: string) => {
+    setProductRatings(prev => ({
+      ...prev,
+      [productId]: {
+        ...(prev[productId] || { rating: 0, hover: 0 }),
+        comment
+      }
+    }))
+  }
+
+  const handleSaveProductRating = async (productId: string, item: any) => {
+    if (!order || !order.businessId) return
+    const itemRating = productRatings[productId]
+    if (!itemRating || itemRating.rating === 0) return
+
+    setSubmittingProducts(prev => ({ ...prev, [productId]: true }))
+    try {
+      const { db } = await import('@/lib/firebase')
+      const { doc, updateDoc, collection, query, where, getDocs, addDoc } = await import('firebase/firestore')
+
+      const clientInfo = {
+        name: order.customer?.name || 'Cliente',
+        phone: order.customer?.phone || '',
+        email: order.customer?.email || ''
+      }
+
+      const newProductRating = {
+        productId,
+        productName: item.variant || item.name || 'Producto',
+        productImage: item.image || '',
+        rating: itemRating.rating,
+        comment: itemRating.comment
+      }
+
+      const targetBusinessId = item.originalBusinessId || order.businessId
+      let targetRatingId = null
+      let targetProductRatings: any[] = []
+
+      if (targetBusinessId === order.businessId) {
+        targetRatingId = existingRating?.id || null
+        targetProductRatings = existingRating?.productRatings || []
+      } else {
+        const ratingsRef = collection(db, 'businesses', targetBusinessId, 'ratings')
+        const q = query(ratingsRef, where('orderId', '==', orderId))
+        const querySnapshot = await getDocs(q)
+        if (!querySnapshot.empty) {
+          const docDoc = querySnapshot.docs[0]
+          targetRatingId = docDoc.id
+          targetProductRatings = docDoc.data().productRatings || []
+        }
+      }
+
+      const updatedProductRatings = [
+        ...targetProductRatings.filter((pr: any) => pr.productId !== productId),
+        newProductRating
+      ]
+
+      if (targetRatingId) {
+        const docRef = doc(db, 'businesses', targetBusinessId, 'ratings', targetRatingId)
+        await updateDoc(docRef, {
+          productRatings: updatedProductRatings,
+          updatedAt: new Date()
+        })
+      } else {
+        const ratingsRef = collection(db, 'businesses', targetBusinessId, 'ratings')
+        const newDoc = await addDoc(ratingsRef, {
+          businessId: targetBusinessId,
+          orderId: orderId,
+          rating: 5,
+          comment: '',
+          storeRated: false,
+          clientName: clientInfo.name,
+          clientPhone: clientInfo.phone,
+          clientEmail: clientInfo.email,
+          productRatings: updatedProductRatings,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        })
+        targetRatingId = newDoc.id
+      }
+
+      if (targetBusinessId === order.businessId) {
+        setExistingRating((prev: any) => {
+          if (!prev) return {
+            id: targetRatingId!,
+            businessId: order.businessId,
+            orderId: orderId,
+            rating: 5,
+            comment: '',
+            storeRated: false,
+            clientName: clientInfo.name,
+            clientPhone: clientInfo.phone,
+            productRatings: updatedProductRatings,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+          return {
+            ...prev,
+            productRatings: updatedProductRatings,
+            updatedAt: new Date()
+          }
+        })
+      }
+
+      // Actualizar estadísticas del negocio correspondiente
+      await updateBusinessRatingStats(targetBusinessId)
+
+      // Crear notificación de calificación de producto
+      await createProductRatingNotification(
+        targetBusinessId,
+        orderId,
+        item.variant || item.name || 'Producto',
+        itemRating.rating,
+        itemRating.comment,
+        clientInfo.name,
+        clientInfo.phone
+      )
+
+      alert('¡Calificación de producto guardada! 👍')
+    } catch (e) {
+      console.error('Error al calificar el producto:', e)
+      alert('Hubo un error al guardar tu calificación. Inténtalo de nuevo.')
+    } finally {
+      setSubmittingProducts(prev => ({ ...prev, [productId]: false }))
+    }
+  }
 
   useEffect(() => {
     if (!orderId) return
@@ -1102,6 +1272,134 @@ export default function OrderPublicClient({ orderId, embedded = false }: Props) 
             </div>
             <h3 className="font-black text-emerald-900 mb-1">¡Gracias por calificar!</h3>
             <p className="text-xs text-emerald-700 font-medium">Tu opinión ayuda mucho a mejorar nuestro servicio.</p>
+          </div>
+        )}
+
+        {/* Sección de Calificación de Productos */}
+        {order?.status === 'delivered' && (
+          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8 space-y-6 mt-4 text-left">
+            <h4 className="text-lg font-black text-gray-900 leading-tight">Califica tus Productos</h4>
+            <div className="space-y-4">
+              {order.items?.map((item: any, index: number) => {
+                const pId = item.productId || item.id
+                const existingProductRating = existingRating?.productRatings?.find((pr: any) => pr.productId === pId)
+                const itemState = productRatings[pId] || { rating: 0, hover: 0, comment: '' }
+
+                return (
+                  <div key={index} className="bg-slate-50/50 p-4 rounded-2xl border border-slate-100 space-y-3 relative overflow-hidden">
+                    {existingProductRating ? (
+                      /* Ya calificado */
+                      <div className="space-y-2">
+                        <div className="absolute top-3 right-3 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-emerald-100">
+                          Calificado ✓
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-xl overflow-hidden bg-white border border-slate-100 flex-shrink-0">
+                            <img
+                              src={item.image || business?.image || ''}
+                              alt={item.variant || item.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement
+                                target.src = business?.image || ''
+                              }}
+                            />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h6 className="font-extrabold text-sm text-slate-900 leading-tight truncate">
+                              {item.variant || item.name}
+                            </h6>
+                            <div className="flex gap-0.5 my-1">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <i
+                                  key={star}
+                                  className={`bi bi-star-fill text-xs ${
+                                    star <= existingProductRating.rating ? 'text-amber-400' : 'text-slate-200'
+                                  }`}
+                                ></i>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        {existingProductRating.comment && (
+                          <p className="text-xs text-slate-500 italic bg-white p-2 rounded-lg border border-slate-100/50 mt-1">
+                            "{existingProductRating.comment}"
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      /* Formulario para calificar */
+                      <>
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-xl overflow-hidden bg-white border border-slate-100 flex-shrink-0">
+                            <img
+                              src={item.image || business?.image || ''}
+                              alt={item.variant || item.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement
+                                target.src = business?.image || ''
+                              }}
+                            />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h6 className="font-extrabold text-sm text-slate-900 leading-tight">
+                              {item.variant || item.name}
+                            </h6>
+                            <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                              x{item.quantity} • ${(item.price)?.toFixed(2)} c/u
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-100/60 flex items-center justify-between">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                            Calificar
+                          </span>
+                          <div className="flex gap-1.5">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <button
+                                key={star}
+                                type="button"
+                                onClick={() => handleProductRatingChange(pId, star)}
+                                onMouseEnter={() => handleProductRatingHover(pId, star)}
+                                onMouseLeave={() => handleProductRatingHover(pId, 0)}
+                                className="focus:outline-none transition-transform active:scale-90"
+                              >
+                                <i
+                                  className={`bi bi-star-fill text-lg transition-colors ${
+                                    star <= (itemState.hover || itemState.rating) ? 'text-amber-400' : 'text-slate-200'
+                                  }`}
+                                ></i>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {itemState.rating > 0 && (
+                          <div className="mt-2 space-y-2">
+                            <textarea
+                              placeholder={`¿Qué tal estuvo este producto? (opcional)`}
+                              value={itemState.comment}
+                              onChange={(e) => handleProductCommentChange(pId, e.target.value)}
+                              className="w-full text-xs p-3 bg-white border border-slate-100 rounded-xl focus:border-slate-300 focus:outline-none transition-colors duration-200 resize-none h-14"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSaveProductRating(pId, item)}
+                              disabled={submittingProducts[pId]}
+                              className="w-full bg-[#0F172A] text-white py-2 px-3 rounded-xl flex items-center justify-center font-bold text-xs gap-1 hover:bg-slate-800 transition-all shadow active:scale-[0.98] disabled:bg-slate-200 disabled:text-slate-400"
+                            >
+                              {submittingProducts[pId] ? 'Guardando...' : 'Guardar Reseña'}
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
 

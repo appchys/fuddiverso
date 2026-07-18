@@ -24,7 +24,9 @@ import {
     uploadImage,
     addBusinessAdministrator,
     removeBusinessAdministrator,
-    getIngredientStockSummary
+    getIngredientStockSummary,
+    getAllBusinesses,
+    getProductsByIds
 } from '@/lib/database'
 import {
     sendWhatsAppToDelivery,
@@ -974,7 +976,30 @@ export default function TodayOrdersPage() {
             const fetchProducts = async () => {
                 setProductsLoading(true)
                 try {
-                    const productsData = await getProductsByBusiness(businessId)
+                    let productsData = await getProductsByBusiness(businessId)
+                    try {
+                        const biz = business || await getBusiness(businessId)
+                        if (biz?.sharedProductIds && biz.sharedProductIds.length > 0) {
+                            const sharedProds = await getProductsByIds(biz.sharedProductIds)
+                            const allBizs = await getAllBusinesses()
+                            const avShared = sharedProds
+                                .filter(p => p.isAvailable)
+                                .map(p => {
+                                    const ownerBiz = allBizs.find(b => b.id === p.businessId)
+                                    return {
+                                        ...p,
+                                        category: 'Compartidos',
+                                        isShared: true,
+                                        originalBusinessId: p.businessId,
+                                        originalBusinessName: ownerBiz?.name || 'Otra tienda',
+                                        originalBusinessImage: ownerBiz?.image || null
+                                    }
+                                })
+                            productsData = [...productsData, ...avShared]
+                        }
+                    } catch (e) {
+                        console.error("Error loading shared products in dashboard:", e)
+                    }
                     setProducts(productsData)
                     setProductsLoaded(true)
                 } catch (error) {

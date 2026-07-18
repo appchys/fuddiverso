@@ -40,6 +40,10 @@ interface OrderItem {
   variant?: string
   variantName?: string
   productName?: string
+  image?: string
+  originalBusinessId?: string
+  originalBusinessName?: string
+  originalBusinessImage?: string | null
   // Metadatos de precios para liquidaciones
   basePrice?: number
   commission?: number
@@ -508,7 +512,12 @@ export default function ManualOrderSidebar({
     }
     // Usar las categorías del negocio si existen y tienen elementos
     if (business && Array.isArray(business.categories) && business.categories.length > 0) {
-      return uniqueCategories(business.categories);
+      const list = [...business.categories]
+      const hasSharedProducts = products.some(p => p.isShared)
+      if (hasSharedProducts && !list.includes('Compartidos')) {
+        list.push('Compartidos')
+      }
+      return uniqueCategories(list);
     }
     // Si no hay categorías definidas en el negocio, obtenerlas de los productos
     return uniqueCategories(products.map(product => product.category));
@@ -520,13 +529,13 @@ export default function ManualOrderSidebar({
 
     const getCategoryIndex = (category?: string | null) => {
       if (!category) return Number.MAX_SAFE_INTEGER
-      const idx = categoriesOrder.indexOf(category)
+      const idx = categoriesOrder.findIndex(c => c?.trim().toLowerCase() === category?.trim().toLowerCase())
       return idx === -1 ? Number.MAX_SAFE_INTEGER : idx
     }
 
     const baseProducts = selectedCategory === 'all'
       ? products
-      : products.filter(product => product.category === selectedCategory)
+      : products.filter(product => product.category?.trim().toLowerCase() === selectedCategory?.trim().toLowerCase())
 
     // Ordenar los productos según el orden de las categorías definido por el negocio
     return [...baseProducts].sort((a, b) => {
@@ -2091,6 +2100,12 @@ export default function ManualOrderSidebar({
       price: pubPrice,
       productId: product.id,
       quantity: 1,
+      image: product.image || '',
+      ...(product.isShared && {
+        originalBusinessId: product.originalBusinessId,
+        originalBusinessName: product.originalBusinessName,
+        originalBusinessImage: product.originalBusinessImage
+      }),
       ...metadata
     }
 
@@ -2267,6 +2282,10 @@ export default function ManualOrderSidebar({
           price: item.price,
           quantity: item.quantity,
           variant: item.variant,
+          image: item.image || '',
+          originalBusinessId: item.originalBusinessId || null,
+          originalBusinessName: item.originalBusinessName || null,
+          originalBusinessImage: item.originalBusinessImage || null,
           basePrice: (item as any).basePrice,
           commission: (item as any).commission,
           commissionType: (item as any).commissionType,
