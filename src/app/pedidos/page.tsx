@@ -257,6 +257,10 @@ export default function AdminPedidosPage() {
     const [selectedOrderForCustomerContact, setSelectedOrderForCustomerContact] = useState<Order | null>(null)
     const [clientsWithNotes, setClientsWithNotes] = useState<Record<string, string>>({})
 
+    // Menu Sidebar states
+    const [isMenuSidebarOpen, setIsMenuSidebarOpen] = useState(false)
+    const [activeSidebarTab, setActiveSidebarTab] = useState<'menu' | 'cierre'>('menu')
+
     const mergedHistoryOrders = useMemo(() => {
         const seen = new Set<string>()
         const merged: Order[] = []
@@ -1132,6 +1136,16 @@ export default function AdminPedidosPage() {
                     <div className="flex justify-between items-center h-16 sm:h-20">
                         {/* Logo and Selector */}
                         <div className="flex items-center space-x-4">
+                            <button
+                                onClick={() => {
+                                    setActiveSidebarTab('menu')
+                                    setIsMenuSidebarOpen(true)
+                                }}
+                                className="p-2 -ml-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition-all"
+                                title="Abrir menú"
+                            >
+                                <i className="bi bi-list text-2xl"></i>
+                            </button>
                             <span 
                                 onClick={() => router.push('/admin/dashboard')}
                                 className="text-xl sm:text-2xl font-black text-red-600 tracking-tighter hover:opacity-80 transition-opacity cursor-pointer"
@@ -1657,6 +1671,64 @@ export default function AdminPedidosPage() {
                 onClose={() => setCustomerContactModalOpen(false)}
                 order={selectedOrderForCustomerContact}
             />
+
+            {/* Menu Sidebar Component */}
+            {isMenuSidebarOpen && (
+                <div className="fixed inset-0 z-50 flex">
+                    {/* Backdrop */}
+                    <div
+                        className="fixed inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300 animate-in fade-in"
+                        onClick={() => setIsMenuSidebarOpen(false)}
+                    />
+                    {/* Sidebar content container */}
+                    <div className="relative flex flex-col w-full max-w-sm bg-white h-full shadow-2xl animate-in slide-in-from-left duration-300">
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50 shrink-0">
+                            <div className="flex items-center gap-2">
+                                <span className="text-lg font-black text-red-600 tracking-tighter">Fuddi Pedidos</span>
+                            </div>
+                            <button
+                                onClick={() => setIsMenuSidebarOpen(false)}
+                                className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                            >
+                                <i className="bi bi-x-lg text-lg"></i>
+                            </button>
+                        </div>
+
+                        {/* Sidebar Main Content */}
+                        {activeSidebarTab === 'menu' ? (
+                            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                                <button
+                                    onClick={() => setActiveSidebarTab('cierre')}
+                                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold text-gray-700 hover:bg-red-50 hover:text-red-600 transition-all duration-200"
+                                >
+                                    <i className="bi bi-calculator-fill text-lg text-red-500"></i>
+                                    <span>Cierre de Caja</span>
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setIsMenuSidebarOpen(false)
+                                        router.push('/admin/dashboard')
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition-all duration-200"
+                                >
+                                    <i className="bi bi-speedometer2 text-lg text-gray-400"></i>
+                                    <span>Volver al Dashboard</span>
+                                </button>
+                            </div>
+                        ) : activeSidebarTab === 'cierre' ? (
+                            /* Cierre view inside the sidebar */
+                            <CierreSidebarView
+                                orders={orders}
+                                availableDeliveries={availableDeliveries}
+                                onBack={() => setActiveSidebarTab('menu')}
+                                selectedBusinessId={selectedBusinessId}
+                                businesses={businesses}
+                            />
+                        ) : null}
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
@@ -1715,6 +1787,778 @@ function CustomerContactModal({
                         </a>
                     </div>
                 </div>
+            </div>
+        </div>
+    )
+}
+
+interface CierreSidebarViewProps {
+    orders: Order[]
+    availableDeliveries: Delivery[]
+    onBack: () => void
+    selectedBusinessId: string | null
+    businesses: Business[]
+}
+
+function CierreSidebarView({
+    orders,
+    availableDeliveries,
+    onBack,
+    selectedBusinessId,
+    businesses
+}: CierreSidebarViewProps) {
+    const [selectedDeliveryId, setSelectedDeliveryId] = useState<string>('all')
+    const [collapsedGroups, setCollapsedGroups] = useState<{ cash: boolean, transfer: boolean, mixed: boolean }>({
+        cash: false,
+        transfer: false,
+        mixed: false
+    })
+
+    const [selectedStoreFilterId, setSelectedStoreFilterId] = useState<string>('all')
+
+    useEffect(() => {
+        setCollapsedGroups({ cash: false, transfer: false, mixed: false })
+        setSelectedStoreFilterId('all')
+    }, [selectedDeliveryId])
+
+    const [settling, setSettling] = useState(false)
+
+    const handleSettleDriver = async (driverId: string, driverName: string, pendingOrders: Order[]) => {
+        if (pendingOrders.length === 0) return
+
+        const totalCash = pendingOrders.reduce((sum, o) => {
+            const method = o.payment?.method || 'cash'
+            if (method === 'cash') return sum + (o.total || 0)
+            if (method === 'mixed') return sum + (o.payment?.cashAmount || 0)
+            return sum
+        }, 0)
+
+        const totalFee = pendingOrders.reduce((sum, o) => sum + (o.delivery?.deliveryCost || 0), 0)
+        const netCash = totalCash - totalFee
+
+        const confirmMsg = `¿Marcar como LIQUIDADO a ${driverName}?\n\n` +
+            `• Pedidos a liquidar: ${pendingOrders.length}\n` +
+            `• Efectivo a recibir: $${totalCash.toFixed(2)}\n` +
+            `• Fletes a deducir: $${totalFee.toFixed(2)}\n` +
+            `• Saldo neto a entregar: $${netCash.toFixed(2)}\n\n` +
+            `Esta acción registrará las cuentas como saldadas. ¿Deseas continuar?`
+
+        if (!window.confirm(confirmMsg)) return
+
+        setSettling(true)
+        try {
+            const updatePromises = pendingOrders.map(order => 
+                updateDoc(doc(db, 'orders', order.id), {
+                    deliverySettlementStatus: 'settled'
+                })
+            )
+            await Promise.all(updatePromises)
+            alert(`Cuentas de ${driverName} liquidadas con éxito.`)
+        } catch (error) {
+            console.error("Error settling driver:", error)
+            alert("Ocurrió un error al liquidar las cuentas. Inténtalo de nuevo.")
+        } finally {
+            setSettling(false)
+        }
+    }
+
+    // Filter out cancelled and borrador orders
+    const activeOrders = useMemo(() => {
+        return orders.filter(o => o.status !== 'cancelled' && o.status !== 'borrador')
+    }, [orders])
+
+    // Find business name
+    const currentBusinessName = useMemo(() => {
+        if (selectedBusinessId === 'all') return 'Todas las tiendas'
+        const biz = businesses.find(b => b.id === selectedBusinessId)
+        return biz ? biz.name : 'Tienda seleccionada'
+    }, [selectedBusinessId, businesses])
+
+    // Global totals: count all active orders, separate pending and settled
+    const globalTotals = useMemo(() => {
+        let pendingCash = 0
+        let pendingTransfer = 0
+        let pendingDeliveriesFee = 0
+        let pendingCount = 0
+
+        let settledCash = 0
+        let settledTransfer = 0
+        let settledDeliveriesFee = 0
+        let settledCount = 0
+
+        activeOrders.forEach(o => {
+            const isSettled = o.deliverySettlementStatus === 'settled'
+            const method = o.payment?.method || 'cash'
+            const total = o.total || 0
+
+            let orderCash = 0
+            let orderTransfer = 0
+
+            if (method === 'cash') {
+                orderCash = total
+            } else if (method === 'transfer') {
+                orderTransfer = total
+            } else if (method === 'mixed') {
+                orderCash = o.payment?.cashAmount || 0
+                orderTransfer = o.payment?.transferAmount || 0
+            }
+
+            const orderDeliveryFee = o.delivery?.type === 'delivery' ? (o.delivery?.deliveryCost || 0) : 0
+
+            if (isSettled) {
+                settledCount++
+                settledCash += orderCash
+                settledTransfer += orderTransfer
+                settledDeliveriesFee += orderDeliveryFee
+            } else {
+                pendingCount++
+                pendingCash += orderCash
+                pendingTransfer += orderTransfer
+                pendingDeliveriesFee += orderDeliveryFee
+            }
+        })
+
+        return {
+            pendingCash,
+            pendingTransfer,
+            pendingDeliveriesFee,
+            pendingCount,
+            settledCash,
+            settledTransfer,
+            settledDeliveriesFee,
+            settledCount,
+            totalCount: pendingCount + settledCount
+        }
+    }, [activeOrders])
+
+    // Grouping by delivery driver
+    const deliveryAccounts = useMemo(() => {
+        const accountsMap = new Map<string, {
+            deliveryId: string
+            name: string
+            celular: string
+            orderCount: number
+            pendingOrderCount: number
+            settledOrderCount: number
+            cashCollected: number // pending cash
+            transferCollected: number // pending transfer
+            deliveryFeeEarned: number // pending fee
+            settledCashCollected: number
+            settledTransferCollected: number
+            settledDeliveryFeeEarned: number
+            ordersList: Order[]
+        }>()
+
+        // Initialize with all available deliveries
+        availableDeliveries.forEach(d => {
+            accountsMap.set(d.id, {
+                deliveryId: d.id,
+                name: d.nombres || 'Sin nombre',
+                celular: d.celular || '',
+                orderCount: 0,
+                pendingOrderCount: 0,
+                settledOrderCount: 0,
+                cashCollected: 0,
+                transferCollected: 0,
+                deliveryFeeEarned: 0,
+                settledCashCollected: 0,
+                settledTransferCollected: 0,
+                settledDeliveryFeeEarned: 0,
+                ordersList: []
+            })
+        })
+
+        // Also add a "Sin Asignar" category
+        const unassignedId = 'unassigned'
+        accountsMap.set(unassignedId, {
+            deliveryId: unassignedId,
+            name: 'Sin Repartidor / Pendiente',
+            celular: '',
+            orderCount: 0,
+            pendingOrderCount: 0,
+            settledOrderCount: 0,
+            cashCollected: 0,
+            transferCollected: 0,
+            deliveryFeeEarned: 0,
+            settledCashCollected: 0,
+            settledTransferCollected: 0,
+            settledDeliveryFeeEarned: 0,
+            ordersList: []
+        })
+
+        activeOrders.forEach(o => {
+            // We only look at delivery type orders
+            if (o.delivery?.type !== 'delivery') return
+
+            const driverId = o.delivery?.assignedDelivery || unassignedId
+            let acc = accountsMap.get(driverId)
+            
+            if (!acc) {
+                acc = {
+                    deliveryId: driverId,
+                    name: `Repartidor ID: ${driverId.substring(0, 6)}...`,
+                    celular: '',
+                    orderCount: 0,
+                    pendingOrderCount: 0,
+                    settledOrderCount: 0,
+                    cashCollected: 0,
+                    transferCollected: 0,
+                    deliveryFeeEarned: 0,
+                    settledCashCollected: 0,
+                    settledTransferCollected: 0,
+                    settledDeliveryFeeEarned: 0,
+                    ordersList: []
+                }
+                accountsMap.set(driverId, acc)
+            }
+
+            acc.orderCount++
+            acc.ordersList.push(o)
+
+            const isSettled = o.deliverySettlementStatus === 'settled'
+            const method = o.payment?.method || 'cash'
+            const total = o.total || 0
+            const deliveryFee = o.delivery?.deliveryCost || 0
+
+            let orderCash = 0
+            let orderTransfer = 0
+
+            if (method === 'cash') {
+                orderCash = total
+            } else if (method === 'transfer') {
+                orderTransfer = total
+            } else if (method === 'mixed') {
+                orderCash = o.payment?.cashAmount || 0
+                orderTransfer = o.payment?.transferAmount || 0
+            }
+
+            if (isSettled) {
+                acc.settledOrderCount++
+                acc.settledCashCollected += orderCash
+                acc.settledTransferCollected += orderTransfer
+                acc.settledDeliveryFeeEarned += deliveryFee
+            } else {
+                acc.pendingOrderCount++
+                acc.cashCollected += orderCash
+                acc.transferCollected += orderTransfer
+                acc.deliveryFeeEarned += deliveryFee
+            }
+        })
+
+        // Filter out unassigned and drivers with 0 orders if they are not in availableDeliveries
+        const list = Array.from(accountsMap.values()).filter(acc => {
+            if (acc.deliveryId === unassignedId) {
+                return acc.orderCount > 0
+            }
+            return true
+        })
+
+        list.sort((a, b) => {
+            if (b.orderCount !== a.orderCount) return b.orderCount - a.orderCount
+            return a.name.localeCompare(b.name)
+        })
+
+        return list
+    }, [activeOrders, availableDeliveries])
+
+    // Find account info for selected delivery
+    const selectedAccount = useMemo(() => {
+        if (selectedDeliveryId === 'all') return null
+        return deliveryAccounts.find(acc => acc.deliveryId === selectedDeliveryId) || null
+    }, [deliveryAccounts, selectedDeliveryId])
+
+    // Filter selected account orders by store
+    const filteredOrdersByStore = useMemo(() => {
+        if (!selectedAccount) return []
+        if (selectedStoreFilterId === 'all') return selectedAccount.ordersList
+        return selectedAccount.ordersList.filter(o => o.businessId === selectedStoreFilterId)
+    }, [selectedAccount, selectedStoreFilterId])
+
+    // Group selected account orders by payment method
+    const groupedOrders = useMemo(() => {
+        const groups: { cash: Order[], transfer: Order[], mixed: Order[] } = {
+            cash: [],
+            transfer: [],
+            mixed: []
+        }
+        filteredOrdersByStore.forEach(order => {
+            const method = order.payment?.method || 'cash'
+            if (method === 'cash') {
+                groups.cash.push(order)
+            } else if (method === 'transfer') {
+                groups.transfer.push(order)
+            } else if (method === 'mixed') {
+                groups.mixed.push(order)
+            }
+        })
+        return groups
+    }, [filteredOrdersByStore])
+
+    // Unique stores from which this delivery has completed/assigned deliveries today
+    const driverStores = useMemo(() => {
+        if (!selectedAccount || !selectedAccount.ordersList) return []
+        
+        const storeIds = new Set<string>()
+        selectedAccount.ordersList.forEach(order => {
+            if (order.businessId) {
+                storeIds.add(order.businessId)
+            }
+        })
+
+        const storesList: { id: string; name: string; image: string | undefined }[] = []
+        storeIds.forEach(id => {
+            const biz = businesses.find(b => b.id === id)
+            if (biz) {
+                storesList.push({
+                    id: biz.id,
+                    name: biz.name || 'Tienda',
+                    image: biz.image
+                })
+            } else {
+                storesList.push({
+                    id,
+                    name: 'Tienda',
+                    image: undefined
+                })
+            }
+        })
+
+        return storesList
+    }, [selectedAccount, businesses])
+
+    const toggleGroup = (group: 'cash' | 'transfer' | 'mixed') => {
+        setCollapsedGroups(prev => ({
+            ...prev,
+            [group]: !prev[group]
+        }))
+    }
+
+    const renderOrderGroup = (
+        title: string,
+        groupKey: 'cash' | 'transfer' | 'mixed',
+        ordersList: Order[],
+        icon: string,
+        colorClass: string
+    ) => {
+        if (ordersList.length === 0) return null
+
+        const isCollapsed = collapsedGroups[groupKey]
+
+        return (
+            <div className="space-y-2 border border-gray-100 bg-white rounded-2xl p-3 shadow-sm">
+                {/* Group Header */}
+                <button
+                    onClick={() => toggleGroup(groupKey)}
+                    className="w-full flex items-center justify-between font-bold text-xs text-gray-700 py-1"
+                >
+                    <div className="flex items-center gap-2">
+                        <div className={`w-6 h-6 rounded-lg ${colorClass} flex items-center justify-center shrink-0`}>
+                            <i className={`bi ${icon} text-xs`}></i>
+                        </div>
+                        <span>{title} ({ordersList.length})</span>
+                    </div>
+                    <i className={`bi bi-chevron-${isCollapsed ? 'right' : 'down'} text-gray-400 text-[10px]`}></i>
+                </button>
+
+                {/* Group Body */}
+                {!isCollapsed && (
+                    <div className="space-y-2 pt-2 border-t border-gray-50 animate-in fade-in duration-200">
+                        {ordersList.map(order => {
+                            const deliveryCost = order.delivery?.deliveryCost || 0
+                            const total = order.total || 0
+                            const method = order.payment?.method || 'cash'
+
+                            return (
+                                <div key={order.id} className="bg-gray-50 p-3 rounded-xl border border-gray-100/50 space-y-2 text-xs">
+                                    <div className="flex justify-between items-center font-bold">
+                                        <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                                            <span className="text-gray-900 truncate">{order.customer?.name}</span>
+                                            {order.deliverySettlementStatus === 'settled' ? (
+                                                <span className="px-1 py-0.5 text-[8px] font-black uppercase tracking-wider bg-green-100 text-green-700 rounded shrink-0">Liq</span>
+                                            ) : (
+                                                <span className="px-1 py-0.5 text-[8px] font-black uppercase tracking-wider bg-gray-200 text-gray-600 rounded shrink-0">Pend</span>
+                                            )}
+                                        </div>
+                                        <span className="text-gray-400 text-[10px] shrink-0">{getOrderDisplayTime(order)}</span>
+                                    </div>
+                                    
+                                    <div className="flex justify-between items-center text-gray-600">
+                                        <span className="font-semibold text-gray-800">
+                                            Total: <span className="font-black text-gray-950">${total.toFixed(2)}</span>
+                                        </span>
+                                        <span className="text-orange-600 font-semibold">Envío: ${deliveryCost.toFixed(2)}</span>
+                                    </div>
+
+                                    {method === 'mixed' && (
+                                        <div className="flex justify-between items-center pt-1 border-t border-gray-50 text-[9px] font-semibold text-gray-400">
+                                            <span>Efectivo: ${order.payment?.cashAmount?.toFixed(2) || '0.00'}</span>
+                                            <span>Transf: ${order.payment?.transferAmount?.toFixed(2) || '0.00'}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50">
+            {/* Cierre Header inside sidebar */}
+            <div className="px-4 py-3 bg-white border-b border-gray-100 flex items-center gap-2">
+                <button
+                    onClick={onBack}
+                    className="p-1 text-gray-500 hover:text-gray-800 rounded-lg hover:bg-gray-100 transition-colors flex items-center"
+                    title="Volver"
+                >
+                    <i className="bi bi-chevron-left text-lg"></i>
+                </button>
+                <div>
+                    <h2 className="text-base font-bold text-gray-900 leading-tight">Cierre de Caja</h2>
+                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">{currentBusinessName}</p>
+                </div>
+            </div>
+
+            {/* Scrollable View Area */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                {/* Resumen Global Card Group */}
+                <div className="space-y-2">
+                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Resumen Global (Hoy)</h3>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                        {/* Efectivo Card */}
+                        <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
+                            <div className="w-9 h-9 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center shrink-0">
+                                <i className="bi bi-cash-stack text-lg"></i>
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide leading-none">Efectivo Pend.</p>
+                                <p className="text-base font-black text-emerald-600 mt-1">${globalTotals.pendingCash.toFixed(2)}</p>
+                                {globalTotals.settledCash > 0 && (
+                                    <p className="text-[8px] text-gray-400 font-semibold mt-0.5">Liq: ${globalTotals.settledCash.toFixed(2)}</p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Transferencia Card */}
+                        <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
+                            <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shrink-0">
+                                <i className="bi bi-bank text-lg"></i>
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide leading-none">Transf. Pend.</p>
+                                <p className="text-base font-black text-blue-600 mt-1">${globalTotals.pendingTransfer.toFixed(2)}</p>
+                                {globalTotals.settledTransfer > 0 && (
+                                    <p className="text-[8px] text-gray-400 font-semibold mt-0.5">Liq: ${globalTotals.settledTransfer.toFixed(2)}</p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Costo de Envio Card */}
+                        <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
+                            <div className="w-9 h-9 bg-orange-50 text-orange-600 rounded-xl flex items-center justify-center shrink-0">
+                                <i className="bi bi-scooter text-lg"></i>
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide leading-none">Envío Pend.</p>
+                                <p className="text-base font-black text-orange-600 mt-1">${globalTotals.pendingDeliveriesFee.toFixed(2)}</p>
+                                {globalTotals.settledDeliveriesFee > 0 && (
+                                    <p className="text-[8px] text-gray-400 font-semibold mt-0.5">Liq: ${globalTotals.settledDeliveriesFee.toFixed(2)}</p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Total Card */}
+                        <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
+                            <div className="w-9 h-9 bg-gray-50 text-gray-800 rounded-xl flex items-center justify-center shrink-0">
+                                <i className="bi bi-currency-dollar text-lg font-bold"></i>
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide leading-none">Total Pendiente</p>
+                                <p className="text-base font-black text-gray-900 mt-1">${(globalTotals.pendingCash + globalTotals.pendingTransfer).toFixed(2)}</p>
+                                {(globalTotals.settledCash + globalTotals.settledTransfer) > 0 && (
+                                    <p className="text-[8px] text-gray-400 font-semibold mt-0.5">Total Liq: ${(globalTotals.settledCash + globalTotals.settledTransfer).toFixed(2)}</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div className="text-[10px] text-gray-400 font-semibold italic text-right">
+                        Basado en {globalTotals.totalCount} pedidos hoy. {globalTotals.settledCount > 0 && `(${globalTotals.settledCount} liquidados)`}
+                    </div>
+                </div>
+
+                {/* Delivery Selector */}
+                <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
+                        Filtrar por Repartidor
+                    </label>
+                    <div className="relative">
+                        <i className="bi bi-scooter absolute left-3 top-2.5 text-gray-400"></i>
+                        <select
+                            value={selectedDeliveryId}
+                            onChange={(e) => setSelectedDeliveryId(e.target.value)}
+                            className="w-full bg-white border border-gray-200 rounded-xl pl-9 pr-4 py-2 text-xs font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-100 transition-all appearance-none"
+                        >
+                            <option value="all">Todos los repartidores</option>
+                            {deliveryAccounts.map(acc => (
+                                <option key={acc.deliveryId} value={acc.deliveryId}>
+                                    {acc.name} ({acc.pendingOrderCount} pend. / {acc.settledOrderCount} liq.)
+                                </option>
+                            ))}
+                        </select>
+                        <i className="bi bi-chevron-down absolute right-3 top-2.5 text-gray-400 text-[10px] pointer-events-none"></i>
+                    </div>
+                </div>
+
+                {/* Dynamic Content depending on Selection */}
+                {selectedDeliveryId === 'all' ? (
+                    /* Show List of all Deliveries with Accounts */
+                    <div className="space-y-3">
+                        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Cuentas de Repartidores</h3>
+                        
+                        {deliveryAccounts.filter(acc => (acc.deliveryId !== 'unassigned' || acc.orderCount > 0) && acc.pendingOrderCount > 0).length === 0 ? (
+                            <div className="bg-white p-6 rounded-2xl border border-gray-100 text-center space-y-2 shadow-sm">
+                                <div className="w-10 h-10 bg-green-50 text-green-600 rounded-full flex items-center justify-center mx-auto">
+                                    <i className="bi bi-check2-circle text-xl"></i>
+                                </div>
+                                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                    Todos los repartidores liquidados
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                {deliveryAccounts.filter(acc => (acc.deliveryId !== 'unassigned' || acc.orderCount > 0) && acc.pendingOrderCount > 0).map(acc => {
+                                    const netCash = acc.cashCollected - acc.deliveryFeeEarned
+                                    return (
+                                        <div 
+                                            key={acc.deliveryId}
+                                            onClick={() => setSelectedDeliveryId(acc.deliveryId)}
+                                            className="bg-white p-4 rounded-2xl border border-gray-100 hover:border-red-100 hover:shadow-md transition-all cursor-pointer space-y-3"
+                                        >
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <h4 className="font-bold text-sm text-gray-900 leading-tight">{acc.name}</h4>
+                                                    {acc.celular && <p className="text-[10px] text-gray-400 mt-0.5">{acc.celular}</p>}
+                                                </div>
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    <span className="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider bg-gray-100 text-gray-600 rounded-lg">
+                                                        {acc.orderCount} {acc.orderCount === 1 ? 'ent.' : 'ent.'}
+                                                    </span>
+                                                    {acc.pendingOrderCount === 0 && acc.settledOrderCount > 0 ? (
+                                                        <span className="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider bg-green-50 text-green-700 rounded-lg flex items-center gap-0.5">
+                                                            <i className="bi bi-check-circle-fill"></i> Liq.
+                                                        </span>
+                                                    ) : (
+                                                        acc.settledOrderCount > 0 && (
+                                                            <span className="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider bg-blue-50 text-blue-600 rounded-lg">
+                                                                {acc.settledOrderCount} liq.
+                                                            </span>
+                                                        )
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-3 gap-2 bg-gray-50 p-2.5 rounded-xl text-center">
+                                                <div>
+                                                    <p className="text-[8px] font-bold text-gray-400 uppercase tracking-wide">Efectivo</p>
+                                                    <p className="text-xs font-extrabold text-emerald-600 mt-0.5">${acc.cashCollected.toFixed(2)}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[8px] font-bold text-gray-400 uppercase tracking-wide">Fletes</p>
+                                                    <p className="text-xs font-extrabold text-orange-600 mt-0.5">${acc.deliveryFeeEarned.toFixed(2)}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[8px] font-bold text-gray-400 uppercase tracking-wide">Saldo Neto</p>
+                                                    <p className={`text-xs font-black mt-0.5 ${netCash >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+                                                        ${netCash.toFixed(2)}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-red-600 border-t border-gray-50 pt-2 shrink-0">
+                                                <span>Ver detalle de órdenes</span>
+                                                <i className="bi bi-chevron-right text-xs"></i>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    /* Show Details of Specific selected Delivery */
+                    <div className="space-y-4">
+                        {selectedAccount && (
+                            <>
+                                {/* Driver Resume Card */}
+                                <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-3">
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <h4 className="font-black text-base text-gray-900 leading-tight">{selectedAccount.name}</h4>
+                                            {selectedAccount.celular && (
+                                                <a 
+                                                    href={`tel:${selectedAccount.celular}`}
+                                                    className="text-[10px] font-bold text-gray-400 flex items-center gap-1 mt-1 hover:text-red-500 transition-colors"
+                                                >
+                                                    <i className="bi bi-phone"></i> {selectedAccount.celular}
+                                                </a>
+                                            )}
+                                        </div>
+                                        <button
+                                            onClick={() => setSelectedDeliveryId('all')}
+                                            className="px-2.5 py-1 text-[10px] font-bold text-gray-500 hover:text-gray-900 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                                        >
+                                            Ver todos
+                                        </button>
+                                    </div>
+
+                                    {/* Detailed balance table/cards */}
+                                    <div className="space-y-1.5 border-t border-gray-50 pt-3">
+                                        <div className="flex justify-between text-xs font-semibold text-gray-500">
+                                            <span>Total Entregas</span>
+                                            <span className="font-bold text-gray-900">{selectedAccount.orderCount} pedidos ({selectedAccount.pendingOrderCount} pend. / {selectedAccount.settledOrderCount} liq.)</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs font-semibold text-gray-500">
+                                            <span>Efectivo Cobrado (+)</span>
+                                            <span className="font-bold text-emerald-600">${selectedAccount.cashCollected.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs font-semibold text-gray-500">
+                                            <span>Transferencias de Soporte</span>
+                                            <span className="font-bold text-blue-600">${selectedAccount.transferCollected.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs font-semibold text-gray-500">
+                                            <span>Comisión Envíos (-)</span>
+                                            <span className="font-bold text-orange-600">${selectedAccount.deliveryFeeEarned.toFixed(2)}</span>
+                                        </div>
+                                        
+                                        {selectedAccount.settledOrderCount > 0 && (
+                                            <div className="bg-gray-50 p-2 rounded-xl text-[10px] text-gray-500 font-semibold space-y-1 mt-2 border border-gray-100">
+                                                <div className="flex justify-between">
+                                                    <span>Efectivo Liquidado</span>
+                                                    <span>${selectedAccount.settledCashCollected.toFixed(2)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span>Envíos Liquidados</span>
+                                                    <span>${selectedAccount.settledDeliveryFeeEarned.toFixed(2)}</span>
+                                                </div>
+                                                <div className="flex justify-between text-gray-800 font-bold border-t border-gray-200/60 pt-1">
+                                                    <span>Total Liquidado</span>
+                                                    <span>${(selectedAccount.settledCashCollected - selectedAccount.settledDeliveryFeeEarned).toFixed(2)}</span>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="border-t border-dashed border-gray-200 my-2"></div>
+                                        
+                                        <div className="flex justify-between items-center text-sm font-black uppercase tracking-wider text-gray-900">
+                                            <span>Saldo Neto a Recibir</span>
+                                            <span className={`text-base ${(selectedAccount.cashCollected - selectedAccount.deliveryFeeEarned) >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+                                                ${(selectedAccount.cashCollected - selectedAccount.deliveryFeeEarned).toFixed(2)}
+                                            </span>
+                                        </div>
+                                        <p className="text-[9px] text-gray-400 font-bold leading-normal pt-1">
+                                            * El Saldo Neto asume que el repartidor recolectó todo el efectivo y se le deduce la ganancia de sus envíos directamente.
+                                        </p>
+
+                                        {/* Liquidar button */}
+                                        {selectedAccount.pendingOrderCount > 0 && (
+                                            <div className="pt-3">
+                                                <button
+                                                    onClick={() => {
+                                                        const pendingOrdersList = selectedAccount.ordersList.filter(o => o.deliverySettlementStatus !== 'settled')
+                                                        handleSettleDriver(selectedAccount.deliveryId, selectedAccount.name, pendingOrdersList)
+                                                    }}
+                                                    disabled={settling}
+                                                    className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-50 shadow-md shadow-green-100"
+                                                >
+                                                    {settling ? (
+                                                        <>
+                                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white animate-pulse"></div>
+                                                            <span>Liquidando...</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <i className="bi bi-check-all text-base"></i>
+                                                            <span>Liquidar Cuentas</span>
+                                                        </>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        )}
+                                        {selectedAccount.pendingOrderCount === 0 && selectedAccount.settledOrderCount > 0 && (
+                                            <div className="mt-3 flex items-center justify-center gap-1.5 py-2.5 bg-green-50 border border-green-200 rounded-xl text-green-700 font-bold text-xs uppercase tracking-wider select-none">
+                                                <i className="bi bi-check-circle-fill"></i>
+                                                <span>Completamente Liquidado</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Orders list for this delivery */}
+                                <div className="space-y-2">
+                                    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Órdenes del Repartidor</h4>
+                                    
+                                    {/* unique store circles wrapper */}
+                                    {driverStores.length > 0 && (
+                                        <div className="flex flex-wrap items-center gap-2 py-1.5">
+                                            {/* Button "Todas" */}
+                                            <button
+                                                onClick={() => setSelectedStoreFilterId('all')}
+                                                className={`h-8 px-3 rounded-full border text-[9px] font-black uppercase tracking-wider transition-all duration-150 active:scale-95 flex items-center justify-center shrink-0 ${
+                                                    selectedStoreFilterId === 'all'
+                                                        ? 'bg-red-500 text-white border-red-500 shadow-sm'
+                                                        : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50 hover:text-gray-700'
+                                                }`}
+                                            >
+                                                Todas
+                                            </button>
+
+                                            {/* Store logos circles */}
+                                            {driverStores.map(store => {
+                                                const isSelected = selectedStoreFilterId === store.id
+                                                return (
+                                                    <button
+                                                        key={store.id} 
+                                                        onClick={() => setSelectedStoreFilterId(store.id)}
+                                                        className={`w-8 h-8 rounded-full border shadow-sm overflow-hidden bg-gray-50 flex items-center justify-center shrink-0 transition-all duration-150 active:scale-95 ${
+                                                            isSelected 
+                                                                ? 'border-red-500 ring-2 ring-red-100'
+                                                                : 'border-gray-200 hover:border-gray-300 hover:brightness-95'
+                                                        }`}
+                                                        title={store.name}
+                                                    >
+                                                        {store.image ? (
+                                                            <img src={store.image} alt={store.name} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center bg-red-100 text-red-600 text-[10px] font-bold">
+                                                                <i className="bi bi-shop"></i>
+                                                            </div>
+                                                        )}
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
+                                    )}
+                                    
+                                    {selectedAccount.ordersList.length === 0 ? (
+                                        <p className="text-center text-xs text-gray-400 py-6 bg-white rounded-2xl border border-gray-55 font-medium uppercase tracking-wider">
+                                            Sin pedidos cobrados hoy
+                                        </p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {renderOrderGroup('Efectivo', 'cash', groupedOrders.cash, 'bi-cash text-emerald-600', 'bg-emerald-50')}
+                                            {renderOrderGroup('Transferencia', 'transfer', groupedOrders.transfer, 'bi-bank text-blue-600', 'bg-blue-50')}
+                                            {renderOrderGroup('Mixto', 'mixed', groupedOrders.mixed, 'bi-cash-coin text-amber-600', 'bg-amber-50')}
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     )
