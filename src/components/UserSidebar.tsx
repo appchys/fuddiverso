@@ -14,7 +14,7 @@ import {
     getClientNotifications, markClientNotificationAsRead, getClientStoreRatings, updateStoreRatingById,
     getUserBusinessAccess, getAllUserQRProgress, getQRCodesByBusiness
 } from '@/lib/database'
-import { normalizeEcuadorianPhone, validateEcuadorianPhone } from '@/lib/validation'
+import { normalizeEcuadorianPhone, validateEcuadorianPhone, getPhoneValidationMessage } from '@/lib/validation'
 import LocationSelectionModal from '@/components/LocationSelectionModal'
 import OrderSidebar from '@/components/OrderSidebar'
 import ReferralModal from '@/components/ReferralModal'
@@ -421,14 +421,14 @@ function ClientRecommendationsSidebar({
                     </div>
 
                     <div className="flex-1 px-6 py-6 space-y-4 overflow-y-auto">
-                        <div className="bg-gradient-to-r from-purple-600 to-purple-700 rounded-2xl p-4 text-white">
+                        <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-2xl p-4 text-white shadow-lg">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                                    <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center">
                                         <Wallet size={20} />
                                     </div>
                                     <div>
-                                        <p className="text-purple-200 text-[10px] font-black uppercase tracking-widest leading-none mb-1">Disponible</p>
+                                        <p className="text-gray-300 text-[10px] font-black uppercase tracking-widest leading-none mb-1">Disponible</p>
                                         <p className="text-white font-black text-2xl leading-tight">
                                             ${(walletBalance.referralCredits + walletBalance.manualBalance).toFixed(2)}
                                         </p>
@@ -436,17 +436,17 @@ function ClientRecommendationsSidebar({
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[10px] font-black text-white/50 uppercase tracking-widest">Ventas</p>
-                                    <p className="text-xl font-black">{referralStats.totalSales}</p>
+                                    <p className="text-xl font-black text-white">{referralStats.totalSales}</p>
                                 </div>
                             </div>
                             <div className="mt-4 grid grid-cols-2 gap-2">
-                                <div className="bg-white/10 rounded-xl px-3 py-2">
-                                    <p className="text-[10px] font-bold text-purple-100 uppercase tracking-widest">Recomendaciones</p>
-                                    <p className="text-sm font-black">${walletBalance.referralCredits.toFixed(2)}</p>
+                                <div className="bg-white/5 rounded-xl px-3 py-2 border border-white/5">
+                                    <p className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Recomendaciones</p>
+                                    <p className="text-sm font-black text-white">${walletBalance.referralCredits.toFixed(2)}</p>
                                 </div>
-                                <div className="bg-white/10 rounded-xl px-3 py-2">
-                                    <p className="text-[10px] font-bold text-purple-100 uppercase tracking-widest">Clics</p>
-                                    <p className="text-sm font-black">{referralStats.totalClicks}</p>
+                                <div className="bg-white/5 rounded-xl px-3 py-2 border border-white/5">
+                                    <p className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Clics</p>
+                                    <p className="text-sm font-black text-white">{referralStats.totalClicks}</p>
                                 </div>
                             </div>
                         </div>
@@ -1000,6 +1000,8 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
     const [clientSearching, setClientSearching] = useState(false)
     const [showNameField, setShowNameField] = useState(false)
     const [phoneConfirmation, setPhoneConfirmation] = useState('')
+    const [showConfirmModal, setShowConfirmModal] = useState(false)
+    const [pendingClient, setPendingClient] = useState<any>(null)
     const [loginPinLoading, setLoginPinLoading] = useState(false)
     const [phoneError, setPhoneError] = useState('')
     const [nameError, setNameError] = useState('')
@@ -1224,6 +1226,14 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                     })
 
                     combinedReferrals.sort((a, b) => {
+                        // Ordenar por ganancias (conversiones) de forma descendente
+                        const earningsA = (a.conversions || 0) * 0.25;
+                        const earningsB = (b.conversions || 0) * 0.25;
+                        if (earningsB !== earningsA) {
+                            return earningsB - earningsA;
+                        }
+
+                        // Si las ganancias son iguales, ordenar por fecha descendente (más recientes primero)
                         const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : a.createdAt ? new Date(a.createdAt) : new Date(0)
                         const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : b.createdAt ? new Date(b.createdAt) : new Date(0)
                         return dateB.getTime() - dateA.getTime()
@@ -1502,12 +1512,13 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
 
 
 
-    // Phone search function
-    async function handlePhoneSearch(phone: string) {
+    // Phone search and verification function (with confirmation modal)
+    const handleContinuePhone = async () => {
+        const phone = customerData.phone;
         if (!phone.trim()) {
             setClientFound(null)
             setShowNameField(false)
-            setPhoneError('')
+            setPhoneError('Ingrese un número de teléfono')
             setPhoneConfirmation('')
             return
         }
@@ -1515,35 +1526,27 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
         const normalizedPhone = normalizeEcuadorianPhone(phone);
 
         if (!validateEcuadorianPhone(normalizedPhone)) {
+            const errorMsg = getPhoneValidationMessage(phone) || 'Celular ecuatoriano inválido';
+            setPhoneError(errorMsg);
             setClientFound(null);
             setShowNameField(false);
-            setPhoneError('')
-            setPhoneConfirmation('')
+            setPhoneConfirmation('');
             return;
         }
 
         setClientSearching(true);
-        setPhoneError('')
+        setPhoneError('');
         try {
             const client = await searchClientByPhone(normalizedPhone);
             if (client) {
+                setPendingClient(client);
+                setShowConfirmModal(true);
                 setClientFound(client);
                 setCustomerData(prev => ({
                     ...prev,
-                    name: client.nombres || '',
-                    phone: normalizedPhone
+                    phone: normalizedPhone,
+                    name: client.nombres || ''
                 }));
-                setShowNameField(false);
-                
-                // Auto-login if found
-                login(client as any)
-                if (client.id) {
-                    await updateClient(client.id, {
-                        lastLoginAt: serverTimestamp(),
-                        loginSource: 'sidebar'
-                    })
-                }
-                setShowAuthForm(false)
             } else {
                 setClientFound(null);
                 setShowNameField(true);
@@ -1552,6 +1555,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                     name: '',
                     phone: normalizedPhone
                 }));
+                setPhoneConfirmation(normalizedPhone);
             }
         } catch (error) {
             console.error('Error searching client:', error);
@@ -1776,7 +1780,7 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                                         )}
                                     </div>
                                     <h2 className="text-xl font-semibold text-gray-900">
-                                        ¡Hola, {user?.nombres?.split(' ')[0] || 'Pedro'}!
+                                        {user?.nombres ? `¡Hola, ${user.nombres.split(' ')[0]}!` : '¡Hola!'}
                                     </h2>
                                 </div>
                                 <button
@@ -1788,184 +1792,238 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                             </div>
                         </div>
 
-                        {/* Credits / How to Earn Banner */}
-                        <div className="px-6 pb-4 space-y-3">
-                            {user ? (
+                        {/* Credits / How to Earn Banner (Solo para logueados) */}
+                        {user && (
+                            <div className="px-6 pb-4 space-y-3">
                                 <button
                                     type="button"
                                     onClick={() => setShowRecommendations(true)}
-                                    className="w-full text-left bg-gradient-to-r from-purple-600 to-purple-700 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:shadow-lg transition-all group"
+                                    className="w-full text-left bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-2xl p-4 flex items-center justify-between cursor-pointer transition-all group"
                                 >
                                     <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-white group-hover:scale-110 transition-transform">
+                                        <div className="w-10 h-10 bg-gray-200/70 rounded-xl flex items-center justify-center text-gray-700 group-hover:scale-110 transition-transform">
                                             <Wallet size={20} />
                                         </div>
                                         <div>
-                                            <p className="text-purple-200 text-[10px] font-black uppercase tracking-widest leading-none mb-1">Mis Créditos</p>
-                                            <p className="text-white font-black text-xl leading-tight">
+                                            <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest leading-none mb-1">Mis Créditos</p>
+                                            <p className="text-gray-900 font-black text-xl leading-tight">
                                                 ${(walletBalance.referralCredits + walletBalance.manualBalance).toFixed(2)}
                                             </p>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[10px] font-black text-white/50 uppercase tracking-widest">Ver más</span>
-                                        <ChevronRight size={16} className="text-white/50 group-hover:translate-x-1 transition-transform" />
+                                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Ver más</span>
+                                        <ChevronRight size={16} className="text-gray-400 group-hover:translate-x-1 transition-transform" />
                                     </div>
                                 </button>
-                            ) : (
-                                <div
-                                    onClick={() => setShowAuthForm(true)}
-                                    className="bg-gradient-to-r from-purple-600 to-purple-700 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:shadow-lg transition-all group"
+
+                                {/* How to earn option */}
+                                <button
+                                    onClick={() => setShowHowToEarn(!showHowToEarn)}
+                                    className="w-full flex items-center justify-between px-1 text-[11px] font-bold text-gray-400 hover:text-gray-900 transition-colors group"
                                 >
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-white group-hover:scale-110 transition-transform">
-                                            <Flame size={20} />
+                                    <span className="flex items-center gap-2">
+                                        <div className="w-5 h-5 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-all">
+                                            <CircleDollarSign size={12} />
                                         </div>
-                                        <div>
-                                            <p className="text-purple-200 text-[10px] font-black uppercase tracking-widest leading-none mb-1">Gana dinero con Fuddi</p>
-                                            <p className="text-white font-black text-sm leading-tight">Recomienda platos y gana saldo</p>
-                                        </div>
-                                    </div>
-                                    <ChevronRight size={16} className="text-white/50 group-hover:translate-x-1 transition-transform" />
-                                </div>
-                            )}
+                                        ¿Cómo ganar créditos?
+                                    </span>
+                                    <ChevronDown size={14} className={`transition-transform duration-300 ${showHowToEarn ? 'rotate-180 text-gray-900' : ''}`} />
+                                </button>
 
-                            {/* How to earn option */}
-                            <button
-                                onClick={() => setShowHowToEarn(!showHowToEarn)}
-                                className="w-full flex items-center justify-between px-1 text-[11px] font-bold text-gray-400 hover:text-gray-900 transition-colors group"
-                            >
-                                <span className="flex items-center gap-2">
-                                    <div className="w-5 h-5 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-all">
-                                        <CircleDollarSign size={12} />
-                                    </div>
-                                    ¿Cómo ganar créditos?
-                                </span>
-                                <ChevronDown size={14} className={`transition-transform duration-300 ${showHowToEarn ? 'rotate-180 text-gray-900' : ''}`} />
-                            </button>
-
-                            {showHowToEarn && (
-                                <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                                    <div className="space-y-4">
-                                        <div className="flex gap-3">
-                                            <div className="w-6 h-6 rounded-lg bg-white shadow-sm flex items-center justify-center text-emerald-600 font-black text-[10px] flex-shrink-0">1</div>
-                                            <p className="text-xs text-gray-600 leading-snug">Busca tu plato favorito en cualquier tienda de Fuddi.</p>
-                                        </div>
-                                        <div className="flex gap-3">
-                                            <div className="w-6 h-6 rounded-lg bg-white shadow-sm flex items-center justify-center text-emerald-600 font-black text-[10px] flex-shrink-0">2</div>
-                                            <p className="text-xs text-gray-600 leading-snug">Haz clic en el ícono <span className="text-orange-500 font-bold inline-flex items-center gap-1"><Flame size={14} /> Recomendar</span> del producto.</p>
-                                        </div>
-                                        <div className="flex gap-3">
-                                            <div className="w-6 h-6 rounded-lg bg-white shadow-sm flex items-center justify-center text-emerald-600 font-black text-[10px] flex-shrink-0">3</div>
-                                            <p className="text-xs text-gray-600 leading-snug">Comparte el enlace con tus amigos. Si compran, tú ganas.</p>
-                                        </div>
-                                        <div className="pt-3 border-t border-emerald-100 flex items-center justify-between">
-                                            <span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Recompensa:</span>
-                                            <span className="text-sm font-black text-emerald-600">$0.25 por venta</span>
+                                {showHowToEarn && (
+                                    <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                                        <div className="space-y-4">
+                                            <div className="flex gap-3">
+                                                <div className="w-6 h-6 rounded-lg bg-white shadow-sm flex items-center justify-center text-emerald-600 font-black text-[10px] flex-shrink-0">1</div>
+                                                <p className="text-xs text-gray-600 leading-snug">Busca tu plato favorito en cualquier tienda de Fuddi.</p>
+                                            </div>
+                                            <div className="flex gap-3">
+                                                <div className="w-6 h-6 rounded-lg bg-white shadow-sm flex items-center justify-center text-emerald-600 font-black text-[10px] flex-shrink-0">2</div>
+                                                <p className="text-xs text-gray-600 leading-snug">Haz clic en el ícono <span className="text-orange-500 font-bold inline-flex items-center gap-1"><Flame size={14} /> Recomendar</span> del producto.</p>
+                                            </div>
+                                            <div className="flex gap-3">
+                                                <div className="w-6 h-6 rounded-lg bg-white shadow-sm flex items-center justify-center text-emerald-600 font-black text-[10px] flex-shrink-0">3</div>
+                                                <p className="text-xs text-gray-600 leading-snug">Comparte el enlace con tus amigos. Si compran, tú ganas.</p>
+                                            </div>
+                                            <div className="pt-3 border-t border-emerald-100 flex items-center justify-between">
+                                                <span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Recompensa:</span>
+                                                <span className="text-sm font-black text-emerald-600">$0.25 por venta</span>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            )}
-                        </div>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex-1 px-6 py-6 space-y-6 overflow-y-auto">
                         {/* Login Section */}
                         {!user ? (
-                            <div className="space-y-4">
-                                {!showAuthForm ? (
-                                    <div className="text-center py-8 space-y-4">
-                                        <div className="w-24 h-24 bg-gradient-to-br from-gray-100 to-gray-50 rounded-full flex items-center justify-center mx-auto text-gray-300 shadow-sm">
-                                            <Info size={48} />
-                                        </div>
-                                        <div>
-                                            <h3 className="text-xl font-black text-gray-900 mb-2">¿Eres nuevo por aquí?</h3>
-                                            <p className="text-sm text-gray-500 leading-relaxed">Inicia sesión para acceder a tus pedidos, ubicaciones guardadas y más beneficios.</p>
-                                        </div>
-                                        <button
-                                            onClick={() => setShowAuthForm(true)}
-                                            className="w-full py-3.5 bg-gradient-to-r from-gray-900 to-gray-800 text-white font-black rounded-2xl hover:from-gray-800 hover:to-gray-700 transition-all active:scale-[0.98] shadow-lg"
-                                        >
-                                            Iniciar Sesión
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                                        <div className="flex items-center gap-3 mb-6">
-                                            <button
-                                                onClick={() => setShowAuthForm(false)}
-                                                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 transition-colors"
-                                            >
-                                                <ArrowLeft size={18} />
-                                            </button>
-                                            <h4 className="text-lg font-black text-gray-900">Ingresa tu número</h4>
-                                        </div>
-
-                                        <div className="space-y-6">
+                            <div className="space-y-6">
+                                <div className="space-y-4">
+                                    {!showAuthForm ? (
+                                        <div className="text-center py-8 space-y-4">
+                                            <div className="w-24 h-24 bg-gradient-to-br from-gray-100 to-gray-50 rounded-full flex items-center justify-center mx-auto text-gray-300 shadow-sm">
+                                                <Info size={48} />
+                                            </div>
                                             <div>
-                                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">
-                                                    Número de WhatsApp
-                                                </label>
-                                                <div className="relative">
-                                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                                                        <span className="text-sm font-bold text-gray-400">+593</span>
-                                                    </div>
-                                                    <input
-                                                        type="tel"
-                                                        value={customerData.phone}
-                                                        onChange={(e) => {
-                                                            const phone = e.target.value;
-                                                            setCustomerData({ ...customerData, phone });
-                                                            handlePhoneSearch(phone);
-                                                        }}
-                                                        placeholder="09XXXXXXXX"
-                                                        className="w-full pl-14 pr-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-sm font-bold focus:border-gray-900 focus:bg-white transition-all outline-none"
-                                                    />
-                                                </div>
-                                                {phoneError && <p className="text-red-500 text-xs font-bold mt-2 uppercase">{phoneError}</p>}
+                                                <h3 className="text-xl font-black text-gray-900 mb-2">¿Eres nuevo por aquí?</h3>
+                                                <p className="text-sm text-gray-500 leading-relaxed">Inicia sesión para acceder a tus pedidos, ubicaciones guardadas y más beneficios.</p>
+                                            </div>
+                                            <button
+                                                onClick={() => setShowAuthForm(true)}
+                                                className="w-full py-3.5 bg-gradient-to-r from-gray-900 to-gray-800 text-white font-black rounded-2xl hover:from-gray-800 hover:to-gray-700 transition-all active:scale-[0.98] shadow-lg"
+                                            >
+                                                Iniciar Sesión
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                            <div className="flex items-center gap-3 mb-6">
+                                                <button
+                                                    onClick={() => setShowAuthForm(false)}
+                                                    className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 transition-colors"
+                                                >
+                                                    <ArrowLeft size={18} />
+                                                </button>
+                                                <h4 className="text-lg font-black text-gray-900">Ingresa tu número</h4>
                                             </div>
 
-                                            {clientSearching && (
-                                                <div className="flex items-center justify-center gap-3 py-4 bg-white rounded-xl border border-gray-200">
-                                                    <div className="animate-spin h-4 w-4 border-2 border-gray-900 border-t-transparent rounded-full"></div>
-                                                    <span className="text-xs font-black text-gray-400 uppercase">Buscando...</span>
-                                                </div>
-                                            )}
-
-                                            {!clientSearching && !clientFound && showNameField && customerData.phone.length >= 7 && (
-                                                <div className="space-y-6 animate-in fade-in duration-300">
-                                                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
-                                                        <p className="text-xs font-bold text-blue-700">
-                                                            📝 Completa tu perfil en segundos para comenzar
-                                                        </p>
-                                                    </div>
-
-                                                    <div>
-                                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">
-                                                            Tu Nombre
-                                                        </label>
+                                            <div className="space-y-6">
+                                                <div>
+                                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">
+                                                        Número de WhatsApp
+                                                    </label>
+                                                    <div className="relative">
                                                         <input
-                                                            type="text"
-                                                            value={customerData.name}
-                                                            onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
-                                                            placeholder="Ej. Juan Pérez"
-                                                            className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-sm font-bold focus:border-gray-900 transition-all outline-none"
+                                                            type="tel"
+                                                            value={customerData.phone}
+                                                            onChange={(e) => {
+                                                                const phone = e.target.value;
+                                                                setCustomerData({ ...customerData, phone });
+                                                                setPhoneError('');
+                                                            }}
+                                                            placeholder="Ej: 099 081 5097 o +593 99..."
+                                                            className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-sm font-bold focus:border-gray-900 focus:bg-white transition-all outline-none"
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter') {
+                                                                    handleContinuePhone();
+                                                                }
+                                                            }}
                                                         />
-                                                        {nameError && <p className="text-red-500 text-xs font-bold mt-2 uppercase">{nameError}</p>}
                                                     </div>
-
-                                                    <button
-                                                        onClick={handleRegister}
-                                                        disabled={registerLoading || !customerData.name}
-                                                        className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition-all disabled:opacity-50 active:scale-[0.98]"
-                                                    >
-                                                        {registerLoading ? 'Creando cuenta...' : 'Crear cuenta'}
-                                                    </button>
+                                                    {phoneError && <p className="text-red-500 text-xs font-bold mt-2 uppercase">{phoneError}</p>}
                                                 </div>
-                                            )}
+
+                                                {!clientSearching && !showNameField && (
+                                                    <button
+                                                        onClick={handleContinuePhone}
+                                                        disabled={!customerData.phone.trim()}
+                                                        className="w-full py-3.5 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition-all disabled:opacity-50 active:scale-[0.98]"
+                                                    >
+                                                        Continuar
+                                                    </button>
+                                                )}
+
+                                                {clientSearching && (
+                                                    <div className="flex items-center justify-center gap-3 py-4 bg-white rounded-xl border border-gray-200">
+                                                        <div className="animate-spin h-4 w-4 border-2 border-gray-900 border-t-transparent rounded-full"></div>
+                                                        <span className="text-xs font-black text-gray-400 uppercase">Buscando...</span>
+                                                    </div>
+                                                )}
+
+                                                {!clientSearching && !clientFound && showNameField && customerData.phone.length >= 7 && (
+                                                    <div className="space-y-6 animate-in fade-in duration-300">
+                                                        <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                                                            <p className="text-xs font-bold text-blue-700">
+                                                                📝 Completa tu perfil en segundos para comenzar
+                                                            </p>
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">
+                                                                Tu Nombre
+                                                            </label>
+                                                            <input
+                                                                type="text"
+                                                                value={customerData.name}
+                                                                onChange={(e) => setCustomerData({ ...customerData, name: e.target.value })}
+                                                                placeholder="Ej. Juan Pérez"
+                                                                className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-sm font-bold focus:border-gray-900 transition-all outline-none"
+                                                            />
+                                                            {nameError && <p className="text-red-500 text-xs font-bold mt-2 uppercase">{nameError}</p>}
+                                                        </div>
+
+                                                        <button
+                                                            onClick={handleRegister}
+                                                            disabled={registerLoading || !customerData.name}
+                                                            className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition-all disabled:opacity-50 active:scale-[0.98]"
+                                                        >
+                                                            {registerLoading ? 'Creando cuenta...' : 'Crear cuenta'}
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
+                                    )}
+                                </div>
+
+                                {/* Banner "Gana dinero con Fuddi" sutil para no logueados */}
+                                <div className="space-y-4 pt-6 border-t border-gray-100">
+                                    <div
+                                        onClick={() => setShowAuthForm(true)}
+                                        className="bg-purple-50 hover:bg-purple-100/75 border border-purple-100 rounded-2xl p-4 flex items-center justify-between cursor-pointer transition-all group"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 bg-purple-200/60 rounded-xl flex items-center justify-center text-purple-700 group-hover:scale-110 transition-transform">
+                                                <Flame size={20} className="fill-purple-700/20" />
+                                            </div>
+                                            <div>
+                                                <p className="text-purple-700 text-[10px] font-black uppercase tracking-widest leading-none mb-1">Gana dinero con Fuddi</p>
+                                                <p className="text-purple-950 font-black text-sm leading-tight">Recomienda platos y gana saldo</p>
+                                            </div>
+                                        </div>
+                                        <ChevronRight size={16} className="text-purple-400 group-hover:translate-x-1 transition-transform" />
                                     </div>
-                                )}
+
+                                    {/* How to earn option */}
+                                    <button
+                                        onClick={() => setShowHowToEarn(!showHowToEarn)}
+                                        className="w-full flex items-center justify-between px-1 text-[11px] font-bold text-gray-400 hover:text-gray-900 transition-colors group"
+                                    >
+                                        <span className="flex items-center gap-2">
+                                            <div className="w-5 h-5 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-all">
+                                                <CircleDollarSign size={12} />
+                                            </div>
+                                            ¿Cómo ganar créditos?
+                                        </span>
+                                        <ChevronDown size={14} className={`transition-transform duration-300 ${showHowToEarn ? 'rotate-180 text-gray-900' : ''}`} />
+                                    </button>
+
+                                    {showHowToEarn && (
+                                        <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                                            <div className="space-y-4">
+                                                <div className="flex gap-3">
+                                                    <div className="w-6 h-6 rounded-lg bg-white shadow-sm flex items-center justify-center text-emerald-600 font-black text-[10px] flex-shrink-0">1</div>
+                                                    <p className="text-xs text-gray-600 leading-snug">Busca tu plato favorito en cualquier tienda de Fuddi.</p>
+                                                </div>
+                                                <div className="flex gap-3">
+                                                    <div className="w-6 h-6 rounded-lg bg-white shadow-sm flex items-center justify-center text-emerald-600 font-black text-[10px] flex-shrink-0">2</div>
+                                                    <p className="text-xs text-gray-600 leading-snug">Haz clic en el ícono <span className="text-orange-500 font-bold inline-flex items-center gap-1"><Flame size={14} /> Recomendar</span> del producto.</p>
+                                                </div>
+                                                <div className="flex gap-3">
+                                                    <div className="w-6 h-6 rounded-lg bg-white shadow-sm flex items-center justify-center text-emerald-600 font-black text-[10px] flex-shrink-0">3</div>
+                                                    <p className="text-xs text-gray-600 leading-snug">Comparte el enlace con tus amigos. Si compran, tú ganas.</p>
+                                                </div>
+                                                <div className="pt-3 border-t border-emerald-100 flex items-center justify-between">
+                                                    <span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Recompensa:</span>
+                                                    <span className="text-sm font-black text-emerald-600">$0.25 por venta</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         ) : (
                             <>
@@ -2172,6 +2230,74 @@ export default function UserSidebar({ isOpen, onClose, onLogin }: UserSidebarPro
                 onClose={() => setOrderSidebarOpen(false)}
                 orderId={selectedOrderId}
             />
+
+            {/* Modal de Confirmación de Identidad */}
+            {showConfirmModal && pendingClient && (
+                <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 overflow-hidden">
+                    <div 
+                        className="absolute inset-0 bg-black/60 backdrop-blur-[4px] transition-opacity duration-300 animate-in fade-in"
+                        onClick={() => {
+                            setShowConfirmModal(false);
+                            setPendingClient(null);
+                        }}
+                    />
+                    
+                    <div className="relative bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-gray-100 animate-in zoom-in-95 slide-in-from-bottom-8 duration-300">
+                        <div className="text-center space-y-4">
+                            <div className="w-16 h-16 bg-[#aa1918]/10 rounded-full flex items-center justify-center mx-auto text-[#aa1918] shadow-inner">
+                                <User size={32} className="animate-pulse" />
+                            </div>
+                            
+                            <div className="space-y-1">
+                                <h3 className="text-lg font-black text-gray-900">¿Eres tú?</h3>
+                                <p className="text-xs text-gray-500">Confirma si tus datos son correctos para ingresar.</p>
+                            </div>
+
+                            <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 space-y-2">
+                                <p className="text-base font-black text-gray-800 leading-tight">
+                                    {pendingClient.nombres || 'Cliente Sin Nombre'}
+                                </p>
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                    {pendingClient.celular ? `${pendingClient.celular.slice(0, 3)} ${pendingClient.celular.slice(3, 6)} ${pendingClient.celular.slice(6)}` : ''}
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 pt-2">
+                                <button
+                                    onClick={() => {
+                                        setShowConfirmModal(false);
+                                        setPendingClient(null);
+                                    }}
+                                    className="w-full py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-all active:scale-[0.97] text-sm"
+                                >
+                                    No, corregir
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        try {
+                                            login(pendingClient as any);
+                                            if (pendingClient.id) {
+                                                await updateClient(pendingClient.id, {
+                                                    lastLoginAt: serverTimestamp(),
+                                                    loginSource: 'sidebar'
+                                                });
+                                            }
+                                            setShowConfirmModal(false);
+                                            setPendingClient(null);
+                                            setShowAuthForm(false);
+                                        } catch (error) {
+                                            console.error('Error confirming login:', error);
+                                        }
+                                    }}
+                                    className="w-full py-3 bg-gradient-to-r from-gray-900 to-gray-800 text-white font-bold rounded-xl hover:from-gray-800 hover:to-gray-700 transition-all active:scale-[0.97] text-sm shadow-md"
+                                >
+                                    Sí, continuar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
 
 

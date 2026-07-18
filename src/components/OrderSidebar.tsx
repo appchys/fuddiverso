@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { db } from '@/lib/firebase'
 import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, addDoc } from 'firebase/firestore'
 import {
@@ -37,6 +38,8 @@ const STATUS_STEPS = [
 
 export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarProps) {
   const { user: clientUser } = useAuth()
+  const pathname = usePathname()
+  const isOrderPage = pathname?.startsWith('/o/')
   
   // Estados principales de datos
   const [order, setOrder] = useState<any | null>(null)
@@ -624,7 +627,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
   }
 
   return (
-    <div className="fixed inset-0 z-[120] overflow-hidden">
+    <div className={`fixed inset-0 z-[120] overflow-hidden ${isOrderPage ? 'top-16' : ''}`}>
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
@@ -633,7 +636,7 @@ export default function OrderSidebar({ isOpen, onClose, orderId }: OrderSidebarP
 
       {/* Drawer */}
       <div
-        className={`fixed right-0 top-0 h-full w-full sm:w-[480px] bg-slate-50 shadow-2xl transform transition-transform duration-300 ease-in-out z-[130] flex flex-col`}
+        className={`${isOrderPage ? 'absolute' : 'fixed'} right-0 top-0 h-full w-full sm:w-[480px] bg-slate-50 shadow-2xl transform transition-transform duration-300 ease-in-out z-[130] flex flex-col`}
       >
         {/* Header Glassmorphism */}
         <div className="bg-white/80 backdrop-blur-md border-b border-gray-100 sticky top-0 z-50 px-4 py-3 flex items-center justify-between">
