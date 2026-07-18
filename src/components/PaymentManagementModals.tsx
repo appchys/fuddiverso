@@ -146,7 +146,7 @@ export default function PaymentManagementModals({
 
     return (
         <>
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
                 <div className="bg-white rounded-xl max-w-md w-full max-h-[90vh] flex flex-col">
                     <div className="p-6 overflow-y-auto flex-1">
                         {/* Header */}

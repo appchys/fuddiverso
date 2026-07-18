@@ -1681,7 +1681,7 @@ export default function AdminPedidosPage() {
                         onClick={() => setIsMenuSidebarOpen(false)}
                     />
                     {/* Sidebar content container */}
-                    <div className="relative flex flex-col w-full max-w-sm bg-white h-full shadow-2xl animate-in slide-in-from-left duration-300">
+                    <div className="relative flex flex-col w-full sm:max-w-sm bg-white h-full shadow-2xl animate-in slide-in-from-left duration-300">
                         {/* Header */}
                         <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50 shrink-0">
                             <div className="flex items-center gap-2">
@@ -1724,6 +1724,7 @@ export default function AdminPedidosPage() {
                                 onBack={() => setActiveSidebarTab('menu')}
                                 selectedBusinessId={selectedBusinessId}
                                 businesses={businesses}
+                                onManagePayment={handlePaymentClick}
                             />
                         ) : null}
                     </div>
@@ -1798,6 +1799,7 @@ interface CierreSidebarViewProps {
     onBack: () => void
     selectedBusinessId: string | null
     businesses: Business[]
+    onManagePayment: (order: Order) => void
 }
 
 function CierreSidebarView({
@@ -1805,7 +1807,8 @@ function CierreSidebarView({
     availableDeliveries,
     onBack,
     selectedBusinessId,
-    businesses
+    businesses,
+    onManagePayment
 }: CierreSidebarViewProps) {
     const [selectedDeliveryId, setSelectedDeliveryId] = useState<string>('all')
     const [collapsedGroups, setCollapsedGroups] = useState<{ cash: boolean, transfer: boolean, mixed: boolean }>({
@@ -1847,11 +1850,16 @@ function CierreSidebarView({
 
         setSettling(true)
         try {
-            const updatePromises = pendingOrders.map(order => 
-                updateDoc(doc(db, 'orders', order.id), {
+            const updatePromises = pendingOrders.map(order => {
+                const method = order.payment?.method || 'cash'
+                const updateData: any = {
                     deliverySettlementStatus: 'settled'
-                })
-            )
+                }
+                if (method === 'cash' || method === 'mixed') {
+                    updateData['payment.paymentStatus'] = 'paid'
+                }
+                return updateDoc(doc(db, 'orders', order.id), updateData)
+            })
             await Promise.all(updatePromises)
             alert(`Cuentas de ${driverName} liquidadas con éxito.`)
         } catch (error) {
@@ -1860,6 +1868,84 @@ function CierreSidebarView({
         } finally {
             setSettling(false)
         }
+    }
+
+    const handleSendWhatsAppSummary = () => {
+        if (!selectedAccount) return
+
+        const cel = selectedAccount.celular
+        if (!cel) {
+            alert("El repartidor no tiene número de celular registrado.")
+            return
+        }
+
+        let cleanCel = cel.replace(/\D/g, '') // Eliminar todo lo que no sea dígito
+        if (cleanCel.startsWith('00')) {
+            cleanCel = cleanCel.substring(2)
+        }
+        // Si el número tiene 10 dígitos y empieza con '0' (formato local Ecuador), remover el 0 y prepender 593
+        if (cleanCel.length === 10 && cleanCel.startsWith('0')) {
+            cleanCel = '593' + cleanCel.substring(1)
+        } 
+        // Si el número tiene 9 dígitos y empieza con '9', prepender 593 directamente
+        else if (cleanCel.length === 9 && cleanCel.startsWith('9')) {
+            cleanCel = '593' + cleanCel
+        }
+
+        const isFullySettled = selectedAccount.pendingOrderCount === 0
+
+        const emojiEfectivo = '💵'
+        const emojiMotoneta = '🛵'
+        
+        const cash = isFullySettled ? selectedAccount.settledCashCollected : selectedAccount.cashCollected
+        const fee = isFullySettled ? selectedAccount.settledDeliveryFeeEarned : selectedAccount.deliveryFeeEarned
+        const count = isFullySettled ? selectedAccount.settledOrderCount : selectedAccount.pendingOrderCount
+        const netCash = cash - fee
+
+        const targetStatus = isFullySettled ? 'settled' : 'pending'
+
+        const labelEntregarRecibir = netCash >= 0 ? 'Valor a entregar:' : 'Valor a recibir:'
+        const netCashDisplay = Math.abs(netCash)
+
+        let message = `*${emojiEfectivo} Efectivo cobrado:* $${cash.toFixed(2)}\n` +
+            `*${emojiMotoneta} Servicio de delivery:* $${fee.toFixed(2)}\n` +
+            `_(${count} entregas)_\n\n` +
+            `*${labelEntregarRecibir}* $${netCashDisplay.toFixed(2)}\n\n`
+
+        const cashOrders = selectedAccount.ordersList.filter(o => {
+            const isMatch = targetStatus === 'settled' 
+                ? o.deliverySettlementStatus === 'settled' 
+                : o.deliverySettlementStatus !== 'settled'
+            return isMatch && (o.payment?.method === 'cash' || o.payment?.method === 'mixed')
+        })
+
+        if (cashOrders.length > 0) {
+            message += `*Efectivo*\n`
+            cashOrders.forEach(o => {
+                const amount = o.payment?.method === 'mixed' ? (o.payment?.cashAmount || 0) : (o.total || 0)
+                message += `${o.customer?.name || 'Cliente'} - $${amount.toFixed(2)}\n`
+            })
+            message += `\n`
+        }
+
+        const transferOrders = selectedAccount.ordersList.filter(o => {
+            const isMatch = targetStatus === 'settled' 
+                ? o.deliverySettlementStatus === 'settled' 
+                : o.deliverySettlementStatus !== 'settled'
+            return isMatch && (o.payment?.method === 'transfer' || o.payment?.method === 'mixed')
+        })
+
+        if (transferOrders.length > 0) {
+            message += `*Transferencias*\n`
+            transferOrders.forEach(o => {
+                const amount = o.payment?.method === 'mixed' ? (o.payment?.transferAmount || 0) : (o.total || 0)
+                message += `${o.customer?.name || 'Cliente'} - $${amount.toFixed(2)}\n`
+            })
+        }
+
+        const encodedText = encodeURIComponent(message.trim())
+        const url = `https://wa.me/${cleanCel}?text=${encodedText}`
+        window.open(url, '_blank')
     }
 
     // Filter out cancelled and borrador orders
@@ -2183,9 +2269,24 @@ function CierreSidebarView({
                                     </div>
                                     
                                     <div className="flex justify-between items-center text-gray-600">
-                                        <span className="font-semibold text-gray-800">
-                                            Total: <span className="font-black text-gray-950">${total.toFixed(2)}</span>
-                                        </span>
+                                        <button
+                                            onClick={() => onManagePayment(order)}
+                                            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all border border-transparent shadow-[0_1px_2px_rgba(0,0,0,0.02)] active:scale-95 ${
+                                                order.payment?.paymentStatus === 'paid'
+                                                    ? 'bg-green-50 text-green-700 hover:bg-green-100'
+                                                    : order.payment?.paymentStatus === 'validating'
+                                                        ? 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100'
+                                                        : 'bg-red-50 text-red-700 hover:bg-red-100'
+                                            }`}
+                                            title="Administrar Pago"
+                                        >
+                                            <i className={`bi ${
+                                                method === 'transfer' ? 'bi-bank' :
+                                                method === 'mixed' ? 'bi-cash-coin' : 'bi-cash'
+                                            } text-xs`}></i>
+                                            <span className="font-extrabold">${total.toFixed(2)}</span>
+                                            <i className="bi bi-pencil-square text-[9px] opacity-60 ml-0.5"></i>
+                                        </button>
                                         <span className="text-orange-600 font-semibold">Envío: ${deliveryCost.toFixed(2)}</span>
                                     </div>
 
@@ -2207,111 +2308,109 @@ function CierreSidebarView({
     return (
         <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50">
             {/* Cierre Header inside sidebar */}
-            <div className="px-4 py-3 bg-white border-b border-gray-100 flex items-center gap-2">
-                <button
-                    onClick={onBack}
-                    className="p-1 text-gray-500 hover:text-gray-800 rounded-lg hover:bg-gray-100 transition-colors flex items-center"
-                    title="Volver"
-                >
-                    <i className="bi bi-chevron-left text-lg"></i>
-                </button>
-                <div>
-                    <h2 className="text-base font-bold text-gray-900 leading-tight">Cierre de Caja</h2>
-                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">{currentBusinessName}</p>
+            <div className="px-4 py-3 bg-white border-b border-gray-100 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <button
+                        onClick={onBack}
+                        className="p-1 text-gray-500 hover:text-gray-800 rounded-lg hover:bg-gray-100 transition-colors flex items-center shrink-0"
+                        title="Volver"
+                    >
+                        <i className="bi bi-chevron-left text-lg"></i>
+                    </button>
+                    <div className="min-w-0">
+                        <h2 className="text-base font-bold text-gray-900 leading-tight truncate">Cierre de Caja</h2>
+                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider truncate">{currentBusinessName}</p>
+                    </div>
+                </div>
+
+                {/* Delivery Selector in Header */}
+                <div className="relative shrink-0 w-32">
+                    <select
+                        value={selectedDeliveryId}
+                        onChange={(e) => setSelectedDeliveryId(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-2 pr-5 py-1.5 text-[10px] font-black text-gray-700 focus:outline-none focus:ring-1 focus:ring-red-100 transition-all appearance-none cursor-pointer truncate"
+                    >
+                        <option value="all">Todos</option>
+                        {deliveryAccounts.map(acc => (
+                            <option key={acc.deliveryId} value={acc.deliveryId}>
+                                {acc.name}
+                            </option>
+                        ))}
+                    </select>
+                    <i className="bi bi-chevron-down absolute right-2 top-2.5 text-gray-400 text-[8px] pointer-events-none"></i>
                 </div>
             </div>
 
             {/* Scrollable View Area */}
             <div className="flex-1 overflow-y-auto p-4 space-y-5">
                 {/* Resumen Global Card Group */}
-                <div className="space-y-2">
-                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Resumen Global (Hoy)</h3>
-                    
-                    <div className="grid grid-cols-2 gap-2">
-                        {/* Efectivo Card */}
-                        <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
-                            <div className="w-9 h-9 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center shrink-0">
-                                <i className="bi bi-cash-stack text-lg"></i>
+                {selectedDeliveryId === 'all' && (
+                    <div className="space-y-2">
+                        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Resumen Global (Hoy)</h3>
+                        
+                        <div className="grid grid-cols-2 gap-2">
+                            {/* Efectivo Card */}
+                            <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
+                                <div className="w-9 h-9 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center shrink-0">
+                                    <i className="bi bi-cash-stack text-lg"></i>
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide leading-none">Efectivo Pend.</p>
+                                    <p className="text-base font-black text-emerald-600 mt-1">${globalTotals.pendingCash.toFixed(2)}</p>
+                                    {globalTotals.settledCash > 0 && (
+                                        <p className="text-[8px] text-gray-400 font-semibold mt-0.5">Liq: ${globalTotals.settledCash.toFixed(2)}</p>
+                                    )}
+                                </div>
                             </div>
-                            <div className="min-w-0">
-                                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide leading-none">Efectivo Pend.</p>
-                                <p className="text-base font-black text-emerald-600 mt-1">${globalTotals.pendingCash.toFixed(2)}</p>
-                                {globalTotals.settledCash > 0 && (
-                                    <p className="text-[8px] text-gray-400 font-semibold mt-0.5">Liq: ${globalTotals.settledCash.toFixed(2)}</p>
-                                )}
+
+                            {/* Transferencia Card */}
+                            <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
+                                <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shrink-0">
+                                    <i className="bi bi-bank text-lg"></i>
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide leading-none">Transf. Pend.</p>
+                                    <p className="text-base font-black text-blue-600 mt-1">${globalTotals.pendingTransfer.toFixed(2)}</p>
+                                    {globalTotals.settledTransfer > 0 && (
+                                        <p className="text-[8px] text-gray-400 font-semibold mt-0.5">Liq: ${globalTotals.settledTransfer.toFixed(2)}</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Costo de Envio Card */}
+                            <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
+                                <div className="w-9 h-9 bg-orange-50 text-orange-600 rounded-xl flex items-center justify-center shrink-0">
+                                    <i className="bi bi-scooter text-lg"></i>
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide leading-none">Envío Pend.</p>
+                                    <p className="text-base font-black text-orange-600 mt-1">${globalTotals.pendingDeliveriesFee.toFixed(2)}</p>
+                                    {globalTotals.settledDeliveriesFee > 0 && (
+                                        <p className="text-[8px] text-gray-400 font-semibold mt-0.5">Liq: ${globalTotals.settledDeliveriesFee.toFixed(2)}</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Total Card */}
+                            <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
+                                <div className="w-9 h-9 bg-gray-50 text-gray-800 rounded-xl flex items-center justify-center shrink-0">
+                                    <i className="bi bi-currency-dollar text-lg font-bold"></i>
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide leading-none">Total Pendiente</p>
+                                    <p className="text-base font-black text-gray-900 mt-1">${(globalTotals.pendingCash + globalTotals.pendingTransfer).toFixed(2)}</p>
+                                    {(globalTotals.settledCash + globalTotals.settledTransfer) > 0 && (
+                                        <p className="text-[8px] text-gray-400 font-semibold mt-0.5">Total Liq: ${(globalTotals.settledCash + globalTotals.settledTransfer).toFixed(2)}</p>
+                                    )}
+                                </div>
                             </div>
                         </div>
-
-                        {/* Transferencia Card */}
-                        <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
-                            <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shrink-0">
-                                <i className="bi bi-bank text-lg"></i>
-                            </div>
-                            <div className="min-w-0">
-                                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide leading-none">Transf. Pend.</p>
-                                <p className="text-base font-black text-blue-600 mt-1">${globalTotals.pendingTransfer.toFixed(2)}</p>
-                                {globalTotals.settledTransfer > 0 && (
-                                    <p className="text-[8px] text-gray-400 font-semibold mt-0.5">Liq: ${globalTotals.settledTransfer.toFixed(2)}</p>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Costo de Envio Card */}
-                        <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
-                            <div className="w-9 h-9 bg-orange-50 text-orange-600 rounded-xl flex items-center justify-center shrink-0">
-                                <i className="bi bi-scooter text-lg"></i>
-                            </div>
-                            <div className="min-w-0">
-                                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide leading-none">Envío Pend.</p>
-                                <p className="text-base font-black text-orange-600 mt-1">${globalTotals.pendingDeliveriesFee.toFixed(2)}</p>
-                                {globalTotals.settledDeliveriesFee > 0 && (
-                                    <p className="text-[8px] text-gray-400 font-semibold mt-0.5">Liq: ${globalTotals.settledDeliveriesFee.toFixed(2)}</p>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Total Card */}
-                        <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
-                            <div className="w-9 h-9 bg-gray-50 text-gray-800 rounded-xl flex items-center justify-center shrink-0">
-                                <i className="bi bi-currency-dollar text-lg font-bold"></i>
-                            </div>
-                            <div className="min-w-0">
-                                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wide leading-none">Total Pendiente</p>
-                                <p className="text-base font-black text-gray-900 mt-1">${(globalTotals.pendingCash + globalTotals.pendingTransfer).toFixed(2)}</p>
-                                {(globalTotals.settledCash + globalTotals.settledTransfer) > 0 && (
-                                    <p className="text-[8px] text-gray-400 font-semibold mt-0.5">Total Liq: ${(globalTotals.settledCash + globalTotals.settledTransfer).toFixed(2)}</p>
-                                )}
-                            </div>
+                        
+                        <div className="text-[10px] text-gray-400 font-semibold italic text-right">
+                            Basado en {globalTotals.totalCount} pedidos hoy. {globalTotals.settledCount > 0 && `(${globalTotals.settledCount} liquidados)`}
                         </div>
                     </div>
-                    
-                    <div className="text-[10px] text-gray-400 font-semibold italic text-right">
-                        Basado en {globalTotals.totalCount} pedidos hoy. {globalTotals.settledCount > 0 && `(${globalTotals.settledCount} liquidados)`}
-                    </div>
-                </div>
-
-                {/* Delivery Selector */}
-                <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
-                        Filtrar por Repartidor
-                    </label>
-                    <div className="relative">
-                        <i className="bi bi-scooter absolute left-3 top-2.5 text-gray-400"></i>
-                        <select
-                            value={selectedDeliveryId}
-                            onChange={(e) => setSelectedDeliveryId(e.target.value)}
-                            className="w-full bg-white border border-gray-200 rounded-xl pl-9 pr-4 py-2 text-xs font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-100 transition-all appearance-none"
-                        >
-                            <option value="all">Todos los repartidores</option>
-                            {deliveryAccounts.map(acc => (
-                                <option key={acc.deliveryId} value={acc.deliveryId}>
-                                    {acc.name} ({acc.pendingOrderCount} pend. / {acc.settledOrderCount} liq.)
-                                </option>
-                            ))}
-                        </select>
-                        <i className="bi bi-chevron-down absolute right-3 top-2.5 text-gray-400 text-[10px] pointer-events-none"></i>
-                    </div>
-                </div>
+                )}
 
                 {/* Dynamic Content depending on Selection */}
                 {selectedDeliveryId === 'all' ? (
@@ -2398,96 +2497,75 @@ function CierreSidebarView({
                                     <div className="flex justify-between items-start">
                                         <div>
                                             <h4 className="font-black text-base text-gray-900 leading-tight">{selectedAccount.name}</h4>
-                                            {selectedAccount.celular && (
-                                                <a 
-                                                    href={`tel:${selectedAccount.celular}`}
-                                                    className="text-[10px] font-bold text-gray-400 flex items-center gap-1 mt-1 hover:text-red-500 transition-colors"
-                                                >
-                                                    <i className="bi bi-phone"></i> {selectedAccount.celular}
-                                                </a>
-                                            )}
+                                            <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                                                {selectedAccount.celular && (
+                                                    <a 
+                                                        href={`tel:${selectedAccount.celular}`}
+                                                        className="text-[10px] font-bold text-gray-400 flex items-center gap-1 hover:text-red-500 transition-colors"
+                                                    >
+                                                        <i className="bi bi-phone text-xs"></i> {selectedAccount.celular}
+                                                    </a>
+                                                )}
+                                                {selectedAccount.celular && (
+                                                    <button
+                                                        onClick={handleSendWhatsAppSummary}
+                                                        className="text-[10px] font-black text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition-colors"
+                                                        title="Enviar resumen por WhatsApp"
+                                                    >
+                                                        <i className="bi bi-whatsapp text-xs"></i> Enviar Reporte
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                         <button
                                             onClick={() => setSelectedDeliveryId('all')}
-                                            className="px-2.5 py-1 text-[10px] font-bold text-gray-500 hover:text-gray-900 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                                            className="px-2.5 py-1 text-[10px] font-bold text-gray-500 hover:text-gray-900 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors shrink-0"
                                         >
                                             Ver todos
                                         </button>
                                     </div>
 
-                                    {/* Detailed balance table/cards */}
-                                    <div className="space-y-1.5 border-t border-gray-50 pt-3">
-                                        <div className="flex justify-between text-xs font-semibold text-gray-500">
-                                            <span>Total Entregas</span>
-                                            <span className="font-bold text-gray-900">{selectedAccount.orderCount} pedidos ({selectedAccount.pendingOrderCount} pend. / {selectedAccount.settledOrderCount} liq.)</span>
+                                    <div className="grid grid-cols-3 gap-2 bg-gray-50 p-2.5 rounded-xl text-center">
+                                        <div>
+                                            <p className="text-[8px] font-bold text-gray-400 uppercase tracking-wide">Efectivo</p>
+                                            <p className="text-xs font-extrabold text-emerald-600 mt-0.5">${selectedAccount.cashCollected.toFixed(2)}</p>
                                         </div>
-                                        <div className="flex justify-between text-xs font-semibold text-gray-500">
-                                            <span>Efectivo Cobrado (+)</span>
-                                            <span className="font-bold text-emerald-600">${selectedAccount.cashCollected.toFixed(2)}</span>
+                                        <div>
+                                            <p className="text-[8px] font-bold text-gray-400 uppercase tracking-wide">Fletes</p>
+                                            <p className="text-xs font-extrabold text-orange-600 mt-0.5">${selectedAccount.deliveryFeeEarned.toFixed(2)}</p>
                                         </div>
-                                        <div className="flex justify-between text-xs font-semibold text-gray-500">
-                                            <span>Transferencias de Soporte</span>
-                                            <span className="font-bold text-blue-600">${selectedAccount.transferCollected.toFixed(2)}</span>
-                                        </div>
-                                        <div className="flex justify-between text-xs font-semibold text-gray-500">
-                                            <span>Comisión Envíos (-)</span>
-                                            <span className="font-bold text-orange-600">${selectedAccount.deliveryFeeEarned.toFixed(2)}</span>
-                                        </div>
-                                        
-                                        {selectedAccount.settledOrderCount > 0 && (
-                                            <div className="bg-gray-50 p-2 rounded-xl text-[10px] text-gray-500 font-semibold space-y-1 mt-2 border border-gray-100">
-                                                <div className="flex justify-between">
-                                                    <span>Efectivo Liquidado</span>
-                                                    <span>${selectedAccount.settledCashCollected.toFixed(2)}</span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span>Envíos Liquidados</span>
-                                                    <span>${selectedAccount.settledDeliveryFeeEarned.toFixed(2)}</span>
-                                                </div>
-                                                <div className="flex justify-between text-gray-800 font-bold border-t border-gray-200/60 pt-1">
-                                                    <span>Total Liquidado</span>
-                                                    <span>${(selectedAccount.settledCashCollected - selectedAccount.settledDeliveryFeeEarned).toFixed(2)}</span>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        <div className="border-t border-dashed border-gray-200 my-2"></div>
-                                        
-                                        <div className="flex justify-between items-center text-sm font-black uppercase tracking-wider text-gray-900">
-                                            <span>Saldo Neto a Recibir</span>
-                                            <span className={`text-base ${(selectedAccount.cashCollected - selectedAccount.deliveryFeeEarned) >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+                                        <div>
+                                            <p className="text-[8px] font-bold text-gray-400 uppercase tracking-wide">Saldo Neto</p>
+                                            <p className={`text-xs font-black mt-0.5 ${(selectedAccount.cashCollected - selectedAccount.deliveryFeeEarned) >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
                                                 ${(selectedAccount.cashCollected - selectedAccount.deliveryFeeEarned).toFixed(2)}
-                                            </span>
+                                            </p>
                                         </div>
-                                        <p className="text-[9px] text-gray-400 font-bold leading-normal pt-1">
-                                            * El Saldo Neto asume que el repartidor recolectó todo el efectivo y se le deduce la ganancia de sus envíos directamente.
-                                        </p>
-
-                                        {/* Liquidar button */}
-                                        {selectedAccount.pendingOrderCount > 0 && (
-                                            <div className="pt-3">
-                                                <button
-                                                    onClick={() => {
-                                                        const pendingOrdersList = selectedAccount.ordersList.filter(o => o.deliverySettlementStatus !== 'settled')
-                                                        handleSettleDriver(selectedAccount.deliveryId, selectedAccount.name, pendingOrdersList)
-                                                    }}
-                                                    disabled={settling}
-                                                    className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-50 shadow-md shadow-green-100"
-                                                >
-                                                    {settling ? (
-                                                        <>
-                                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white animate-pulse"></div>
-                                                            <span>Liquidando...</span>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <i className="bi bi-check-all text-base"></i>
-                                                            <span>Liquidar Cuentas</span>
-                                                        </>
-                                                    )}
-                                                </button>
-                                            </div>
-                                        )}
+                                    </div>
+                                    {/* Liquidar button */}
+                                    {selectedAccount.pendingOrderCount > 0 && (
+                                        <div className="pt-3">
+                                            <button
+                                                onClick={() => {
+                                                    const pendingOrdersList = selectedAccount.ordersList.filter(o => o.deliverySettlementStatus !== 'settled')
+                                                    handleSettleDriver(selectedAccount.deliveryId, selectedAccount.name, pendingOrdersList)
+                                                }}
+                                                disabled={settling}
+                                                className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-50 shadow-md shadow-green-100"
+                                            >
+                                                {settling ? (
+                                                    <>
+                                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white animate-pulse"></div>
+                                                        <span>Liquidando...</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <i className="bi bi-check-all text-base"></i>
+                                                        <span>Liquidar Cuentas</span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                    )}
                                         {selectedAccount.pendingOrderCount === 0 && selectedAccount.settledOrderCount > 0 && (
                                             <div className="mt-3 flex items-center justify-center gap-1.5 py-2.5 bg-green-50 border border-green-200 rounded-xl text-green-700 font-bold text-xs uppercase tracking-wider select-none">
                                                 <i className="bi bi-check-circle-fill"></i>
@@ -2495,7 +2573,6 @@ function CierreSidebarView({
                                             </div>
                                         )}
                                     </div>
-                                </div>
 
                                 {/* Orders list for this delivery */}
                                 <div className="space-y-2">
