@@ -95,7 +95,8 @@ export default function CartSidebar({
         // Find all quick addon IDs configured for the products currently in the cart
         const addonIdsSet = new Set<string>()
         cart.forEach((cartItem) => {
-            const originalProduct = allProducts.find((p) => p.id === cartItem.id)
+            const originalProduct = allProducts.find((p) => p.id === (cartItem.productId || cartItem.id))
+                ?? allProducts.find((p) => cartItem.id.startsWith(p.id + '-'))
             if (originalProduct && originalProduct.quickAddons && Array.isArray(originalProduct.quickAddons)) {
                 originalProduct.quickAddons.forEach((id) => addonIdsSet.add(id))
             }
@@ -116,7 +117,8 @@ export default function CartSidebar({
         if (allProducts.length === 0 || !cart || cart.length === 0) return false;
         return cart.some((item: any) => {
             if (item.esPremio || item.qrCodeId) return false;
-            const dbProduct = allProducts.find((p) => p.id === item.id);
+            const dbProduct = allProducts.find((p) => p.id === (item.productId || item.id))
+                ?? allProducts.find((p) => item.id.startsWith(p.id + '-'));
             if (!dbProduct) return true;
             if (!dbProduct.isAvailable) return true;
             if (item.variantName && !item.variantName.startsWith("Combo:")) {

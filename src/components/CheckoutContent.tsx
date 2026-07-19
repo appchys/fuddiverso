@@ -254,6 +254,7 @@ function TransferReceiptUploader({
 }
 
 const getProductId = (item: any) => {
+  if (item.productId) return item.productId;
   if (item.isCombo && item.id.includes('-combo-')) {
     return item.id.split('-combo-')[0];
   }
