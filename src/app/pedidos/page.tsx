@@ -1003,7 +1003,7 @@ export default function AdminPedidosPage() {
                 }
             }
 
-            await updateOrderStatus(orderId, newStatus, reason)
+            await updateOrderStatus(orderId, newStatus, reason, 'app')
 
             if (Object.keys(assignmentUpdate).length > 0) {
                 const orderRef = doc(db, 'orders', orderId);

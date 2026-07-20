@@ -258,7 +258,8 @@ function TMAContent() {
   const handleUpdateStatus = async (targetOrderId: string, newStatus: Order['status']) => {
     try {
       setUpdatingStatus(newStatus)
-      await updateOrderStatus(targetOrderId, newStatus)
+      const isConfirmation = newStatus === 'confirmed' || newStatus === 'preparing'
+      await updateOrderStatus(targetOrderId, newStatus, undefined, isConfirmation ? 'telegram_miniapp' : undefined)
     } catch (err) {
       console.error('Error actualizando estado:', err)
       alert('Error al actualizar el estado del pedido')

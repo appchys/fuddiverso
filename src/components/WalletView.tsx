@@ -217,8 +217,12 @@ export default function WalletView({ business, orders, historicalOrders }: Walle
             totalCommission += orderCommission
             totalDelivery += deliveryCost
 
+            const isPickup = order.delivery?.type === 'pickup'
+            const isCash = order.payment?.method === 'cash'
+            const isStoreMoney = isPickup && isCash
             const currentOrderTotal = order.total || 0
-            if (order.paymentCollector === 'store') {
+
+            if (isStoreMoney) {
                 collectedByStore += currentOrderTotal
                 collectedByStoreSubtotal += orderSubtotal
             } else {
@@ -238,10 +242,10 @@ export default function WalletView({ business, orders, historicalOrders }: Walle
             totalWithdrawals += Math.abs(settlement.netAmount)
         })
 
-        // El balance real es: ingresos netos - retiros
-        const netIncome = totalSubtotal - totalCommission // lo que generaron las ventas
-        const currentBalance = netIncome - totalWithdrawals // saldo actual
-        const pendingToSettle = netIncome - settledAmount // pendiente por liquidar
+        // El resultado neto a transferir a la tienda es: Ventas Digitales recaudadas por Fuddi - Comisión Total de Fuddi - Retiros previos
+        const netIncome = collectedByFuddiSubtotal - totalCommission
+        const currentBalance = netIncome - totalWithdrawals
+        const pendingToSettle = netIncome - settledAmount
 
         return {
             totalSales,
@@ -263,9 +267,20 @@ export default function WalletView({ business, orders, historicalOrders }: Walle
 
     return (
         <div className="p-6 max-w-7xl mx-auto">
-            <div className="mb-8">
-                <h1 className="text-2xl font-bold text-gray-900 mb-2">Billetera</h1>
-                <p className="text-gray-600">Gestión de ingresos y comisiones de Fuddi.</p>
+            <div className="mb-6">
+                <h1 className="text-2xl font-bold text-gray-900 mb-1">Finanzas</h1>
+                <p className="text-gray-600">Resumen de ingresos, valores a recibir y estado de depósitos de Fuddi.</p>
+            </div>
+
+            {/* Aviso de Horario Fijo de Depósitos y Corte Visual */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-start gap-3 text-amber-900 shadow-sm">
+                <span className="material-symbols-rounded text-amber-600 text-xl mt-0.5">schedule</span>
+                <div className="text-sm">
+                    <span className="font-bold">Corte diario y horario de depósito:</span>
+                    <p className="mt-0.5 text-amber-800">
+                        Los cortes se realizan automáticamente a las <strong>00:00 (medianoche)</strong>. Las ventas posteriores pertenecen al día siguiente. Las transferencias bancarias correspondientes al saldo pendiente se realizan antes de las <strong>2:00 PM</strong>.
+                    </p>
+                </div>
             </div>
 
             {/* Filtros de Fecha y Vista */}
@@ -276,20 +291,20 @@ export default function WalletView({ business, orders, historicalOrders }: Walle
                         <button
                             onClick={() => setViewMode('pending')}
                             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${viewMode === 'pending'
-                                ? 'bg-orange-500 text-white shadow-sm'
+                                ? 'bg-amber-500 text-white shadow-sm'
                                 : 'text-gray-500 hover:text-gray-900'
                                 }`}
                         >
-                            Pendientes
+                            🟡 Pendientes de Pago
                         </button>
                         <button
                             onClick={() => setViewMode('all')}
                             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${viewMode === 'all'
-                                ? 'bg-green-500 text-white shadow-sm'
+                                ? 'bg-emerald-600 text-white shadow-sm'
                                 : 'text-gray-500 hover:text-gray-900'
                                 }`}
                         >
-                            Todos
+                            🟢 Historial Completo
                         </button>
                     </div>
 
@@ -332,43 +347,86 @@ export default function WalletView({ business, orders, historicalOrders }: Walle
                 </div>
             </div>
 
-            {/* Saldo Disponible */}
-            <div className="bg-gradient-to-br from-blue-600 to-blue-700 p-8 rounded-xl shadow-lg text-white mb-8">
-                <div className="flex items-center justify-between mb-6">
-                    <div className="p-4 bg-white/20 rounded-lg backdrop-blur-sm">
-                        <span className="material-symbols-rounded text-3xl">account_balance_wallet</span>
+            {/* Tarjeta Destacada de Valores a Recibir */}
+            <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl text-white mb-8">
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+                    <div className="flex items-center gap-3">
+                        <div className="p-3 bg-white/10 rounded-xl backdrop-blur-md">
+                            <span className="material-symbols-rounded text-2xl text-emerald-400">payments</span>
+                        </div>
+                        <div>
+                            <span className="text-xs uppercase tracking-widest text-slate-400 font-bold block">Resumen de Liquidación</span>
+                            <h2 className="text-lg font-semibold text-white">Valores por Recibir</h2>
+                        </div>
                     </div>
-                    <span className="text-sm font-medium text-blue-100">
-                        Saldo Disponible
-                    </span>
+                    <div>
+                        {financials.currentBalance > 0 ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                                🟡 Pendiente de depósito
+                            </span>
+                        ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                                🟢 Depositado / Al día
+                            </span>
+                        )}
+                    </div>
                 </div>
-                <h3 className="text-blue-100 text-lg font-medium mb-2">Tu saldo actual</h3>
-                <p className="text-5xl font-bold mb-2">${financials.currentBalance.toFixed(2)}</p>
-                <p className="text-sm text-blue-200">{financials.orderCount} movimientos en este período</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-700/60">
+                    <div>
+                        <span className="text-xs text-slate-400 block mb-1">Resultado Neto del Período</span>
+                        {financials.currentBalance >= 0 ? (
+                            <div className="text-3xl sm:text-4xl font-extrabold text-emerald-400">
+                                Te transferiremos ${financials.currentBalance.toFixed(2)}
+                            </div>
+                        ) : (
+                            <div className="text-3xl sm:text-4xl font-extrabold text-amber-400">
+                                Debes pagar de comisiones ${Math.abs(financials.currentBalance).toFixed(2)}
+                            </div>
+                        )}
+                        <span className="text-xs text-slate-400 mt-2 block">
+                            (Ventas Digitales - Comisión Fuddi - Efectivo Retenido)
+                        </span>
+                    </div>
+
+                    <div className="bg-slate-800/80 p-4 rounded-xl border border-slate-700/50">
+                        <span className="text-xs text-slate-400 block mb-1">Ventas Digitales</span>
+                        <div className="text-xl font-bold text-white">${financials.collectedByFuddiSubtotal.toFixed(2)}</div>
+                        <div className="text-xs text-emerald-400 mt-1">Cobrado por Fuddi (Tarjeta/Transferencia)</div>
+                    </div>
+
+                    <div className="bg-slate-800/80 p-4 rounded-xl border border-slate-700/50">
+                        <span className="text-xs text-slate-400 block mb-1">Comisiones Fuddi</span>
+                        <div className="text-xl font-bold text-rose-400">-${financials.totalCommission.toFixed(2)}</div>
+                        <div className="text-xs text-slate-400 mt-1">{financials.orderCount} órdenes en el período</div>
+                    </div>
+                </div>
             </div>
 
-            {/* Movimientos Estilo Billetera */}
+            {/* Movimientos / Órdenes */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200">
                 <div className="p-6 border-b border-gray-100">
                     <h3 className="text-lg font-bold text-gray-900 mb-1">
-                        {viewMode === 'pending' ? 'Movimientos Pendientes' : 'Todos los Movimientos'}
+                        {viewMode === 'pending' ? 'Órdenes Pendientes de Pago' : 'Todos los Movimientos'}
                     </h3>
                     <p className="text-sm text-gray-500">
                         {viewMode === 'pending' 
-                            ? 'Ventas esperando ser liquidadas'
-                            : 'Historial completo de tu billetera'
+                            ? 'Ventas registradas en el período que están por ser depositadas'
+                            : 'Historial completo de ventas y liquidaciones depositadas'
                         }
                     </p>
                 </div>
                 
                 {loadingSettlements ? (
                     <div className="p-12 text-center text-gray-500">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto mb-4"></div>
                         Cargando movimientos...
                     </div>
                 ) : filteredOrders.length === 0 && filteredSettlements.length === 0 ? (
                     <div className="p-12 text-center text-gray-500">
-                        <span className="material-symbols-rounded text-4xl mb-3 block text-green-500">check_circle</span>
+                        <span className="material-symbols-rounded text-4xl mb-3 block text-emerald-500">check_circle</span>
                         No hay movimientos en este período.
                     </div>
                 ) : (
@@ -387,25 +445,27 @@ export default function WalletView({ business, orders, historicalOrders }: Walle
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-4">
                                                 <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                                                    isSettled ? 'bg-gray-100' : 'bg-green-100'
+                                                    isSettled ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
                                                 }`}>
-                                                    <span className={`material-symbols-rounded text-xl ${
-                                                        isSettled ? 'text-gray-600' : 'text-green-600'
-                                                    }`}>
-                                                        {isSettled ? 'shopping_bag' : 'add_circle'}
+                                                    <span className="material-symbols-rounded text-xl">
+                                                        {isSettled ? 'check_circle' : 'hourglass_top'}
                                                     </span>
                                                 </div>
                                                 <div>
-                                                    <div className="font-semibold text-gray-900">
-                                                        Venta - Pedido #{order.id.slice(-6)}
-                                                        <span className={`ml-2 text-xs font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${
+                                                    <div className="font-semibold text-gray-900 flex items-center gap-2 flex-wrap">
+                                                        <span>Venta - Pedido #{order.id.slice(-6)}</span>
+                                                        <span className={`text-xs font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${
                                                             isPickup ? 'bg-gray-100 text-gray-600' : 'bg-blue-100 text-blue-700'
                                                         }`}>
                                                             {isPickup ? 'Retiro' : 'Delivery'}
                                                         </span>
-                                                        {isSettled && (
-                                                            <span className="ml-2 text-xs font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                                                                Liquidado
+                                                        {isSettled ? (
+                                                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                                                                🟢 Depositado
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                                                🟡 Pendiente de depósito
                                                             </span>
                                                         )}
                                                     </div>
@@ -444,26 +504,36 @@ export default function WalletView({ business, orders, historicalOrders }: Walle
                             })
                         }
                         
-                        {/* Liquidaciones (Retiros) */}
+                        {/* Liquidaciones (Retiros / Pagos Realizados) */}
                         {viewMode === 'all' && filteredSettlements
                             .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
                             .map((settlement) => (
                                 <div key={settlement.id} className="p-6 hover:bg-gray-50 transition-colors">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-4">
-                                            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                                                <span className="material-symbols-rounded text-red-600 text-xl">remove_circle</span>
+                                            <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center">
+                                                <span className="material-symbols-rounded text-emerald-600 text-xl">verified</span>
                                             </div>
                                             <div>
-                                                <div className="font-semibold text-gray-900">Liquidación / Retiro</div>
+                                                <div className="font-semibold text-gray-900 flex items-center gap-2">
+                                                    <span>Liquidación Depositada</span>
+                                                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                                                        🟢 Depositado
+                                                    </span>
+                                                </div>
                                                 <div className="text-sm text-gray-500">
                                                     {new Date(settlement.createdAt).toLocaleDateString()} • {settlement.totalOrders} órdenes liquidadas
                                                 </div>
+                                                {(settlement as any).referenceNumber && (
+                                                    <div className="text-xs text-gray-600 mt-1 font-mono">
+                                                        Ref. Bancaria: {(settlement as any).referenceNumber}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                         <div className="text-right">
-                                            <div className="text-lg font-bold text-red-600">-${Math.abs(settlement.netAmount).toFixed(2)}</div>
-                                            <div className="text-xs text-gray-500">Transferido a tu cuenta</div>
+                                            <div className="text-lg font-bold text-emerald-600">${Math.abs(settlement.netAmount).toFixed(2)}</div>
+                                            <div className="text-xs text-gray-500">Depositado en tu cuenta</div>
                                         </div>
                                     </div>
                                 </div>
@@ -473,14 +543,15 @@ export default function WalletView({ business, orders, historicalOrders }: Walle
                 )}
             </div>
 
-            <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex items-start gap-3 mt-6">
-                <span className="material-symbols-rounded text-blue-600 mt-0.5">info</span>
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-start gap-3 mt-6">
+                <span className="material-symbols-rounded text-slate-600 mt-0.5">info</span>
                 <div>
-                    <h4 className="font-semibold text-blue-900 text-sm">¿Cómo funciona tu billetera?</h4>
-                    <p className="text-blue-800 text-sm mt-1">
-                        • <strong>Ingresos:</strong> Cada venta suma dinero a tu billetera (venta - comisión Fuddi)<br/>
-                        • <strong>Retiros:</strong> Cuando el administrador hace liquidaciones, se resta dinero de tu billetera<br/>
-                        • <strong>Saldo Actual:</strong> Es lo que tienes disponible actualmente (ingresos - retiros)
+                    <h4 className="font-semibold text-slate-900 text-sm">¿Cómo se calculan tus valores a recibir?</h4>
+                    <p className="text-slate-700 text-sm mt-1">
+                        • <strong>Ventas Digitales:</strong> Dinero cobrado por Fuddi (Tarjeta/Transferencia) que se te abonará.<br/>
+                        • <strong>Ventas en Efectivo:</strong> Dinero cobrado directamente en tu local o por tus repartidores.<br/>
+                        • <strong>Corte Automático:</strong> Toda orden generada antes de la medianoche (00:00) entra en el depósito de las 2:00 PM del día siguiente.<br/>
+                        • <strong>Estado:</strong> Cambia automáticamente de 🟡 <strong>Pendiente de depósito</strong> a 🟢 <strong>Depositado</strong> cuando el administrador procesa el pago.
                     </p>
                 </div>
             </div>

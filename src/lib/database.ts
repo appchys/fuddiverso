@@ -1471,7 +1471,7 @@ export async function getAllOrders(): Promise<Order[]> {
   }
 }
 
-export async function updateOrderStatus(orderId: string, status: Order['status'], reason?: string) {
+export async function updateOrderStatus(orderId: string, status: Order['status'], reason?: string, confirmationSource?: 'email' | 'app' | 'telegram_bot' | 'telegram_miniapp') {
   try {
     const docRef = doc(db, 'orders', orderId)
     // Mapear el campo de historial correspondiente al estado
@@ -1490,6 +1490,13 @@ export async function updateOrderStatus(orderId: string, status: Order['status']
       status,
       updatedAt: serverTimestamp(),
       [historyFieldMap[status]]: serverTimestamp()
+    }
+
+    if (confirmationSource) {
+      updatePayload.confirmationSource = confirmationSource
+    } else if (status === 'confirmed' || status === 'preparing') {
+      // Si la orden se confirma y no se indicó origen explícito, asignar 'app' por defecto
+      updatePayload.confirmationSource = 'app'
     }
 
     if (status === 'cancelled' && reason) {

@@ -175,6 +175,114 @@ function calculateDeliveryAccounts(ordersList: Order[], deliveriesList: Delivery
     return list
 }
 
+// Función helper para calcular el resumen de cuentas por Restaurantes
+function calculateStoreAccounts(ordersList: Order[], businessesList: Business[]) {
+    const storeMap = new Map<string, {
+        businessId: string
+        name: string
+        orderCount: number
+        pendingOrderCount: number
+        settledOrderCount: number
+        cashCollected: number
+        digitalCollected: number
+        commission: number
+        netBalance: number
+        settledCashCollected: number
+        settledDigitalCollected: number
+        settledCommission: number
+        settledNetBalance: number
+        ordersList: Order[]
+    }>()
+
+    businessesList.forEach(b => {
+        storeMap.set(b.id, {
+            businessId: b.id,
+            name: b.name || 'Sin nombre',
+            orderCount: 0,
+            pendingOrderCount: 0,
+            settledOrderCount: 0,
+            cashCollected: 0,
+            digitalCollected: 0,
+            commission: 0,
+            netBalance: 0,
+            settledCashCollected: 0,
+            settledDigitalCollected: 0,
+            settledCommission: 0,
+            settledNetBalance: 0,
+            ordersList: []
+        })
+    })
+
+    ordersList.forEach(o => {
+        if (!o.businessId) return
+        let acc = storeMap.get(o.businessId)
+        if (!acc) {
+            acc = {
+                businessId: o.businessId,
+                name: businessesList.find(b => b.id === o.businessId)?.name || (o as any).businessName || `Restaurante ${o.businessId.substring(0, 6)}...`,
+                orderCount: 0,
+                pendingOrderCount: 0,
+                settledOrderCount: 0,
+                cashCollected: 0,
+                digitalCollected: 0,
+                commission: 0,
+                netBalance: 0,
+                settledCashCollected: 0,
+                settledDigitalCollected: 0,
+                settledCommission: 0,
+                settledNetBalance: 0,
+                ordersList: []
+            }
+            storeMap.set(o.businessId, acc)
+        }
+
+        acc.orderCount++
+        acc.ordersList.push(o)
+
+        const isSettled = o.settlementStatus === 'settled'
+        const isPickup = o.delivery?.type === 'pickup'
+        const isCash = o.payment?.method === 'cash'
+        // El dinero SOLO lo retiene la tienda si es Retiro en Tienda Y Efectivo.
+        const isStoreMoney = isPickup && isCash
+
+        // Excluir el costo del delivery del valor de la tienda (el envío pertenece al repartidor)
+        const deliveryFee = o.delivery?.type === 'delivery' ? (o.delivery?.deliveryCost || 0) : 0
+        const productSubtotal = o.subtotal || Math.max(0, (o.total || 0) - deliveryFee)
+
+        let orderCommission = 0
+        if (o.items && o.items.length > 0) {
+            o.items.forEach((item: any) => {
+                orderCommission += (item.commission || 0) * (item.quantity || 1)
+            })
+        }
+
+        const cashAmount = isStoreMoney ? productSubtotal : 0
+        const digitalAmount = isStoreMoney ? 0 : productSubtotal
+
+        if (isSettled) {
+            acc.settledOrderCount++
+            acc.settledCashCollected += cashAmount
+            acc.settledDigitalCollected += digitalAmount
+            acc.settledCommission += orderCommission
+            acc.settledNetBalance = acc.settledDigitalCollected - acc.settledCommission
+        } else {
+            acc.pendingOrderCount++
+            acc.cashCollected += cashAmount
+            acc.digitalCollected += digitalAmount
+            acc.commission += orderCommission
+            acc.netBalance = acc.digitalCollected - acc.commission
+        }
+    })
+
+    const list = Array.from(storeMap.values()).filter(acc => acc.orderCount > 0)
+    list.sort((a, b) => {
+        if (b.orderCount !== a.orderCount) return b.orderCount - a.orderCount
+        return a.name.localeCompare(b.name)
+    })
+
+    return list
+}
+
 export default function CierreSidebarView({
     orders,
     availableDeliveries,
@@ -185,7 +293,9 @@ export default function CierreSidebarView({
 }: CierreSidebarViewProps) {
     // Estados principales
     const [activeTab, setActiveTab] = useState<'hoy' | 'historial'>('hoy')
+    const [entityType, setEntityType] = useState<'deliveries' | 'restaurants'>('deliveries')
     const [selectedDeliveryId, setSelectedDeliveryId] = useState<string>('all')
+    const [selectedStoreId, setSelectedStoreId] = useState<string>('all')
     const [collapsedGroups, setCollapsedGroups] = useState<{ cash: boolean, transfer: boolean, mixed: boolean }>({
         cash: false,
         transfer: false,
@@ -499,6 +609,17 @@ export default function CierreSidebarView({
     const deliveryAccounts = useMemo(() => {
         return calculateDeliveryAccounts(activeOrders, availableDeliveries)
     }, [activeOrders, availableDeliveries])
+
+    // Restaurantes de hoy
+    const storeAccounts = useMemo(() => {
+        return calculateStoreAccounts(activeOrders, businesses || [])
+    }, [activeOrders, businesses])
+
+    // Cuenta del restaurante seleccionado hoy
+    const selectedStoreAccount = useMemo(() => {
+        if (selectedStoreId === 'all') return null
+        return storeAccounts.find(s => s.businessId === selectedStoreId) || null
+    }, [storeAccounts, selectedStoreId])
 
     // Cuenta del repartidor seleccionado hoy
     const selectedAccount = useMemo(() => {
@@ -843,7 +964,7 @@ export default function CierreSidebarView({
 
             {/* Pestañas Hoy / Historial (solo cuando no se está viendo el detalle de un repartidor hoy ni en el historial) */}
             {selectedDeliveryId === 'all' && !selectedHistoryDelivery && (
-                <div className="px-4 py-2 bg-white border-b border-gray-100 shrink-0">
+                <div className="px-4 py-2 bg-white border-b border-gray-100 shrink-0 space-y-2">
                     <div className="flex bg-gray-100 p-1 rounded-xl shadow-sm border border-gray-200/20">
                         <button
                             onClick={() => setActiveTab('hoy')}
@@ -866,14 +987,217 @@ export default function CierreSidebarView({
                             Historial
                         </button>
                     </div>
+
+                    {activeTab === 'hoy' && (
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setEntityType('deliveries')}
+                                className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-xl border transition-all flex items-center justify-center gap-1.5 ${
+                                    entityType === 'deliveries'
+                                        ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                }`}
+                            >
+                                <i className="bi bi-scooter text-xs"></i>
+                                <span>Deliverys</span>
+                            </button>
+                            <button
+                                onClick={() => setEntityType('restaurants')}
+                                className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-xl border transition-all flex items-center justify-center gap-1.5 ${
+                                    entityType === 'restaurants'
+                                        ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                }`}
+                            >
+                                <i className="bi bi-shop text-xs"></i>
+                                <span>Restaurantes</span>
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 
             {/* Scrollable View Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {activeTab === 'hoy' ? (
                     // --- VISTA DE HOY ---
                     selectedDeliveryId === 'all' ? (
+                        entityType === 'restaurants' ? (
+                            selectedStoreId !== 'all' && selectedStoreAccount ? (
+                                /* Vista Detallada Minimalista de un Restaurante */
+                                <div className="space-y-4 animate-in fade-in duration-150">
+                                    {/* Tarjeta Resumen Minimalista */}
+                                    <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs space-y-3">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <h4 className="font-bold text-base text-slate-900">{selectedStoreAccount.name}</h4>
+                                                <p className="text-xs text-slate-500 mt-0.5">
+                                                    {selectedStoreAccount.orderCount} {selectedStoreAccount.orderCount === 1 ? 'orden hoy' : 'órdenes hoy'}
+                                                </p>
+                                            </div>
+                                            <button
+                                                onClick={() => setSelectedStoreId('all')}
+                                                className="px-2.5 py-1 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors shrink-0"
+                                            >
+                                                Ver todos
+                                            </button>
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-xl text-center border border-slate-100">
+                                            <div>
+                                                <p className="text-[10px] font-medium text-slate-500">Digital</p>
+                                                <p className="text-xs font-semibold text-slate-900 mt-0.5">${selectedStoreAccount.digitalCollected.toFixed(2)}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] font-medium text-slate-500">Efectivo</p>
+                                                <p className="text-xs font-semibold text-slate-900 mt-0.5">${selectedStoreAccount.cashCollected.toFixed(2)}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] font-medium text-slate-500">Comisión</p>
+                                                <p className="text-xs font-semibold text-slate-500 mt-0.5">-${selectedStoreAccount.commission.toFixed(2)}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                                            <span className="font-medium text-slate-600">Monto Neto:</span>
+                                            <span className={`font-bold ${selectedStoreAccount.netBalance >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                {selectedStoreAccount.netBalance >= 0 
+                                                    ? `Te transferiremos $${selectedStoreAccount.netBalance.toFixed(2)}` 
+                                                    : `Debes cobrar $${Math.abs(selectedStoreAccount.netBalance).toFixed(2)}`
+                                                }
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Lista Minimalista de Órdenes */}
+                                    <div className="space-y-2">
+                                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Órdenes</h4>
+                                        {selectedStoreAccount.ordersList.map(order => {
+                                            const isPickup = order.delivery?.type === 'pickup'
+                                            const isCash = order.payment?.method === 'cash'
+                                            // El dinero SOLO lo tiene la tienda si es Retiro en Tienda Y Efectivo.
+                                            // En todos los demás casos (Delivery + Efectivo, Transferencias, Tarjeta), el dinero llega/se entrega a Fuddi.
+                                            const isStoreMoney = isPickup && isCash
+                                            const isSettled = order.settlementStatus === 'settled'
+                                            const orderTotal = order.total || 0
+
+                                            let orderCommission = 0
+                                            if (order.items && order.items.length > 0) {
+                                                order.items.forEach((item: any) => {
+                                                    orderCommission += (item.commission || 0) * (item.quantity || 1)
+                                                })
+                                            }
+
+                                            const deliveryFee = order.delivery?.type === 'delivery' ? (order.delivery?.deliveryCost || 0) : 0
+                                            const productSubtotal = order.subtotal || Math.max(0, orderTotal - deliveryFee)
+
+                                            return (
+                                                <div key={order.id} className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5 text-xs">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                                                            <span className="font-bold text-slate-900 text-sm">{order.customer?.name || 'Cliente'}</span>
+                                                            <span className="text-slate-400 text-[10px]">({getOrderDisplayTime(order)} • {isCash ? 'Efectivo' : 'Transferencia'})</span>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-1.5 shrink-0">
+                                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium ${
+                                                                isStoreMoney ? 'bg-slate-100 text-slate-700' : 'bg-blue-50 text-blue-700'
+                                                            }`}>
+                                                                {isStoreMoney ? '🏢 Tienda' : '🦅 Fuddi'}
+                                                            </span>
+
+                                                            <span className={`px-2 py-0.5 text-[10px] font-medium rounded-full ${
+                                                                isSettled ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' : 'bg-amber-50 text-amber-700 border border-amber-200/60'
+                                                            }`}>
+                                                                {isSettled ? 'Depositado' : 'Pendiente'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-slate-600 text-xs">
+                                                        <div className="flex items-center gap-3">
+                                                            <span>Venta: <strong className="text-slate-900">${productSubtotal.toFixed(2)}</strong></span>
+                                                            <span className="text-slate-400">Comisión: <strong className="text-slate-500">-${orderCommission.toFixed(2)}</strong></span>
+                                                        </div>
+
+                                                        <button
+                                                            onClick={() => onManagePayment(order)}
+                                                            className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1 shadow-2xs"
+                                                        >
+                                                            <i className="bi bi-pencil text-[10px]"></i>
+                                                            <span>Gestionar</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            ) : (
+                                /* Lista General Minimalista de Cierre de Restaurantes */
+                                <div className="space-y-3">
+                                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cuentas de Restaurantes (Hoy)</h3>
+                                    {storeAccounts.length === 0 ? (
+                                        <div className="bg-white p-6 rounded-2xl border border-slate-200/80 text-center space-y-2 shadow-2xs">
+                                            <div className="w-9 h-9 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center mx-auto">
+                                                <i className="bi bi-shop text-lg"></i>
+                                            </div>
+                                            <p className="text-xs text-slate-500 font-medium">
+                                                No hay restaurantes con órdenes hoy
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2.5">
+                                            {storeAccounts.map(store => {
+                                                const netVal = store.netBalance
+                                                const isPositive = netVal >= 0
+                                                return (
+                                                    <div 
+                                                        key={store.businessId} 
+                                                        onClick={() => setSelectedStoreId(store.businessId)}
+                                                        className="bg-white p-3.5 rounded-xl border border-slate-200/80 hover:border-slate-300 shadow-2xs hover:shadow-xs transition-all cursor-pointer space-y-2.5"
+                                                    >
+                                                        <div className="flex justify-between items-center">
+                                                            <div>
+                                                                <h4 className="font-bold text-sm text-slate-900">{store.name}</h4>
+                                                                <p className="text-xs text-slate-500 mt-0.5">{store.orderCount} órdenes registradas</p>
+                                                            </div>
+                                                            <span className={`px-2 py-0.5 text-[10px] font-medium rounded-full ${
+                                                                store.pendingOrderCount > 0 ? 'bg-amber-50 text-amber-700 border border-amber-200/60' : 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+                                                            }`}>
+                                                                {store.pendingOrderCount > 0 ? 'Pendiente' : 'Depositado'}
+                                                            </span>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2 rounded-lg text-center border border-slate-100 text-xs">
+                                                            <div>
+                                                                <p className="text-[10px] text-slate-500 font-medium">Digital</p>
+                                                                <p className="font-semibold text-slate-900 mt-0.5">${store.digitalCollected.toFixed(2)}</p>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-[10px] text-slate-500 font-medium">Efectivo</p>
+                                                                <p className="font-semibold text-slate-900 mt-0.5">${store.cashCollected.toFixed(2)}</p>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-[10px] text-slate-500 font-medium">Comisión</p>
+                                                                <p className="font-semibold text-slate-500 mt-0.5">-${store.commission.toFixed(2)}</p>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
+                                                            <span className="text-slate-600 font-medium">Neto:</span>
+                                                            <span className={`font-bold ${isPositive ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                                {isPositive ? `Te transferiremos $${netVal.toFixed(2)}` : `Debes cobrar $${Math.abs(netVal).toFixed(2)}`}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        ) : (
                         /* Show List of all Deliveries with Accounts */
                         <div className="space-y-3">
                             {/* Resumen Global Card Group */}
@@ -1014,6 +1338,7 @@ export default function CierreSidebarView({
                                 </div>
                             )}
                         </div>
+                        )
                     ) : (
                         /* Show Details of Specific selected Delivery Today */
                         <div className="space-y-4">

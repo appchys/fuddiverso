@@ -351,6 +351,7 @@ export interface Order {
   deliverySettlementStatus?: 'pending' | 'settled' // Estado de liquidación para delivery
   deliverySettlementId?: string // ID del corte de delivery
   telegramBusinessMessages?: { chatId: string, messageId: number }[] // Rastreo de mensajes enviados a la tienda
+  confirmationSource?: 'email' | 'app' | 'telegram_bot' | 'telegram_miniapp' // Origen desde donde el restaurante confirmó la orden
 }
 
 export interface Settlement {

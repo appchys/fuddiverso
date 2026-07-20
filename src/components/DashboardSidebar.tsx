@@ -198,20 +198,6 @@ export default function DashboardSidebar({
 
                     <button
                         onClick={() => {
-                            setActiveTab('finance')
-                            setSidebarOpen(false)
-                        }}
-                        className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'finance'
-                            ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
-                            : 'text-gray-700 hover:bg-gray-50'
-                            }`}
-                    >
-                        <span className="material-symbols-rounded me-3 text-lg">account_balance</span>
-                        <span className="font-medium">Finanzas</span>
-                    </button>
-
-                    <button
-                        onClick={() => {
                             setActiveTab('wallet')
                             setSidebarOpen(false)
                         }}
@@ -221,7 +207,21 @@ export default function DashboardSidebar({
                             }`}
                     >
                         <span className="material-symbols-rounded me-3 text-lg">account_balance_wallet</span>
-                        <span className="font-medium">Billetera</span>
+                        <span className="font-medium">Finanzas</span>
+                    </button>
+
+                    <button
+                        onClick={() => {
+                            setActiveTab('finance')
+                            setSidebarOpen(false)
+                        }}
+                        className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${activeTab === 'finance'
+                            ? 'bg-red-50 text-red-600 border-l-4 border-red-500'
+                            : 'text-gray-700 hover:bg-gray-50'
+                            }`}
+                    >
+                        <span className="material-symbols-rounded me-3 text-lg">receipt_long</span>
+                        <span className="font-medium">Facturación XML</span>
                     </button>
 
                     {user?.email === 'munchys.ec@gmail.com' && (

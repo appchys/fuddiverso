@@ -805,8 +805,8 @@ async function handleStoreWebhook(req, res) {
                         let finalStatusText = '';
 
                         if (action === 'biz_confirm') {
-                            // Guardar quién confirmó
-                            await admin.firestore().collection('orders').doc(orderId).update({ confirmedBy: handlerName });
+                            // Guardar quién confirmó y el origen telegram_bot
+                            await admin.firestore().collection('orders').doc(orderId).update({ confirmedBy: handlerName, confirmationSource: 'telegram_bot' });
                             console.log(`✍️ [Store Webhook] Guardado confirmedBy: ${handlerName}`);
 
                             const deliveryName = result.assignedDeliveryName;

@@ -112,24 +112,42 @@ async function sendOrderCreatedEmail(order, orderId) {
       }
     }
 
-    // Generar HTML de productos
-    let productsHtml = '<ul style="padding-left:20px;">';
+    // Generar HTML de productos con estilo tabla responsive moderna
+    let productsTableRows = '';
     let itemCount = 0;
     if (Array.isArray(order.items)) {
-      order.items.forEach(item => {
+      order.items.forEach((item, idx) => {
         const itemTotal = (item.price * item.quantity).toFixed(2);
-        const variant = item.variant || '';
-        productsHtml += `
-          <li style="margin-bottom:8px;">
-            <strong>${item.name}</strong>${variant ? ` (${variant})` : ''}
-            <br/>
-            <small>Cantidad: ${item.quantity} × $${item.price.toFixed(2)} = $${itemTotal}</small>
-          </li>
+        const variant = item.variant ? `<span style="background-color: #e0f2fe; color: #0369a1; font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-left: 4px; font-weight: 600;">${item.variant}</span>` : '';
+        const optionsStr = Array.isArray(item.selectedOptions) && item.selectedOptions.length > 0
+          ? item.selectedOptions.map(o => typeof o === 'string' ? o : (o.name || o.option)).join(', ')
+          : '';
+        const optionsHtml = optionsStr ? `<div style="font-size: 12px; color: #64748b; margin-top: 2px;">+ ${optionsStr}</div>` : '';
+        const notesHtml = item.notes ? `<div style="font-size: 11px; color: #d97706; font-style: italic; margin-top: 2px;">Nota: ${item.notes}</div>` : '';
+
+        const bgColor = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+
+        productsTableRows += `
+          <tr style="background-color: ${bgColor}; border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 12px 14px; font-size: 13px; font-weight: 700; color: #0f172a;">
+              ${item.name} ${variant}
+              ${optionsHtml}
+              ${notesHtml}
+            </td>
+            <td style="padding: 12px 14px; font-size: 13px; font-weight: 700; text-align: center; color: #334155;">
+              x${item.quantity}
+            </td>
+            <td style="padding: 12px 14px; font-size: 13px; text-align: right; color: #64748b;">
+              $${item.price.toFixed(2)}
+            </td>
+            <td style="padding: 12px 14px; font-size: 13px; font-weight: 800; text-align: right; color: #0f172a;">
+              $${itemTotal}
+            </td>
+          </tr>
         `;
-        itemCount++;
+        itemCount += item.quantity || 1;
       });
     }
-    productsHtml += '</ul>';
 
     // Información de pago
     const paymentMethod = order.payment?.method || 'No especificado';
@@ -145,17 +163,15 @@ async function sendOrderCreatedEmail(order, orderId) {
       const cash = order.payment?.cashAmount || 0;
       const transfer = order.payment?.transferAmount || 0;
       paymentDetailsHtml = `
-        <br/><small style="color: #666;">
-          💵 Efectivo: $${cash.toFixed(2)}<br/>
-          🏦 Transferencia: $${transfer.toFixed(2)}
-        </small>
+        <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
+          💵 Efectivo: $${cash.toFixed(2)} | 🏦 Transferencia: $${transfer.toFixed(2)}
+        </div>
       `;
     }
 
     // Detalles de costo
     const subtotal = order.subtotal || 0;
     const total = order.total || 0;
-    // Calcular envío si no viene explícito (Total - Subtotal)
     let deliveryCost = order.delivery?.deliveryCost;
     if (deliveryCost === undefined) {
       deliveryCost = Math.max(0, total - subtotal);
@@ -165,7 +181,6 @@ async function sendOrderCreatedEmail(order, orderId) {
     let scheduledDateStr = 'Hoy';
     if (order.timing?.scheduledDate) {
       const dateObj = order.timing.scheduledDate;
-      // Manejar tanto Timestamp de Firestore como objeto con seconds
       const seconds = dateObj.seconds || dateObj._seconds;
       if (seconds) {
         scheduledDateStr = new Date(seconds * 1000).toLocaleDateString('es-EC', {
@@ -179,114 +194,175 @@ async function sendOrderCreatedEmail(order, orderId) {
       ? `🏍️ ${order.delivery?.references || 'Dirección no especificada'}`
       : '🏪 Retiro en tienda';
 
-    // Generar HTML del email
+    const confirmUrl = `https://fuddi.shop/api/order/status?action=confirm&orderId=${orderId}&token=${Buffer.from(orderId + '|confirm').toString('base64')}`;
+    const discardUrl = `https://fuddi.shop/api/order/status?action=discard&orderId=${orderId}&token=${Buffer.from(orderId + '|discard').toString('base64')}`;
+
+    // Generar HTML del email al estilo App Fuddi
     const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <!-- Preview text (visible in notification preview, hidden in email body) -->
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>¡Nuevo Pedido Recibido!</title>
+      </head>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; margin: 0; padding: 20px 10px; -webkit-font-smoothing: antialiased;">
+        
+        <!-- Preview text -->
         <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
-          ${previewText}
-        </div>
-        <div style="background-color: #aa1918; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-          <h1 style="margin: 0; font-size: 24px;">¡Nuevo Pedido Recibido!</h1>
-          <p style="margin: 8px 0 0 0; opacity: 0.9;">Pedido #${orderId.substring(0, 8).toUpperCase()}</p>
-          ${order.createdByAdmin ? '<span style="background:rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-top: 4px; display: inline-block;">Creado por Admin</span>' : ''}
+          ${previewText} | Total: $${total.toFixed(2)}
         </div>
 
-        <div style="background-color: #f9f9f9; padding: 24px; border: 1px solid #ddd; border-radius: 0 0 8px 8px;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05); border: 1px solid #e2e8f0;">
           
-          <h3 style="color: #aa1918; margin-top: 0;">👤 Datos del Cliente</h3>
-          <table style="width: 100%; border-collapse: collapse;">
-            <tr>
-              <td style="padding: 8px 0; border-bottom: 1px solid #eee;"><strong>Nombre:</strong></td>
-              <td style="padding: 8px 0; border-bottom: 1px solid #eee;">${customerName}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; border-bottom: 1px solid #eee;"><strong>WhatsApp:</strong></td>
-              <td style="padding: 8px 0; border-bottom: 1px solid #eee;">
-                <a href="https://wa.me/593${customerPhone.replace(/^0/, '')}" style="color: #aa1918; text-decoration: none;">
-                  ${customerPhone}
-                </a>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0;"><strong>Dirección:</strong></td>
-              <td style="padding: 8px 0;">${deliveryInfo}</td>
-            </tr>
-          </table>
-          ${mapHtml}
-
-          <h3 style="color: #aa1918; margin-top: 20px;">📦 Productos (${itemCount})</h3>
-          ${productsHtml}
-
-          <h3 style="color: #aa1918; margin-top: 20px;">💰 Resumen de Pago</h3>
-          <table style="width: 100%; border-collapse: collapse;">
-            <tr>
-              <td style="padding: 8px 0; border-bottom: 1px solid #eee;">Subtotal:</td>
-              <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">$${subtotal.toFixed(2)}</td>
-            </tr>
-            ${deliveryCost > 0.01 ? `
-            <tr>
-              <td style="padding: 8px 0; border-bottom: 1px solid #eee;">Envío:</td>
-              <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">$${deliveryCost.toFixed(2)}</td>
-            </tr>
-            ` : ''}
-            <tr>
-              <td style="padding: 8px 0;"><strong>Total:</strong></td>
-              <td style="padding: 8px 0; text-align: right;"><strong style="font-size: 16px; color: #aa1918;">$${total.toFixed(2)}</strong></td>
-            </tr>
-          </table>
-
-          <h3 style="color: #aa1918; margin-top: 20px;">💳 Método de Pago</h3>
-          <p style="margin: 8px 0;">
-            <strong>Método:</strong> ${paymentMethod.toUpperCase()}${paymentDetailsHtml}<br/>
-            <strong>Estado:</strong> ${paymentStatusText}
-          </p>
-
-          <h3 style="color: #aa1918; margin-top: 20px;">⏰ Información de Entrega</h3>
-          <p style="margin: 8px 0;">
-            <strong>Tipo:</strong> ${order.delivery?.type === 'delivery' ? '🚚 Envío a domicilio' : '🏪 Retiro en tienda'}<br/>
-            ${order.timing?.type === 'scheduled' ? `
-              <strong>Hora:</strong> ${order.timing?.scheduledTime || 'No especificada'}<br/>
-              <strong>Fecha:</strong> ${scheduledDateStr}
-            ` : '<strong>Entrega:</strong> Lo antes posible'}
-          </p>
-
-          <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
-          
-          <!-- Botones de Acción Rápida -->
-          <div style="text-align: center; margin: 20px 0;">
-            <p style="margin: 0 0 12px 0; font-size: 14px; color: #666; font-weight: bold;">
-              🚀 Acciones Rápidas
-            </p>
-            <div style="display: flex; gap: 12px; justify-content: center;">
-              <!-- Botón Confirmar -->
-              <a href="https://fuddi.shop/api/order/status?action=confirm&orderId=${orderId}&token=${Buffer.from(orderId + '|confirm').toString('base64')}" 
-                 style="display: inline-block; background-color: #22c55e; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(34, 197, 94, 0.3);">
-                ✅ Confirmar Pedido
-              </a>
-              
-              <!-- Botón Descartar -->
-              <a href="https://fuddi.shop/api/order/status?action=discard&orderId=${orderId}&token=${Buffer.from(orderId + '|discard').toString('base64')}" 
-                 style="display: inline-block; background-color: #ef4444; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);">
-                ❌ Descartar Pedido
-              </a>
+          <!-- Encabezado de Marca (Header App Fuddi) -->
+          <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #ffffff; padding: 28px 24px; text-align: center; position: relative;">
+            <div style="display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; background: linear-gradient(135deg, #2563eb 0%, #0284c7 100%); border-radius: 16px; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
+              <span style="font-size: 24px;">🚀</span>
             </div>
-            <p style="margin: 12px 0 0 0; font-size: 11px; color: #999;">
-              O revisa tu panel para más detalles
-            </p>
+            <h1 style="margin: 0; font-size: 22px; font-weight: 900; tracking-tight: -0.025em; letter-spacing: -0.5px;">¡Nuevo Pedido Recibido!</h1>
+            <div style="margin-top: 8px; font-size: 13px; font-weight: 700; color: #94a3b8; display: flex; items-center; justify-content: center; gap: 8px;">
+              <span style="background-color: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.15); color: #38bdf8;">
+                #${orderId.substring(0, 8).toUpperCase()}
+              </span>
+              ${order.createdByAdmin ? '<span style="background-color: rgba(234,179,8,0.2); color: #facc15; padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(234,179,8,0.3);">Admin</span>' : ''}
+            </div>
           </div>
 
-          <p style="font-size: 12px; color: #666; margin: 0;">
-            <strong>Nota:</strong> Revisa tu panel de administración en 
-            <a href="https://fuddi.shop/business/dashboard" style="color: #aa1918;">Fuddi Dashboard</a>
-            para más opciones y gestionar este pedido.
-          </p>
-        </div>
+          <!-- Cuerpo Principal -->
+          <div style="padding: 24px; background-color: #ffffff;">
+            
+            <!-- Tarjeta del Cliente -->
+            <div style="background-color: #f8fafc; border-radius: 16px; padding: 18px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
+              <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; tracking-wider: 0.05em; color: #64748b; margin-bottom: 10px; letter-spacing: 0.5px;">
+                👤 DATOS DEL CLIENTE
+              </div>
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <tr>
+                  <td style="padding: 6px 0; color: #64748b; font-weight: 600; width: 90px;">Nombre:</td>
+                  <td style="padding: 6px 0; color: #0f172a; font-weight: 800; font-size: 14px;">${customerName}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #64748b; font-weight: 600;">Teléfono:</td>
+                  <td style="padding: 6px 0;">
+                    <a href="https://wa.me/593${customerPhone.replace(/^0/, '')}" style="display: inline-block; background-color: #10b981; color: #ffffff; padding: 4px 10px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 12px; shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
+                      💬 WhatsApp ${customerPhone}
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #64748b; font-weight: 600; vertical-align: top;">Dirección:</td>
+                  <td style="padding: 6px 0; color: #334155; font-weight: 600;">${deliveryInfo}</td>
+                </tr>
+              </table>
+              ${mapHtml}
+            </div>
 
-        <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #999;">
-          <p>Este es un email automático. No responder a este correo.</p>
+            <!-- Tabla de Productos -->
+            <div style="margin-bottom: 20px;">
+              <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; tracking-wider: 0.05em; color: #64748b; margin-bottom: 10px; letter-spacing: 0.5px; display: flex; justify-content: space-between;">
+                <span>📦 DETALLE DEL PEDIDO</span>
+                <span style="color: #2563eb;">${itemCount} ítems</span>
+              </div>
+              
+              <div style="border-radius: 16px; overflow: hidden; border: 1px solid #e2e8f0;">
+                <table style="width: 100%; border-collapse: collapse;">
+                  <thead>
+                    <tr style="background-color: #0f172a; color: #ffffff; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">
+                      <th style="padding: 10px 14px; text-align: left;">Producto</th>
+                      <th style="padding: 10px 14px; text-align: center; width: 45px;">Cant</th>
+                      <th style="padding: 10px 14px; text-align: right; width: 65px;">Precio</th>
+                      <th style="padding: 10px 14px; text-align: right; width: 70px;">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${productsTableRows}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Resumen de Costos y Pago -->
+            <div style="margin-bottom: 24px;">
+              
+              <div style="background-color: #f8fafc; border-radius: 16px; padding: 18px; border: 1px solid #e2e8f0; margin-bottom: 12px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                  <tr>
+                    <td style="padding: 4px 0; color: #64748b;">Subtotal:</td>
+                    <td style="padding: 4px 0; text-align: right; font-weight: 700; color: #334155;">$${subtotal.toFixed(2)}</td>
+                  </tr>
+                  ${deliveryCost > 0.01 ? `
+                  <tr>
+                    <td style="padding: 4px 0; color: #64748b;">Costo de Envío:</td>
+                    <td style="padding: 4px 0; text-align: right; font-weight: 700; color: #334155;">$${deliveryCost.toFixed(2)}</td>
+                  </tr>
+                  ` : ''}
+                  <tr style="border-top: 1px dashed #cbd5e1;">
+                    <td style="padding: 10px 0 0 0; font-size: 15px; font-weight: 900; color: #0f172a;">TOTAL:</td>
+                    <td style="padding: 10px 0 0 0; text-align: right; font-size: 20px; font-weight: 900; color: #2563eb;">$${total.toFixed(2)}</td>
+                  </tr>
+                </table>
+
+                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 12px; display: flex; align-items: center; justify-content: space-between;">
+                  <span style="color: #64748b; font-weight: 600;">Método de Pago:</span>
+                  <span style="font-weight: 800; color: #0f172a; background-color: #e2e8f0; padding: 3px 8px; border-radius: 6px;">
+                    ${paymentMethod.toUpperCase()} (${paymentStatusText})
+                  </span>
+                </div>
+                ${paymentDetailsHtml}
+              </div>
+
+              <!-- Tipo de Entrega -->
+              <div style="background-color: #eff6ff; border-radius: 14px; padding: 14px 18px; border: 1px solid #bfdbfe; font-size: 13px; color: #1e40af;">
+                <div style="font-weight: 800; margin-bottom: 2px;">
+                  ${order.delivery?.type === 'delivery' ? '🚚 Entrega a Domicilio' : '🏪 Retiro en Tienda'}
+                </div>
+                <div style="font-size: 12px; color: #1d4ed8;">
+                  ${order.timing?.type === 'scheduled' ? `⏰ Programado: ${scheduledDateStr} (${order.timing?.scheduledTime || 'No especificada'})` : '⚡ Entrega inmediata (Lo antes posible)'}
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Botones de Acción Rápida -->
+            <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 20px; padding: 24px 18px; text-align: center; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);">
+              <div style="font-size: 13px; font-weight: 800; color: #38bdf8; text-transform: uppercase; tracking-wider: 0.05em; margin-bottom: 14px;">
+                🚀 ACCIONES RÁPIDAS
+              </div>
+              
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px;">
+                <tr>
+                  <td style="padding: 0 6px; width: 50%;">
+                    <a href="${confirmUrl}" 
+                       style="display: block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #ffffff; padding: 14px 10px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 14px; text-align: center; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4); border: 1px solid #34d399;">
+                      ✅ Confirmar Pedido
+                    </a>
+                  </td>
+                  <td style="padding: 0 6px; width: 50%;">
+                    <a href="${discardUrl}" 
+                       style="display: block; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #ffffff; padding: 14px 10px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 14px; text-align: center; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4); border: 1px solid #f87171;">
+                      ❌ Descartar Pedido
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <div style="margin-top: 14px; font-size: 11px; color: #94a3b8;">
+                O gestiona este pedido en tu <a href="https://fuddi.shop/business/dashboard" style="color: #38bdf8; text-decoration: underline; font-weight: 700;">Dashboard de Fuddi</a>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Pie de página -->
+          <div style="background-color: #f8fafc; padding: 18px; text-align: center; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0;">
+            <p style="margin: 0 0 4px 0; font-weight: 700; color: #64748b;">fuddi.shop</p>
+            <p style="margin: 0;">Notificación automática enviada a los administradores de la tienda.</p>
+          </div>
+
         </div>
-      </div>
+      </body>
+      </html>
     `;
 
     // Determinar el ícono según el tipo de tiempo (inmediato o programado)

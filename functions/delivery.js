@@ -43,6 +43,7 @@ async function processOrderAction(token, action) {
         if (action === 'confirm' || action === 'biz_confirm') {
             if (action === 'biz_confirm') {
                 updateData.status = 'confirmed';
+                updateData.confirmationSource = 'telegram_bot';
             } else if (action === 'confirm') {
                 // Solo confirmar la aceptación del delivery, no cambiar el estado del pedido
                 updateData['delivery.acceptanceStatus'] = 'accepted';
