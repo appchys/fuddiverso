@@ -26,12 +26,16 @@ async function sendOrderCreatedEmail(order, orderId) {
 
     // Obtener datos del negocio desde Firestore
     let businessEmail = 'info@fuddi.shop';
+    let storeName = order.businessName || 'la Tienda';
     let recipients = [];
     if (order.businessId) {
       try {
         const businessDoc = await admin.firestore().collection('businesses').doc(order.businessId).get();
         if (businessDoc.exists) {
           const businessData = businessDoc.data();
+          if (businessData.name) {
+            storeName = businessData.name;
+          }
           if (businessData.email) {
             businessEmail = businessData.email;
             recipients.push(businessEmail);
@@ -222,17 +226,9 @@ async function sendOrderCreatedEmail(order, orderId) {
         <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05); border: 1px solid #e2e8f0;">
           
           <!-- Encabezado de Marca (Header App Fuddi) -->
-          <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #ffffff; padding: 28px 24px; text-align: center; position: relative;">
-            <div style="display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; background: linear-gradient(135deg, #2563eb 0%, #0284c7 100%); border-radius: 16px; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
-              <span style="font-size: 24px;">🚀</span>
-            </div>
+          <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #ffffff; padding: 24px 20px; text-align: center;">
             <h1 style="margin: 0; font-size: 22px; font-weight: 900; tracking-tight: -0.025em; letter-spacing: -0.5px;">¡Nuevo Pedido Recibido!</h1>
-            <div style="margin-top: 8px; font-size: 13px; font-weight: 700; color: #94a3b8; display: flex; items-center; justify-content: center; gap: 8px;">
-              <span style="background-color: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.15); color: #38bdf8;">
-                #${orderId.substring(0, 8).toUpperCase()}
-              </span>
-              ${order.createdByAdmin ? '<span style="background-color: rgba(234,179,8,0.2); color: #facc15; padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(234,179,8,0.3);">Admin</span>' : ''}
-            </div>
+            ${order.createdByAdmin ? '<div style="margin-top: 8px;"><span style="background-color: rgba(234,179,8,0.2); color: #facc15; padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(234,179,8,0.3); font-size: 12px; font-weight: 700;">Creado por Admin</span></div>' : ''}
           </div>
 
           <!-- Cuerpo Principal -->
@@ -374,14 +370,16 @@ async function sendOrderCreatedEmail(order, orderId) {
       </html>
     `;
 
-    // Determinar el ícono según el tipo de tiempo (inmediato o programado)
+    // Definir el asunto del correo según el tipo de pedido
     const isScheduled = order.timing?.type === 'scheduled';
-    const timeIcon = isScheduled ? '⏰' : '⚡';
-
-    // Definir el asunto del correo según quién creó la orden
-    const subject = order.createdByAdmin
-      ? `🔔 ¡Nuevo pedido de ${customerName}! - Fuddi`
-      : `${timeIcon} ${customerName} ha hecho un pedido! - Fuddi`;
+    let subject = '';
+    if (order.createdByAdmin) {
+      subject = `🔔 ¡Nuevo pedido de ${customerName} en ${storeName}! - Fuddi`;
+    } else if (isScheduled) {
+      subject = `⏰ ${customerName} ha programado un pedido en ${storeName}! - Fuddi`;
+    } else {
+      subject = `⚡ ${customerName} ha hecho un pedido en ${storeName}! - Fuddi`;
+    }
 
     // Enviar email
     const mailOptions = {
