@@ -98,13 +98,11 @@ async function sendOrderCreatedEmail(order, orderId) {
         // Parsear latlong si viene en formato "lat,lng"
         const [lat, lng] = order.delivery.latlong.split(',').map(s => s.trim());
         if (lat && lng) {
-          const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=17&size=400x200&markers=color:red%7C${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}`;
           const mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
           mapHtml = `
-            <div style="margin-top: 16px;">
-              <a href="${mapsLink}" target="_blank" style="text-decoration:none;">
-                <img src="${staticMapUrl}" alt="Ver ubicación" style="border-radius:8px;border:1px solid #ddd;max-width:100%;display:block;">
-                <p style="text-align:center;color:#aa1918;margin:8px 0 0 0;font-weight:bold;">📍 Abrir en Google Maps</p>
+            <div style="margin-top: 14px; text-align: center;">
+              <a href="${mapsLink}" target="_blank" style="display: inline-block; background-color: #ef4444; color: #ffffff; padding: 10px 18px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 13px; shadow: 0 4px 10px rgba(239, 68, 68, 0.25);">
+                📍 Abrir ubicación en Google Maps
               </a>
             </div>
           `;
@@ -149,8 +147,16 @@ async function sendOrderCreatedEmail(order, orderId) {
       });
     }
 
-    // Información de pago
-    const paymentMethod = order.payment?.method || 'No especificado';
+    // Información de pago traducida a Español
+    const rawPaymentMethod = (order.payment?.method || 'No especificado').toLowerCase();
+    let paymentMethodLabel = 'No especificado';
+    if (rawPaymentMethod === 'cash' || rawPaymentMethod === 'efectivo') paymentMethodLabel = 'Efectivo';
+    else if (rawPaymentMethod === 'transfer' || rawPaymentMethod === 'transferencia') paymentMethodLabel = 'Transferencia';
+    else if (rawPaymentMethod === 'mixed' || rawPaymentMethod === 'mixto') paymentMethodLabel = 'Mixto (Efectivo + Transferencia)';
+    else if (rawPaymentMethod === 'card' || rawPaymentMethod === 'tarjeta') paymentMethodLabel = 'Tarjeta de Crédito/Débito';
+    else if (rawPaymentMethod === 'online') paymentMethodLabel = 'Pago en Línea';
+    else paymentMethodLabel = rawPaymentMethod.charAt(0).toUpperCase() + rawPaymentMethod.slice(1);
+
     const paymentStatus = order.payment?.paymentStatus || 'pending';
     let paymentStatusText = '';
 
@@ -159,7 +165,7 @@ async function sendOrderCreatedEmail(order, orderId) {
     else if (paymentStatus === 'validating') paymentStatusText = '⏱️ Validando';
 
     let paymentDetailsHtml = '';
-    if (paymentMethod === 'mixed') {
+    if (rawPaymentMethod === 'mixed' || rawPaymentMethod === 'mixto') {
       const cash = order.payment?.cashAmount || 0;
       const transfer = order.payment?.transferAmount || 0;
       paymentDetailsHtml = `
@@ -232,6 +238,19 @@ async function sendOrderCreatedEmail(order, orderId) {
           <!-- Cuerpo Principal -->
           <div style="padding: 24px; background-color: #ffffff;">
             
+            <!-- Banner de Fecha, Tipo de Entrega y Programación (DATO RELEVANTE ARRIBA) -->
+            <div style="background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border-radius: 16px; padding: 16px 18px; border: 1.5px solid #bfdbfe; margin-bottom: 20px;">
+              <div style="font-size: 11px; font-weight: 900; text-transform: uppercase; tracking-wider: 0.05em; color: #1e40af; letter-spacing: 0.5px; margin-bottom: 6px;">
+                📌 TIPO Y FECHA DE ENTREGA
+              </div>
+              <div style="font-size: 16px; font-weight: 900; color: #1e3a8a; margin-bottom: 4px;">
+                ${order.delivery?.type === 'delivery' ? '🚚 Entrega a Domicilio' : '🏪 Retiro en Tienda'}
+              </div>
+              <div style="font-size: 13px; font-weight: 700; color: #2563eb;">
+                ${order.timing?.type === 'scheduled' ? `⏰ Programado para: ${scheduledDateStr} (${order.timing?.scheduledTime || 'Hora no especificada'})` : '⚡ Entrega Inmediata (Lo antes posible)'}
+              </div>
+            </div>
+
             <!-- Tarjeta del Cliente -->
             <div style="background-color: #f8fafc; border-radius: 16px; padding: 18px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
               <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; tracking-wider: 0.05em; color: #64748b; margin-bottom: 10px; letter-spacing: 0.5px;">
@@ -285,7 +304,7 @@ async function sendOrderCreatedEmail(order, orderId) {
             <!-- Resumen de Costos y Pago -->
             <div style="margin-bottom: 24px;">
               
-              <div style="background-color: #f8fafc; border-radius: 16px; padding: 18px; border: 1px solid #e2e8f0; margin-bottom: 12px;">
+              <div style="background-color: #f8fafc; border-radius: 16px; padding: 18px; border: 1px solid #e2e8f0;">
                 <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                   <tr>
                     <td style="padding: 4px 0; color: #64748b;">Subtotal:</td>
@@ -305,21 +324,11 @@ async function sendOrderCreatedEmail(order, orderId) {
 
                 <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 12px; display: flex; align-items: center; justify-content: space-between;">
                   <span style="color: #64748b; font-weight: 600;">Método de Pago:</span>
-                  <span style="font-weight: 800; color: #0f172a; background-color: #e2e8f0; padding: 3px 8px; border-radius: 6px;">
-                    ${paymentMethod.toUpperCase()} (${paymentStatusText})
+                  <span style="font-weight: 800; color: #0f172a; background-color: #e2e8f0; padding: 3px 10px; border-radius: 6px;">
+                    ${paymentMethodLabel} (${paymentStatusText})
                   </span>
                 </div>
                 ${paymentDetailsHtml}
-              </div>
-
-              <!-- Tipo de Entrega -->
-              <div style="background-color: #eff6ff; border-radius: 14px; padding: 14px 18px; border: 1px solid #bfdbfe; font-size: 13px; color: #1e40af;">
-                <div style="font-weight: 800; margin-bottom: 2px;">
-                  ${order.delivery?.type === 'delivery' ? '🚚 Entrega a Domicilio' : '🏪 Retiro en Tienda'}
-                </div>
-                <div style="font-size: 12px; color: #1d4ed8;">
-                  ${order.timing?.type === 'scheduled' ? `⏰ Programado: ${scheduledDateStr} (${order.timing?.scheduledTime || 'No especificada'})` : '⚡ Entrega inmediata (Lo antes posible)'}
-                </div>
               </div>
 
             </div>
