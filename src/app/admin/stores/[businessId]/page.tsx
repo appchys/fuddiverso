@@ -566,6 +566,7 @@ export default function AdminStorePage({ params }: { params: Promise<{ businessI
                   <option value="fuddi_assumed_by_customer">Asumida por cliente</option>
                   <option value="fuddi_assumed_by_store">Asumida por tienda</option>
                   <option value="no_commission">Sin comisión</option>
+                  <option value="fixed_commission">Comisión fija</option>
                 </select>
               </div>
             </div>

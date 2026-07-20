@@ -21,7 +21,7 @@ interface PriceState {
   storeReceives: number
 }
 
-// Función para crear una clave única para identificar un producto/variante
+// Clave única para producto o variante
 const getPriceKey = (productId: string, variantId?: string): string => {
   return variantId ? `${productId}-${variantId}` : productId
 }
@@ -44,6 +44,10 @@ export default function ProductsList() {
   }>>({})
   const [savingBusinessSettings, setSavingBusinessSettings] = useState<Set<string>>(new Set())
 
+  // Pestañas y guías
+  const [activeTab, setActiveTab] = useState<'products' | 'stores'>('products')
+  const [showInfoGuide, setShowInfoGuide] = useState(false)
+
   useEffect(() => {
     loadData()
   }, [])
@@ -60,7 +64,6 @@ export default function ProductsList() {
         getAllBusinesses()
       ])
 
-      // Mapear información de tienda a cada producto
       const productsWithBusiness = allProducts.map(product => {
         const business = allBusinesses.find(b => b.id === product.businessId)
         return {
@@ -86,12 +89,16 @@ export default function ProductsList() {
         const commissionType = product.commissionType || 'no_commission'
         const basePrice = product.basePrice !== undefined ? product.basePrice : product.price
         const commission = commissionType === 'no_commission' ? 0 : (product.commission !== undefined ? product.commission : 0)
-        const publicPrice = commissionType === 'no_commission' ? basePrice : product.price
+        let publicPrice = basePrice
+        if (commissionType === 'fixed_commission') {
+          publicPrice = product.price !== undefined ? product.price : basePrice + commission
+        } else if (commissionType !== 'no_commission') {
+          publicPrice = product.price
+        }
         const storeReceives = commissionType === 'fuddi_assumed_by_store'
           ? product.price - (product.commission || 0)
           : basePrice
 
-        // Estado para el producto principal
         initialPriceStates[getPriceKey(product.id)] = {
           storePrice: basePrice,
           commission: commission,
@@ -100,13 +107,17 @@ export default function ProductsList() {
           storeReceives: storeReceives
         }
 
-        // Estado para cada variante
         if (product.variants && product.variants.length > 0) {
           product.variants.forEach(variant => {
             const vCommissionType = variant.commissionType || 'no_commission'
             const vBasePrice = variant.basePrice !== undefined ? variant.basePrice : variant.price
             const vCommission = vCommissionType === 'no_commission' ? 0 : (variant.commission !== undefined ? variant.commission : 0)
-            const vPublicPrice = vCommissionType === 'no_commission' ? vBasePrice : variant.price
+            let vPublicPrice = vBasePrice
+            if (vCommissionType === 'fixed_commission') {
+              vPublicPrice = variant.price !== undefined ? variant.price : vBasePrice + vCommission
+            } else if (vCommissionType !== 'no_commission') {
+              vPublicPrice = variant.price
+            }
             const vStoreReceives = vCommissionType === 'fuddi_assumed_by_store'
               ? variant.price - (variant.commission || 0)
               : vBasePrice
@@ -133,12 +144,10 @@ export default function ProductsList() {
   const applyFilters = () => {
     let filtered = products
 
-    // Filtrar por tienda
     if (filterBusiness !== 'all') {
       filtered = filtered.filter(p => p.businessId === filterBusiness)
     }
 
-    // Filtrar por término de búsqueda
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
       filtered = filtered.filter(p =>
@@ -208,7 +217,8 @@ export default function ProductsList() {
       ...calculateCommissionPricing(
         currentState.storePrice,
         type,
-        getCommissionRateForProduct(productId)
+        getCommissionRateForProduct(productId),
+        currentState.commission
       )
     }
 
@@ -217,11 +227,31 @@ export default function ProductsList() {
       [key]: newState
     }))
 
-    // Auto-save logic
     await handleOfficalizePrice(productId, variantId, newState)
   }
 
-  const handleStorePriceChange = async (productId: string, variantId: string | undefined, newStorePrice: number) => {
+  const handleCommissionValueChange = (productId: string, variantId: string | undefined, newCommission: number) => {
+    const key = getPriceKey(productId, variantId)
+    const currentState = priceStates[key]
+    if (!currentState) return
+
+    const newState = {
+      ...currentState,
+      ...calculateCommissionPricing(
+        currentState.storePrice,
+        'fixed_commission',
+        getCommissionRateForProduct(productId),
+        newCommission
+      )
+    }
+
+    setPriceStates(prev => ({
+      ...prev,
+      [key]: newState
+    }))
+  }
+
+  const handleStorePriceChange = (productId: string, variantId: string | undefined, newStorePrice: number) => {
     const key = getPriceKey(productId, variantId)
     const currentState = priceStates[key]
     if (!currentState) return
@@ -231,7 +261,8 @@ export default function ProductsList() {
       ...calculateCommissionPricing(
         newStorePrice,
         currentState.commissionType,
-        getCommissionRateForProduct(productId)
+        getCommissionRateForProduct(productId),
+        currentState.commission
       )
     }
 
@@ -239,9 +270,6 @@ export default function ProductsList() {
       ...prev,
       [key]: newState
     }))
-
-    // Auto-save logic
-    await handleOfficalizePrice(productId, variantId, newState)
   }
 
   const handleOfficalizePrice = async (productId: string, variantId?: string, overrideState?: PriceState) => {
@@ -264,7 +292,6 @@ export default function ProductsList() {
       }
 
       if (variantId) {
-        // Actualizar variante
         const updatedVariants = product.variants?.map(v =>
           v.id === variantId
             ? {
@@ -282,17 +309,14 @@ export default function ProductsList() {
           updatedAt: new Date()
         } as Partial<Product>)
 
-        // Actualizar estado local de productos
         setProducts(prev => prev.map(p =>
           p.id === productId
             ? { ...p, variants: updatedVariants }
             : p
         ))
       } else {
-        // Actualizar producto principal
         await updateProduct(productId, updateData)
 
-        // Actualizar estado local
         setProducts(prev => prev.map(p =>
           p.id === productId
             ? {
@@ -303,7 +327,6 @@ export default function ProductsList() {
         ))
       }
 
-      // Feedback sutil
       setLastSavedKey(key)
       setTimeout(() => setLastSavedKey(null), 2000)
     } catch (error) {
@@ -315,14 +338,6 @@ export default function ProductsList() {
         return newSet
       })
     }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    )
   }
 
   const toggleProductExpanded = (productId: string) => {
@@ -337,428 +352,636 @@ export default function ProductsList() {
     })
   }
 
+  const getCommissionBadgeClass = (type: CommissionType) => {
+    switch (type) {
+      case 'fuddi_assumed_by_customer':
+        return 'bg-blue-50 text-blue-700 border-blue-200'
+      case 'fuddi_assumed_by_store':
+        return 'bg-purple-50 text-purple-700 border-purple-200'
+      case 'fixed_commission':
+        return 'bg-amber-50 text-amber-800 border-amber-300 font-semibold'
+      default:
+        return 'bg-gray-50 text-gray-500 border-gray-200'
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[350px] gap-3">
+        <div className="animate-spin rounded-full h-10 w-10 border-3 border-blue-600 border-t-transparent"></div>
+        <p className="text-sm font-medium text-slate-500">Cargando catálogo de tiendas...</p>
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-6">
-      {/* Encabezado */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="space-y-5 max-w-7xl mx-auto pb-10">
+      {/* Header & Main Navigation */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Productos y Variantes</h1>
-          <p className="text-sm text-gray-500 mt-1">Gestión de precios y comisiones por producto y variante</p>
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-lg">
+              <i className="bi bi-box-seam"></i>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">Catálogo y Precios de Tiendas</h1>
+              <p className="text-xs text-slate-500 font-medium">Gestión rápida de precios, variantes y comisiones</p>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-4">
+
+        {/* Tab Switcher & Quick Actions */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="bg-slate-100/80 p-1 rounded-xl flex items-center gap-1 border border-slate-200/50">
+            <button
+              onClick={() => setActiveTab('products')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeTab === 'products'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <i className="bi bi-tag"></i>
+              Productos
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-slate-200/60 text-slate-700">
+                {filteredProducts.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('stores')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeTab === 'stores'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <i className="bi bi-shop"></i>
+              Tiendas
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-slate-200/60 text-slate-700">
+                {businesses.length}
+              </span>
+            </button>
+          </div>
+
           <button
             onClick={() => setIsEditingPrices(!isEditingPrices)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              isEditingPrices 
-                ? 'bg-green-600 text-white hover:bg-green-700' 
-                : 'bg-blue-600 text-white hover:bg-blue-700'
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+              isEditingPrices
+                ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
             }`}
           >
-            <i className={`bi bi-${isEditingPrices ? 'check-lg' : 'pencil'}`}></i>
-            {isEditingPrices ? 'Guardando...' : 'Editar Precios Tienda'}
+            <i className={`bi bi-${isEditingPrices ? 'check2-circle' : 'pencil-square'}`}></i>
+            {isEditingPrices ? 'Edición Activa' : 'Editar Precios'}
           </button>
-          <div className="text-right">
-            <p className="text-lg font-semibold text-gray-900">{filteredProducts.length}</p>
-            <p className="text-xs text-gray-500">Productos mostrados</p>
-          </div>
+
+          <button
+            onClick={() => setShowInfoGuide(!showInfoGuide)}
+            className={`p-2 rounded-xl text-xs transition-colors border ${
+              showInfoGuide
+                ? 'bg-blue-50 text-blue-600 border-blue-200'
+                : 'bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:bg-slate-50'
+            }`}
+            title="¿Cómo funcionan los tratos de comisión?"
+          >
+            <i className="bi bi-info-circle text-sm"></i>
+          </button>
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 md:p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Filtros</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Filtro por Tienda */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Tienda</label>
-            <select
-              value={filterBusiness}
-              onChange={(e) => setFilterBusiness(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+      {/* Collapsible Info Guide */}
+      {showInfoGuide && (
+        <div className="bg-gradient-to-r from-blue-50/90 via-indigo-50/70 to-blue-50/90 border border-blue-200/70 rounded-2xl p-5 text-sm text-blue-900 shadow-sm animate-in fade-in duration-200">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <i className="bi bi-lightbulb text-xl text-blue-600 mt-0.5"></i>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm mb-1">Guía Rápida de Comisiones Fuddi</h3>
+                <p className="text-xs text-slate-600 mb-3 leading-relaxed">
+                  Cada producto o variante maneja su trato independientemente. Los valores clave son:
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+                  <div className="bg-white/80 backdrop-blur-sm p-3 rounded-xl border border-blue-100">
+                    <span className="font-bold text-slate-800 block mb-0.5">Pendiente</span>
+                    <span className="text-slate-500 text-[11px]">Sin comisión aplicada ($0.00). P. Público = P. Tienda.</span>
+                  </div>
+                  <div className="bg-white/80 backdrop-blur-sm p-3 rounded-xl border border-blue-100">
+                    <span className="font-bold text-blue-700 block mb-0.5">Cliente asume</span>
+                    <span className="text-slate-500 text-[11px]">Se suma el % configurado al precio cliente. La tienda recibe el 100%.</span>
+                  </div>
+                  <div className="bg-white/80 backdrop-blur-sm p-3 rounded-xl border border-blue-100">
+                    <span className="font-bold text-purple-700 block mb-0.5">Tienda asume</span>
+                    <span className="text-slate-500 text-[11px]">El precio cliente no cambia. Fuddi descuenta el % de la ganancia tienda.</span>
+                  </div>
+                  <div className="bg-white/80 backdrop-blur-sm p-3 rounded-xl border border-amber-200/70">
+                    <span className="font-bold text-amber-700 block mb-0.5">Fija ($)</span>
+                    <span className="text-slate-500 text-[11px]">Valor manual en dinero ($) por producto, independiente del %.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowInfoGuide(false)}
+              className="text-slate-400 hover:text-slate-600 text-base"
             >
-              <option value="all">Todas las tiendas ({businesses.length})</option>
-              {businesses.map((business) => (
-                <option key={business.id} value={business.id}>
-                  {business.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Búsqueda por Nombre */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Buscar Producto</label>
-            <input
-              type="text"
-              placeholder="Nombre del producto o tienda..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+              <i className="bi bi-x-lg"></i>
+            </button>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 md:p-6">
-        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">Vista de Tiendas</h3>
-            <p className="text-sm text-gray-500 mt-1">
-              Configura el trato por defecto y el porcentaje de comisión de cada tienda desde una sola vista.
-            </p>
+      {/* PRODUCTS TAB */}
+      {activeTab === 'products' && (
+        <div className="space-y-4">
+          {/* Controls & Filter Bar */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-3 w-full md:w-auto flex-1">
+              {/* Search input */}
+              <div className="relative flex-1 md:max-w-md">
+                <i className="bi bi-search absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                <input
+                  type="text"
+                  placeholder="Buscar por nombre o tienda..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                  >
+                    <i className="bi bi-x-circle-fill"></i>
+                  </button>
+                )}
+              </div>
+
+              {/* Store Filter Dropdown */}
+              <div className="relative min-w-[170px]">
+                <select
+                  value={filterBusiness}
+                  onChange={(e) => setFilterBusiness(e.target.value)}
+                  className="w-full pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none cursor-pointer"
+                >
+                  <option value="all">Todas las tiendas ({businesses.length})</option>
+                  {businesses.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+                <i className="bi bi-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] pointer-events-none"></i>
+              </div>
+            </div>
+
+            {/* Quick Filter Reset if active */}
+            {(filterBusiness !== 'all' || searchTerm !== '') && (
+              <button
+                onClick={() => {
+                  setFilterBusiness('all')
+                  setSearchTerm('')
+                }}
+                className="text-xs text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1 self-end md:self-auto px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors"
+              >
+                <i className="bi bi-arrow-counterclockwise"></i>
+                Limpiar filtros
+              </button>
+            )}
           </div>
-          <div className="text-right">
-            <p className="text-lg font-semibold text-gray-900">{businesses.length}</p>
-            <p className="text-xs text-gray-500">Tiendas registradas</p>
-          </div>
-        </div>
 
-        <div className="mt-6 overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Tienda</th>
-                <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Username</th>
-                <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Trato por Defecto</th>
-                <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">% Comisión</th>
-                <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Productos</th>
-                <th className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider w-10"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {businesses.map((business) => {
-                const settings = businessSettingsDrafts[business.id] || getBusinessCommissionSettings(business)
-                const businessProductsCount = products.filter(product => product.businessId === business.id).length
-                const isSavingBusiness = savingBusinessSettings.has(business.id)
-
-                return (
-                  <tr key={business.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        {business.image ? (
-                          <img src={business.image} alt={business.name} className="w-10 h-10 rounded-full object-cover border border-gray-200" />
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
-                            <i className="bi bi-shop"></i>
-                          </div>
-                        )}
-                        <div>
-                          <p className="font-semibold text-gray-900 text-sm">{business.name}</p>
-                          <p className="text-xs text-gray-500">{business.email}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">@{business.username}</td>
-                    <td className="px-4 py-3">
-                      <select
-                        value={settings.defaultCommissionType}
-                        onChange={(e) => setBusinessSettingsDrafts(prev => ({
-                          ...prev,
-                          [business.id]: {
-                            ...settings,
-                            defaultCommissionType: e.target.value as CommissionType
-                          }
-                        }))}
-                        disabled={isSavingBusiness}
-                        className="w-full min-w-[180px] px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      >
-                        <option value="no_commission">Pendiente</option>
-                        <option value="fuddi_assumed_by_customer">Cliente asume</option>
-                        <option value="fuddi_assumed_by_store">Tienda asume</option>
-                      </select>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="relative min-w-[120px]">
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.01"
-                          value={settings.commissionRate}
-                          onChange={(e) => setBusinessSettingsDrafts(prev => ({
-                            ...prev,
-                            [business.id]: {
-                              ...settings,
-                              commissionRate: Number(e.target.value)
-                            }
-                          }))}
-                          disabled={isSavingBusiness}
-                          className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                        <span className="absolute inset-y-0 right-3 flex items-center text-sm text-gray-400">%</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => setFilterBusiness(business.id)}
-                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200"
-                      >
-                        <i className="bi bi-box-seam"></i>
-                        {businessProductsCount}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => handleSaveBusinessCommissionSettings(business.id)}
-                        disabled={isSavingBusiness}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        <i className={`bi bi-${isSavingBusiness ? 'arrow-repeat animate-spin' : 'save'}`}></i>
-                        {isSavingBusiness ? 'Guardando...' : 'Guardar'}
-                      </button>
-                    </td>
+          {/* Products Table Container */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    <th className="py-3.5 px-5">Producto</th>
+                    <th className="py-3.5 px-4">Tienda</th>
+                    <th className="py-3.5 px-4">P. Tienda</th>
+                    <th className="py-3.5 px-4">Trato Comisión</th>
+                    <th className="py-3.5 px-4">Comisión</th>
+                    <th className="py-3.5 px-4">P. Público</th>
+                    <th className="py-3.5 px-4">Recibe</th>
+                    <th className="py-3.5 px-4 w-10 text-center"></th>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {filteredProducts.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <i className="bi bi-box-seam text-3xl text-slate-300"></i>
+                          <p className="font-medium text-slate-500 text-sm">No se encontraron productos</p>
+                          <p className="text-xs text-slate-400">Intenta cambiar los filtros o el término de búsqueda</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredProducts.map((product) => {
+                      const isExpanded = expandedProducts.has(product.id)
+                      const hasVariants = product.variants && product.variants.length > 0
+                      const mainKey = getPriceKey(product.id)
+                      const mainPriceState = priceStates[mainKey] || {
+                        storePrice: product.basePrice !== undefined ? product.basePrice : product.price,
+                        commission: 0,
+                        publicPrice: product.basePrice !== undefined ? product.basePrice : product.price,
+                        commissionType: 'no_commission',
+                        storeReceives: product.basePrice !== undefined ? product.basePrice : product.price
+                      }
+                      const isMainUpdating = updatingPrices.has(mainKey)
+                      const isMainSaved = lastSavedKey === mainKey
 
-        <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-          Esta configuración aplica a los productos nuevos de cada tienda. Los productos existentes se siguen pudiendo editar individualmente abajo.
-        </div>
-      </div>
-
-      {/* Lista de Productos Table Mode */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Producto</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Tienda</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">P. Tienda</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Trato Comisión</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Comisión</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">P. Público</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Recibe</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider w-10"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredProducts.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-10 text-center text-gray-500">
-                    No hay productos que coincidan con los filtros
-                  </td>
-                </tr>
-              ) : (
-                filteredProducts.map((product) => {
-                  const isExpanded = expandedProducts.has(product.id)
-                  const hasVariants = product.variants && product.variants.length > 0
-                  const mainKey = getPriceKey(product.id)
-                  const mainPriceState = priceStates[mainKey] || {
-                    storePrice: product.basePrice !== undefined ? product.basePrice : product.price,
-                    commission: 0,
-                    publicPrice: product.basePrice !== undefined ? product.basePrice : product.price,
-                    commissionType: 'no_commission',
-                    storeReceives: product.basePrice !== undefined ? product.basePrice : product.price
-                  }
-                  const isMainUpdating = updatingPrices.has(mainKey)
-                  const isMainSaved = lastSavedKey === mainKey
-
-                  return (
-                    <React.Fragment key={product.id}>
-                      <tr className={`${isExpanded ? 'bg-blue-50/30' : 'hover:bg-gray-50'} transition-colors group`}>
-                        {/* Producto */}
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            {product.image ? (
-                              <img src={product.image} alt={product.name} className="w-10 h-10 rounded object-cover border border-gray-100" />
-                            ) : (
-                              <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-gray-400">
-                                <i className="bi bi-box"></i>
+                      return (
+                        <React.Fragment key={product.id}>
+                          <tr className={`transition-colors ${isExpanded ? 'bg-blue-50/20' : 'hover:bg-slate-50/60'}`}>
+                            {/* Producto */}
+                            <td className="py-3 px-5">
+                              <div className="flex items-center gap-3">
+                                {product.image ? (
+                                  <img src={product.image} alt={product.name} className="w-9 h-9 rounded-lg object-cover border border-slate-100 shadow-2xs" />
+                                ) : (
+                                  <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400">
+                                    <i className="bi bi-box"></i>
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="font-semibold text-slate-900 text-xs leading-snug">{product.name}</p>
+                                  {hasVariants && (
+                                    <button
+                                      onClick={() => toggleProductExpanded(product.id)}
+                                      className="text-[10px] text-blue-600 font-bold uppercase tracking-wider hover:text-blue-700 flex items-center gap-1 mt-0.5 group"
+                                    >
+                                      <span>{product.variants!.length} Variantes</span>
+                                      <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'} text-[9px] transition-transform`}></i>
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                            )}
-                            <div>
-                              <p className="font-semibold text-gray-900 text-sm">{product.name}</p>
-                              {hasVariants && (
-                                <button
-                                  onClick={() => toggleProductExpanded(product.id)}
-                                  className="text-[10px] text-blue-600 font-bold uppercase hover:underline flex items-center gap-1 mt-0.5"
-                                >
-                                  {product.variants!.length} Variantes
-                                  <i className={`bi bi-chevron-${isExpanded ? 'up' : 'down'}`}></i>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Tienda */}
-                        <td className="px-6 py-4 text-sm text-gray-600">
-                          {product.businessName}
-                        </td>
-
-                        {/* P. Tienda */}
-                        <td className="px-6 py-4">
-                          {isEditingPrices ? (
-                            <input
-                              type="number"
-                              value={mainPriceState.storePrice}
-                              onChange={(e) => {
-                                const value = parseFloat(e.target.value)
-                                if (!isNaN(value) && value >= 0) {
-                                  handleStorePriceChange(product.id, undefined, value)
-                                }
-                              }}
-                              disabled={isMainUpdating}
-                              className="w-20 px-2 py-1 text-sm font-medium text-gray-900 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                              step="0.01"
-                              min="0"
-                            />
-                          ) : (
-                            <span className="font-medium text-gray-900 text-sm">
-                              ${mainPriceState.storePrice.toFixed(2)}
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Trato */}
-                        <td className="px-6 py-4">
-                          <select
-                            value={mainPriceState.commissionType}
-                            onChange={(e) => handleCommissionTypeChange(product.id, undefined, e.target.value as CommissionType)}
-                            disabled={isMainUpdating}
-                            className="text-xs border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-transparent py-1"
-                          >
-                            <option value="no_commission">Pendiente</option>
-                            <option value="fuddi_assumed_by_customer">Cliente asume</option>
-                            <option value="fuddi_assumed_by_store">Tienda asume</option>
-                          </select>
-                        </td>
-
-                        {/* Comisión */}
-                        <td className="px-6 py-4 text-sm">
-                          <span className={`${mainPriceState.commission > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
-                            ${mainPriceState.commission.toFixed(2)}
-                          </span>
-                        </td>
-
-                        {/* P. Público */}
-                        <td className="px-6 py-4 font-bold text-gray-900 text-sm">
-                          ${mainPriceState.publicPrice.toFixed(2)}
-                        </td>
-
-                        {/* Recibe */}
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-bold bg-green-50 text-green-700">
-                            ${mainPriceState.storeReceives.toFixed(2)}
-                          </span>
-                        </td>
-
-                        {/* Status / Auto-save feedback */}
-                        <td className="px-6 py-4 text-right">
-                          {isMainUpdating ? (
-                            <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                          ) : isMainSaved ? (
-                            <i className="bi bi-check-circle-fill text-green-500 text-lg animate-pulse"></i>
-                          ) : null}
-                        </td>
-                      </tr>
-
-                      {/* Variantes en la tabla */}
-                      {isExpanded && product.variants?.map((variant) => {
-                        const variantKey = getPriceKey(product.id, variant.id)
-                        const variantPriceState = priceStates[variantKey] || {
-                          storePrice: variant.basePrice !== undefined ? variant.basePrice : variant.price,
-                          commission: 0,
-                          publicPrice: variant.basePrice !== undefined ? variant.basePrice : variant.price,
-                          commissionType: 'no_commission',
-                          storeReceives: variant.basePrice !== undefined ? variant.basePrice : variant.price
-                        }
-                        const isVariantUpdating = updatingPrices.has(variantKey)
-                        const isVariantSaved = lastSavedKey === variantKey
-
-                        return (
-                          <tr key={variant.id} className="bg-gray-50/50 border-l-4 border-blue-200">
-                            <td className="px-6 py-3 pl-14">
-                              <p className="text-gray-700 text-xs font-medium">{variant.name}</p>
                             </td>
-                            <td className="px-6 py-3 text-xs text-gray-400 italic">Variante</td>
-                            <td className="px-6 py-3">
+
+                            {/* Tienda */}
+                            <td className="py-3 px-4 text-slate-500 font-medium">
+                              {product.businessName}
+                            </td>
+
+                            {/* P. Tienda */}
+                            <td className="py-3 px-4">
                               {isEditingPrices ? (
-                                <input
-                                  type="number"
-                                  value={variantPriceState.storePrice}
-                                  onChange={(e) => {
-                                    const value = parseFloat(e.target.value)
-                                    if (!isNaN(value) && value >= 0) {
-                                      handleStorePriceChange(product.id, variant.id, value)
-                                    }
-                                  }}
-                                  disabled={isVariantUpdating}
-                                  className="w-16 px-1 py-0.5 text-xs text-gray-700 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
-                                  step="0.01"
-                                  min="0"
-                                />
+                                <div className="relative w-20">
+                                  <span className="absolute inset-y-0 left-2 flex items-center text-xs text-slate-400">$</span>
+                                  <input
+                                    type="number"
+                                    value={mainPriceState.storePrice}
+                                    onChange={(e) => {
+                                      const value = parseFloat(e.target.value)
+                                      if (!isNaN(value) && value >= 0) {
+                                        handleStorePriceChange(product.id, undefined, value)
+                                      }
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        handleOfficalizePrice(product.id, undefined)
+                                        ;(e.target as HTMLInputElement).blur()
+                                      }
+                                    }}
+                                    onBlur={() => {
+                                      handleOfficalizePrice(product.id, undefined)
+                                    }}
+                                    disabled={isMainUpdating}
+                                    className="w-full pl-5 pr-2 py-1 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                    step="0.01"
+                                    min="0"
+                                  />
+                                </div>
                               ) : (
-                                <span className="text-xs text-gray-700">
-                                  ${variantPriceState.storePrice.toFixed(2)}
+                                <span className="font-semibold text-slate-800">
+                                  ${mainPriceState.storePrice.toFixed(2)}
                                 </span>
                               )}
                             </td>
-                            <td className="px-6 py-3">
+
+                            {/* Trato Comisión */}
+                            <td className="py-3 px-4">
                               <select
-                                value={variantPriceState.commissionType}
-                                onChange={(e) => handleCommissionTypeChange(product.id, variant.id, e.target.value as CommissionType)}
-                                disabled={isVariantUpdating}
-                                className="text-[10px] border-gray-200 rounded py-0.5 bg-transparent"
+                                value={mainPriceState.commissionType}
+                                onChange={(e) => handleCommissionTypeChange(product.id, undefined, e.target.value as CommissionType)}
+                                disabled={isMainUpdating}
+                                className={`text-[11px] px-2.5 py-1 rounded-lg border font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer transition-all ${getCommissionBadgeClass(mainPriceState.commissionType)}`}
                               >
                                 <option value="no_commission">Pendiente</option>
                                 <option value="fuddi_assumed_by_customer">Cliente asume</option>
                                 <option value="fuddi_assumed_by_store">Tienda asume</option>
+                                <option value="fixed_commission">Fija ($)</option>
                               </select>
                             </td>
-                            <td className="px-6 py-3 text-xs text-gray-500">${variantPriceState.commission.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-xs font-bold text-gray-800">${variantPriceState.publicPrice.toFixed(2)}</td>
-                            <td className="px-6 py-3">
-                              <span className="text-[10px] font-bold text-green-600">${variantPriceState.storeReceives.toFixed(2)}</span>
+
+                            {/* Comisión */}
+                            <td className="py-3 px-4">
+                              {mainPriceState.commissionType === 'fixed_commission' ? (
+                                <div className="relative w-22">
+                                  <span className="absolute inset-y-0 left-2 flex items-center text-xs text-amber-600 font-bold">$</span>
+                                  <input
+                                    type="number"
+                                    value={mainPriceState.commission}
+                                    onChange={(e) => {
+                                      const value = parseFloat(e.target.value)
+                                      if (!isNaN(value) && value >= 0) {
+                                        handleCommissionValueChange(product.id, undefined, value)
+                                      }
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        handleOfficalizePrice(product.id, undefined)
+                                        ;(e.target as HTMLInputElement).blur()
+                                      }
+                                    }}
+                                    onBlur={() => {
+                                      handleOfficalizePrice(product.id, undefined)
+                                    }}
+                                    disabled={isMainUpdating}
+                                    className="w-full pl-5 pr-1.5 py-1 bg-amber-50/80 border border-amber-300 rounded-lg text-xs font-bold text-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                                    step="0.05"
+                                    min="0"
+                                  />
+                                </div>
+                              ) : (
+                                <span className={mainPriceState.commission > 0 ? 'text-amber-700 font-semibold' : 'text-slate-400'}>
+                                  ${mainPriceState.commission.toFixed(2)}
+                                </span>
+                              )}
                             </td>
-                            <td className="px-6 py-3 text-right">
-                              {isVariantUpdating ? (
-                                <div className="w-3 h-3 border border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                              ) : isVariantSaved ? (
-                                <i className="bi bi-check-circle-fill text-green-500 text-sm"></i>
+
+                            {/* P. Público */}
+                            <td className="py-3 px-4 font-bold text-slate-900">
+                              ${mainPriceState.publicPrice.toFixed(2)}
+                            </td>
+
+                            {/* Recibe */}
+                            <td className="py-3 px-4">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                                ${mainPriceState.storeReceives.toFixed(2)}
+                              </span>
+                            </td>
+
+                            {/* Status */}
+                            <td className="py-3 px-4 text-center">
+                              {isMainUpdating ? (
+                                <div className="w-3.5 h-3.5 mx-auto border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                              ) : isMainSaved ? (
+                                <i className="bi bi-check-circle-fill text-emerald-500 text-base animate-pulse"></i>
                               ) : null}
                             </td>
                           </tr>
-                        )
-                      })}
-                    </React.Fragment>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
 
-      {/* Información de Comisión */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-        <div className="flex items-start gap-4">
-          <div className="flex-shrink-0">
-            <i className="bi bi-info-circle text-2xl text-blue-600"></i>
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-blue-900 mb-2">¿Cómo funciona?</h3>
-            <p className="text-sm text-blue-800 mb-3">
-              El sistema trabaja con tres valores para cada producto/variante:
-            </p>
-            <ul className="text-sm text-blue-800 space-y-2">
-              <li>
-                <strong>Precio Tienda:</strong> Es el valor base del producto antes de aplicar la configuración de comisión de la tienda.
-              </li>
-              <li>
-                <strong>Comisión:</strong> Se calcula con el porcentaje configurado para esa tienda. Puede ser 0%, 5%, 10% o el valor que definas.
-              </li>
-              <li>
-                <strong>Precio Público:</strong> Es lo que pagarán los clientes según el trato elegido en cada producto o el valor heredado al crear nuevos productos.
-              </li>
-            </ul>
+                          {/* Variantes sub-filas */}
+                          {isExpanded && product.variants?.map((variant) => {
+                            const variantKey = getPriceKey(product.id, variant.id)
+                            const variantPriceState = priceStates[variantKey] || {
+                              storePrice: variant.basePrice !== undefined ? variant.basePrice : variant.price,
+                              commission: 0,
+                              publicPrice: variant.basePrice !== undefined ? variant.basePrice : variant.price,
+                              commissionType: 'no_commission',
+                              storeReceives: variant.basePrice !== undefined ? variant.basePrice : variant.price
+                            }
+                            const isVariantUpdating = updatingPrices.has(variantKey)
+                            const isVariantSaved = lastSavedKey === variantKey
+
+                            return (
+                              <tr key={variant.id} className="bg-slate-50/70 border-l-3 border-blue-400">
+                                <td className="py-2.5 px-5 pl-12">
+                                  <div className="flex items-center gap-1.5">
+                                    <i className="bi bi-arrow-return-right text-slate-300 text-xs"></i>
+                                    <p className="text-slate-700 font-medium text-[11px]">{variant.name}</p>
+                                  </div>
+                                </td>
+                                <td className="py-2.5 px-4 text-[10px] text-slate-400 italic">Variante</td>
+                                <td className="py-2.5 px-4">
+                                  {isEditingPrices ? (
+                                    <div className="relative w-18">
+                                      <span className="absolute inset-y-0 left-1.5 flex items-center text-[10px] text-slate-400">$</span>
+                                      <input
+                                        type="number"
+                                        value={variantPriceState.storePrice}
+                                        onChange={(e) => {
+                                          const value = parseFloat(e.target.value)
+                                          if (!isNaN(value) && value >= 0) {
+                                            handleStorePriceChange(product.id, variant.id, value)
+                                          }
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            handleOfficalizePrice(product.id, variant.id)
+                                            ;(e.target as HTMLInputElement).blur()
+                                          }
+                                        }}
+                                        onBlur={() => {
+                                          handleOfficalizePrice(product.id, variant.id)
+                                        }}
+                                        disabled={isVariantUpdating}
+                                        className="w-full pl-4 pr-1 py-0.5 bg-white border border-slate-200 rounded text-[11px] font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        step="0.01"
+                                        min="0"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <span className="text-[11px] text-slate-700 font-medium">
+                                      ${variantPriceState.storePrice.toFixed(2)}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-4">
+                                  <select
+                                    value={variantPriceState.commissionType}
+                                    onChange={(e) => handleCommissionTypeChange(product.id, variant.id, e.target.value as CommissionType)}
+                                    disabled={isVariantUpdating}
+                                    className={`text-[10px] px-2 py-0.5 rounded border font-semibold focus:outline-none cursor-pointer ${getCommissionBadgeClass(variantPriceState.commissionType)}`}
+                                  >
+                                    <option value="no_commission">Pendiente</option>
+                                    <option value="fuddi_assumed_by_customer">Cliente asume</option>
+                                    <option value="fuddi_assumed_by_store">Tienda asume</option>
+                                    <option value="fixed_commission">Fija ($)</option>
+                                  </select>
+                                </td>
+                                <td className="py-2.5 px-4">
+                                  {variantPriceState.commissionType === 'fixed_commission' ? (
+                                    <div className="relative w-18">
+                                      <span className="absolute inset-y-0 left-1.5 flex items-center text-[10px] text-amber-600 font-bold">$</span>
+                                      <input
+                                        type="number"
+                                        value={variantPriceState.commission}
+                                        onChange={(e) => {
+                                          const value = parseFloat(e.target.value)
+                                          if (!isNaN(value) && value >= 0) {
+                                            handleCommissionValueChange(product.id, variant.id, value)
+                                          }
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            handleOfficalizePrice(product.id, variant.id)
+                                            ;(e.target as HTMLInputElement).blur()
+                                          }
+                                        }}
+                                        onBlur={() => {
+                                          handleOfficalizePrice(product.id, variant.id)
+                                        }}
+                                        disabled={isVariantUpdating}
+                                        className="w-full pl-4 pr-1 py-0.5 bg-amber-50/80 border border-amber-300 rounded text-[11px] font-bold text-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                        step="0.05"
+                                        min="0"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <span className="text-[11px] text-slate-500 font-medium">
+                                      ${variantPriceState.commission.toFixed(2)}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-4 text-[11px] font-bold text-slate-800">
+                                  ${variantPriceState.publicPrice.toFixed(2)}
+                                </td>
+                                <td className="py-2.5 px-4">
+                                  <span className="text-[10px] font-bold text-emerald-600">
+                                    ${variantPriceState.storeReceives.toFixed(2)}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-4 text-center">
+                                  {isVariantUpdating ? (
+                                    <div className="w-3 h-3 mx-auto border border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                  ) : isVariantSaved ? (
+                                    <i className="bi bi-check-circle-fill text-emerald-500 text-xs"></i>
+                                  ) : null}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </React.Fragment>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* STORES TAB */}
+      {activeTab === 'stores' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-5 space-y-4">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">Configuración Global por Tienda</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Define el trato de comisión por defecto y el porcentaje (%) asignado a cada tienda.
+            </p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  <th className="py-3.5 px-4">Tienda</th>
+                  <th className="py-3.5 px-4">Username</th>
+                  <th className="py-3.5 px-4">Trato por Defecto</th>
+                  <th className="py-3.5 px-4">% Comisión</th>
+                  <th className="py-3.5 px-4">Productos</th>
+                  <th className="py-3.5 px-4 text-right">Acción</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs">
+                {businesses.map((business) => {
+                  const settings = businessSettingsDrafts[business.id] || getBusinessCommissionSettings(business)
+                  const businessProductsCount = products.filter(p => p.businessId === business.id).length
+                  const isSavingBusiness = savingBusinessSettings.has(business.id)
+
+                  return (
+                    <tr key={business.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          {business.image ? (
+                            <img src={business.image} alt={business.name} className="w-9 h-9 rounded-full object-cover border border-slate-200" />
+                          ) : (
+                            <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                              <i className="bi bi-shop"></i>
+                            </div>
+                          )}
+                          <div>
+                            <p className="font-semibold text-slate-900 text-xs">{business.name}</p>
+                            <p className="text-[11px] text-slate-400">{business.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-slate-500 font-medium">@{business.username}</td>
+                      <td className="py-3 px-4">
+                        <select
+                          value={settings.defaultCommissionType}
+                          onChange={(e) => setBusinessSettingsDrafts(prev => ({
+                            ...prev,
+                            [business.id]: {
+                              ...settings,
+                              defaultCommissionType: e.target.value as CommissionType
+                            }
+                          }))}
+                          disabled={isSavingBusiness}
+                          className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        >
+                          <option value="no_commission">Pendiente</option>
+                          <option value="fuddi_assumed_by_customer">Cliente asume</option>
+                          <option value="fuddi_assumed_by_store">Tienda asume</option>
+                          <option value="fixed_commission">Fija ($)</option>
+                        </select>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="relative w-24">
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            value={settings.commissionRate}
+                            onChange={(e) => setBusinessSettingsDrafts(prev => ({
+                              ...prev,
+                              [business.id]: {
+                                ...settings,
+                                commissionRate: Number(e.target.value)
+                              }
+                            }))}
+                            disabled={isSavingBusiness}
+                            className="w-full pl-3 pr-7 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                          />
+                          <span className="absolute inset-y-0 right-2.5 flex items-center text-xs text-slate-400">%</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <button
+                          onClick={() => {
+                            setFilterBusiness(business.id)
+                            setActiveTab('products')
+                          }}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-semibold text-xs hover:bg-slate-200 transition-colors"
+                        >
+                          <i className="bi bi-box-seam text-slate-400"></i>
+                          {businessProductsCount} productos
+                        </button>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          onClick={() => handleSaveBusinessCommissionSettings(business.id)}
+                          disabled={isSavingBusiness}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-2xs"
+                        >
+                          <i className={`bi bi-${isSavingBusiness ? 'arrow-repeat animate-spin' : 'check-lg'}`}></i>
+                          {isSavingBusiness ? 'Guardando...' : 'Guardar'}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

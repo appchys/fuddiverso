@@ -1,6 +1,6 @@
 import { Timestamp } from 'firebase/firestore'
 
-export type CommissionType = 'fuddi_assumed_by_store' | 'fuddi_assumed_by_customer' | 'no_commission'
+export type CommissionType = 'fuddi_assumed_by_store' | 'fuddi_assumed_by_customer' | 'no_commission' | 'fixed_commission'
 
 
 export interface BankAccount {

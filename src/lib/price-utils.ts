@@ -26,11 +26,23 @@ export function getBusinessCommissionSettings(business?: Partial<Business> | nul
 export function calculateCommissionPricing(
     storePrice: number,
     commissionType: CommissionType = DEFAULT_COMMISSION_TYPE,
-    commissionRate?: number
+    commissionRate?: number,
+    customCommission?: number
 ) {
     const safeStorePrice = typeof storePrice === 'number' && !Number.isNaN(storePrice) ? storePrice : 0
     const normalizedRate = normalizeCommissionRate(commissionRate)
     const rawCommission = safeStorePrice * (normalizedRate / 100)
+
+    if (commissionType === 'fixed_commission') {
+        const commission = typeof customCommission === 'number' && !Number.isNaN(customCommission) ? Math.max(0, customCommission) : 0
+        return {
+            storePrice: safeStorePrice,
+            commission,
+            publicPrice: roundToNearest005(safeStorePrice + commission),
+            commissionType,
+            storeReceives: safeStorePrice
+        }
+    }
 
     if (commissionType === 'fuddi_assumed_by_customer') {
         const commission = roundToNearest005(rawCommission)
@@ -79,7 +91,7 @@ export function getProductPublicPrice(item: Partial<Product | ProductVariant>): 
         return basePrice !== undefined ? basePrice : price;
     }
 
-    // If commission is set (e.g., 'fuddi_assumed_by_customer'), 
+    // If commission is set (e.g., 'fuddi_assumed_by_customer' or 'fixed_commission'), 
     // the 'price' field in the database is already updated to be the public price.
     return price;
 }
